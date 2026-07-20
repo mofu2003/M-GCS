@@ -1,0 +1,28 @@
+name: 构建与测试
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        build_type: [Release]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: 配置 CMake
+      run: cmake -B build -DMGCORE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+    - name: 构建
+      run: cmake --build build --config ${{ matrix.build_type }}
+
+    - name: 运行离线与模拟测试
+      working-directory: build
+      run: ctest --output-on-failure -L "offline|simulation" -LE "hardware|manual"

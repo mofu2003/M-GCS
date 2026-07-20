@@ -1,0 +1,38 @@
+# mgroundcontrol C++ Code Style
+# Based on LLVM style with project-specific adjustments
+
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+
+# Braces
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterStruct: true
+  AfterClass: true
+  AfterEnum: true
+  AfterNamespace: false
+  BeforeElse: false
+  BeforeCatch: false
+
+# Include sorting
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+
+# Pointer alignment
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Allow short functions on a single line
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# Namespace indentation
+NamespaceIndentation: None
+
+# Access modifier offset
+AccessModifierOffset: -4

@@ -1,0 +1,54 @@
+# === Build outputs ===
+build/
+build-vs/
+build_test/
+build_check/
+
+# === IDE ===
+.idea/
+.vscode/
+*.suo
+*.user
+*.sln.docstates
+
+# === OS ===
+Thumbs.db
+.DS_Store
+
+# === IDE backup files ===
+*.bak
+
+# === Test output ===
+test_output.txt
+output*.txt
+build_error.txt
+build_log.txt
+build_output.txt
+real_fc_dump_*.txt
+real_fc_dump_latest.txt
+
+# === Flutter app generated/local files ===
+app/.dart_tool/
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/windows/flutter/ephemeral/
+app/**/*.dll
+app/**/*.exe
+app/**/*.ilk
+app/**/*.pdb
+
+# === Local scratch ===
+backups/
+Testing/
+test_out.txt
+run_test.bat
+test_minimal.cc
+test_minimal.exe
+test_result.txt
+test_err.txt
+.superpowers/
+docs/superpowers/
+.claude/
+.agents/
+.codex/

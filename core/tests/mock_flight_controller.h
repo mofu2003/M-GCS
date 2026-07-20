@@ -1,0 +1,374 @@
+/**
+ * mock_flight_controller.h - In-process simulated flight controller
+ *
+ * Inspired by QGC's MockLink. Generates telemetry, responds to parameter
+ * requests, mission protocol, and command ACKs via InMemoryLink.
+ *
+ * Wiring: link.receive_cb → gcs.feed_raw (FC→GCS), gcs.send_cb → link.send,
+ *         then poll link.take_outgoing() → mock.on_gcs_data() (GCS→FC).
+ */
+
+#ifndef MOCK_FLIGHT_CONTROLLER_H
+#define MOCK_FLIGHT_CONTROLLER_H
+
+#include "core/transport/in_memory_link.h"
+#include "core/mavlink/mavlink_adapter.h"
+#include "common/mavlink.h"
+#include <map>
+#include <string>
+#include <vector>
+#include <cstdio>
+#include <cstring>
+
+class MockFlightController {
+public:
+    enum FirmwareType { ArduPilot, PX4 };
+    enum VehicleType  { Copter, Plane, Rover };
+
+    struct Config {
+        FirmwareType firmware;
+        VehicleType  vehicle;
+        uint8_t system_id;
+        uint8_t component_id;
+        Config() : firmware(ArduPilot), vehicle(Copter), system_id(1), component_id(1) {}
+    };
+
+    struct ParamDef { float value; uint8_t type; };
+
+    // Monitoring
+    struct CommandRecord { uint16_t command; float p1,p2,p3,p4; int32_t x,y,z; };
+    std::vector<CommandRecord> received_cmds;
+    std::vector<std::string>   received_params_set;
+    int  mission_items_received = 0;
+    bool mission_clear_received = false;
+    bool mission_set_current_received = false;
+    int  mission_set_current_seq = -1;
+    bool cal_start_received = false;
+    uint8_t last_cal_param1 = 0;
+
+    // Telemetry state (modify to simulate dynamics)
+    struct TelemetryState {
+        int32_t lat_deg7 = 399042000, lon_deg7 = 1164074000, alt_mm = 50000;
+        float roll=0, pitch=0, yaw=0, vx=0, vy=0, vz=0;
+        float airspeed=0, groundspeed=0; uint8_t throttle=0;
+        float voltage_v=12.6f; int8_t battery_remaining=100;
+        uint8_t satellites=12, fix_type=3; uint16_t heading=0; float climb_m_s=0;
+    };
+    TelemetryState telem;
+
+    MockFlightController(mg::core::transport::InMemoryLink& link, const Config& cfg = Config())
+        : link_(link), config_(cfg) {}
+
+    // Process incoming bytes from GCS (after polling link.take_outgoing())
+    void on_gcs_data(const uint8_t* data, size_t size) {
+        mavlink_message_t msg; mavlink_status_t st;
+        for (size_t i = 0; i < size; i++)
+            if (mavlink_parse_char(MAVLINK_COMM_1, data[i], &msg, &st))
+                handle_message(msg);
+    }
+
+    // Tick — generates periodic telemetry
+    void tick(int elapsed_ms) {
+        tick_ms_ += elapsed_ms;
+        if (heartbeat_enabled_ && tick_ms_ - last_hb_ms_ >= 1000) { last_hb_ms_ = tick_ms_; send_heartbeat(); }
+        if (tick_ms_ - last_tel_ms_ >= 100) { last_tel_ms_ = tick_ms_; send_gps(); send_att(); send_gpos(); send_vfr(); }
+        if (tick_ms_ - last_bat_ms_ >= 1000) { last_bat_ms_ = tick_ms_; send_batt(); send_sys(); }
+        if (param_streaming_) stream_params();
+    }
+
+    // Parameters
+    void add_param(const std::string& n, float v, uint8_t t=9) { params_[n]={v,t}; }
+    void load_default_params() {
+        add_param("WPNAV_SPEED",5); add_param("WPNAV_RADIUS",2); add_param("WPNAV_SPEED_UP",2.5f);
+        add_param("ATC_RAT_RLL_P",0.08f); add_param("ATC_RAT_PIT_P",0.08f); add_param("ATC_RAT_YAW_P",0.18f);
+        add_param("GPS1_TYPE",1,2); add_param("GPS2_TYPE",0,2); add_param("BATT_MONITOR",4,2); add_param("ARMING_CHECK",1,2);
+        add_param("FRAME_CLASS",1,2); add_param("MOT_SPIN_ARM",0.1f); add_param("MOT_SPIN_MIN",0.15f);
+        add_param("MOT_PWM_MIN",1000,4); add_param("MOT_PWM_MAX",2000,4); add_param("SERIAL0_BAUD",57,4);
+        add_param("COMPASS_ENABLE",1,2); add_param("FENCE_ENABLE",0,2); add_param("MAV_SYSID",1,4);
+        add_param("MAV_GCS_SYSID",255,4); add_param("TELEM1_BAUD",57,4); add_param("AHRS_GPS_GAIN",1);
+        add_param("INS_GYRO_FILTER",20); add_param("THR_MID",500); add_param("MIS_RESTART",0,2);
+        add_param("PILOT_SPEED_DN",150);
+    }
+
+    // Mission
+    void set_mission(const std::vector<mavlink_mission_item_int_t>& v) { stored_mission_=v; }
+    const std::vector<mavlink_mission_item_int_t>& stored_mission() const { return stored_mission_; }
+
+    // Command ACK
+    void set_next_cmd_result(uint8_t r) { next_cmd_result_=r; }
+
+    // Failure injection
+    void set_heartbeat_enabled(bool e) { heartbeat_enabled_=e; }
+    void set_cmd_no_response(bool e) { cmd_no_response_=e; }
+    void set_param_drop(int n) { param_drop_=n; }
+
+    // 新增故障注入（移植自 QGC MockLink）
+    /// 前 N 次命令不响应，之后正常响应（测试命令重试）
+    void set_cmd_drop_count(int n) { cmd_drop_count_=n; cmd_dropped_so_far_=0; }
+    /// 参数列表不响应（测试 PARAM_REQUEST_LIST 超时重发）
+    void set_param_list_no_response(bool e) { param_list_no_response_=e; }
+    /// 通信丢失：停止所有出站消息
+    void set_comm_lost(bool e) { comm_lost_=e; }
+    /// 任务传输第一次不响应，重试时正常（测试任务超时重发）
+    void set_mission_first_attempt_drop(bool e) { mission_first_drop_=e; mission_dropped_=false; }
+
+    // 故障注入状态（public，供测试断言）
+    int cmd_drop_count_=0, cmd_dropped_so_far_=0;
+    bool param_list_no_response_=false;
+    bool comm_lost_=false;
+    bool mission_first_drop_=false, mission_dropped_=false;
+    bool mission_use_compat_request_=false;
+    bool mission_download_use_compat_item_=false;
+
+    void set_mission_use_compat_request(bool e) { mission_use_compat_request_=e; }
+    void set_mission_download_use_compat_item(bool e) { mission_download_use_compat_item_=e; }
+
+private:
+    mg::core::transport::InMemoryLink& link_;
+    Config config_;
+    int tick_ms_=0, last_hb_ms_=0, last_tel_ms_=0, last_bat_ms_=0;
+    bool heartbeat_enabled_=true, cmd_no_response_=false;
+    std::map<std::string,ParamDef> params_;
+    bool param_streaming_=false; int param_idx_=0;
+    std::vector<std::pair<std::string,ParamDef>> param_cache_;
+    int param_drop_=0;
+    std::vector<mavlink_mission_item_int_t> stored_mission_;
+    int mission_recv_=0, mission_total_=0;
+    uint8_t next_cmd_result_=0;
+
+private:
+
+    void send(mavlink_message_t& m) {
+        if (comm_lost_) return;  // 通信丢失时不出站
+        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+        uint16_t len=mavlink_msg_to_send_buffer(buf,&m);
+        link_.inject_incoming(buf,len);
+    }
+
+    // --- Telemetry ---
+    void send_heartbeat() {
+        mavlink_message_t m;
+        uint8_t t=(config_.vehicle==Copter)?MAV_TYPE_QUADROTOR:(config_.vehicle==Plane)?MAV_TYPE_FIXED_WING:MAV_TYPE_GROUND_ROVER;
+        uint8_t a=(config_.firmware==ArduPilot)?MAV_AUTOPILOT_ARDUPILOTMEGA:MAV_AUTOPILOT_PX4;
+        mavlink_msg_heartbeat_pack(config_.system_id,config_.component_id,&m,t,a,MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,0,MAV_STATE_STANDBY);
+        send(m);
+    }
+    void send_gps() {
+        mavlink_message_t m;
+        // gps_raw_int_pack: sys,comp,msg, time_usec,fix_type,lat,lon,alt,eph,epv,vel,cog,sat,alt_ellip,h_acc,v_acc,vel_acc,hdg_acc,yaw
+        mavlink_msg_gps_raw_int_pack(config_.system_id,config_.component_id,&m,
+            (uint64_t)tick_ms_*1000, telem.fix_type,
+            telem.lat_deg7, telem.lon_deg7, telem.alt_mm,
+            65535, 65535, 0, 0, telem.satellites,
+            0, 0, 0, 0, 0, 0);
+        send(m);
+    }
+    void send_att() {
+        mavlink_message_t m;
+        mavlink_msg_attitude_pack(config_.system_id,config_.component_id,&m,(uint32_t)tick_ms_,
+            telem.roll,telem.pitch,telem.yaw,telem.roll*0.1f,telem.pitch*0.1f,telem.yaw*0.05f);
+        send(m);
+    }
+    void send_gpos() {
+        mavlink_message_t m;
+        mavlink_msg_global_position_int_pack(config_.system_id,config_.component_id,&m,
+            (uint32_t)tick_ms_,telem.lat_deg7,telem.lon_deg7,telem.alt_mm,telem.alt_mm,
+            telem.vx,telem.vy,telem.vz,telem.heading);
+        send(m);
+    }
+    void send_vfr() {
+        mavlink_message_t m;
+        // vfr_hud: airspeed,groundspeed,heading(int16),throttle,alt,climb
+        mavlink_msg_vfr_hud_pack(config_.system_id,config_.component_id,&m,
+            telem.airspeed,telem.groundspeed,(int16_t)telem.heading,telem.throttle,
+            telem.alt_mm/1000.0f,telem.climb_m_s);
+        send(m);
+    }
+    void send_batt() {
+        mavlink_message_t m;
+        uint16_t v[10]; v[0]=(uint16_t)(telem.voltage_v*1000); for(int i=1;i<10;i++) v[i]=UINT16_MAX;
+        // battery_status: sys,comp,msg, id,batt_func,type,temp,voltages,current_batt,cur_cons,energy_cons,remaining,time_rem,charge_state,volt_ext,mode,fault
+        uint16_t vext[4]={0,0,0,0};
+        mavlink_msg_battery_status_pack(config_.system_id,config_.component_id,&m,
+            0, MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO, 2500, v,
+            0, 0, 0, telem.battery_remaining, 0, 0, vext, 0, 0);
+        send(m);
+    }
+    void send_sys() {
+        mavlink_message_t m;
+        // sys_status: sensors_present,sensors_enabled,sensors_health,load,voltage,current,remaining,drop_rate,errors_comm,err1,err2,err3,err4,ext_present,ext_enabled,ext_health
+        mavlink_msg_sys_status_pack(config_.system_id,config_.component_id,&m,
+            0,0,0,0, (uint16_t)(telem.voltage_v*1000), 0, telem.battery_remaining,
+            0,0,0,0,0,0, 0,0,0);
+        send(m);
+    }
+
+    // --- Param protocol ---
+    void send_pv(const std::string& n,float v,uint8_t t,uint16_t idx) {
+        if(param_drop_>0){param_drop_--;return;}
+        mavlink_message_t m; char nb[16]={};
+        memcpy(nb,n.c_str(),n.size()<16?n.size():15);
+        mavlink_msg_param_value_pack(config_.system_id,config_.component_id,&m,nb,v,t,(uint16_t)params_.size(),idx);
+        send(m);
+    }
+    void stream_params() {
+        for(int i=0;i<5&&param_idx_<(int)param_cache_.size();param_idx_++,i++)
+            send_pv(param_cache_[param_idx_].first,param_cache_[param_idx_].second.value,param_cache_[param_idx_].second.type,(uint16_t)param_idx_);
+        if(param_idx_>=(int)param_cache_.size()) param_streaming_=false;
+    }
+
+    // --- Message handler ---
+    void handle_message(const mavlink_message_t& msg) {
+        switch(msg.msgid) {
+        case MAVLINK_MSG_ID_PARAM_REQUEST_LIST:
+            if (param_list_no_response_) break;  // 不响应参数列表请求
+            param_cache_.clear(); for(auto&[n,d]:params_) param_cache_.push_back({n,d});
+            param_idx_=0; param_streaming_=true; break;
+        case MAVLINK_MSG_ID_PARAM_REQUEST_READ: {
+            mavlink_param_request_read_t r; mavlink_msg_param_request_read_decode(&msg,&r);
+            char nb[17]={}; memcpy(nb,r.param_id,16); std::string pn(nb);
+            auto it=params_.find(pn); if(it!=params_.end()) send_pv(pn,it->second.value,it->second.type,(uint16_t)std::distance(params_.begin(),it));
+            break; }
+        case MAVLINK_MSG_ID_PARAM_SET: {
+            mavlink_param_set_t ps; mavlink_msg_param_set_decode(&msg,&ps);
+            char nb[17]={}; memcpy(nb,ps.param_id,16); std::string pn(nb);
+            received_params_set.push_back(pn);
+            auto it=params_.find(pn); if(it!=params_.end()){it->second.value=ps.param_value; send_pv(pn,ps.param_value,it->second.type,(uint16_t)std::distance(params_.begin(),it));}
+            else{params_[pn]={ps.param_value,9}; send_pv(pn,ps.param_value,9,(uint16_t)(params_.size()-1));}
+            break; }
+        case MAVLINK_MSG_ID_MISSION_REQUEST_LIST: {
+            // mission_count: target_sys,target_comp,msg, target_sys,target_comp,count,mission_type,opaque_id
+            mavlink_message_t m; mavlink_msg_mission_count_pack(config_.system_id,config_.component_id,&m,
+                0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)stored_mission_.size(), MAV_MISSION_TYPE_MISSION, 0);
+            send(m); break; }
+        case MAVLINK_MSG_ID_MISSION_REQUEST_INT: {
+            // 故障注入：首次任务请求不响应（测试任务超时重发）
+            if(mission_first_drop_ && !mission_dropped_){ mission_dropped_=true; break; }
+            mavlink_mission_request_int_t r; mavlink_msg_mission_request_int_decode(&msg,&r);
+            if(r.seq<stored_mission_.size()){
+                mavlink_message_t m;
+                if (mission_download_use_compat_item_) {
+                    const auto& src = stored_mission_[r.seq];
+                    mavlink_msg_mission_item_pack(
+                        config_.system_id, config_.component_id, &m,
+                        0, MAV_COMP_ID_AUTOPILOT1,
+                        src.seq, src.frame, src.command,
+                        src.current, src.autocontinue,
+                        src.param1, src.param2, src.param3, src.param4,
+                        static_cast<float>(static_cast<double>(src.x) / 1e7),
+                        static_cast<float>(static_cast<double>(src.y) / 1e7),
+                        src.z, src.mission_type);
+                } else {
+                    mavlink_msg_mission_item_int_encode(config_.system_id,config_.component_id,&m,&stored_mission_[r.seq]);
+                }
+                send(m);
+            }
+            break; }
+        case MAVLINK_MSG_ID_MISSION_ITEM_INT: {
+            if (mission_use_compat_request_) break;
+            mavlink_mission_item_int_t it; mavlink_msg_mission_item_int_decode(&msg,&it);
+            mission_recv_++; if(it.seq>=(int)stored_mission_.size()) stored_mission_.resize(it.seq+1);
+            mission_items_received = mission_recv_;
+            stored_mission_[it.seq]=it;
+            if(mission_recv_>=mission_total_){
+                // mission_ack: target_sys,target_comp,msg, target_sys,target_comp,type,mission_type,opaque_id
+                mavlink_message_t a; mavlink_msg_mission_ack_pack(config_.system_id,config_.component_id,&a,
+                    0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, MAV_MISSION_TYPE_MISSION, 0);
+                send(a);
+            } else {
+                // mission_request_int: target_sys,target_comp,msg, target_sys,target_comp,seq,mission_type
+                mavlink_message_t r; mavlink_msg_mission_request_int_pack(config_.system_id,config_.component_id,&r,
+                    0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)mission_recv_, MAV_MISSION_TYPE_MISSION);
+                send(r);
+            }
+            break; }
+        case MAVLINK_MSG_ID_MISSION_ITEM: {
+            mavlink_mission_item_t it; mavlink_msg_mission_item_decode(&msg,&it);
+            mission_recv_++; if(it.seq>=(int)stored_mission_.size()) stored_mission_.resize(it.seq+1);
+            mission_items_received = mission_recv_;
+            auto& stored = stored_mission_[it.seq];
+            memset(&stored, 0, sizeof(stored));
+            stored.seq = it.seq;
+            stored.frame = it.frame;
+            stored.command = it.command;
+            stored.current = it.current;
+            stored.autocontinue = it.autocontinue;
+            stored.param1 = it.param1;
+            stored.param2 = it.param2;
+            stored.param3 = it.param3;
+            stored.param4 = it.param4;
+            stored.x = (int32_t)(it.x * 1e7f);
+            stored.y = (int32_t)(it.y * 1e7f);
+            stored.z = it.z;
+            stored.mission_type = it.mission_type;
+            if(mission_recv_>=mission_total_){
+                mavlink_message_t a; mavlink_msg_mission_ack_pack(config_.system_id,config_.component_id,&a,
+                    0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, MAV_MISSION_TYPE_MISSION, 0);
+                send(a);
+            } else {
+                mavlink_message_t r;
+                if (mission_use_compat_request_) {
+                    mavlink_msg_mission_request_pack(config_.system_id,config_.component_id,&r,
+                        0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)mission_recv_, MAV_MISSION_TYPE_MISSION);
+                } else {
+                    mavlink_msg_mission_request_int_pack(config_.system_id,config_.component_id,&r,
+                        0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)mission_recv_, MAV_MISSION_TYPE_MISSION);
+                }
+                send(r);
+            }
+            break; }
+        case MAVLINK_MSG_ID_MISSION_COUNT: {
+            mavlink_mission_count_t mc; mavlink_msg_mission_count_decode(&msg,&mc);
+            mission_total_=mc.count; mission_recv_=0; stored_mission_.clear(); stored_mission_.resize(mission_total_);
+            if(mission_total_>0){mavlink_message_t r;
+                if (mission_use_compat_request_) {
+                    mavlink_msg_mission_request_pack(config_.system_id,config_.component_id,&r,
+                        0, MAV_COMP_ID_AUTOPILOT1, 0, MAV_MISSION_TYPE_MISSION);
+                } else {
+                    mavlink_msg_mission_request_int_pack(config_.system_id,config_.component_id,&r,
+                        0, MAV_COMP_ID_AUTOPILOT1, 0, MAV_MISSION_TYPE_MISSION);
+                }
+                send(r);}
+            break; }
+        case MAVLINK_MSG_ID_MISSION_CLEAR_ALL: {
+            mission_clear_received=true; stored_mission_.clear();
+            mavlink_message_t a; mavlink_msg_mission_ack_pack(config_.system_id,config_.component_id,&a,
+                0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, MAV_MISSION_TYPE_MISSION, 0);
+            send(a); break; }
+        case MAVLINK_MSG_ID_MISSION_SET_CURRENT: {
+            mission_set_current_received=true; mavlink_mission_set_current_t sc; mavlink_msg_mission_set_current_decode(&msg,&sc); mission_set_current_seq=sc.seq;
+            break; }
+        case MAVLINK_MSG_ID_COMMAND_LONG: {
+            mavlink_command_long_t c; mavlink_msg_command_long_decode(&msg,&c);
+            if (c.target_system != config_.system_id ||
+                (c.target_component != config_.component_id && c.target_component != MAV_COMP_ID_ALL)) {
+                break;
+            }
+            received_cmds.push_back({c.command,c.param1,c.param2,c.param3,c.param4,(int32_t)(c.param5*1e7),(int32_t)(c.param6*1e7),(int32_t)c.param7});
+            if(c.command==MAV_CMD_PREFLIGHT_CALIBRATION){cal_start_received=true; last_cal_param1=(uint8_t)c.param1;}
+            // 故障注入：前 N 次命令不响应（测试命令重试）
+            if(cmd_drop_count_>0 && cmd_dropped_so_far_<cmd_drop_count_){
+                cmd_dropped_so_far_++;
+                break;
+            }
+            if(!cmd_no_response_){
+                mavlink_message_t a; mavlink_msg_command_ack_pack(config_.system_id,config_.component_id,&a,
+                    c.command, next_cmd_result_, 0, 0, 0, 0);
+                send(a); next_cmd_result_=0;
+            }
+            break; }
+        case MAVLINK_MSG_ID_COMMAND_INT: {
+            mavlink_command_int_t c; mavlink_msg_command_int_decode(&msg,&c);
+            received_cmds.push_back({c.command,c.param1,c.param2,c.param3,c.param4,c.x,c.y,static_cast<int32_t>(c.z)});
+            if(!cmd_no_response_){
+                mavlink_message_t a; mavlink_msg_command_ack_pack(config_.system_id,config_.component_id,&a,
+                    c.command, next_cmd_result_, 0, 0, 0, 0);
+                send(a); next_cmd_result_=0;
+            }
+            break; }
+        default: break;
+        }
+    }
+};
+
+#endif // MOCK_FLIGHT_CONTROLLER_H

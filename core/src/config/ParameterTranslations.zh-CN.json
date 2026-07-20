@@ -1,0 +1,2898 @@
+{
+  "comment": "Chinese UI overlay for ArduPilot parameter metadata. Keep official ParameterDescriptors.json unchanged.",
+  "locale": "zh-CN",
+  "groups": {
+    "serial": {
+      "display_name": "串口",
+      "description": "配置 ArduPilot 逻辑串口的协议和波特率。SERIAL 编号是参数里的逻辑端口，不一定等于飞控外壳上的物理端口编号。"
+    },
+    "servo": {
+      "display_name": "舵机输出",
+      "description": "配置舵机和电机输出通道的功能、行程和反向。"
+    },
+    "rc": {
+      "display_name": "遥控输入",
+      "description": "配置遥控输入通道的校准值、反向和辅助功能。"
+    },
+    "battery": {
+      "display_name": "电池",
+      "description": "配置电池监测器、电压电流换算和容量。",
+      "params": {
+        "BATT_MONITOR": {
+          "display_name": "电池监测器",
+          "description": "选择主电池监测器的类型。",
+          "options": {
+            "0": {
+              "label": "禁用"
+            },
+            "3": {
+              "label": "仅模拟电压"
+            },
+            "4": {
+              "label": "模拟电压和电流"
+            },
+            "5": {
+              "label": "MAVLink 电池状态"
+            },
+            "6": {
+              "label": "UAVCAN 电池监测器"
+            },
+            "7": {
+              "label": "MAVLink + UAVCAN 电池"
+            }
+          }
+        },
+        "BATT_CAPACITY": {
+          "display_name": "电池容量",
+          "description": "电池标称容量，用于估算剩余电量和触发容量相关告警。"
+        }
+      }
+    },
+    "flight_mode": {
+      "display_name": "飞行模式",
+      "description": "配置模式开关对应的飞行模式。"
+    },
+    "failsafe": {
+      "display_name": "失控保护",
+      "description": "配置遥控、地面站、电池等失效条件下的保护动作。"
+    },
+    "gps": {
+      "display_name": "GPS",
+      "description": "配置 GPS 类型、更新率、安装位置和自动切换策略。"
+    },
+    "compass": {
+      "display_name": "指南针",
+      "description": "配置罗盘启用、方向、校准偏移和优先级。"
+    },
+    "speeds": {
+      "display_name": "速度配置",
+      "description": "巡航速度、油门限值和速度保护参数。"
+    },
+    "loiter": {
+      "display_name": "悬停配置",
+      "description": "悬停半径、高度和悬停模式行为参数。"
+    },
+    "tuning": {
+      "display_name": "PID 调参",
+      "description": "飞行控制器 PID 增益和滤波器参数。"
+    }
+  },
+  "profiles": {
+    "copter": {
+      "groups": {
+        "ARMING": {
+          "display_name": "解锁检查",
+          "description": "配置解锁前检查项目和安全限制。",
+          "params": {
+            "ARMING_ACCTHRESH": {
+              "display_name": "加速度计误差阈值",
+              "description": "用于判断多个加速度计读数是否一致的误差阈值。超过阈值时可能提示硬件或校准问题。"
+            },
+            "ARMING_CRSDP_IGN": {
+              "display_name": "忽略崩溃转储检查",
+              "description": "系统存在 crashdump 数据时，是否停用对应的解锁前检查。除非明确知道风险，否则不要启用。",
+              "options": {
+                "0": {
+                  "label": "启用崩溃转储检查"
+                },
+                "1": {
+                  "label": "停用崩溃转储检查"
+                }
+              }
+            },
+            "ARMING_MAGTHRESH": {
+              "display_name": "罗盘磁场误差阈值",
+              "description": "罗盘磁场强度相对地磁模型的误差阈值。设为 0 可关闭该检查。"
+            },
+            "ARMING_MIS_ITEMS": {
+              "display_name": "必需任务项",
+              "description": "解锁前要求任务中必须规划的任务项位掩码。",
+              "options": {
+                "1": {
+                  "label": "降落"
+                },
+                "2": {
+                  "label": "VTOL 降落"
+                },
+                "4": {
+                  "label": "DO_LAND_START"
+                },
+                "8": {
+                  "label": "起飞"
+                },
+                "16": {
+                  "label": "VTOL 起飞"
+                },
+                "32": {
+                  "label": "集结点"
+                },
+                "64": {
+                  "label": "返航"
+                }
+              }
+            },
+            "ARMING_NEED_LOC": {
+              "display_name": "要求定位",
+              "description": "要求飞行器在解锁前获得绝对位置，有助于保证返航功能可用。",
+              "options": {
+                "0": {
+                  "label": "不要求定位"
+                },
+                "1": {
+                  "label": "要求定位"
+                }
+              }
+            },
+            "ARMING_OPTIONS": {
+              "display_name": "解锁选项",
+              "description": "用于改变解锁行为的附加选项位掩码。",
+              "options": {
+                "1": {
+                  "label": "不显示预解锁信息"
+                },
+                "2": {
+                  "label": "状态变化时不发送文本信息"
+                },
+                "4": {
+                  "label": "内燃机运行时跳过 IMU 一致性检查"
+                }
+              }
+            },
+            "ARMING_RUDDER": {
+              "display_name": "方向舵解锁",
+              "description": "允许通过方向舵输入解锁或上锁。通常需要油门保持在零位附近。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "仅允许解锁"
+                },
+                "2": {
+                  "label": "允许解锁和上锁"
+                }
+              }
+            },
+            "ARMING_SKIPCHK": {
+              "display_name": "跳过解锁检查",
+              "description": "解锁前跳过检查项的位掩码。大多数用户建议保持默认值 0，即不跳过任何检查。",
+              "options": {
+                "2": {
+                  "label": "气压计"
+                },
+                "4": {
+                  "label": "指南针"
+                },
+                "8": {
+                  "label": "GPS 定位"
+                },
+                "16": {
+                  "label": "惯导"
+                },
+                "32": {
+                  "label": "参数"
+                },
+                "64": {
+                  "label": "遥控通道"
+                },
+                "128": {
+                  "label": "飞控电压"
+                },
+                "256": {
+                  "label": "电池电量"
+                },
+                "512": {
+                  "label": "空速计"
+                },
+                "1024": {
+                  "label": "日志可用性"
+                },
+                "2048": {
+                  "label": "硬件安全开关"
+                },
+                "4096": {
+                  "label": "GPS 配置"
+                },
+                "8192": {
+                  "label": "系统"
+                },
+                "16384": {
+                  "label": "任务"
+                },
+                "32768": {
+                  "label": "测距仪"
+                },
+                "65536": {
+                  "label": "相机"
+                },
+                "131072": {
+                  "label": "辅助认证"
+                },
+                "262144": {
+                  "label": "视觉里程计"
+                },
+                "524288": {
+                  "label": "FFT"
+                }
+              }
+            }
+          }
+        },
+        "BATT": {
+          "display_name": "电池",
+          "description": "电池监测、电压阈值和低电保护参数。",
+          "params": {
+            "BATT_MONITOR": {
+              "display_name": "电池监测器",
+              "description": "选择主电池监测器的类型。选择模拟电压电流监测后，电压和电流会按电压分压比、电流每伏安培值等参数换算。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "3": {
+                  "label": "模拟电压"
+                },
+                "4": {
+                  "label": "模拟电压和电流"
+                },
+                "10": {
+                  "label": "SUI 智能电池"
+                }
+              }
+            },
+            "BATT_CAPACITY": {
+              "display_name": "电池容量",
+              "description": "电池标称容量，用于估算剩余电量和触发容量相关告警。"
+            },
+            "BATT_ARM_VOLT": {
+              "display_name": "解锁所需电压",
+              "description": "允许解锁所需的电池电压。设为 0 表示不因电压限制解锁。"
+            },
+            "BATT_ARM_MAH": {
+              "display_name": "解锁所需剩余容量",
+              "description": "允许解锁所需的剩余电池容量。设为 0 表示不因剩余容量限制解锁。"
+            },
+            "BATT_LOW_VOLT": {
+              "display_name": "低电压阈值",
+              "description": "电池电压低于该值并持续一段时间后，会触发低电压保护。"
+            },
+            "BATT_CRT_VOLT": {
+              "display_name": "严重低电压阈值",
+              "description": "电池电压低于该值并持续一段时间后，会触发严重低电压保护。"
+            },
+            "BATT_LOW_TIMER": {
+              "display_name": "低电压持续时间",
+              "description": "电压持续低于低电压阈值多少秒后触发低电压事件。设为 0 可关闭该延时判定。"
+            },
+            "BATT_CRT_MAH": {
+              "display_name": "严重低容量阈值",
+              "description": "剩余容量低于该值时触发严重低电池容量保护。设为 0 可关闭容量触发。"
+            },
+            "BATT_FS_LOW_ACT": {
+              "display_name": "低电池保护动作",
+              "description": "触发低电池保护时飞行器执行的动作。",
+              "options": {
+                "0": {
+                  "label": "仅警告"
+                },
+                "1": {
+                  "label": "降落"
+                },
+                "2": {
+                  "label": "返航"
+                },
+                "3": {
+                  "label": "SmartRTL 或返航"
+                },
+                "4": {
+                  "label": "SmartRTL 或降落"
+                },
+                "5": {
+                  "label": "终止"
+                },
+                "6": {
+                  "label": "任务降落起点/返航路径起点或返航"
+                },
+                "7": {
+                  "label": "刹停或降落"
+                }
+              }
+            },
+            "BATT_FS_CRT_ACT": {
+              "display_name": "严重低电池保护动作",
+              "description": "触发严重低电池保护时飞行器执行的动作。",
+              "options": {
+                "0": {
+                  "label": "仅警告"
+                },
+                "1": {
+                  "label": "降落"
+                },
+                "2": {
+                  "label": "返航"
+                },
+                "3": {
+                  "label": "SmartRTL 或返航"
+                },
+                "4": {
+                  "label": "SmartRTL 或降落"
+                },
+                "5": {
+                  "label": "终止"
+                },
+                "6": {
+                  "label": "任务降落起点/返航路径起点或返航"
+                },
+                "7": {
+                  "label": "刹停或降落"
+                }
+              }
+            }
+          }
+        },
+        "FENCE": {
+          "display_name": "电子围栏",
+          "description": "配置高度、距离、圆形和多边形电子围栏。",
+          "params": {
+            "FENCE_ENABLE": {
+              "display_name": "启用电子围栏",
+              "description": "启用或关闭电子围栏功能。启用后，飞控会根据围栏类型和动作参数处理越界。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "启用"
+                }
+              }
+            },
+            "FENCE_TYPE": {
+              "display_name": "围栏类型",
+              "description": "选择启用哪些围栏类型，例如最大高度、圆形边界或多边形边界。",
+              "options": {
+                "1": {
+                  "label": "最大高度"
+                },
+                "2": {
+                  "label": "以 Home 为中心的圆形围栏"
+                },
+                "4": {
+                  "label": "包含/排除圆形与多边形"
+                },
+                "8": {
+                  "label": "最小高度"
+                }
+              }
+            },
+            "FENCE_ACTION": {
+              "display_name": "越界动作",
+              "description": "飞行器触发围栏越界后的处理动作。",
+              "options": {
+                "0": {
+                  "label": "仅报告"
+                },
+                "1": {
+                  "label": "返航或降落"
+                },
+                "2": {
+                  "label": "总是降落"
+                },
+                "3": {
+                  "label": "SmartRTL、返航或降落"
+                },
+                "4": {
+                  "label": "刹停或降落"
+                },
+                "5": {
+                  "label": "SmartRTL 或降落"
+                },
+                "6": {
+                  "label": "引导模式"
+                },
+                "7": {
+                  "label": "引导模式并保留油门"
+                },
+                "8": {
+                  "label": "可自动降落则自动降落，否则返航"
+                }
+              }
+            },
+            "FENCE_ALT_MAX": {
+              "display_name": "最大高度",
+              "description": "飞行器允许达到的最大高度，超过后会触发围栏。"
+            },
+            "FENCE_ALT_MIN": {
+              "display_name": "最小高度",
+              "description": "飞行器允许达到的最小高度，低于该值会触发围栏。"
+            },
+            "FENCE_RADIUS": {
+              "display_name": "圆形围栏半径",
+              "description": "以起飞点或 home 点为中心的圆形围栏半径。"
+            },
+            "FENCE_MARGIN": {
+              "display_name": "围栏余量",
+              "description": "飞控尽量保持的围栏安全余量。"
+            },
+            "FENCE_AUTOENABLE": {
+              "display_name": "自动启用围栏",
+              "description": "按飞行阶段自动启用电子围栏的策略。"
+            },
+            "FENCE_OPTIONS": {
+              "display_name": "围栏选项",
+              "description": "改变电子围栏行为的附加选项位掩码。"
+            },
+            "FENCE_TOTAL": {
+              "display_name": "围栏点数量",
+              "description": "当前保存的多边形围栏点数量。"
+            }
+          }
+        },
+        "GPS": {
+          "display_name": "GPS",
+          "description": "GPS 接收机、更新率、自动配置和安装位置参数。",
+          "params": {
+            "GPS1_TYPE": {
+              "display_name": "GPS1 类型",
+              "description": "选择第一个 GPS 接收机的类型。ArduPilot 4.6 之后，旧参数 GPS_TYPE 已重命名为 GPS1_TYPE。",
+              "options": {
+                "0": {
+                  "label": "无"
+                },
+                "1": {
+                  "label": "自动"
+                },
+                "2": {
+                  "label": "uBlox"
+                },
+                "5": {
+                  "label": "NMEA"
+                },
+                "7": {
+                  "label": "HIL"
+                },
+                "9": {
+                  "label": "DroneCAN"
+                },
+                "14": {
+                  "label": "MAVLink"
+                }
+              }
+            },
+            "GPS2_TYPE": {
+              "display_name": "GPS2 类型",
+              "description": "选择第二个 GPS 接收机的类型。未安装第二个 GPS 时通常为禁用。",
+              "options": {
+                "0": {
+                  "label": "无"
+                },
+                "1": {
+                  "label": "自动"
+                },
+                "2": {
+                  "label": "uBlox"
+                },
+                "5": {
+                  "label": "NMEA"
+                },
+                "7": {
+                  "label": "HIL"
+                },
+                "9": {
+                  "label": "DroneCAN"
+                },
+                "14": {
+                  "label": "MAVLink"
+                }
+              }
+            },
+            "GPS_AUTO_CONFIG": {
+              "display_name": "自动配置 GPS",
+              "description": "允许飞控自动配置支持的 GPS 接收机。",
+              "options": {
+                "0": {
+                  "label": "禁用自动配置"
+                },
+                "1": {
+                  "label": "仅自动配置串口 GPS"
+                },
+                "2": {
+                  "label": "同时自动配置 DroneCAN"
+                },
+                "3": {
+                  "label": "清除非 ArduPilot 设置的配置"
+                }
+              }
+            },
+            "GPS_AUTO_SWITCH": {
+              "display_name": "自动切换 GPS",
+              "description": "多 GPS 场景下，允许飞控根据质量自动选择主 GPS。",
+              "options": {
+                "0": {
+                  "label": "使用主 GPS"
+                },
+                "1": {
+                  "label": "使用最佳 GPS"
+                },
+                "2": {
+                  "label": "融合"
+                },
+                "4": {
+                  "label": "主 GPS 有 3D 定位时优先使用主 GPS"
+                }
+              }
+            },
+            "GPS1_RATE_MS": {
+              "display_name": "GPS1 更新周期",
+              "description": "第一个 GPS 接收机的位置更新周期，数值越小更新越快。",
+              "options": {
+                "100": {
+                  "label": "10 Hz"
+                },
+                "125": {
+                  "label": "8 Hz"
+                },
+                "200": {
+                  "label": "5 Hz"
+                }
+              }
+            },
+            "GPS1_POS_X": {
+              "display_name": "GPS1 X 安装偏移",
+              "description": "第一个 GPS 天线在机体系 X 轴方向的位置偏移。正值表示位于原点前方。"
+            },
+            "GPS1_POS_Y": {
+              "display_name": "GPS1 Y 安装偏移",
+              "description": "第一个 GPS 天线在机体系 Y 轴方向的位置偏移。正值表示位于原点右侧。"
+            },
+            "GPS1_POS_Z": {
+              "display_name": "GPS1 Z 安装偏移",
+              "description": "第一个 GPS 天线在机体系 Z 轴方向的位置偏移。正值表示位于原点下方。"
+            },
+            "GPS1_GNSS_MODE": {
+              "display_name": "GPS1 卫星系统",
+              "description": "选择 GPS1 使用哪些 GNSS 卫星系统。全部不选或设为 0 时保持 GPS 自身配置。",
+              "options": {
+                "1": {
+                  "label": "GPS"
+                },
+                "2": {
+                  "label": "SBAS"
+                },
+                "4": {
+                  "label": "Galileo"
+                },
+                "8": {
+                  "label": "北斗"
+                },
+                "16": {
+                  "label": "IMES"
+                },
+                "32": {
+                  "label": "QZSS"
+                },
+                "64": {
+                  "label": "GLONASS"
+                },
+                "128": {
+                  "label": "NavIC"
+                }
+              }
+            }
+          }
+        },
+        "COMPASS": {
+          "display_name": "指南针",
+          "description": "罗盘启用、航向来源、自动方向检测和校准质量参数。",
+          "params": {
+            "COMPASS_ENABLE": {
+              "display_name": "启用指南针",
+              "description": "启用或禁用指南针传感器。该参数控制底层传感器和磁力计日志，不等同于是否使用指南针参与航向解算。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "启用"
+                }
+              }
+            },
+            "COMPASS_USE": {
+              "display_name": "使用指南针定航向",
+              "description": "是否使用指南针而不是 GPS 来确定航向。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "启用"
+                }
+              }
+            },
+            "COMPASS_AUTO_ROT": {
+              "display_name": "自动检查方向",
+              "description": "指南针校准成功后自动检查安装方向。部分模式可自动修正外置指南针方向。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "仅检查"
+                },
+                "2": {
+                  "label": "检查并修正"
+                },
+                "3": {
+                  "label": "使用相同容差检查 45 度方向"
+                }
+              }
+            },
+            "COMPASS_CAL_FIT": {
+              "display_name": "指南针校准拟合要求",
+              "description": "指南针校准通过所需的拟合质量。数值越低要求越严格。",
+              "options": {
+                "4": {
+                  "label": "非常严格"
+                },
+                "8": {
+                  "label": "严格"
+                },
+                "16": {
+                  "label": "默认"
+                },
+                "32": {
+                  "label": "宽松"
+                }
+              }
+            },
+            "COMPASS_AUTODEC": {
+              "display_name": "自动磁偏角",
+              "description": "根据 GPS 位置自动计算磁偏角。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "启用"
+                }
+              }
+            }
+          }
+        },
+        "SERIAL": {
+          "display_name": "串口",
+          "description": "配置飞控逻辑串口的协议、波特率和 UART 选项。",
+          "params": {
+            "SERIAL1_PROTOCOL": {
+              "display_name": "串口协议",
+              "description": "选择 Telem1 端口使用的通信协议。部分 FrSky 选项需要外部转换硬件。",
+              "options": {
+                "-1": {
+                  "label": "无"
+                },
+                "1": {
+                  "label": "MAVLink 1"
+                },
+                "2": {
+                  "label": "MAVLink 2"
+                },
+                "3": {
+                  "label": "FrSky D"
+                },
+                "4": {
+                  "label": "FrSky S.Port"
+                },
+                "5": {
+                  "label": "GPS"
+                },
+                "7": {
+                  "label": "Alexmos 云台串口"
+                },
+                "8": {
+                  "label": "云台"
+                },
+                "9": {
+                  "label": "测距仪"
+                },
+                "10": {
+                  "label": "FrSky S.Port 透传"
+                },
+                "16": {
+                  "label": "电调遥测"
+                },
+                "18": {
+                  "label": "光流"
+                }
+              }
+            },
+            "SERIAL1_BAUD": {
+              "display_name": "串口波特率",
+              "description": "Telem1 端口使用的波特率。设置飞控不支持的速率可能导致该端口无法连接。"
+            },
+            "SERIAL1_OPTIONS": {
+              "display_name": "串口选项",
+              "description": "UART 附加选项，例如收发反相、半双工、收发引脚交换、上下拉和 DMA 设置。",
+              "options": {
+                "1": {
+                  "label": "接收反相"
+                },
+                "2": {
+                  "label": "发送反相"
+                },
+                "4": {
+                  "label": "半双工"
+                },
+                "8": {
+                  "label": "交换 TX/RX"
+                },
+                "16": {
+                  "label": "RX 下拉"
+                },
+                "32": {
+                  "label": "RX 上拉"
+                },
+                "64": {
+                  "label": "TX 下拉"
+                },
+                "128": {
+                  "label": "TX 上拉"
+                },
+                "256": {
+                  "label": "RX 不使用 DMA"
+                },
+                "512": {
+                  "label": "TX 不使用 DMA"
+                }
+              }
+            }
+          }
+        },
+        "SERVO": {
+          "display_name": "舵机输出",
+          "description": "配置舵机、电机和执行器输出通道的功能、PWM 范围和反向。",
+          "params": {
+            "SERVO1_FUNCTION": {
+              "display_name": "输出功能",
+              "description": "分配给该舵机输出的功能。禁用时可由任务或 MAVLink 舵机命令直接控制。",
+              "options": {
+                "-1": {
+                  "label": "GPIO"
+                },
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "遥控直通"
+                },
+                "2": {
+                  "label": "襟翼"
+                },
+                "3": {
+                  "label": "自动襟翼"
+                },
+                "4": {
+                  "label": "副翼"
+                },
+                "5": {
+                  "label": "油门"
+                },
+                "6": {
+                  "label": "方向舵"
+                },
+                "7": {
+                  "label": "升降舵"
+                },
+                "8": {
+                  "label": "电机 1"
+                },
+                "9": {
+                  "label": "电机 2"
+                },
+                "10": {
+                  "label": "电机 3"
+                },
+                "11": {
+                  "label": "电机 4"
+                },
+                "27": {
+                  "label": "降落伞"
+                },
+                "28": {
+                  "label": "夹爪"
+                },
+                "29": {
+                  "label": "起落架"
+                },
+                "33": {
+                  "label": "电机 5"
+                },
+                "34": {
+                  "label": "电机 6"
+                },
+                "35": {
+                  "label": "电机 7"
+                },
+                "36": {
+                  "label": "电机 8"
+                }
+              }
+            },
+            "SERVO1_MIN": {
+              "display_name": "最小 PWM",
+              "description": "该输出通道的最小 PWM 脉宽，通常 1000 为低限、1500 为中位、2000 为高限。"
+            },
+            "SERVO1_MAX": {
+              "display_name": "最大 PWM",
+              "description": "该输出通道的最大 PWM 脉宽，通常 1000 为低限、1500 为中位、2000 为高限。"
+            },
+            "SERVO1_TRIM": {
+              "display_name": "中位 PWM",
+              "description": "该输出通道的中位 PWM 脉宽。"
+            },
+            "SERVO1_REVERSED": {
+              "display_name": "输出反向",
+              "description": "反转该输出通道的动作方向。",
+              "options": {
+                "0": {
+                  "label": "正常"
+                },
+                "1": {
+                  "label": "反向"
+                }
+              }
+            }
+          }
+        },
+        "RC": {
+          "display_name": "遥控输入",
+          "description": "配置遥控输入通道的校准值、死区、反向和辅助功能。",
+          "params": {
+            "RC1_OPTION": {
+              "display_name": "遥控辅助功能",
+              "description": "分配给该遥控通道的辅助功能。",
+              "options": {
+                "0": {
+                  "label": "不执行操作"
+                },
+                "4": {
+                  "label": "返航"
+                },
+                "9": {
+                  "label": "相机触发"
+                },
+                "11": {
+                  "label": "启用围栏"
+                },
+                "16": {
+                  "label": "AUTO 模式"
+                },
+                "17": {
+                  "label": "AUTOTUNE 模式"
+                },
+                "18": {
+                  "label": "LAND 模式"
+                },
+                "21": {
+                  "label": "启用降落伞"
+                },
+                "22": {
+                  "label": "释放降落伞"
+                },
+                "31": {
+                  "label": "电机紧急停止"
+                },
+                "41": {
+                  "label": "解锁/上锁"
+                }
+              }
+            },
+            "RC1_MIN": {
+              "display_name": "遥控最小 PWM",
+              "description": "该遥控输入通道的最小 PWM 脉宽。"
+            },
+            "RC1_MAX": {
+              "display_name": "遥控最大 PWM",
+              "description": "该遥控输入通道的最大 PWM 脉宽。"
+            },
+            "RC1_TRIM": {
+              "display_name": "遥控中位 PWM",
+              "description": "该遥控输入通道的中位 PWM 脉宽。"
+            },
+            "RC1_REVERSED": {
+              "display_name": "遥控反向",
+              "description": "反转该遥控输入通道。",
+              "options": {
+                "0": {
+                  "label": "正常"
+                },
+                "1": {
+                  "label": "反向"
+                }
+              }
+            },
+            "RC1_DZ": {
+              "display_name": "遥控死区",
+              "description": "围绕中位或低位的 PWM 死区。"
+            }
+          }
+        },
+        "FLTMODE": {
+          "display_name": "飞行模式",
+          "description": "配置模式开关各档位对应的飞行模式。",
+          "params": {
+            "FLTMODE1": {
+              "display_name": "飞行模式 1",
+              "description": "模式通道处于第 1 档时使用的飞行模式。"
+            },
+            "FLTMODE2": {
+              "display_name": "飞行模式 2",
+              "description": "模式通道处于第 2 档时使用的飞行模式。"
+            },
+            "FLTMODE3": {
+              "display_name": "飞行模式 3",
+              "description": "模式通道处于第 3 档时使用的飞行模式。"
+            },
+            "FLTMODE4": {
+              "display_name": "飞行模式 4",
+              "description": "模式通道处于第 4 档时使用的飞行模式。"
+            },
+            "FLTMODE5": {
+              "display_name": "飞行模式 5",
+              "description": "模式通道处于第 5 档时使用的飞行模式。"
+            },
+            "FLTMODE6": {
+              "display_name": "飞行模式 6",
+              "description": "模式通道处于第 6 档时使用的飞行模式。"
+            },
+            "FLTMODE_CH": {
+              "display_name": "飞行模式通道",
+              "description": "用于切换飞行模式的遥控通道。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "5": {
+                  "label": "通道 5"
+                },
+                "6": {
+                  "label": "通道 6"
+                },
+                "7": {
+                  "label": "通道 7"
+                },
+                "8": {
+                  "label": "通道 8"
+                }
+              }
+            }
+          }
+        },
+        "FS": {
+          "display_name": "失控保护",
+          "description": "配置遥控、地面站、EKF 等失效条件下的保护动作。",
+          "params": {
+            "FS_THR_ENABLE": {
+              "display_name": "油门失控保护",
+              "description": "配置由油门输入触发的软件失控保护。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "总是返航"
+                },
+                "3": {
+                  "label": "总是降落"
+                },
+                "4": {
+                  "label": "SmartRTL 或返航"
+                },
+                "5": {
+                  "label": "SmartRTL 或降落"
+                },
+                "7": {
+                  "label": "刹停或降落"
+                }
+              }
+            },
+            "FS_GCS_ENABLE": {
+              "display_name": "地面站失联保护",
+              "description": "当地面站连接丢失超过指定时间后，是否触发失控保护以及执行什么动作。",
+              "options": {
+                "0": {
+                  "label": "禁用/无动作"
+                },
+                "1": {
+                  "label": "返航"
+                },
+                "3": {
+                  "label": "SmartRTL 或返航"
+                },
+                "4": {
+                  "label": "SmartRTL 或降落"
+                },
+                "5": {
+                  "label": "降落"
+                },
+                "7": {
+                  "label": "刹停或降落"
+                }
+              }
+            },
+            "FS_OPTIONS": {
+              "display_name": "失控保护选项",
+              "description": "电池、遥控和地面站失控保护的附加行为位掩码。",
+              "options": {
+                "1": {
+                  "label": "遥控失控时 AUTO 模式继续任务"
+                },
+                "2": {
+                  "label": "地面站失联时 AUTO 模式继续任务"
+                },
+                "4": {
+                  "label": "遥控失控时 Guided 模式继续"
+                },
+                "8": {
+                  "label": "任意失控时若正在降落则继续降落"
+                },
+                "16": {
+                  "label": "地面站失联时手动控制模式继续"
+                },
+                "32": {
+                  "label": "释放夹爪"
+                }
+              }
+            },
+            "FS_EKF_ACTION": {
+              "display_name": "EKF 失效动作",
+              "description": "触发 EKF 失效保护时执行的动作。",
+              "options": {
+                "0": {
+                  "label": "仅报告"
+                },
+                "1": {
+                  "label": "需要定位的模式切换到降落"
+                },
+                "2": {
+                  "label": "需要定位的模式切换到定高"
+                },
+                "3": {
+                  "label": "所有模式切换到降落"
+                }
+              }
+            }
+          }
+        },
+        "MOT": {
+          "display_name": "电机",
+          "description": "配置电机输出、PWM 类型、解锁怠速和推力曲线。",
+          "params": {
+            "MOT_PWM_TYPE": {
+              "display_name": "输出 PWM 类型",
+              "description": "选择电机输出类型，例如普通 PWM、OneShot、DShot 或有刷输出。",
+              "options": {
+                "0": {
+                  "label": "普通 PWM"
+                },
+                "1": {
+                  "label": "OneShot"
+                },
+                "2": {
+                  "label": "OneShot125"
+                },
+                "3": {
+                  "label": "有刷"
+                },
+                "4": {
+                  "label": "DShot150"
+                },
+                "5": {
+                  "label": "DShot300"
+                },
+                "6": {
+                  "label": "DShot600"
+                },
+                "7": {
+                  "label": "DShot1200"
+                }
+              }
+            },
+            "MOT_SPIN_ARM": {
+              "display_name": "解锁后电机转速",
+              "description": "电机解锁后开始旋转的输出点，范围为整个输出区间的 0 到 1。应低于最小推力点。"
+            },
+            "MOT_SPIN_MIN": {
+              "display_name": "最小推力点",
+              "description": "电机开始产生有效推力的输出点，范围为整个输出区间的 0 到 1。应高于解锁转速点。"
+            },
+            "MOT_THST_EXPO": {
+              "display_name": "推力曲线指数",
+              "description": "电机推力曲线指数，0 表示线性，1 表示二阶曲线。"
+            }
+          }
+        },
+        "ATC": {
+          "display_name": "姿态控制",
+          "description": "姿态控制器角度限制、角速度限制和控制增益。",
+          "params": {
+            "ATC_ANGLE_MAX": {
+              "display_name": "最大倾角",
+              "description": "所有飞行模式允许的最大倾斜角。"
+            },
+            "ATC_RATE_R_MAX": {
+              "display_name": "横滚最大角速度",
+              "description": "横滚轴允许的最大角速度。"
+            },
+            "ATC_RATE_P_MAX": {
+              "display_name": "俯仰最大角速度",
+              "description": "俯仰轴允许的最大角速度。"
+            },
+            "ATC_RATE_Y_MAX": {
+              "display_name": "偏航最大角速度",
+              "description": "偏航轴允许的最大角速度。"
+            }
+          }
+        },
+        "PSC": {
+          "display_name": "位置控制",
+          "description": "位置控制器的水平、垂直速度和加速度控制参数。",
+          "params": {
+            "PSC_ANGLE_MAX": {
+              "display_name": "位置控制最大倾角",
+              "description": "位置控制时允许使用的最大倾斜角。"
+            }
+          }
+        },
+        "RTL": {
+          "display_name": "返航",
+          "description": "返航高度、速度和返航后悬停时间等参数。",
+          "params": {
+            "RTL_ALT_M": {
+              "display_name": "返航高度",
+              "description": "返航前相对 Home 至少爬升到的高度。若当前高度更高，则保持当前高度返航。"
+            },
+            "RTL_SPEED_MS": {
+              "display_name": "返航速度",
+              "description": "返航过程中尝试保持的水平速度。设为 0 时使用航点速度。"
+            },
+            "RTL_LOIT_TIME": {
+              "display_name": "返航悬停时间",
+              "description": "到达 Home 上方后开始最终下降前的悬停时间。"
+            }
+          }
+        },
+        "ACRO": {
+          "display_name": "特技模式",
+          "description": "特技模式的角速度限制和灵敏度参数。"
+        },
+        "ADSB": {
+          "display_name": "ADS-B",
+          "description": "ADS-B 应答机和空中交通规避参数。"
+        },
+        "AEROM": {
+          "display_name": "航空测绘",
+          "description": "航空测绘相关参数。"
+        },
+        "AFS": {
+          "display_name": "AFS 高级失控保护",
+          "description": "高级失控保护 (AFS) 系统参数，包含 GCS 和 GPS 双重失效检测。"
+        },
+        "AHRS": {
+          "display_name": "航姿参考系统",
+          "description": "航姿参考系统 (AHRS) 参数，控制姿态和航向解算。"
+        },
+        "AIS": {
+          "display_name": "AIS 船舶识别",
+          "description": "AIS 船舶自动识别系统参数。"
+        },
+        "ALAND": {
+          "display_name": "自动降落",
+          "description": "自动降落行为参数。"
+        },
+        "ARM": {
+          "display_name": "解锁",
+          "description": "解锁相关参数。"
+        },
+        "AROT": {
+          "display_name": "AROT",
+          "description": "AROT 相关参数。"
+        },
+        "ARSPD": {
+          "display_name": "空速",
+          "description": "空速传感器配置和保护限值。"
+        },
+        "AUTO": {
+          "display_name": "自动模式",
+          "description": "自动模式的任务执行行为参数。"
+        },
+        "AUTOTUNE": {
+          "display_name": "自动调参",
+          "description": "自动调参 (Autotune) 参数。"
+        },
+        "AVD": {
+          "display_name": "避障",
+          "description": "障碍物规避设置。"
+        },
+        "AVOID": {
+          "display_name": "规避",
+          "description": "避障相关参数。"
+        },
+        "BARO": {
+          "display_name": "气压计",
+          "description": "气压计传感器参数。"
+        },
+        "BATTA": {
+          "display_name": "电池 A",
+          "description": "辅助电池 A 监测参数。"
+        },
+        "BATTB": {
+          "display_name": "电池 B",
+          "description": "辅助电池 B 监测参数。"
+        },
+        "BATTC": {
+          "display_name": "电池 C",
+          "description": "辅助电池 C 监测参数。"
+        },
+        "BATTD": {
+          "display_name": "电池 D",
+          "description": "辅助电池 D 监测参数。"
+        },
+        "BATTE": {
+          "display_name": "电池 E",
+          "description": "辅助电池 E 监测参数。"
+        },
+        "BATTF": {
+          "display_name": "电池 F",
+          "description": "辅助电池 F 监测参数。"
+        },
+        "BATTG": {
+          "display_name": "电池 G",
+          "description": "辅助电池 G 监测参数。"
+        },
+        "BCN": {
+          "display_name": "信标",
+          "description": "信标 (Beacon) 定位参数。"
+        },
+        "BRD": {
+          "display_name": "飞控板",
+          "description": "飞控板硬件设置，包含电压监测、传感器类型和总线设置。"
+        },
+        "BTAG": {
+          "display_name": "蓝牙标签",
+          "description": "蓝牙标签相关参数。"
+        },
+        "BTN": {
+          "display_name": "按键",
+          "description": "按键输入设置。"
+        },
+        "CAM": {
+          "display_name": "相机",
+          "description": "相机触发和云台参数。"
+        },
+        "CAN": {
+          "display_name": "CAN 总线",
+          "description": "CAN 总线和 DroneCAN 设置。"
+        },
+        "CC": {
+          "display_name": "CC",
+          "description": "CC 相关参数。"
+        },
+        "CFACT": {
+          "display_name": "CFACT",
+          "description": "CFACT 相关参数。"
+        },
+        "CGA": {
+          "display_name": "CGA",
+          "description": "CGA 相关参数。"
+        },
+        "CHUTE": {
+          "display_name": "降落伞",
+          "description": "降落伞释放和部署参数。"
+        },
+        "CIRCLE": {
+          "display_name": "绕圈模式",
+          "description": "绕圈 (Circle) 模式参数。"
+        },
+        "CUST": {
+          "display_name": "自定义",
+          "description": "自定义参数。"
+        },
+        "DDS": {
+          "display_name": "DDS",
+          "description": "DDS 相关参数。"
+        },
+        "DEV": {
+          "display_name": "设备驱动",
+          "description": "设备驱动程序设置。"
+        },
+        "DID": {
+          "display_name": "DID",
+          "description": "DID 相关参数。"
+        },
+        "DISARM": {
+          "display_name": "上锁",
+          "description": "上锁 (Disarm) 行为参数。"
+        },
+        "DIST": {
+          "display_name": "距离",
+          "description": "距离相关参数。"
+        },
+        "DJIR": {
+          "display_name": "DJI 遥控器",
+          "description": "DJI 遥控器参数。"
+        },
+        "DR": {
+          "display_name": "DR",
+          "description": "DR 相关参数。"
+        },
+        "EAHRS": {
+          "display_name": "EAHRS",
+          "description": "外部航姿参考系统参数。"
+        },
+        "EFI": {
+          "display_name": "电喷",
+          "description": "电子燃油喷射 (EFI) 遥测参数。"
+        },
+        "EK": {
+          "display_name": "EKF",
+          "description": "扩展卡尔曼滤波器 (EKF) 设置。"
+        },
+        "ENABLE": {
+          "display_name": "启用",
+          "description": "启用相关参数。"
+        },
+        "ESC": {
+          "display_name": "电调",
+          "description": "电调 (ESC) 遥测和校准参数。"
+        },
+        "ESRC": {
+          "display_name": "ESRC",
+          "description": "ESRC 相关参数。"
+        },
+        "FFT": {
+          "display_name": "FFT",
+          "description": "动态陷波滤波器和 FFT 分析设置。"
+        },
+        "FHLD": {
+          "display_name": "FHLD",
+          "description": "FHLD 相关参数。"
+        },
+        "FILT": {
+          "display_name": "滤波",
+          "description": "滤波器相关参数。"
+        },
+        "FLIGHT": {
+          "display_name": "飞行",
+          "description": "飞行相关参数。"
+        },
+        "FLOW": {
+          "display_name": "光流",
+          "description": "光流传感器参数。"
+        },
+        "FOLL": {
+          "display_name": "跟随",
+          "description": "跟随模式参数。"
+        },
+        "FOLLP": {
+          "display_name": "跟随目标",
+          "description": "跟随模式目标参数。"
+        },
+        "FOLT": {
+          "display_name": "跟随遥测",
+          "description": "跟随模式遥测参数。"
+        },
+        "FORMAT": {
+          "display_name": "格式化",
+          "description": "格式化相关参数。"
+        },
+        "FRAME": {
+          "display_name": "机架",
+          "description": "机架类型和布局参数。"
+        },
+        "FRSKY": {
+          "display_name": "FrSky",
+          "description": "FrSky 遥测协议参数。"
+        },
+        "FSTRATE": {
+          "display_name": "FSTRATE",
+          "description": "FSTRATE 相关参数。"
+        },
+        "GCS": {
+          "display_name": "地面站",
+          "description": "地面站 (GCS) 连接行为参数。"
+        },
+        "GEN": {
+          "display_name": "通用",
+          "description": "通用参数。"
+        },
+        "GND": {
+          "display_name": "地面",
+          "description": "地面相关参数。"
+        },
+        "GRIP": {
+          "display_name": "夹爪",
+          "description": "夹爪 (Gripper) 控制参数。"
+        },
+        "GUID": {
+          "display_name": "引导模式",
+          "description": "引导 (Guided) 模式参数。"
+        },
+        "H": {
+          "display_name": "H",
+          "description": "H 相关参数。"
+        },
+        "IM": {
+          "display_name": "IM",
+          "description": "IM 相关参数。"
+        },
+        "INITIAL": {
+          "display_name": "初始",
+          "description": "初始相关参数。"
+        },
+        "INS": {
+          "display_name": "惯性导航",
+          "description": "IMU 和惯性传感器设置，包含加速度计和陀螺仪。"
+        },
+        "KDE": {
+          "display_name": "KDE",
+          "description": "KDE 相关参数。"
+        },
+        "LAND": {
+          "display_name": "降落",
+          "description": "降落行为参数。"
+        },
+        "LGR": {
+          "display_name": "LGR",
+          "description": "LGR 相关参数。"
+        },
+        "LOG": {
+          "display_name": "日志",
+          "description": "板载日志记录设置。"
+        },
+        "LOIT": {
+          "display_name": "悬停",
+          "description": "悬停模式行为参数。"
+        },
+        "LTE": {
+          "display_name": "LTE",
+          "description": "LTE 通信链路参数。"
+        },
+        "MAV": {
+          "display_name": "MAVLink",
+          "description": "MAVLink 遥测流速率设置。"
+        },
+        "MIS": {
+          "display_name": "任务",
+          "description": "任务指令行为参数。"
+        },
+        "MNT": {
+          "display_name": "云台",
+          "description": "相机云台和万向节设置。"
+        },
+        "MODE": {
+          "display_name": "模式",
+          "description": "模式相关参数。"
+        },
+        "MSP": {
+          "display_name": "MSP",
+          "description": "MSP 协议参数。"
+        },
+        "NET": {
+          "display_name": "网络",
+          "description": "网络传输设置。"
+        },
+        "NMEA": {
+          "display_name": "NMEA",
+          "description": "NMEA 协议参数。"
+        },
+        "NTF": {
+          "display_name": "通知",
+          "description": "蜂鸣器和 LED 通知设置。"
+        },
+        "OA": {
+          "display_name": "OA",
+          "description": "OA 相关参数。"
+        },
+        "OSD": {
+          "display_name": "OSD",
+          "description": "屏幕显示 (OSD) 设置。"
+        },
+        "PARAM": {
+          "display_name": "参数",
+          "description": "参数相关设置。"
+        },
+        "PHLD": {
+          "display_name": "PHLD",
+          "description": "PHLD 相关参数。"
+        },
+        "PILOT": {
+          "display_name": "飞行员输入",
+          "description": "摇杆和输入行为参数。"
+        },
+        "PLDP": {
+          "display_name": "PLDP",
+          "description": "PLDP 相关参数。"
+        },
+        "PLND": {
+          "display_name": "精确降落",
+          "description": "精确降落 (Precision Landing) 参数。"
+        },
+        "POI": {
+          "display_name": "兴趣点",
+          "description": "兴趣点相关参数。"
+        },
+        "PORT": {
+          "display_name": "端口",
+          "description": "端口相关参数。"
+        },
+        "PREV": {
+          "display_name": "PREV",
+          "description": "PREV 相关参数。"
+        },
+        "PRX": {
+          "display_name": "PRX",
+          "description": "PRX 相关参数。"
+        },
+        "QUIK": {
+          "display_name": "QUIK",
+          "description": "QUIK 相关参数。"
+        },
+        "RALLY": {
+          "display_name": "集结点",
+          "description": "集结点 (Rally Point) 参数。"
+        },
+        "RCK": {
+          "display_name": "RCK",
+          "description": "RCK 相关参数。"
+        },
+        "RCMAP": {
+          "display_name": "遥控映射",
+          "description": "遥控通道功能映射参数。"
+        },
+        "RELAY": {
+          "display_name": "继电器",
+          "description": "继电器输出设置。"
+        },
+        "RK": {
+          "display_name": "RK",
+          "description": "RK 相关参数。"
+        },
+        "RNGFND": {
+          "display_name": "测距仪",
+          "description": "测距仪传感器设置。"
+        },
+        "RNGFNDA": {
+          "display_name": "测距仪 A",
+          "description": "辅助测距仪 A 参数。"
+        },
+        "RPM": {
+          "display_name": "转速",
+          "description": "转速传感器参数。"
+        },
+        "RSSI": {
+          "display_name": "信号强度",
+          "description": "无线电信号强度 (RSSI) 设置。"
+        },
+        "RTUN": {
+          "display_name": "RTUN",
+          "description": "RTUN 相关参数。"
+        },
+        "SCHED": {
+          "display_name": "调度器",
+          "description": "调度器和循环时序设置。"
+        },
+        "SCR": {
+          "display_name": "脚本",
+          "description": "Lua 脚本设置。"
+        },
+        "SHIP": {
+          "display_name": "船舶",
+          "description": "船舶相关参数。"
+        },
+        "SID": {
+          "display_name": "SID",
+          "description": "SID 相关参数。"
+        },
+        "SIM": {
+          "display_name": "仿真",
+          "description": "仿真和 SITL 设置。"
+        },
+        "SIMPLE": {
+          "display_name": "简易模式",
+          "description": "简易 (Simple) 模式参数。"
+        },
+        "SLUP": {
+          "display_name": "SLUP",
+          "description": "SLUP 相关参数。"
+        },
+        "SPRAY": {
+          "display_name": "喷洒",
+          "description": "农业喷洒参数。"
+        },
+        "SRTL": {
+          "display_name": "智能返航",
+          "description": "SmartRTL 参数。"
+        },
+        "STAT": {
+          "display_name": "统计",
+          "description": "飞行统计参数。"
+        },
+        "SUPER": {
+          "display_name": "SUPER",
+          "description": "SUPER 相关参数。"
+        },
+        "SURFTRAK": {
+          "display_name": "水面跟踪",
+          "description": "水面跟踪 (Surface Tracking) 参数。"
+        },
+        "TA": {
+          "display_name": "TA",
+          "description": "TA 相关参数。"
+        },
+        "TCAL": {
+          "display_name": "温度校准",
+          "description": "温度校准参数。"
+        },
+        "TEMP": {
+          "display_name": "温度",
+          "description": "温度传感器参数。"
+        },
+        "TERR": {
+          "display_name": "TERR",
+          "description": "TERR 相关参数。"
+        },
+        "TERRAIN": {
+          "display_name": "地形",
+          "description": "地形数据库行为参数。"
+        },
+        "THR": {
+          "display_name": "油门",
+          "description": "油门相关参数。"
+        },
+        "THROW": {
+          "display_name": "抛飞",
+          "description": "抛飞 (Throw) 模式参数。"
+        },
+        "TKOFF": {
+          "display_name": "起飞",
+          "description": "起飞行为和限制参数。"
+        },
+        "TMODE": {
+          "display_name": "TMODE",
+          "description": "TMODE 相关参数。"
+        },
+        "TOFSENSE": {
+          "display_name": "TOF 传感器",
+          "description": "TOF 传感器参数。"
+        },
+        "TRIK": {
+          "display_name": "TRIK",
+          "description": "TRIK 相关参数。"
+        },
+        "TRQL": {
+          "display_name": "TRQL",
+          "description": "TRQL 相关参数。"
+        },
+        "TUNE": {
+          "display_name": "调参",
+          "description": "空中调参设置。"
+        },
+        "UM": {
+          "display_name": "UM",
+          "description": "UM 相关参数。"
+        },
+        "VID": {
+          "display_name": "视频",
+          "description": "视频相关参数。"
+        },
+        "VISO": {
+          "display_name": "视觉里程计",
+          "description": "视觉里程计 (Visual Odometry) 参数。"
+        },
+        "VTX": {
+          "display_name": "图传",
+          "description": "VTX 图传参数。"
+        },
+        "WEB": {
+          "display_name": "Web",
+          "description": "Web 相关参数。"
+        },
+        "WINCH": {
+          "display_name": "绞盘",
+          "description": "绞盘 (Winch) 控制参数。"
+        },
+        "WP": {
+          "display_name": "航点",
+          "description": "航点行为参数。"
+        },
+        "WVANE": {
+          "display_name": "风向标",
+          "description": "风向标 (Weather Vane) 模式参数。"
+        },
+        "ZIGZ": {
+          "display_name": "ZIGZ",
+          "description": "ZIGZ 相关参数。"
+        }
+      }
+    },
+    "plane": {
+      "groups": {
+        "ARMING": {
+          "display_name": "解锁检查",
+          "description": "配置解锁前检查项目和固定翼解锁安全限制。",
+          "params": {
+            "ARMING_REQUIRE": {
+              "display_name": "要求解锁电机",
+              "description": "控制固定翼是否必须先解锁才能输出油门。0 表示无要求，1 表示上锁时输出最小油门 PWM，2 表示上锁时输出 0 PWM。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "是，上锁时输出最小 PWM"
+                },
+                "2": {
+                  "label": "是，上锁时输出 0 PWM"
+                }
+              }
+            },
+            "ARMING_RUDDER": {
+              "display_name": "方向舵解锁",
+              "description": "允许通过方向舵输入解锁或上锁。通常需要油门保持在零位附近。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "仅允许解锁"
+                },
+                "2": {
+                  "label": "允许解锁和上锁"
+                }
+              }
+            },
+            "ARMING_OPTIONS": {
+              "display_name": "解锁选项",
+              "description": "用于改变解锁行为的附加选项位掩码。"
+            },
+            "ARMING_SKIPCHK": {
+              "display_name": "跳过解锁检查",
+              "description": "解锁前跳过检查项的位掩码。大多数用户建议保持默认值 0，即不跳过任何检查。",
+              "options": {
+                "2": {
+                  "label": "气压计"
+                },
+                "4": {
+                  "label": "指南针"
+                },
+                "8": {
+                  "label": "GPS 定位"
+                },
+                "16": {
+                  "label": "惯导"
+                },
+                "32": {
+                  "label": "参数"
+                },
+                "64": {
+                  "label": "遥控通道"
+                },
+                "128": {
+                  "label": "飞控电压"
+                },
+                "256": {
+                  "label": "电池电量"
+                },
+                "512": {
+                  "label": "空速计"
+                },
+                "1024": {
+                  "label": "日志可用性"
+                },
+                "2048": {
+                  "label": "硬件安全开关"
+                },
+                "4096": {
+                  "label": "GPS 配置"
+                }
+              }
+            }
+          }
+        },
+        "BATT": {
+          "display_name": "电池",
+          "description": "电池监测、电压阈值和固定翼低电保护参数。",
+          "params": {
+            "BATT_MONITOR": {
+              "display_name": "电池监测器",
+              "description": "选择主电池监测器的类型。"
+            },
+            "BATT_CAPACITY": {
+              "display_name": "电池容量",
+              "description": "电池标称容量，用于估算剩余电量和触发容量相关告警。"
+            },
+            "BATT_ARM_VOLT": {
+              "display_name": "解锁所需电压",
+              "description": "允许解锁所需的电池电压。设为 0 表示不因电压限制解锁。"
+            },
+            "BATT_ARM_MAH": {
+              "display_name": "解锁所需剩余容量",
+              "description": "允许解锁所需的剩余电池容量。设为 0 表示不因剩余容量限制解锁。"
+            },
+            "BATT_LOW_VOLT": {
+              "display_name": "低电压阈值",
+              "description": "电池电压低于该值并持续一段时间后，会触发低电压保护。"
+            },
+            "BATT_CRT_VOLT": {
+              "display_name": "严重低电压阈值",
+              "description": "电池电压低于该值并持续一段时间后，会触发严重低电压保护。"
+            },
+            "BATT_LOW_TIMER": {
+              "display_name": "低电压持续时间",
+              "description": "电压持续低于低电压阈值多少秒后触发低电压事件。"
+            },
+            "BATT_CRT_MAH": {
+              "display_name": "严重低容量阈值",
+              "description": "剩余容量低于该值时触发严重低电池容量保护。设为 0 可关闭容量触发。"
+            },
+            "BATT_FS_LOW_ACT": {
+              "display_name": "低电池保护动作",
+              "description": "触发低电池保护时固定翼执行的动作。",
+              "options": {
+                "0": {
+                  "label": "仅警告"
+                },
+                "1": {
+                  "label": "返航"
+                },
+                "2": {
+                  "label": "降落"
+                },
+                "3": {
+                  "label": "终止"
+                },
+                "4": {
+                  "label": "QLand"
+                },
+                "5": {
+                  "label": "释放降落伞"
+                },
+                "6": {
+                  "label": "盘旋后 QLand"
+                },
+                "7": {
+                  "label": "自动降落或返航"
+                }
+              }
+            },
+            "BATT_FS_CRT_ACT": {
+              "display_name": "严重低电池保护动作",
+              "description": "触发严重低电池保护时固定翼执行的动作。",
+              "options": {
+                "0": {
+                  "label": "仅警告"
+                },
+                "1": {
+                  "label": "返航"
+                },
+                "2": {
+                  "label": "降落"
+                },
+                "3": {
+                  "label": "终止"
+                },
+                "4": {
+                  "label": "QLand"
+                },
+                "5": {
+                  "label": "降落伞"
+                },
+                "6": {
+                  "label": "盘旋后 QLand"
+                },
+                "7": {
+                  "label": "自动降落或返航"
+                }
+              }
+            }
+          }
+        },
+        "GPS": {
+          "display_name": "GPS",
+          "description": "GPS 接收机、更新率、自动配置和安装位置参数。",
+          "params": {
+            "GPS1_TYPE": {
+              "display_name": "GPS1 类型",
+              "description": "选择第一个 GPS 接收机的类型。",
+              "options": {
+                "0": {
+                  "label": "无"
+                },
+                "1": {
+                  "label": "自动"
+                },
+                "2": {
+                  "label": "uBlox"
+                },
+                "5": {
+                  "label": "NMEA"
+                },
+                "9": {
+                  "label": "DroneCAN"
+                },
+                "14": {
+                  "label": "MAVLink"
+                }
+              }
+            },
+            "GPS2_TYPE": {
+              "display_name": "GPS2 类型",
+              "description": "选择第二个 GPS 接收机的类型。"
+            },
+            "GPS_AUTO_CONFIG": {
+              "display_name": "自动配置 GPS",
+              "description": "允许飞控自动配置支持的 GPS 接收机。"
+            },
+            "GPS_AUTO_SWITCH": {
+              "display_name": "自动切换 GPS",
+              "description": "多 GPS 场景下，允许飞控根据质量自动选择主 GPS。"
+            },
+            "GPS1_RATE_MS": {
+              "display_name": "GPS1 更新周期",
+              "description": "第一个 GPS 接收机的位置更新周期，数值越小更新越快。"
+            }
+          }
+        },
+        "FENCE": {
+          "display_name": "电子围栏",
+          "description": "配置固定翼高度、圆形和多边形电子围栏。",
+          "params": {
+            "FENCE_ENABLE": {
+              "display_name": "启用电子围栏",
+              "description": "启用或关闭电子围栏功能。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "启用"
+                }
+              }
+            },
+            "FENCE_TYPE": {
+              "display_name": "围栏类型",
+              "description": "选择启用哪些围栏类型。"
+            },
+            "FENCE_ACTION": {
+              "display_name": "越界动作",
+              "description": "固定翼触发围栏越界后的处理动作。",
+              "options": {
+                "0": {
+                  "label": "仅报告"
+                },
+                "1": {
+                  "label": "返航"
+                },
+                "6": {
+                  "label": "引导模式"
+                },
+                "7": {
+                  "label": "引导模式并保留油门"
+                },
+                "8": {
+                  "label": "可自动降落则自动降落，否则返航"
+                }
+              }
+            },
+            "FENCE_ALT_MAX": {
+              "display_name": "最大高度",
+              "description": "固定翼允许达到的最大高度，超过后会触发围栏。"
+            },
+            "FENCE_ALT_MIN": {
+              "display_name": "最小高度",
+              "description": "固定翼允许达到的最小高度，低于该值会触发围栏。"
+            },
+            "FENCE_RADIUS": {
+              "display_name": "圆形围栏半径",
+              "description": "以 Home 点为中心的圆形围栏半径。"
+            },
+            "FENCE_MARGIN": {
+              "display_name": "围栏余量",
+              "description": "飞控尽量保持的围栏安全余量。"
+            },
+            "FENCE_RET_ALT": {
+              "display_name": "围栏返航高度",
+              "description": "触发围栏后返回时使用的目标高度。"
+            },
+            "FENCE_RET_RALLY": {
+              "display_name": "围栏返航集结点",
+              "description": "触发围栏后是否优先使用集结点作为返航目标。"
+            }
+          }
+        },
+        "COMPASS": {
+          "display_name": "指南针",
+          "description": "罗盘启用、航向来源、自动方向检测和校准质量参数。",
+          "params": {
+            "COMPASS_ENABLE": {
+              "display_name": "启用指南针",
+              "description": "启用或禁用指南针传感器。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "启用"
+                }
+              }
+            },
+            "COMPASS_USE": {
+              "display_name": "使用指南针定航向",
+              "description": "是否使用指南针而不是 GPS 来确定航向。"
+            },
+            "COMPASS_AUTODEC": {
+              "display_name": "自动磁偏角",
+              "description": "根据 GPS 位置自动计算磁偏角。"
+            }
+          }
+        },
+        "SERIAL": {
+          "display_name": "串口",
+          "description": "配置飞控逻辑串口的协议、波特率和 UART 选项。",
+          "params": {
+            "SERIAL1_PROTOCOL": {
+              "display_name": "串口协议",
+              "description": "选择 Telem1 端口使用的通信协议。",
+              "options": {
+                "-1": {
+                  "label": "无"
+                },
+                "1": {
+                  "label": "MAVLink 1"
+                },
+                "2": {
+                  "label": "MAVLink 2"
+                },
+                "5": {
+                  "label": "GPS"
+                },
+                "9": {
+                  "label": "测距仪"
+                },
+                "16": {
+                  "label": "电调遥测"
+                }
+              }
+            },
+            "SERIAL1_BAUD": {
+              "display_name": "串口波特率",
+              "description": "Telem1 端口使用的波特率。"
+            },
+            "SERIAL1_OPTIONS": {
+              "display_name": "串口选项",
+              "description": "UART 附加选项，例如收发反相、半双工、收发引脚交换、上下拉和 DMA 设置。"
+            }
+          }
+        },
+        "SERVO": {
+          "display_name": "舵机输出",
+          "description": "配置舵机、电机和执行器输出通道的功能、PWM 范围和反向。",
+          "params": {
+            "SERVO1_FUNCTION": {
+              "display_name": "输出功能",
+              "description": "分配给该舵机输出的功能。"
+            },
+            "SERVO1_MIN": {
+              "display_name": "最小 PWM",
+              "description": "该输出通道的最小 PWM 脉宽。"
+            },
+            "SERVO1_MAX": {
+              "display_name": "最大 PWM",
+              "description": "该输出通道的最大 PWM 脉宽。"
+            },
+            "SERVO1_TRIM": {
+              "display_name": "中位 PWM",
+              "description": "该输出通道的中位 PWM 脉宽。"
+            },
+            "SERVO1_REVERSED": {
+              "display_name": "输出反向",
+              "description": "反转该输出通道的动作方向。",
+              "options": {
+                "0": {
+                  "label": "正常"
+                },
+                "1": {
+                  "label": "反向"
+                }
+              }
+            }
+          }
+        },
+        "RC": {
+          "display_name": "遥控输入",
+          "description": "配置遥控输入通道的校准值、死区、反向和辅助功能。",
+          "params": {
+            "RC1_OPTION": {
+              "display_name": "遥控辅助功能",
+              "description": "分配给该遥控通道的辅助功能。"
+            },
+            "RC1_MIN": {
+              "display_name": "遥控最小 PWM",
+              "description": "该遥控输入通道的最小 PWM 脉宽。"
+            },
+            "RC1_MAX": {
+              "display_name": "遥控最大 PWM",
+              "description": "该遥控输入通道的最大 PWM 脉宽。"
+            },
+            "RC1_TRIM": {
+              "display_name": "遥控中位 PWM",
+              "description": "该遥控输入通道的中位 PWM 脉宽。"
+            },
+            "RC1_REVERSED": {
+              "display_name": "遥控反向",
+              "description": "反转该遥控输入通道。",
+              "options": {
+                "0": {
+                  "label": "正常"
+                },
+                "1": {
+                  "label": "反向"
+                }
+              }
+            },
+            "RC1_DZ": {
+              "display_name": "遥控死区",
+              "description": "围绕中位或低位的 PWM 死区。"
+            }
+          }
+        },
+        "FLTMODE": {
+          "display_name": "飞行模式",
+          "description": "配置固定翼模式开关各档位对应的飞行模式。",
+          "params": {
+            "FLTMODE1": {
+              "display_name": "飞行模式 1",
+              "description": "模式开关第 1 档使用的飞行模式。"
+            },
+            "FLTMODE2": {
+              "display_name": "飞行模式 2",
+              "description": "模式开关第 2 档使用的飞行模式。"
+            },
+            "FLTMODE3": {
+              "display_name": "飞行模式 3",
+              "description": "模式开关第 3 档使用的飞行模式。"
+            },
+            "FLTMODE4": {
+              "display_name": "飞行模式 4",
+              "description": "模式开关第 4 档使用的飞行模式。"
+            },
+            "FLTMODE5": {
+              "display_name": "飞行模式 5",
+              "description": "模式开关第 5 档使用的飞行模式。"
+            },
+            "FLTMODE6": {
+              "display_name": "飞行模式 6",
+              "description": "模式开关第 6 档使用的飞行模式。"
+            },
+            "FLTMODE_CH": {
+              "display_name": "飞行模式通道",
+              "description": "用于切换飞行模式的遥控通道。"
+            }
+          }
+        },
+        "FS": {
+          "display_name": "失控保护",
+          "description": "配置地面站、长短失联和 EKF 等失效条件下的保护动作。",
+          "params": {
+            "FS_GCS_ENABL": {
+              "display_name": "地面站失联保护",
+              "description": "启用地面站遥测失联保护。长时间没有收到 MAVLink 心跳后触发。"
+            },
+            "FS_SHORT_ACTN": {
+              "display_name": "短失控动作",
+              "description": "短时间失控触发时执行的动作。"
+            },
+            "FS_LONG_ACTN": {
+              "display_name": "长失控动作",
+              "description": "长时间失控触发时执行的动作。"
+            },
+            "FS_LONG_TIMEOUT": {
+              "display_name": "长失控超时",
+              "description": "进入长失控前等待的时间。"
+            },
+            "FS_EKF_THRESH": {
+              "display_name": "EKF 失效阈值",
+              "description": "EKF 健康度低于该阈值时可能触发失效保护。"
+            }
+          }
+        },
+        "RTL": {
+          "display_name": "返航",
+          "description": "固定翼返航高度、自动降落和返航半径参数。",
+          "params": {
+            "RTL_ALTITUDE": {
+              "display_name": "返航高度",
+              "description": "返航模式相对 Home 的目标高度。设为 -1 时保持当前高度。"
+            },
+            "RTL_AUTOLAND": {
+              "display_name": "返航自动降落",
+              "description": "返航后是否进入自动降落流程。"
+            },
+            "RTL_CLIMB_MIN": {
+              "display_name": "返航最小爬升",
+              "description": "返航前至少爬升的高度。"
+            },
+            "RTL_RADIUS": {
+              "display_name": "返航盘旋半径",
+              "description": "返航到达目标点后使用的盘旋半径。"
+            }
+          }
+        },
+        "ACRO": {
+          "display_name": "特技模式",
+          "description": "固定翼特技模式的角速度限制和灵敏度。"
+        },
+        "ADSB": {
+          "display_name": "ADS-B",
+          "description": "ADS-B 应答机和空中交通规避参数。"
+        },
+        "AEROM": {
+          "display_name": "航空测绘",
+          "description": "航空测绘相关参数。"
+        },
+        "AFS": {
+          "display_name": "AFS 高级失控保护",
+          "description": "固定翼高级失控保护系统参数。"
+        },
+        "AHRS": {
+          "display_name": "航姿参考系统",
+          "description": "航姿参考系统参数，控制姿态和航向解算。"
+        },
+        "AIRSPEED": {
+          "display_name": "空速",
+          "description": "固定翼空速相关参数。"
+        },
+        "AIS": {
+          "display_name": "AIS 船舶识别",
+          "description": "AIS 船舶自动识别系统参数。"
+        },
+        "ALAND": {
+          "display_name": "自动降落",
+          "description": "自动降落行为参数。"
+        },
+        "ALT": {
+          "display_name": "高度",
+          "description": "高度相关参数。"
+        },
+        "ARM": {
+          "display_name": "解锁",
+          "description": "解锁相关参数。"
+        },
+        "ARSPD": {
+          "display_name": "空速传感器",
+          "description": "空速传感器配置和保护限值。"
+        },
+        "AUTOLAND": {
+          "display_name": "自动降落",
+          "description": "固定翼自动降落参数。"
+        },
+        "AUTOTUNE": {
+          "display_name": "自动调参",
+          "description": "固定翼自动调参参数。"
+        },
+        "AVD": {
+          "display_name": "避障",
+          "description": "障碍物规避设置。"
+        },
+        "BARO": {
+          "display_name": "气压计",
+          "description": "气压计传感器参数。"
+        },
+        "BATTA": {
+          "display_name": "电池 A",
+          "description": "辅助电池 A 监测参数。"
+        },
+        "BATTB": {
+          "display_name": "电池 B",
+          "description": "辅助电池 B 监测参数。"
+        },
+        "BATTC": {
+          "display_name": "电池 C",
+          "description": "辅助电池 C 监测参数。"
+        },
+        "BATTD": {
+          "display_name": "电池 D",
+          "description": "辅助电池 D 监测参数。"
+        },
+        "BATTE": {
+          "display_name": "电池 E",
+          "description": "辅助电池 E 监测参数。"
+        },
+        "BATTF": {
+          "display_name": "电池 F",
+          "description": "辅助电池 F 监测参数。"
+        },
+        "BATTG": {
+          "display_name": "电池 G",
+          "description": "辅助电池 G 监测参数。"
+        },
+        "BRD": {
+          "display_name": "飞控板",
+          "description": "飞控板硬件设置。"
+        },
+        "BTAG": {
+          "display_name": "蓝牙标签",
+          "description": "蓝牙标签相关参数。"
+        },
+        "BTN": {
+          "display_name": "按键",
+          "description": "按键输入设置。"
+        },
+        "CAM": {
+          "display_name": "相机",
+          "description": "相机触发和云台参数。"
+        },
+        "CAN": {
+          "display_name": "CAN 总线",
+          "description": "CAN 总线和 DroneCAN 设置。"
+        },
+        "CFACT": {
+          "display_name": "CFACT",
+          "description": "CFACT 相关参数。"
+        },
+        "CGA": {
+          "display_name": "CGA",
+          "description": "CGA 相关参数。"
+        },
+        "CHUTE": {
+          "display_name": "降落伞",
+          "description": "固定翼降落伞释放参数。"
+        },
+        "CLIMB": {
+          "display_name": "爬升",
+          "description": "固定翼爬升参数。"
+        },
+        "CRASH": {
+          "display_name": "坠毁检测",
+          "description": "坠毁检测和应对参数。"
+        },
+        "CRUISE": {
+          "display_name": "巡航",
+          "description": "固定翼巡航模式参数。"
+        },
+        "CUST": {
+          "display_name": "自定义",
+          "description": "自定义参数。"
+        },
+        "DDS": {
+          "display_name": "DDS",
+          "description": "DDS 相关参数。"
+        },
+        "DID": {
+          "display_name": "DID",
+          "description": "DID 相关参数。"
+        },
+        "DIST": {
+          "display_name": "距离",
+          "description": "距离相关参数。"
+        },
+        "DJIR": {
+          "display_name": "DJI 遥控器",
+          "description": "DJI 遥控器参数。"
+        },
+        "DR": {
+          "display_name": "DR",
+          "description": "DR 相关参数。"
+        },
+        "DSPOILER": {
+          "display_name": "差动扰流板",
+          "description": "差动扰流板参数。"
+        },
+        "DSPOILR": {
+          "display_name": "扰流板",
+          "description": "扰流板相关参数。"
+        },
+        "EAHRS": {
+          "display_name": "EAHRS",
+          "description": "外部航姿参考系统参数。"
+        },
+        "EFI": {
+          "display_name": "电喷",
+          "description": "电子燃油喷射遥测参数。"
+        },
+        "EK": {
+          "display_name": "EKF",
+          "description": "扩展卡尔曼滤波器设置。"
+        },
+        "ENABLE": {
+          "display_name": "启用",
+          "description": "启用相关参数。"
+        },
+        "ESC": {
+          "display_name": "电调",
+          "description": "电调遥测和校准参数。"
+        },
+        "ESRC": {
+          "display_name": "ESRC",
+          "description": "ESRC 相关参数。"
+        },
+        "FBWB": {
+          "display_name": "FBW-B 模式",
+          "description": "FBW-B 飞行模式参数。"
+        },
+        "FFT": {
+          "display_name": "FFT",
+          "description": "动态陷波滤波器和 FFT 设置。"
+        },
+        "FILT": {
+          "display_name": "滤波",
+          "description": "滤波器相关参数。"
+        },
+        "FLAP": {
+          "display_name": "襟翼",
+          "description": "固定翼襟翼参数。"
+        },
+        "FLIGHT": {
+          "display_name": "飞行",
+          "description": "飞行相关参数。"
+        },
+        "FLOW": {
+          "display_name": "光流",
+          "description": "光流传感器参数。"
+        },
+        "FOLL": {
+          "display_name": "跟随",
+          "description": "跟随模式参数。"
+        },
+        "FOLLP": {
+          "display_name": "跟随目标",
+          "description": "跟随模式目标参数。"
+        },
+        "FOLT": {
+          "display_name": "跟随遥测",
+          "description": "跟随模式遥测参数。"
+        },
+        "FORMAT": {
+          "display_name": "格式化",
+          "description": "格式化相关参数。"
+        },
+        "FRSKY": {
+          "display_name": "FrSky",
+          "description": "FrSky 遥测协议参数。"
+        },
+        "FWD": {
+          "display_name": "前飞",
+          "description": "固定翼前飞相关参数。"
+        },
+        "GCS": {
+          "display_name": "地面站",
+          "description": "地面站连接行为参数。"
+        },
+        "GEN": {
+          "display_name": "通用",
+          "description": "通用参数。"
+        },
+        "GRIP": {
+          "display_name": "夹爪",
+          "description": "夹爪控制参数。"
+        },
+        "GROUND": {
+          "display_name": "地面",
+          "description": "固定翼地面相关参数。"
+        },
+        "GUIDED": {
+          "display_name": "引导模式",
+          "description": "引导模式参数。"
+        },
+        "HOME": {
+          "display_name": "Home 点",
+          "description": "Home 点相关参数。"
+        },
+        "ICE": {
+          "display_name": "内燃机",
+          "description": "内燃机 (ICE) 控制参数。"
+        },
+        "INITIAL": {
+          "display_name": "初始",
+          "description": "初始相关参数。"
+        },
+        "INS": {
+          "display_name": "惯性导航",
+          "description": "IMU 和惯性传感器设置。"
+        },
+        "KDE": {
+          "display_name": "KDE",
+          "description": "KDE 相关参数。"
+        },
+        "KFF": {
+          "display_name": "前馈",
+          "description": "前馈 (Feedforward) 控制参数。"
+        },
+        "LAND": {
+          "display_name": "降落",
+          "description": "固定翼降落行为参数。"
+        },
+        "LEVEL": {
+          "display_name": "水平校准",
+          "description": "水平校准参数。"
+        },
+        "LGR": {
+          "display_name": "LGR",
+          "description": "LGR 相关参数。"
+        },
+        "LOG": {
+          "display_name": "日志",
+          "description": "板载日志记录设置。"
+        },
+        "LTE": {
+          "display_name": "LTE",
+          "description": "LTE 通信链路参数。"
+        },
+        "MAN": {
+          "display_name": "手动",
+          "description": "手动相关参数。"
+        },
+        "MANUAL": {
+          "display_name": "手动模式",
+          "description": "手动模式参数。"
+        },
+        "MAV": {
+          "display_name": "MAVLink",
+          "description": "MAVLink 遥测流速率设置。"
+        },
+        "MIN": {
+          "display_name": "最小",
+          "description": "最小相关参数。"
+        },
+        "MIS": {
+          "display_name": "任务",
+          "description": "任务指令行为参数。"
+        },
+        "MIXING": {
+          "display_name": "混控",
+          "description": "固定翼混控参数。"
+        },
+        "MNT": {
+          "display_name": "云台",
+          "description": "相机云台和万向节设置。"
+        },
+        "MODE": {
+          "display_name": "模式",
+          "description": "模式相关参数。"
+        },
+        "MSP": {
+          "display_name": "MSP",
+          "description": "MSP 协议参数。"
+        },
+        "NAVL": {
+          "display_name": "导航",
+          "description": "导航相关参数。"
+        },
+        "NET": {
+          "display_name": "网络",
+          "description": "网络传输设置。"
+        },
+        "NMEA": {
+          "display_name": "NMEA",
+          "description": "NMEA 协议参数。"
+        },
+        "NTF": {
+          "display_name": "通知",
+          "description": "蜂鸣器和 LED 通知设置。"
+        },
+        "ONESHOT": {
+          "display_name": "OneShot",
+          "description": "OneShot 协议参数。"
+        },
+        "OSD": {
+          "display_name": "OSD",
+          "description": "屏幕显示设置。"
+        },
+        "OVERRIDE": {
+          "display_name": "超控",
+          "description": "遥控超控参数。"
+        },
+        "PARAM": {
+          "display_name": "参数",
+          "description": "参数相关设置。"
+        },
+        "PLND": {
+          "display_name": "精确降落",
+          "description": "精确降落参数。"
+        },
+        "POI": {
+          "display_name": "兴趣点",
+          "description": "兴趣点相关参数。"
+        },
+        "PORT": {
+          "display_name": "端口",
+          "description": "端口相关参数。"
+        },
+        "PREV": {
+          "display_name": "PREV",
+          "description": "PREV 相关参数。"
+        },
+        "PTCH": {
+          "display_name": "俯仰",
+          "description": "俯仰相关参数。"
+        },
+        "PTCH2SRV": {
+          "display_name": "俯仰到舵面",
+          "description": "俯仰到舵面 (Pitch-to-Servo) 参数。"
+        },
+        "PUP": {
+          "display_name": "PUP",
+          "description": "PUP 相关参数。"
+        },
+        "Q": {
+          "display_name": "QuadPlane / VTOL",
+          "description": "固定翼垂直起降和 QuadPlane 参数。"
+        },
+        "QUIK": {
+          "display_name": "QUIK",
+          "description": "QUIK 相关参数。"
+        },
+        "QWIK": {
+          "display_name": "QWIK",
+          "description": "QWIK 相关参数。"
+        },
+        "RALLY": {
+          "display_name": "集结点",
+          "description": "集结点参数。"
+        },
+        "RCK": {
+          "display_name": "RCK",
+          "description": "RCK 相关参数。"
+        },
+        "RCMAP": {
+          "display_name": "遥控映射",
+          "description": "遥控通道功能映射参数。"
+        },
+        "RELAY": {
+          "display_name": "继电器",
+          "description": "继电器输出设置。"
+        },
+        "RK": {
+          "display_name": "RK",
+          "description": "RK 相关参数。"
+        },
+        "RLL": {
+          "display_name": "横滚",
+          "description": "横滚相关参数。"
+        },
+        "RLL2SRV": {
+          "display_name": "横滚到舵面",
+          "description": "横滚到舵面 (Roll-to-Servo) 参数。"
+        },
+        "RNGFND": {
+          "display_name": "测距仪",
+          "description": "测距仪传感器设置。"
+        },
+        "RNGFNDA": {
+          "display_name": "测距仪 A",
+          "description": "辅助测距仪 A 参数。"
+        },
+        "ROLL": {
+          "display_name": "横滚",
+          "description": "横滚相关参数。"
+        },
+        "RPM": {
+          "display_name": "转速",
+          "description": "转速传感器参数。"
+        },
+        "RSSI": {
+          "display_name": "信号强度",
+          "description": "无线电信号强度设置。"
+        },
+        "RTUN": {
+          "display_name": "RTUN",
+          "description": "RTUN 相关参数。"
+        },
+        "RUDD": {
+          "display_name": "方向舵",
+          "description": "方向舵相关参数。"
+        },
+        "RUDDER": {
+          "display_name": "方向舵",
+          "description": "方向舵相关参数。"
+        },
+        "SCALING": {
+          "display_name": "缩放",
+          "description": "缩放相关参数。"
+        },
+        "SCHED": {
+          "display_name": "调度器",
+          "description": "调度器和循环时序设置。"
+        },
+        "SCR": {
+          "display_name": "脚本",
+          "description": "Lua 脚本设置。"
+        },
+        "SHIP": {
+          "display_name": "船舶",
+          "description": "船舶相关参数。"
+        },
+        "SID": {
+          "display_name": "SID",
+          "description": "SID 相关参数。"
+        },
+        "SIM": {
+          "display_name": "仿真",
+          "description": "仿真和 SITL 设置。"
+        },
+        "SLUP": {
+          "display_name": "SLUP",
+          "description": "SLUP 相关参数。"
+        },
+        "SOAR": {
+          "display_name": "翱翔",
+          "description": "固定翼翱翔 (Soaring) 模式参数。"
+        },
+        "STAB": {
+          "display_name": "增稳",
+          "description": "增稳 (Stabilize) 模式参数。"
+        },
+        "STALL": {
+          "display_name": "失速",
+          "description": "固定翼失速保护参数。"
+        },
+        "STAT": {
+          "display_name": "统计",
+          "description": "飞行统计参数。"
+        },
+        "STEER2SRV": {
+          "display_name": "转向到舵面",
+          "description": "转向到舵面 (Steer-to-Servo) 参数。"
+        },
+        "STICK": {
+          "display_name": "摇杆",
+          "description": "摇杆曲线参数。"
+        },
+        "TA": {
+          "display_name": "TA",
+          "description": "TA 相关参数。"
+        },
+        "TECS": {
+          "display_name": "TECS",
+          "description": "总能量控制系统 (TECS) 调参。"
+        },
+        "TEMP": {
+          "display_name": "温度",
+          "description": "温度传感器参数。"
+        },
+        "TERR": {
+          "display_name": "TERR",
+          "description": "TERR 相关参数。"
+        },
+        "TERRAIN": {
+          "display_name": "地形",
+          "description": "地形数据库行为参数。"
+        },
+        "THR": {
+          "display_name": "油门",
+          "description": "油门相关参数。"
+        },
+        "THROTTLE": {
+          "display_name": "油门",
+          "description": "固定翼油门参数。"
+        },
+        "TKOFF": {
+          "display_name": "起飞",
+          "description": "固定翼起飞行为和限制参数。"
+        },
+        "TOFSENSE": {
+          "display_name": "TOF 传感器",
+          "description": "TOF 传感器参数。"
+        },
+        "TRIK": {
+          "display_name": "TRIK",
+          "description": "TRIK 相关参数。"
+        },
+        "TRIM": {
+          "display_name": "配平",
+          "description": "固定翼配平参数。"
+        },
+        "TRQL": {
+          "display_name": "TRQL",
+          "description": "TRQL 相关参数。"
+        },
+        "TUNE": {
+          "display_name": "调参",
+          "description": "空中调参设置。"
+        },
+        "UM": {
+          "display_name": "UM",
+          "description": "UM 相关参数。"
+        },
+        "USE": {
+          "display_name": "USE",
+          "description": "USE 相关参数。"
+        },
+        "VID": {
+          "display_name": "视频",
+          "description": "视频相关参数。"
+        },
+        "VISO": {
+          "display_name": "视觉里程计",
+          "description": "视觉里程计参数。"
+        },
+        "VTX": {
+          "display_name": "图传",
+          "description": "VTX 图传参数。"
+        },
+        "WEB": {
+          "display_name": "Web",
+          "description": "Web 相关参数。"
+        },
+        "WINCH": {
+          "display_name": "绞盘",
+          "description": "绞盘控制参数。"
+        },
+        "WP": {
+          "display_name": "航点",
+          "description": "固定翼航点行为参数。"
+        },
+        "YAW": {
+          "display_name": "偏航",
+          "description": "偏航相关参数。"
+        },
+        "YAW2SRV": {
+          "display_name": "偏航到舵面",
+          "description": "偏航到舵面 (Yaw-to-Servo) 参数。"
+        }
+      }
+    },
+    "vtol": {
+      "groups": {
+        "Q": {
+          "display_name": "QuadPlane / VTOL",
+          "description": "固定翼垂直起降和 QuadPlane 相关参数。",
+          "params": {
+            "Q_ENABLE": {
+              "display_name": "启用 QuadPlane",
+              "description": "启用 QuadPlane 功能。默认假设多旋翼电机从输出 5 开始。如果设为 2，进入 AUTO 模式时会先进入 VTOL AUTO。",
+              "options": {
+                "0": {
+                  "label": "禁用"
+                },
+                "1": {
+                  "label": "启用"
+                },
+                "2": {
+                  "label": "启用 VTOL AUTO"
+                }
+              }
+            },
+            "Q_ASSIST_SPEED": {
+              "display_name": "VTOL 辅助速度",
+              "description": "固定翼速度低于该阈值时，可触发 VTOL 动力辅助。设为 0 可关闭速度触发辅助。"
+            },
+            "Q_ASSIST_ALT": {
+              "display_name": "VTOL 辅助高度",
+              "description": "低于该高度时，可触发 VTOL 动力辅助。设为 0 可关闭高度触发辅助。"
+            }
+          }
+        }
+      }
+    }
+  }
+}

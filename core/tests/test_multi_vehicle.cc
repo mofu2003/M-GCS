@@ -1,0 +1,192 @@
+/**
+ * test_multi_vehicle.cc - Unit tests for MultiVehicleManager
+ *
+ * Tests: open/close vehicle lifecycle, active vehicle switching,
+ *        auto-discovery via heartbeat, concurrent access
+ * Uses InMemoryLink for testing without hardware.
+ */
+#include "core/vehicle/multi_vehicle_manager.h"
+#include "core/transport/in_memory_link.h"
+#include "core/transport/connection_manager.h"
+#include "core/platform/platform_mutex.h"
+#include "common/mavlink.h"
+#include <cstdio>
+#include <string>
+#include <thread>
+#include <vector>
+#include <atomic>
+
+static int g_pass = 0;
+static int g_fail = 0;
+
+#define CHECK(cond, msg) do { \
+    if (cond) { g_pass++; fprintf(stderr, "  [PASS] %s\n", msg); } \
+    else { g_fail++; fprintf(stderr, "  [FAIL] %s\n", msg); } \
+} while(0)
+
+int main() {
+    fprintf(stderr, "=== MultiVehicleManager Unit Tests ===\n\n");
+
+    // 1. Construction
+    {
+        fprintf(stderr, "[Group] Construction\n");
+        mg::core::vehicle::MultiVehicleManager mgr;
+        CHECK(mgr.vehicle_count() == 0, "initial vehicle count is 0");
+        CHECK(mgr.active_vehicle() == nullptr, "no active vehicle initially");
+    }
+
+    // 2. Direct vehicle creation and lifecycle
+    {
+        fprintf(stderr, "[Group] Direct Vehicle lifecycle\n");
+        mg::core::vehicle::MultiVehicleManager mgr;
+
+        // Manually create a vehicle with InMemoryLink
+        mg::core::transport::LinkDescriptor desc;
+        desc.id = "test";
+        desc.type = "in_memory";
+        desc.endpoint = "test://mock";
+
+        auto link = std::make_unique<mg::core::transport::InMemoryLink>();
+        auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
+
+        auto vehicle = std::make_unique<mg::core::vehicle::Vehicle>(0);
+        vehicle->conn().wire_for_test(std::move(link), std::move(mav));
+        vehicle->set_identity(1, 1, "ArduPilot", "Copter");
+
+        CHECK(vehicle->system_id() == 1, "vehicle system_id is 1");
+        CHECK(vehicle->vehicle_id() == 0, "vehicle_id is 0");
+        CHECK(vehicle->is_connected() == false, "not connected (no heartbeat yet)");
+
+        // Note: record_heartbeat changes ConnectionManager state, not Vehicle state
+        // Vehicle state is set by wire_telemetry_callbacks which needs a real link
+        CHECK(vehicle->state() == mg::core::vehicle::VehicleState::Disconnected,
+              "vehicle state remains Disconnected without full wire-up");
+    }
+
+    // 3. Multi-vehicle isolation
+    {
+        fprintf(stderr, "[Group] Multi-vehicle cache isolation\n");
+        mg::core::vehicle::Vehicle v1(1);
+        mg::core::vehicle::Vehicle v2(2);
+
+        v1.set_identity(1, 1, "ArduPilot", "Copter");
+        v2.set_identity(2, 1, "PX4", "Copter");
+
+        // Each vehicle has its own cache
+        v1.cache().gps.data.lat = 39.9f;
+        v2.cache().gps.data.lat = 31.2f;
+
+        v1.cache().gps.data.lat = 399042000;  // 39.9042 deg * 1e7
+        v2.cache().gps.data.lat = 312000000;  // 31.2 deg * 1e7
+        CHECK(v1.cache().gps.data.lat == 399042000, "vehicle 1 GPS lat preserved (int32)");
+        CHECK(v2.cache().gps.data.lat == 312000000, "vehicle 2 GPS lat preserved (int32)");
+
+        // Each vehicle has its own subsystems
+        CHECK(&v1.calibration() != &v2.calibration(), "different CalibrationService instances");
+        CHECK(&v1.flight_modes() != &v2.flight_modes(), "different FlightModeManager instances");
+        CHECK(&v1.geofence() != &v2.geofence(), "different GeofenceManager instances");
+    }
+
+    // 4. Concurrent vehicle access
+    {
+        fprintf(stderr, "[Group] Concurrent vehicle access\n");
+        mg::core::vehicle::MultiVehicleManager mgr;
+        std::atomic<int> count{0};
+
+        // Simulate concurrent heartbeat processing
+        auto worker = [&](int id) {
+            mg::core::vehicle::Vehicle v(id);
+            v.set_identity(static_cast<uint8_t>(id), 1, "AP", "Copter");
+            v.cache().attitude.data.roll = (float)id;
+            count++;
+        };
+
+        std::vector<std::thread> threads;
+        for (int i = 1; i <= 8; i++) threads.emplace_back(worker, i);
+        for (auto& t : threads) t.join();
+
+        CHECK(count.load() == 8, "8 concurrent vehicle creations succeeded");
+    }
+
+    // 5. Vehicle state machine
+    {
+        fprintf(stderr, "[Group] Vehicle state transitions\n");
+        mg::core::vehicle::Vehicle v(0);
+        CHECK(v.state() == mg::core::vehicle::VehicleState::Disconnected,
+              "initial state is Disconnected");
+    }
+
+    // 6. Subsystem per-vehicle independence
+    {
+        fprintf(stderr, "[Group] Per-vehicle subsystem independence\n");
+        mg::core::vehicle::Vehicle v1(1);
+        mg::core::vehicle::Vehicle v2(2);
+
+        // Modify one vehicle's subsystem data
+        // CalibrationService uses its own mutex, so modifications don't cross
+        CHECK(&v1.ring_buffer() != &v2.ring_buffer(), "different ring buffer instances");
+        CHECK(&v1.sensor_decoder() != &v2.sensor_decoder(), "different sensor decoder instances");
+        CHECK(&v1.mavlink_log() != &v2.mavlink_log(), "different mavlink log instances");
+    }
+
+    // 7. Lightweight telemetry bootstrap after heartbeat identity
+    {
+        fprintf(stderr, "[Group] Telemetry bootstrap\n");
+
+        auto link = std::make_unique<mg::core::transport::InMemoryLink>();
+        link->open();
+        auto* raw_link = link.get();
+        auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
+
+        auto vehicle = std::make_shared<mg::core::vehicle::Vehicle>(7);
+        vehicle->conn().wire_for_test(std::move(link), std::move(mav));
+        vehicle->wire_telemetry_callbacks();
+
+        mavlink_message_t hb{};
+        mavlink_msg_heartbeat_pack(
+            1,
+            1,
+            &hb,
+            MAV_TYPE_QUADROTOR,
+            MAV_AUTOPILOT_ARDUPILOTMEGA,
+            MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+            0,
+            MAV_STATE_STANDBY);
+        uint8_t hb_buf[MAVLINK_MAX_PACKET_LEN]{};
+        const uint16_t hb_len = mavlink_msg_to_send_buffer(hb_buf, &hb);
+        raw_link->inject_incoming(hb_buf, hb_len);
+
+        auto outgoing = raw_link->take_outgoing();
+        bool requested_attitude = false;
+        bool requested_vfr_hud = false;
+        bool requested_servo_output = false;
+        bool requested_rc_channels = false;
+
+        mavlink_message_t msg{};
+        mavlink_status_t status{};
+        for (uint8_t byte : outgoing) {
+            if (!mavlink_parse_char(MAVLINK_COMM_0, byte, &msg, &status)) continue;
+            if (msg.msgid != MAVLINK_MSG_ID_COMMAND_LONG) continue;
+
+            mavlink_command_long_t cmd{};
+            mavlink_msg_command_long_decode(&msg, &cmd);
+            if (cmd.command != MAV_CMD_SET_MESSAGE_INTERVAL) continue;
+
+            const int requested_msg_id = static_cast<int>(cmd.param1);
+            if (requested_msg_id == MAVLINK_MSG_ID_ATTITUDE) requested_attitude = true;
+            if (requested_msg_id == MAVLINK_MSG_ID_VFR_HUD) requested_vfr_hud = true;
+            if (requested_msg_id == MAVLINK_MSG_ID_SERVO_OUTPUT_RAW) requested_servo_output = true;
+            if (requested_msg_id == MAVLINK_MSG_ID_RC_CHANNELS) requested_rc_channels = true;
+        }
+
+        CHECK(requested_attitude, "heartbeat identity requests ATTITUDE stream");
+        CHECK(requested_vfr_hud, "heartbeat identity requests VFR_HUD stream");
+        CHECK(requested_servo_output, "heartbeat identity requests SERVO_OUTPUT_RAW stream");
+        CHECK(requested_rc_channels, "heartbeat identity requests RC_CHANNELS stream");
+        CHECK(vehicle->state() == mg::core::vehicle::VehicleState::Connected,
+              "heartbeat identity marks vehicle Connected");
+    }
+
+    fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
+    return g_fail;
+}
