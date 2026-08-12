@@ -11,7 +11,7 @@ M-GCS 是面向 ArduPilot / PX4 生态的跨平台地面站，由 C++ 后端核�
 - 前端已接入真实串口连接、遥测、参数同步与参数读写；UDP、TCP 和蓝牙目前仍未接入 Dart 应用层。
 - macOS 已完成真实 ArduPilot Copter 的只读连接验证；危险写操作不属于默认验收范围。
 - 当前仓库未包含 MAVLink C 生成头；首次构建前需要按开发指南生成 `third_party/mavlink/include/mavlink/v2.0`。
-- Android 和 iOS 尚未恢复平台工程。macOS/Windows 桌面工程会在构建时嵌入 native library，Windows 最终包仍待真实环境验证。
+- Android 和 iOS 尚未恢复平台工程。macOS/Windows 桌面工程会在构建时嵌入 native library；Windows Release 包由 CI 持续构建，真实串口和飞控仍需单独验收。
 
 详细完成度和已知边界见 [项目状态](docs/PROJECT_STATUS.md)。
 

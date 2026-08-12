@@ -94,6 +94,15 @@ endif()
 install(FILES "${MGCORE_DLL}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
+set(MGCORE_DATA_FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../core/src/transport/USBBoardInfo.json"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../core/src/sensor/SensorDeviceInfo.json"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../core/src/config/ParameterDescriptors.json"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../core/src/config/ParameterTranslations.zh-CN.json"
+)
+install(FILES ${MGCORE_DATA_FILES} DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"

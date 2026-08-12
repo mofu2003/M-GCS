@@ -160,8 +160,10 @@ flutter build windows
 powershell -ExecutionPolicy Bypass -File .\tools\build-desktop-windows.ps1
 ```
 
-脚本从 `PATH` 查找 Flutter，也可以通过 `FLUTTER_BIN` 指向 Flutter 可执行文件；
-通过 `MGCORE_BUILD_DIR` 覆盖后端 CMake 构建目录。
+Windows 脚本会通过 `tools/generate-mavlink.ps1` 自动创建 `.venv`、安装固定版本
+`pymavlink 2.4.49`、生成 MAVLink C 头，再编译 `mgcore.dll` 和 Flutter 桌面应用。
+脚本从 `PATH` 查找 Python、CMake 和 Flutter，也可以通过 `PYTHON_BIN`、
+`FLUTTER_BIN` 指向可执行文件；通过 `MGCORE_BUILD_DIR` 覆盖后端 CMake 构建目录。
 
 Android/iOS 尚未启用。恢复平台工程时，平台目录只承载权限、打包、签名和 native adapter，不复制业务页面。
 
@@ -171,7 +173,7 @@ Dart FFI 依次检查：
 
 1. `MGCORE_LIBRARY_PATH`。
 2. 应用包或可执行文件附近的库。
-3. 当前目录附近的 `build/mgcore.dylib` 或 `build/mgcore.dll`。
+3. 当前目录附近的 `build/mgcore.dylib`、`build/mgcore.dll` 或 Linux `mgcore.so`。
 
 找不到库时应用进入不可用状态，不会自动使用演示数据。`DemoConnectionSessionBackend` 只用于测试。
 

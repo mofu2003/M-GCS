@@ -71,3 +71,37 @@ jobs:
       env:
         MGCORE_LIBRARY_PATH: ${{ github.workspace }}/build/mgcore.so
       run: flutter --no-version-check test
+
+  windows-desktop:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.44.7'
+        channel: stable
+        cache: true
+
+    - name: 构建 Windows 桌面应用
+      shell: pwsh
+      run: .\tools\build-desktop-windows.ps1
+
+    - name: 检查 Windows 发布产物
+      shell: pwsh
+      run: |
+        $release = Join-Path $env:GITHUB_WORKSPACE "app\build\windows\x64\runner\Release"
+        if (-not (Test-Path (Join-Path $release "mgcs.exe"))) { throw "mgcs.exe missing" }
+        if (-not (Test-Path (Join-Path $release "mgcore.dll"))) { throw "mgcore.dll missing" }
+        @(
+          "USBBoardInfo.json",
+          "SensorDeviceInfo.json",
+          "ParameterDescriptors.json",
+          "ParameterTranslations.zh-CN.json"
+        ) | ForEach-Object {
+          if (-not (Test-Path (Join-Path $release $_))) { throw "$_ missing" }
+        }

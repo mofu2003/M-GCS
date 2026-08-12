@@ -350,6 +350,7 @@ bool SerialPortDiscovery::load_json_data() {
     // The JSON file lives at core/src/transport/USBBoardInfo.json in the source tree.
     // At runtime the working directory may be build/, project root, or elsewhere.
     std::vector<std::string> search_paths = {
+        mg::core::platform::find_data_file("USBBoardInfo.json"),
         mg::core::platform::get_module_directory() +
             "../Resources/USBBoardInfo.json",             // macOS app bundle
         "USBBoardInfo.json",                              // next to executable (build/)

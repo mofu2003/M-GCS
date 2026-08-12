@@ -31,10 +31,10 @@ lib/
 MgCore 按以下顺序查找：
 
 1. `MGCORE_LIBRARY_PATH` 环境变量。
-2. 应用包或可执行文件附近的 `mgcore.dylib` / `mgcore.dll`。
+2. 应用包或可执行文件附近的 `mgcore.dylib` / `mgcore.dll` / `mgcore.so`。
 3. 当前目录附近的后端 `build/` 输出。
 
-找不到库或缺少所需符号时，应用进入 `MgCore 不可用` 状态。macOS Xcode phase 与 Windows CMake install 会在桌面构建时嵌入 native library；Windows 最终包仍需在真实环境验收。
+找不到库或缺少所需符号时，应用进入 `MgCore 不可用` 状态。macOS Xcode phase 与 Windows CMake install 会在桌面构建时嵌入 native library。GitHub Actions 会在 Windows runner 上构建 Release 桌面包并检查 `mgcs.exe` 与 `mgcore.dll`；真实串口和飞控行为仍需在 Windows 机器上单独验收。
 
 ## 验证
 
@@ -46,6 +46,6 @@ flutter --no-version-check test
 flutter --no-version-check build macos
 ```
 
-Windows 构建必须在 Windows 机器上验证。重新启用 Android/iOS 后，还需要补齐 native library 打包、权限、文件系统、USB/串口和签名适配。
+Windows Release 包由 CI 在 Windows runner 上持续验证。重新启用 Android/iOS 后，还需要补齐 native library 打包、权限、文件系统、USB/串口和签名适配。
 
 地图、皮肤和商业授权约束见 [前端组件说明](../docs/FRONTEND_COMPONENTS.md) 与 [开发约束](../docs/CONSTRAINTS.md)。
