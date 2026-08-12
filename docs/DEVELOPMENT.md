@@ -25,20 +25,49 @@ CAD 的创建、编辑、校验和编译不得接触真实飞控。只有把已�
 
 ## 后端构建
 
+### Docker 开发环境（推荐用于 Windows 迁移）
+
+Docker 环境用于统一 Linux 下的 C++ 后端、MAVLink 头生成和 Flutter
+静态检查/测试。源码通过卷挂载；Python/MAVLink 虚拟环境和 Flutter 下载缓存
+使用 Docker named volume，避免在宿主机安装这些依赖。`build_docker/` 和
+`app/.dart_tool/` 是被忽略的本地生成物。
+
+```bash
+./tools/docker-dev.sh check
+```
+
+常用命令：
+
+```bash
+./tools/docker-dev.sh shell             # 进入开发容器
+./tools/docker-dev.sh configure         # 生成 MAVLink 头并配置 CMake
+./tools/docker-dev.sh build             # 编译 MgCore
+./tools/docker-dev.sh test              # 后端 offline/simulation 门禁
+./tools/docker-dev.sh flutter-analyze   # Flutter 静态分析
+./tools/docker-dev.sh flutter-test      # Flutter 测试
+```
+
+Windows 安装 Docker Desktop 后，在 PowerShell 中执行等价命令：
+
+```powershell
+.\tools\docker-dev.ps1 check
+```
+
+Compose 固定使用 `linux/amd64` 开发镜像，保证 Flutter Linux SDK 在 Intel
+Windows、Intel Mac 和 Apple Silicon Mac 上使用同一套容器产物；Apple Silicon
+会通过 Docker Desktop 的架构模拟运行，首次构建速度会慢一些。
+
+容器不能生成 macOS `.app`，也不能替代 Windows 原生 Flutter 打包环境。
+macOS 和 Windows 发布包仍分别使用 Xcode/macOS 或 Visual Studio/Windows
+构建；Docker 负责把共享的后端和前端逻辑先验证一致。
+
 仓库包含 MAVLink XML 定义，但没有提交生成后的 C 头。首次构建前创建本地 Python 环境，安装已验证的 `pymavlink 2.4.49`，并生成 `common` dialect：
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install "pymavlink==2.4.49"
-.venv/bin/mavgen.py \
-  --no-validate \
-  --lang=C \
-  --wire-protocol=2.0 \
-  --output=third_party/mavlink/include/mavlink/v2.0 \
-  third_party/mavlink/message_definitions/v1.0/common.xml
+./tools/generate-mavlink.sh
 ```
 
-`--no-validate` 是必需参数：当前 XML 使用了新版枚举标记，`pymavlink 2.4.49` 的严格校验会拒绝它。生成目录和 `.venv/` 均为本地生成物，不提交。
+脚本固定使用 `pymavlink 2.4.49` 和 `--no-validate`；当前 XML 使用了新版枚举标记，旧版严格校验会拒绝它。生成目录和 `.venv/` 均为本地生成物，不提交。Docker 使用独立 named volume 保存生成头，不会污染宿主源码树。
 
 生成完成后执行：
 

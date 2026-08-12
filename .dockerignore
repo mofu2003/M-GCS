@@ -1,0 +1,7 @@
+# The image only needs the entrypoint. Source is mounted at runtime by
+# docker-compose, which keeps image builds fast and prevents local artifacts
+# from being copied into the image layer.
+*
+!Dockerfile
+!docker/
+!docker/entrypoint.sh

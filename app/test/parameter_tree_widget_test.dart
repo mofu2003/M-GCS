@@ -770,7 +770,7 @@ void main() {
     await tester.tap(find.text('开始').last);
     await tester.pumpAndSettle();
     expect(backend.starts.last.$1, SensorCalibrationType.airspeed);
-    expect(find.text('校准命令已发送'), findsOneWidget);
+    expect(find.text('已发送'), findsOneWidget);
   });
 
   testWidgets(
@@ -807,15 +807,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('安全设置'), findsOneWidget);
-      expect(find.text('电子围栏 Fence'), findsOneWidget);
-      expect(find.text('解锁检查 Arming'), findsOneWidget);
-      expect(find.text('电量检测 Battery'), findsOneWidget);
+      expect(find.text('电子围栏'), findsWidgets);
+      expect(find.text('解锁检查'), findsOneWidget);
+      expect(find.text('电池检查'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('mg-safety-fence-alt-max')),
         findsOneWidget,
       );
-      expect(find.text('低电保护动作').first, findsOneWidget);
-
       await tester.tap(find.byType(cupertino.CupertinoSwitch).first);
       await tester.pumpAndSettle();
       expect(backend.writes.single, ('FENCE_ENABLE', 1));
@@ -829,6 +827,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(backend.writes.last, ('FENCE_ALT_MAX', 121));
 
+      await tester.tap(find.text('电池检查'));
+      await tester.pumpAndSettle();
       expect(find.text('低电保护动作'), findsOneWidget);
       expect(parameterController.stagedChanges, isEmpty);
     },

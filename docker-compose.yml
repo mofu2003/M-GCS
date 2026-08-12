@@ -1,0 +1,26 @@
+services:
+  mgcs-dev:
+    platform: linux/amd64
+    build:
+      context: .
+      args:
+        FLUTTER_VERSION: ${FLUTTER_VERSION:-3.44.7}
+    image: mgcs-dev:local
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - mgcs-pub-cache:/opt/flutter/.pub-cache
+      - mgcs-pip-cache:/root/.cache/pip
+      - mgcs-python-venv:/opt/mgcs-venv
+      - mgcs-mavlink-headers:/opt/mgcs-mavlink
+    environment:
+      PUB_CACHE: /opt/flutter/.pub-cache
+      MGCORE_BUILD_DIR: /workspace/build_docker
+    stdin_open: true
+    tty: true
+
+volumes:
+  mgcs-pub-cache:
+  mgcs-pip-cache:
+  mgcs-python-venv:
+  mgcs-mavlink-headers:

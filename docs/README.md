@@ -11,11 +11,12 @@
 5. [前端组件](FRONTEND_COMPONENTS.md)：前端依赖、地图和设计系统边界。
 6. [开发约束](CONSTRAINTS.md)：安全、FFI、商业授权和仓库规则。
 7. [Mission CAD 初步设计](MISSION_CAD.md)：前端无关的参数化航线模型、编译边界和实施分期。
-8. [全仓结构审阅报告](PROJECT_REVIEW.md)：当前架构、能力覆盖、风险与推进建议。
+8. [全局代码优化报告](PROJECT_REVIEW.md)：当前架构、能力覆盖、风险与推进建议。
 9. [网页结构审阅报告](PROJECT_REVIEW.html)：可直接在浏览器查看的报告版本。
 10. [故障排查](TROUBLESHOOTING.md)：当前可复用的排障路径。
 11. [编码规范](ENCODING.md)：UTF-8、LF 和 Windows 终端设置。
 12. [ADR](adr/)：已经采纳的长期架构决策。
+13. [更新日志](../CHANGELOG.md)：版本发布内容与迁移说明。
 
 ## ADR
 

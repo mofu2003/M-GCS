@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(mgcore VERSION 0.0.1 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
+project(mgcore VERSION 0.0.2 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -83,7 +83,9 @@ endif()
 
 # Third-party paths
 set(MGCORE_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(MAVLINK_INCLUDE_DIR ${MGCORE_ROOT_DIR}/third_party/mavlink/include/mavlink/v2.0)
+set(MAVLINK_INCLUDE_DIR
+    ${MGCORE_ROOT_DIR}/third_party/mavlink/include/mavlink/v2.0
+    CACHE PATH "Path to generated MAVLink v2 C headers")
 set(CJSON_INCLUDE_DIR   ${MGCORE_ROOT_DIR}/third_party/cjson)
 
 # All sources

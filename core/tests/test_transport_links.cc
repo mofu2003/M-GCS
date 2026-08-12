@@ -7,6 +7,7 @@
 #include "core/transport/tcp_link.h"
 #include "core/transport/udp_link.h"
 #include "core/transport/serial_link.h"
+#include "core/platform/platform_socket.h"
 #include <cstdio>
 #include <cstring>
 
@@ -17,6 +18,35 @@ static int g_pass = 0, g_fail = 0;
 } while(0)
 
 using namespace mg::core::transport;
+
+static uint16_t reserve_udp_port() {
+    if (!mg::core::platform::socket_init()) return 0;
+    const mg_socket_t sock = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock == MG_INVALID_SOCKET) return 0;
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    if (::bind(sock, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == MG_SOCKET_ERR) {
+        mg::core::platform::socket_close(sock);
+        return 0;
+    }
+
+#ifdef _WIN32
+    int address_size = sizeof(address);
+#else
+    socklen_t address_size = sizeof(address);
+#endif
+    if (getsockname(sock, reinterpret_cast<sockaddr*>(&address), &address_size) == MG_SOCKET_ERR) {
+        mg::core::platform::socket_close(sock);
+        return 0;
+    }
+
+    const uint16_t port = ntohs(address.sin_port);
+    mg::core::platform::socket_close(sock);
+    return port;
+}
 
 static void test_tcp_link() {
     fprintf(stderr, "\n[Group] TCP Link\n");
@@ -50,9 +80,15 @@ static void test_udp_link() {
 
     // 创建 UDP link
     LinkDescriptor desc;
-    desc.id = "udp://127.0.0.1:14550";
+    const uint16_t port = reserve_udp_port();
+    if (port == 0) {
+        fprintf(stderr, "  [SKIP] UDP bind unavailable in this environment\n");
+        return;
+    }
+    const std::string endpoint = "127.0.0.1:" + std::to_string(port);
+    desc.id = "udp://" + endpoint;
     desc.type = "udp";
-    desc.endpoint = "127.0.0.1:14550";
+    desc.endpoint = endpoint;
     UdpLink link(desc);
 
     CHECK(!link.is_open(), "UDP link starts closed");

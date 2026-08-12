@@ -163,13 +163,15 @@ static void test_config_uses_ardupilot_profile_metadata() {
     char* descriptor = mg_config_get_group_descriptor(env.core, "BATT");
     CHECK("BATT_MONITOR official display name",
           strstr(descriptor, "\"display_name\":\"电池监测器\"") != nullptr);
-    CHECK("BATT_MONITOR official enum option",
-          strstr(descriptor, "\"label\":\"模拟电压和电流\"") != nullptr);
+    CHECK("BATT_MONITOR bilingual enum option",
+          strstr(descriptor, "模拟电压和电流") != nullptr &&
+          strstr(descriptor, "Analog Voltage and Current") != nullptr);
     mg_free_string(descriptor);
 
     char* values = mg_config_read_group(env.core, "BATT");
-    CHECK("BATT_MONITOR live display value",
-          strstr(values, "\"display_value\":\"模拟电压和电流\"") != nullptr);
+    CHECK("BATT_MONITOR bilingual live display value",
+          strstr(values, "模拟电压和电流") != nullptr &&
+          strstr(values, "Analog Voltage and Current") != nullptr);
     mg_free_string(values);
 }
 

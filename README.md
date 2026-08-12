@@ -2,6 +2,8 @@
 
 M-GCS 是面向 ArduPilot / PX4 生态的跨平台地面站，由 C++ 后端核心、C FFI 桥接层和 Flutter 前端组成。
 
+当前版本：`0.0.2`
+
 ## 当前状态
 
 - C++17 后端和 C FFI bridge 包含 macOS、Windows、Linux 实现，并提供离线、模拟、硬件和手动测试分层。
@@ -29,6 +31,21 @@ M-GCS/
 ```
 
 ## 快速验证
+
+使用 Docker（macOS、Windows、Linux 均可）：
+
+```bash
+./tools/docker-dev.sh check
+```
+
+Windows PowerShell：
+
+```powershell
+.\tools\docker-dev.ps1 check
+```
+
+Docker 负责统一后端编译、MAVLink 生成和 Flutter analyze/test；桌面发布包
+仍需在对应原生系统构建。
 
 后端：
 
@@ -63,6 +80,7 @@ flutter --no-version-check build macos
 - [架构说明](docs/ARCHITECTURE.md)
 - [开发约束](docs/CONSTRAINTS.md)
 - [故障排查](docs/TROUBLESHOOTING.md)
+- [更新日志](CHANGELOG.md)
 - [ADR](docs/adr/)
 
 ## 许可证
