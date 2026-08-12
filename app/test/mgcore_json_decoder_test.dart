@@ -40,6 +40,39 @@ void main() {
     expect(parameters.single.count, 3);
   });
 
+  test('decodes parameter editor metadata and enum options', () {
+    final descriptor = MgCoreJsonDecoder().decodeParameterDescriptor({
+      'param_name': 'SERIAL1_PROTOCOL',
+      'display_name': '串口协议',
+      'description': '串口使用的协议',
+      'group': 'SERIAL',
+      'type': 'enum',
+      'found': true,
+      'requires_reboot': true,
+      'read_only': false,
+      'unit': '',
+      'category': 'Standard',
+      'min': -1,
+      'max': 50,
+      'increment': 1,
+      'options': [
+        {'value': -1, 'label': '无'},
+        {'value': 1, 'label': 'MAVLink1'},
+        {'value': 2, 'label': 'MAVLink2', 'description': '推荐'},
+      ],
+    });
+
+    expect(descriptor.type, 'enum');
+    expect(descriptor.requiresReboot, isTrue);
+    expect(descriptor.minValue, -1);
+    expect(descriptor.maxValue, 50);
+    expect(descriptor.increment, 1);
+    expect(descriptor.options, hasLength(3));
+    expect(descriptor.options.last.value, 2);
+    expect(descriptor.options.last.label, 'MAVLink2');
+    expect(descriptor.options.last.description, '推荐');
+  });
+
   test('prefers the detected board name for a serial port label', () {
     final decoder = MgCoreJsonDecoder();
 
@@ -151,5 +184,74 @@ void main() {
       firmwareVersion: const {},
     );
     expect(unavailable.remoteControlSignal.percent, isNull);
+  });
+
+  test('decodes all remote control input channels', () {
+    final snapshot = MgCoreJsonDecoder().decodeRemoteControlInputs({
+      'chancount': 16,
+      'channels': List<int>.generate(18, (index) => 1400 + index),
+    });
+
+    expect(snapshot.valid, isTrue);
+    expect(snapshot.channelCount, 16);
+    expect(snapshot.values, hasLength(18));
+    expect(snapshot.values.first, 1400);
+    expect(snapshot.values[15], 1415);
+  });
+
+  test('honors explicit invalid remote control snapshots', () {
+    final snapshot = MgCoreJsonDecoder().decodeRemoteControlInputs({
+      'valid': false,
+      'chancount': 16,
+      'channels': List<int>.filled(18, 1500),
+    });
+
+    expect(snapshot.valid, isFalse);
+    expect(snapshot.channelCount, 16);
+    expect(snapshot.values.first, 1500);
+  });
+
+  test('decodes calibration history, quality, and retry state', () {
+    final decoder = MgCoreJsonDecoder();
+    final history = decoder.decodeCalibrationHistory({
+      'items': [
+        {
+          'type': 'magnetometer',
+          'stage': 'success',
+          'quality': 'good',
+          'timestamp_ms': 1730000000000,
+          'accelerometer_mode': 'level',
+          'offsets': {'x': 12.5, 'y': -8.25, 'z': 4},
+          'previous_offsets': {'x': 1, 'y': 2, 'z': 3},
+          'fitness': 18.5,
+          'diagonals': {'x': 1.1, 'y': 1.2, 'z': 1.3},
+          'offdiagonals': {'x': 0.1, 'y': 0.2, 'z': 0.3},
+          'progress': 100,
+          'current_step': 0,
+          'total_steps': 0,
+          'failure_reason': '',
+        },
+      ],
+    });
+    final retry = decoder.decodeCalibrationRetryInfo({
+      'retry_count': 1,
+      'max_retries': 3,
+      'backoff_ms': 1000,
+      'last_failure': 'sample coverage too low',
+    });
+
+    expect(history, hasLength(1));
+    expect(history.single.type, 'magnetometer');
+    expect(history.single.succeeded, isTrue);
+    expect(history.single.quality, 'good');
+    expect(history.single.accelerometerMode, 'level');
+    expect(history.single.offsets.x, 12.5);
+    expect(history.single.previousOffsets.z, 3);
+    expect(history.single.fitness, 18.5);
+    expect(history.single.diagonals?.y, 1.2);
+    expect(history.single.offDiagonals?.z, 0.3);
+    expect(retry.retryCount, 1);
+    expect(retry.maxRetries, 3);
+    expect(retry.lastFailure, 'sample coverage too low');
   });
 }

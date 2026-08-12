@@ -41,13 +41,103 @@ void main() {
     expect(controller.stagedChanges.single.parameter.name, 'BATT_ENABLE');
     expect(controller.stagedChanges.single.errorMessage, 'write failed');
   });
+
+  test('parameter file import stages only known changed values', () async {
+    final backend = _ParameterBackend(
+      importedEntries: const [
+        ParameterFileEntry(name: 'BATT_MONITOR', value: 4),
+        ParameterFileEntry(name: 'BATT_ENABLE', value: 1),
+        ParameterFileEntry(name: 'UNKNOWN_PARAM', value: 3),
+      ],
+    );
+    final controller = ParameterController(
+      backend: backend,
+      isSessionReady: () => true,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.refresh();
+    controller.stageValue('BATT_ENABLE', 0);
+    final summary = await controller.importParameterFile('ignored by fake');
+
+    expect(summary.parsed, 3);
+    expect(summary.staged, 1);
+    expect(summary.unchanged, 1);
+    expect(summary.unknown, 1);
+    expect(controller.stagedChanges.single.parameter.name, 'BATT_MONITOR');
+    expect(controller.stagedChanges.single.stagedValue, 4);
+    expect(backend.writeCalls, isEmpty);
+  });
+
+  test(
+    'parameter file save exports current values rather than staged values',
+    () async {
+      final backend = _ParameterBackend();
+      final controller = ParameterController(
+        backend: backend,
+        isSessionReady: () => true,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.refresh();
+      controller.stageValue('BATT_MONITOR', 4);
+      expect(await controller.exportParameterFile(), 'fake.param');
+
+      expect(backend.exportedParameters['BATT_MONITOR'], 0);
+      expect(backend.exportedParameters['BATT_ENABLE'], 1);
+    },
+  );
+
+  test('explicit refresh requests a new vehicle parameter download', () async {
+    final backend = _ParameterBackend();
+    final controller = ParameterController(
+      backend: backend,
+      isSessionReady: () => true,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.refreshFromVehicle();
+
+    expect(backend.refreshCalls, 1);
+  });
+
+  test('uses the change-set contract when the backend provides it', () async {
+    final backend = _ChangeSetParameterBackend();
+    final controller = ParameterController(
+      backend: backend,
+      isSessionReady: () => true,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.refresh();
+    final import = await controller.importParameterFile('ignored by fake');
+    expect(import.staged, 1);
+    expect(import.unchanged, 1);
+    expect(import.unknown, 1);
+    expect(controller.stagedChanges.single.parameter.name, 'BATT_MONITOR');
+
+    final result = await controller.writeStaged();
+    expect(result.succeeded, ['BATT_MONITOR']);
+    expect(backend.commitCalls, 1);
+    expect(backend.singleWrites, isEmpty);
+  });
 }
 
-final class _ParameterBackend implements ParameterSessionBackend {
-  _ParameterBackend({this.failNames = const {}});
+class _ParameterBackend
+    implements
+        ParameterSessionBackend,
+        ParameterFileSessionBackend,
+        ParameterRefreshSessionBackend {
+  _ParameterBackend({
+    this.failNames = const {},
+    this.importedEntries = const [],
+  });
 
   final Set<String> failNames;
+  final List<ParameterFileEntry> importedEntries;
   final List<String> writeCalls = [];
+  final Map<String, double> exportedParameters = {};
+  int refreshCalls = 0;
 
   @override
   Future<List<FlightControllerParameter>> loadParameters() async => const [
@@ -66,6 +156,26 @@ final class _ParameterBackend implements ParameterSessionBackend {
       count: 2,
     ),
   ];
+
+  @override
+  Future<List<FlightControllerParameter>> refreshParameters() async {
+    refreshCalls++;
+    return loadParameters();
+  }
+
+  @override
+  Future<List<ParameterFileEntry>> parseParameterFile(String content) async =>
+      importedEntries;
+
+  @override
+  Future<String> createParameterFile(
+    List<FlightControllerParameter> parameters,
+  ) async {
+    exportedParameters.addEntries(
+      parameters.map((parameter) => MapEntry(parameter.name, parameter.value)),
+    );
+    return 'fake.param';
+  }
 
   @override
   Future<ParameterDescriptor> loadParameterDescriptor(String name) async {
@@ -98,4 +208,58 @@ final class _ParameterBackend implements ParameterSessionBackend {
   @override
   Future<List<ParameterDescriptor>> loadParameterDescriptors() async =>
       const [];
+}
+
+final class _ChangeSetParameterBackend extends _ParameterBackend
+    implements ParameterChangeSetSessionBackend {
+  _ChangeSetParameterBackend()
+    : super(
+        importedEntries: const [
+          ParameterFileEntry(name: 'BATT_MONITOR', value: 4),
+          ParameterFileEntry(name: 'BATT_ENABLE', value: 1),
+          ParameterFileEntry(name: 'UNKNOWN_PARAM', value: 3),
+        ],
+      );
+
+  int commitCalls = 0;
+  List<String> get singleWrites => writeCalls;
+
+  @override
+  Future<ParameterChangeSetPreview> prepareParameterChangeSet(
+    List<ParameterFileEntry> entries,
+  ) async => const ParameterChangeSetPreview(
+    ready: 1,
+    unchanged: 1,
+    unknown: 1,
+    invalid: 0,
+    items: [
+      ParameterChangeSetItem(
+        name: 'BATT_MONITOR',
+        value: 4,
+        mavlinkType: 9,
+        disposition: 'ready',
+      ),
+      ParameterChangeSetItem(
+        name: 'BATT_ENABLE',
+        value: 1,
+        mavlinkType: 9,
+        disposition: 'unchanged',
+      ),
+      ParameterChangeSetItem(
+        name: 'UNKNOWN_PARAM',
+        value: 3,
+        mavlinkType: 9,
+        disposition: 'unknown',
+        reason: 'parameter not reported by flight controller',
+      ),
+    ],
+  );
+
+  @override
+  Future<ParameterWriteSummary> commitParameterChangeSet(
+    List<StagedParameterChange> changes,
+  ) async {
+    commitCalls++;
+    return const ParameterWriteSummary(succeeded: ['BATT_MONITOR'], failed: {});
+  }
 }

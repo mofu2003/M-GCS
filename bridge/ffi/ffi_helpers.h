@@ -30,6 +30,13 @@ inline std::string cal_status_json(const mg::core::calibration::CalibrationStatu
     jb.field("retry_count",    s.retry_count);
     jb.field("max_retries",    s.max_retries);
     jb.field("timestamp_ms",   (int64_t)s.start_time_ms);
+    if (s.current_type == mg::core::calibration::CalibrationType::Accelerometer) {
+        jb.field("accelerometer_mode", s.accel_mode == mg::core::calibration::AccelCalMode::Trim
+            ? "level"
+            : s.accel_mode == mg::core::calibration::AccelCalMode::Simple
+            ? "simple"
+            : "six_face");
+    }
     jb.end_object();
     return jb.str();
 }
@@ -41,6 +48,15 @@ inline std::string cal_result_json(const mg::core::calibration::CalibrationResul
     jb.field("stage",    mg::core::calibration::CalibrationValidator::stage_string(r.stage));
     jb.field("quality",  mg::core::calibration::CalibrationValidator::quality_string(r.quality));
     jb.field("timestamp_ms", (int64_t)r.timestamp_ms);
+
+    if (r.type == mg::core::calibration::CalibrationType::Accelerometer) {
+        const char* accel_mode = r.accel_mode == mg::core::calibration::AccelCalMode::Trim
+            ? "level"
+            : r.accel_mode == mg::core::calibration::AccelCalMode::Simple
+            ? "simple"
+            : "six_face";
+        jb.field("accelerometer_mode", accel_mode);
+    }
 
     { JsonBuilder sub; sub.begin_object(); sub.field("x", r.offset_x); sub.field("y", r.offset_y); sub.field("z", r.offset_z); sub.end_object(); jb.raw_field("offsets", sub.str()); }
 
@@ -86,4 +102,3 @@ inline std::string cal_retry_json(const mg::core::calibration::RetryInfo& retry)
 } // namespace ffi_helpers
 } // namespace bridge
 } // namespace mg
-

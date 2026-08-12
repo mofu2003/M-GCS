@@ -36,8 +36,20 @@ MGCORE_API char* mg_calibration_cancel(mg_core_t* core) {
     CHECK_CORE(core);
     auto& cal = get_active_calibration(core);
     if (!cal.is_active()) return fail(MG_ERROR_INVALID_STATE, "no calibration in progress");
+    const auto status = cal.get_status();
+    auto* mav = get_active_mavlink(core);
+    bool command_sent = true;
+    if (mav && status.current_type == mg::core::calibration::CalibrationType::Accelerometer) {
+        command_sent = mav->send_command_long(
+            active_target_sys(core), active_target_comp(core),
+            42429, 0, 16777216.0f, 0, 0, 0, 0, 0, 0);
+    } else if (mav && status.current_type == mg::core::calibration::CalibrationType::Magnetometer) {
+        command_sent = mav->send_command_long(
+            active_target_sys(core), active_target_comp(core),
+            42426, 0, 0, 0, 1, 0, 0, 0, 0);
+    }
     cal.cancel();
-    return ok();
+    return command_sent ? ok() : fail(MG_ERROR_SEND_FAILED, "failed to send calibration cancel command");
 }
 
 MGCORE_API char* mg_calibration_get_status(mg_core_t* core) {
@@ -60,6 +72,38 @@ MGCORE_API char* mg_calibration_get_retry_info(mg_core_t* core) {
     info.max_retries = status.max_retries;
     info.last_failure = status.failure_reason;
     return to_cstr(cal_retry_json(info));
+}
+
+MGCORE_API char* mg_calibration_accel_confirm(mg_core_t* core, int position) {
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
+    if (position < 1 || position > 6) {
+        return fail(MG_ERROR_INVALID_PARAM, "invalid accelerometer position");
+    }
+    const auto status = get_active_calibration(core).get_status();
+    if (!status.active ||
+        status.current_type != mg::core::calibration::CalibrationType::Accelerometer) {
+        return fail(MG_ERROR_INVALID_STATE, "accelerometer calibration is not active");
+    }
+    if (status.current_step != position) {
+        return fail(MG_ERROR_INVALID_STATE, "flight controller is not requesting this accelerometer position");
+    }
+    auto* mav = get_active_mavlink(core);
+    const bool sent = mav->send_command_long(
+        active_target_sys(core), active_target_comp(core),
+        42429, 0, static_cast<float>(position), 0, 0, 0, 0, 0, 0);
+    return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "failed to confirm accelerometer position");
+}
+
+MGCORE_API char* mg_calibration_start_airspeed(mg_core_t* core) {
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
+    if (get_active_calibration(core).is_active()) {
+        return fail(MG_ERROR_CALIBRATION, "calibration already in progress");
+    }
+    auto* mav = get_active_mavlink(core);
+    const bool sent = mav->send_command_long(
+        active_target_sys(core), active_target_comp(core),
+        241, 0, 0, 0, 0, 0, 0, 2, 0);
+    return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "failed to start airspeed calibration");
 }
 
 void mg_calibration_process_statustext(mg_core_t* core, const char* text, uint8_t severity) {

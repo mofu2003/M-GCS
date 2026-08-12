@@ -16,7 +16,7 @@
 namespace mg::core::calibration {
 
 uint16_t CompassCalibration::mav_command() const {
-    return 241;  // MAV_CMD_PREFLIGHT_CALIBRATION
+    return 42424;  // MAV_CMD_DO_START_MAG_CAL
 }
 
 bool CompassCalibration::send_calibration_command(
@@ -25,13 +25,16 @@ bool CompassCalibration::send_calibration_command(
     AccelCalMode /*accel_mode*/) {
     MGC_LOG_INFO("[CompassCal] Sending magnetometer calibration command to sys=%u comp=%u",
                  target_sys, target_comp);
-    // MAV_CMD_PREFLIGHT_CALIBRATION: param2=1 for magnetometer
+    // Match Mission Planner's modern MAV_CAL workflow.  It supports multiple
+    // compasses and returns MAG_CAL_PROGRESS/MAG_CAL_REPORT messages.
+    // param1=0: all detected compasses; param2=0: do not auto-retry in the FC;
+    // param3=1: auto-save a successful result.
     return mav->send_command_long(target_sys, target_comp,
-                                  241,  // MAV_CMD_PREFLIGHT_CALIBRATION
+                                  42424,  // MAV_CMD_DO_START_MAG_CAL
                                   0,
-                                  0.0f,            // param1: unused
-                                  kCalMagStart,    // param2: mag cal
-                                  0.0f,            // param3: unused
+                                  0.0f,            // param1: all compasses
+                                  0.0f,            // param2: retry on failure disabled
+                                  1.0f,            // param3: autosave
                                   0.0f,            // param4: unused
                                   0.0f,            // param5: unused
                                   0.0f,            // param6: unused
@@ -144,7 +147,8 @@ CalibrationStage CompassCalibration::interpret_ack(
     CalibrationStage current_stage) const {
     switch (result) {
         case 0:  // MAV_RESULT_ACCEPTED
-            return CalibrationStage::Success;
+            // Completion is reported by MAG_CAL_REPORT, not this ACK.
+            return CalibrationStage::Calibrating;
         case 5:  // MAV_RESULT_IN_PROGRESS
             if (current_stage != CalibrationStage::Calibrating)
                 return CalibrationStage::Calibrating;
@@ -162,6 +166,14 @@ bool CompassCalibration::verify_calibration(
     const mg::core::mavlink::MavlinkAdapter* mav,
     CalibrationResult& result,
     const CalibrationValidator& validator) const {
+    // MAG_CAL_REPORT is the authoritative result from the modern ArduPilot
+    // workflow.  Parameter cache updates can arrive seconds later, so do not
+    // reject a valid report merely because the cache has not caught up.
+    if (result.mag_report_received) {
+        result.quality = validator.assess(result);
+        return result.quality != CalibrationQuality::Poor;
+    }
+
     if (!validator.read_calibration_params(CalibrationType::Magnetometer, mav, result)) {
         MGC_LOG_WARN("[CompassCal] Failed to read compass calibration parameters");
         result.failure_reason = "Failed to read calibration parameters from flight controller";

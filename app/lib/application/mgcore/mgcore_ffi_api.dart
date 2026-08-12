@@ -34,6 +34,14 @@ final class MgCoreFfiApi {
     _requestAllParameters = _jsonFunction('mg_params_request_all');
     _parameterProgress = _jsonFunction('mg_params_get_progress');
     _allParameters = _jsonFunction('mg_params_get_all');
+    _prepareParameterChangeSet = _stringArgumentFunction(
+      'mg_params_prepare_change_set',
+    );
+    _commitParameterChangeSet = _stringArgumentFunction(
+      'mg_params_commit_change_set',
+    );
+    _parameterFileExport = _stringArgumentFunction('mg_param_file_export');
+    _parameterFileImport = _stringArgumentFunction('mg_param_file_import');
     _setParameter = _library
         .lookupFunction<
           Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Float, Int32),
@@ -51,6 +59,32 @@ final class MgCoreFfiApi {
           Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
         >('mg_config_get_group_descriptor');
     _remoteControlChannels = _jsonFunction('mg_rc_get_channels');
+    _servoOutputs = _jsonFunction('mg_servo_get_outputs');
+    _calibrationStart = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32, Int32),
+          Pointer<Utf8> Function(Pointer<Void>, int, int)
+        >('mg_calibration_start');
+    _calibrationCancel = _jsonFunction('mg_calibration_cancel');
+    _calibrationStatus = _jsonFunction('mg_calibration_get_status');
+    _calibrationHistory = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32),
+          Pointer<Utf8> Function(Pointer<Void>, int)
+        >('mg_calibration_get_history');
+    _calibrationRetryInfo = _jsonFunction('mg_calibration_get_retry_info');
+    _calibrationAccelConfirm = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32),
+          Pointer<Utf8> Function(Pointer<Void>, int)
+        >('mg_calibration_accel_confirm');
+    _calibrationStartAirspeed = _jsonFunction('mg_calibration_start_airspeed');
+    _highresImu = _jsonFunction('mg_vehicle_get_highres_imu');
+    _serialUartNames = _jsonFunction('mg_serial_get_uart_names');
+    _missionDownload = _jsonFunction('mg_mission_download');
+    _missionUpload = _stringArgumentFunction('mg_mission_upload');
+    _missionPlan = _jsonFunction('mg_mission_get_plan');
+    _missionProgress = _jsonFunction('mg_mission_get_progress');
     _firmwareType = _jsonFunction('mg_firmware_get_type');
     _firmwareVersion = _jsonFunction('mg_vehicle_get_firmware_version');
     _systemDiagnostics = _jsonFunction('mg_system_get_diagnostics');
@@ -87,6 +121,14 @@ final class MgCoreFfiApi {
   late final Pointer<Utf8> Function(Pointer<Void>) _requestAllParameters;
   late final Pointer<Utf8> Function(Pointer<Void>) _parameterProgress;
   late final Pointer<Utf8> Function(Pointer<Void>) _allParameters;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _prepareParameterChangeSet;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _commitParameterChangeSet;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _parameterFileExport;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _parameterFileImport;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, double, int)
   _setParameter;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
@@ -95,6 +137,22 @@ final class MgCoreFfiApi {
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _parameterDescriptorGroup;
   late final Pointer<Utf8> Function(Pointer<Void>) _remoteControlChannels;
+  late final Pointer<Utf8> Function(Pointer<Void>) _servoOutputs;
+  late final Pointer<Utf8> Function(Pointer<Void>, int, int) _calibrationStart;
+  late final Pointer<Utf8> Function(Pointer<Void>) _calibrationCancel;
+  late final Pointer<Utf8> Function(Pointer<Void>) _calibrationStatus;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _calibrationHistory;
+  late final Pointer<Utf8> Function(Pointer<Void>) _calibrationRetryInfo;
+  late final Pointer<Utf8> Function(Pointer<Void>, int)
+  _calibrationAccelConfirm;
+  late final Pointer<Utf8> Function(Pointer<Void>) _calibrationStartAirspeed;
+  late final Pointer<Utf8> Function(Pointer<Void>) _highresImu;
+  late final Pointer<Utf8> Function(Pointer<Void>) _serialUartNames;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionDownload;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _missionUpload;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionPlan;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionProgress;
   late final Pointer<Utf8> Function(Pointer<Void>) _firmwareType;
   late final Pointer<Utf8> Function(Pointer<Void>) _firmwareVersion;
   late final Pointer<Utf8> Function(Pointer<Void>) _systemDiagnostics;
@@ -144,6 +202,22 @@ final class MgCoreFfiApi {
 
   String allParameters(Pointer<Void> core) => _readString(_allParameters(core));
 
+  String prepareParameterChangeSet(Pointer<Void> core, String json) {
+    return _callWithString(_prepareParameterChangeSet, core, json);
+  }
+
+  String commitParameterChangeSet(Pointer<Void> core, String json) {
+    return _callWithString(_commitParameterChangeSet, core, json);
+  }
+
+  String exportParameterFile(Pointer<Void> core, String json) {
+    return _callWithString(_parameterFileExport, core, json);
+  }
+
+  String importParameterFile(Pointer<Void> core, String content) {
+    return _callWithString(_parameterFileImport, core, content);
+  }
+
   String setParameter(Pointer<Void> core, String name, double value, int type) {
     final nativeName = name.toNativeUtf8();
     try {
@@ -179,6 +253,56 @@ final class MgCoreFfiApi {
     return _readString(_remoteControlChannels(core));
   }
 
+  String servoOutputs(Pointer<Void> core) {
+    return _readString(_servoOutputs(core));
+  }
+
+  String calibrationStart(Pointer<Void> core, int type, int mode) {
+    return _readString(_calibrationStart(core, type, mode));
+  }
+
+  String calibrationCancel(Pointer<Void> core) {
+    return _readString(_calibrationCancel(core));
+  }
+
+  String calibrationStatus(Pointer<Void> core) {
+    return _readString(_calibrationStatus(core));
+  }
+
+  String calibrationHistory(Pointer<Void> core, int type) {
+    return _readString(_calibrationHistory(core, type));
+  }
+
+  String calibrationRetryInfo(Pointer<Void> core) {
+    return _readString(_calibrationRetryInfo(core));
+  }
+
+  String calibrationAccelConfirm(Pointer<Void> core, int position) {
+    return _readString(_calibrationAccelConfirm(core, position));
+  }
+
+  String calibrationStartAirspeed(Pointer<Void> core) {
+    return _readString(_calibrationStartAirspeed(core));
+  }
+
+  String highresImu(Pointer<Void> core) => _readString(_highresImu(core));
+
+  String serialUartNames(Pointer<Void> core) {
+    return _readString(_serialUartNames(core));
+  }
+
+  String missionDownload(Pointer<Void> core) =>
+      _readString(_missionDownload(core));
+
+  String missionUpload(Pointer<Void> core, String itemsJson) {
+    return _callWithString(_missionUpload, core, itemsJson);
+  }
+
+  String missionPlan(Pointer<Void> core) => _readString(_missionPlan(core));
+
+  String missionProgress(Pointer<Void> core) =>
+      _readString(_missionProgress(core));
+
   String firmwareType(Pointer<Void> core) {
     return _readString(_firmwareType(core));
   }
@@ -209,6 +333,28 @@ final class MgCoreFfiApi {
       Pointer<Utf8> Function(Pointer<Void>),
       Pointer<Utf8> Function(Pointer<Void>)
     >(symbol);
+  }
+
+  Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _stringArgumentFunction(
+    String symbol,
+  ) {
+    return _library.lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+    >(symbol);
+  }
+
+  String _callWithString(
+    Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) function,
+    Pointer<Void> core,
+    String value,
+  ) {
+    final nativeValue = value.toNativeUtf8();
+    try {
+      return _readString(function(core, nativeValue));
+    } finally {
+      malloc.free(nativeValue);
+    }
   }
 
   String _readString(Pointer<Utf8> pointer) {

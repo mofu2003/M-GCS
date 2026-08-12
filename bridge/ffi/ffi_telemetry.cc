@@ -154,8 +154,21 @@ MGCORE_API char* mg_param_file_import(mg_core_t* core, const char* content) {
 
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
-    jb.field("success", true);
+    jb.field("success", !params.empty());
     jb.field("count", static_cast<int>(params.size()));
+    mg::bridge::JsonBuilder items;
+    items.begin_array();
+    for (const auto& param : params) {
+        mg::bridge::JsonBuilder item;
+        item.begin_object();
+        item.field("name", param.name);
+        item.field("value", param.value);
+        item.field("type", static_cast<int>(param.type));
+        item.end_object();
+        items.append_json(item.str());
+    }
+    items.end_array();
+    jb.raw_field("items", items.str());
     jb.end_object();
     return to_cstr(jb.str());
 }

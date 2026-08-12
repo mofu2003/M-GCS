@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 
 import '../../application/connection_controller.dart';
 import '../../application/connection_models.dart';
+import '../../application/connection_session_backend.dart';
 import '../../features/map/mg_map_catalog.dart';
 import '../../ui/skin/mg_skin_factory.dart';
 import '../../ui/skin/mg_skin_scope.dart';
 import 'frontstage_controller_adapter.dart';
 import 'frontstage_models.dart';
+import 'mission_transfer_panel.dart';
 
 final class FrontstagePage extends StatefulWidget {
   const FrontstagePage({
@@ -77,6 +79,11 @@ final class _FrontstagePageState extends State<FrontstagePage> {
             dashboardVisible: _dashboardVisible,
             selectedTransport: _selectedTransport,
           );
+          final missionPanel = MissionTransferPanel(
+            backend: _controller.backend is MissionSessionBackend
+                ? _controller.backend as MissionSessionBackend
+                : null,
+          );
           return skin.buildFrontstageShell(
             model: model,
             onConnectPressed: () {
@@ -95,6 +102,7 @@ final class _FrontstagePageState extends State<FrontstagePage> {
                     }
                   case FrontstageNavigationItem.mission:
                     _missionPanelVisible = !_missionPanelVisible;
+                    if (_missionPanelVisible) _connectionDrawerVisible = false;
                   case FrontstageNavigationItem.dashboard:
                     _dashboardVisible = !_dashboardVisible;
                   case FrontstageNavigationItem.backstage:
@@ -109,6 +117,7 @@ final class _FrontstagePageState extends State<FrontstagePage> {
             },
             onSerialPortChanged: _controller.setSerialPort,
             onBaudRateChanged: _controller.setBaudRate,
+            missionPanel: missionPanel,
             mapStyle: _mapStyle,
             onMapStyleChanged: (style) {
               setState(() {

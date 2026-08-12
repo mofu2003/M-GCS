@@ -22,6 +22,8 @@ add_definitions(-D_USE_MATH_DEFINES)
 
 option(MGCORE_BUILD_SHARED "Build as shared library (DLL)" ON)
 option(MGCORE_BUILD_TESTS  "Build unit tests" OFF)
+option(MGCORE_REGISTER_HARDWARE_TESTS
+       "Register hardware/manual tests with CTest (requires explicit operator approval)" OFF)
 option(MGCORE_ENABLE_ASAN  "Enable AddressSanitizer (debug builds)" OFF)
 option(MGCORE_ENABLE_TSAN  "Enable ThreadSanitizer (debug builds)" OFF)
 
@@ -120,6 +122,7 @@ set(MGCORE_SOURCES
     # Configuration management
     core/src/config/param_descriptors.cc
     core/src/config/param_file_io.cc
+    core/src/config/parameter_change_set.cc
     # Settings
     core/src/settings/flight_log_writer.cc
     core/src/log/flight_log_replayer.cc
@@ -286,7 +289,7 @@ if(MGCORE_BUILD_TESTS)
         ${MAVLINK_INCLUDE_DIR}
         ${CJSON_INCLUDE_DIR}
     )
-    target_compile_definitions(mgcore_static PRIVATE CJSON_HIDE_SYMBOLS)
+    target_compile_definitions(mgcore_static PRIVATE CJSON_HIDE_SYMBOLS MGCORE_TEST_BUILD)
     if(MGCORE_PLATFORM STREQUAL "win32")
         target_link_libraries(mgcore_static PRIVATE setupapi ws2_32)
     elseif(MGCORE_PLATFORM STREQUAL "linux")
@@ -361,20 +364,27 @@ if(MGCORE_BUILD_TESTS)
             target_compile_definitions(${TEST_NAME} PRIVATE MGCORE_EXPORTS)
         endif()
         target_link_libraries(${TEST_NAME} PRIVATE mgcore_static)
-        add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
         if(TEST_SRC MATCHES "/manual/" OR TEST_NAME MATCHES "test_real_fc_cal_mission|test_real_fc_calibration|test_real_fc_modes")
-            set_tests_properties(${TEST_NAME} PROPERTIES LABELS "manual;hardware")
+            set(TEST_LABELS "manual;hardware")
         elseif(TEST_NAME MATCHES "test_real_fc|test_scan_connect")
-            set_tests_properties(${TEST_NAME} PROPERTIES LABELS "hardware")
+            set(TEST_LABELS "hardware")
         elseif(TEST_NAME MATCHES "test_sim_|test_state_machines|test_transport_links|test_new_modules")
-            set_tests_properties(${TEST_NAME} PROPERTIES LABELS "simulation")
+            set(TEST_LABELS "simulation")
         else()
-            set_tests_properties(${TEST_NAME} PROPERTIES LABELS "offline")
+            set(TEST_LABELS "offline")
+        endif()
+
+        # Hardware tests remain buildable but must never be picked up by a
+        # plain `ctest` invocation. They can connect to a real vehicle and may
+        # issue calibration, mission, or flight-mode commands.
+        if(MGCORE_REGISTER_HARDWARE_TESTS OR NOT TEST_LABELS MATCHES "hardware")
+            add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+            set_tests_properties(${TEST_NAME} PROPERTIES LABELS "${TEST_LABELS}")
         endif()
     endforeach()
 endif()
 
-# Interactive reconnect test (not run by ctest - requires user interaction)
+# Interactive reconnect test (only registered with explicit hardware opt-in).
 if(MGCORE_BUILD_TESTS)
     add_executable(test_reconnect tests/test_reconnect.cc)
     target_include_directories(test_reconnect PRIVATE
@@ -395,6 +405,8 @@ if(MGCORE_BUILD_TESTS)
     if(MGCORE_PLATFORM STREQUAL "win32")
         target_link_libraries(test_reconnect PRIVATE setupapi ws2_32)
     endif()
-    add_test(NAME test_reconnect COMMAND test_reconnect)
-    set_tests_properties(test_reconnect PROPERTIES LABELS "manual;hardware")
+    if(MGCORE_REGISTER_HARDWARE_TESTS)
+        add_test(NAME test_reconnect COMMAND test_reconnect)
+        set_tests_properties(test_reconnect PROPERTIES LABELS "manual;hardware")
+    endif()
 endif()

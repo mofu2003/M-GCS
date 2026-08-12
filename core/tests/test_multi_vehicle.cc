@@ -160,6 +160,7 @@ int main() {
         bool requested_attitude = false;
         bool requested_vfr_hud = false;
         bool requested_servo_output = false;
+        int servo_output_interval_us = -1;
         bool requested_rc_channels = false;
 
         mavlink_message_t msg{};
@@ -175,13 +176,18 @@ int main() {
             const int requested_msg_id = static_cast<int>(cmd.param1);
             if (requested_msg_id == MAVLINK_MSG_ID_ATTITUDE) requested_attitude = true;
             if (requested_msg_id == MAVLINK_MSG_ID_VFR_HUD) requested_vfr_hud = true;
-            if (requested_msg_id == MAVLINK_MSG_ID_SERVO_OUTPUT_RAW) requested_servo_output = true;
+            if (requested_msg_id == MAVLINK_MSG_ID_SERVO_OUTPUT_RAW) {
+                requested_servo_output = true;
+                servo_output_interval_us = static_cast<int>(cmd.param2);
+            }
             if (requested_msg_id == MAVLINK_MSG_ID_RC_CHANNELS) requested_rc_channels = true;
         }
 
         CHECK(requested_attitude, "heartbeat identity requests ATTITUDE stream");
         CHECK(requested_vfr_hud, "heartbeat identity requests VFR_HUD stream");
         CHECK(requested_servo_output, "heartbeat identity requests SERVO_OUTPUT_RAW stream");
+        CHECK(servo_output_interval_us == 50000,
+              "SERVO_OUTPUT_RAW stream interval is 50000 us (20 Hz)");
         CHECK(requested_rc_channels, "heartbeat identity requests RC_CHANNELS stream");
         CHECK(vehicle->state() == mg::core::vehicle::VehicleState::Connected,
               "heartbeat identity marks vehicle Connected");

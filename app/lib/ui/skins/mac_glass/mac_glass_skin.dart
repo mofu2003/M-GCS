@@ -46,6 +46,7 @@ final class MacGlassSkin implements MgSkin {
     onConnectionTransportChanged,
     ValueChanged<String>? onSerialPortChanged,
     ValueChanged<int>? onBaudRateChanged,
+    Widget? missionPanel,
     required MgMapStyle mapStyle,
     required ValueChanged<MgMapStyle> onMapStyleChanged,
   }) {
@@ -57,6 +58,7 @@ final class MacGlassSkin implements MgSkin {
       onConnectionTransportChanged: onConnectionTransportChanged,
       onSerialPortChanged: onSerialPortChanged,
       onBaudRateChanged: onBaudRateChanged,
+      missionPanel: missionPanel,
       mapStyle: mapStyle,
       onMapStyleChanged: onMapStyleChanged,
     );

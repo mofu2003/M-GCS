@@ -49,6 +49,22 @@ final class MgCoreConnectionClient {
     return _decodeObject(api.allParameters(_core));
   }
 
+  Map<String, Object?> prepareParameterChangeSet(
+    List<Map<String, Object?>> changes,
+  ) => _decodeObject(api.prepareParameterChangeSet(_core, jsonEncode(changes)));
+
+  Map<String, Object?> commitParameterChangeSet(
+    List<Map<String, Object?>> changes,
+  ) => _decodeObject(api.commitParameterChangeSet(_core, jsonEncode(changes)));
+
+  Map<String, Object?> importParameterFile(String content) {
+    return _decodeObject(api.importParameterFile(_core, content));
+  }
+
+  String exportParameterFile(List<Map<String, Object?>> parameters) {
+    return api.exportParameterFile(_core, jsonEncode(parameters));
+  }
+
   Map<String, Object?> setParameter(String name, double value, int type) {
     return _decodeObject(api.setParameter(_core, name, value, type));
   }
@@ -68,6 +84,56 @@ final class MgCoreConnectionClient {
   Map<String, Object?> remoteControlChannels() {
     return _decodeObject(api.remoteControlChannels(_core));
   }
+
+  Map<String, Object?> servoOutputs() {
+    return _decodeObject(api.servoOutputs(_core));
+  }
+
+  Map<String, Object?> startCalibration(int type, int mode) {
+    return _decodeObject(api.calibrationStart(_core, type, mode));
+  }
+
+  Map<String, Object?> cancelCalibration() {
+    return _decodeObject(api.calibrationCancel(_core));
+  }
+
+  Map<String, Object?> calibrationStatus() {
+    return _decodeObject(api.calibrationStatus(_core));
+  }
+
+  Map<String, Object?> calibrationHistory(int type) {
+    return _decodeObject(api.calibrationHistory(_core, type));
+  }
+
+  Map<String, Object?> calibrationRetryInfo() {
+    return _decodeObject(api.calibrationRetryInfo(_core));
+  }
+
+  Map<String, Object?> confirmAccelerometerOrientation(int position) {
+    return _decodeObject(api.calibrationAccelConfirm(_core, position));
+  }
+
+  Map<String, Object?> startAirspeedCalibration() {
+    return _decodeObject(api.calibrationStartAirspeed(_core));
+  }
+
+  Map<String, Object?> highresImu() => _decodeObject(api.highresImu(_core));
+
+  Map<String, Object?> serialUartNames() {
+    return _decodeObject(api.serialUartNames(_core));
+  }
+
+  Map<String, Object?> missionDownload() =>
+      _decodeObject(api.missionDownload(_core));
+
+  Map<String, Object?> missionUpload(List<Map<String, Object?>> items) {
+    return _decodeObject(api.missionUpload(_core, jsonEncode(items)));
+  }
+
+  Map<String, Object?> missionPlan() => _decodeObject(api.missionPlan(_core));
+
+  Map<String, Object?> missionProgress() =>
+      _decodeObject(api.missionProgress(_core));
 
   Map<String, Object?> firmwareType() {
     return _decodeObject(api.firmwareType(_core));

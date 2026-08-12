@@ -25,7 +25,7 @@ namespace mg::core::ftp {
 struct FtpResult {
     bool success = false;
     std::string error;
-    uint8_t error_code = 0;  // MAV_FTP_RESULT
+    uint8_t error_code = 0;  // MAV_FTP_ERR
 };
 
 /// 目录条目
@@ -95,7 +95,10 @@ private:
     // 响应同步
     std::mutex mtx_;
     std::condition_variable cv_;
+    bool response_pending_ = false;
     bool response_received_ = false;
+    uint16_t expected_response_seq_ = 0;
+    uint8_t expected_request_opcode_ = 0;
     mavlink_file_transfer_protocol_t last_response_{};
 
     // 目录列表结果
@@ -108,21 +111,39 @@ private:
     // 内部方法
     bool send_ftp_request(uint8_t target_sys, uint8_t target_comp,
                           uint8_t opcode, uint8_t session,
-                          uint32_t offset, uint8_t size,
+                          uint32_t offset, uint8_t size, uint16_t sequence,
                           const uint8_t* data = nullptr);
 
-    bool wait_response(int timeout_ms);
+    bool request_response(uint8_t target_sys, uint8_t target_comp,
+                          uint8_t opcode, uint8_t session,
+                          uint32_t offset, uint8_t size,
+                          const uint8_t* data,
+                          mavlink_file_transfer_protocol_t* response,
+                          int retries = -1,
+                          int timeout_ms = -1);
+
+    bool wait_response(int timeout_ms,
+                       mavlink_file_transfer_protocol_t* response);
 
     // FTP 操作码（MAVLink FTP 协议）
     static constexpr uint8_t kOpNone = 0;
+    static constexpr uint8_t kOpTerminateSession = 1;
+    static constexpr uint8_t kOpResetSessions = 2;
     static constexpr uint8_t kOpListDirectory = 3;
     static constexpr uint8_t kOpOpenFileRO = 4;
     static constexpr uint8_t kOpReadFile = 5;
-    static constexpr uint8_t kOpTerminateSession = 6;
-    static constexpr uint8_t kOpResetSessions = 7;
-    static constexpr uint8_t kOpCreateDirectory = 8;
-    static constexpr uint8_t kOpRemoveFile = 10;
-    static constexpr uint8_t kOpCalcFileCRC32 = 11;
+    static constexpr uint8_t kOpCreateFile = 6;
+    static constexpr uint8_t kOpWriteFile = 7;
+    static constexpr uint8_t kOpRemoveFile = 8;
+    static constexpr uint8_t kOpCreateDirectory = 9;
+    static constexpr uint8_t kOpRemoveDirectory = 10;
+    static constexpr uint8_t kOpOpenFileWO = 11;
+    static constexpr uint8_t kOpTruncateFile = 12;
+    static constexpr uint8_t kOpRename = 13;
+    static constexpr uint8_t kOpCalcFileCRC32 = 14;
+    static constexpr uint8_t kOpBurstReadFile = 15;
+    static constexpr uint8_t kRspAck = 128;
+    static constexpr uint8_t kRspNak = 129;
 
     // FTP 结果码
     static constexpr uint8_t kResultSuccess = 0;
@@ -131,8 +152,11 @@ private:
     static constexpr uint8_t kResultInvalidDataSize = 3;
     static constexpr uint8_t kResultInvalidSession = 4;
     static constexpr uint8_t kResultNoSessionsAvailable = 5;
-    static constexpr uint8_t kResultProtocol = 6;
-    static constexpr uint8_t kResultEOF = 7;
+    static constexpr uint8_t kResultEOF = 6;
+    static constexpr uint8_t kResultUnknownCommand = 7;
+    static constexpr uint8_t kResultFileExists = 8;
+    static constexpr uint8_t kResultFileProtected = 9;
+    static constexpr uint8_t kResultFileNotFound = 10;
 
     // 最大单次读取大小
     static constexpr uint8_t kMaxReadSize = 239;

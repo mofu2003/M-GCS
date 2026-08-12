@@ -1,6 +1,7 @@
 #include "core/config/param_descriptors.h"
 
 #include <cstdio>
+#include <set>
 #include <string>
 
 static int g_passed = 0;
@@ -12,6 +13,36 @@ static int g_failed = 0;
 } while (0)
 
 using mg::core::config::ParamDescriptors;
+
+static bool contains_localized_text(const std::string& value) {
+    for (unsigned char ch : value) {
+        if (ch >= 0x80) return true;
+    }
+    return false;
+}
+
+struct TranslationCoverage {
+    int total = 0;
+    int localized_names = 0;
+    int localized_descriptions = 0;
+};
+
+static TranslationCoverage translation_coverage(const ParamDescriptors& db,
+                                                const std::string& profile) {
+    std::set<std::string> parameter_names;
+    for (const auto& group : db.get_all_groups(profile)) {
+        parameter_names.insert(group.param_names.begin(), group.param_names.end());
+    }
+
+    TranslationCoverage coverage;
+    coverage.total = static_cast<int>(parameter_names.size());
+    for (const auto& parameter_name : parameter_names) {
+        const auto descriptor = db.get(profile, parameter_name);
+        if (contains_localized_text(descriptor.display_name)) coverage.localized_names++;
+        if (contains_localized_text(descriptor.description)) coverage.localized_descriptions++;
+    }
+    return coverage;
+}
 
 static std::string descriptor_path() {
 #ifdef MGCORE_TEST_ROOT
@@ -51,7 +82,8 @@ static void test_ardupilot_profiles() {
     const auto vtol_enable = db.get("vtol", "Q_ENABLE");
     CHECK("vtol Q_ENABLE found", vtol_enable.found);
     CHECK("vtol Q_ENABLE display", vtol_enable.display_name == "启用 QuadPlane");
-    CHECK("vtol Q_ENABLE enum label", db.enum_label("vtol", "Q_ENABLE", 2) == "启用 VTOL AUTO");
+    CHECK("vtol Q_ENABLE enum label",
+          db.enum_label("vtol", "Q_ENABLE", 2) == "启用 VTOL AUTO (Enable VTOL AUTO)");
 
     const auto copter_q = db.get("copter", "Q_ENABLE");
     CHECK("copter Q_ENABLE not found", !copter_q.found);
@@ -72,7 +104,9 @@ static void test_chinese_translation_overlay() {
     CHECK("Q_ENABLE Chinese display", vtol_enable.display_name == "启用 QuadPlane");
     CHECK("Q_ENABLE Chinese description",
           vtol_enable.description.find("启用 QuadPlane 功能") != std::string::npos);
-    CHECK("Q_ENABLE Chinese option label", db.enum_label("vtol", "Q_ENABLE", 2) == "启用 VTOL AUTO");
+    CHECK("Q_ENABLE bilingual option label",
+          db.enum_label("vtol", "Q_ENABLE", 2).find("启用 VTOL AUTO") != std::string::npos &&
+          db.enum_label("vtol", "Q_ENABLE", 2).find("Enable VTOL AUTO") != std::string::npos);
 
     const auto batt = db.get_group("copter", "BATT");
     CHECK("BATT group Chinese display", batt.display_name == "电池");
@@ -83,7 +117,68 @@ static void test_chinese_translation_overlay() {
 
     const auto serial1 = db.get("copter", "SERIAL1_PROTOCOL");
     CHECK("SERIAL1_PROTOCOL Chinese display", serial1.display_name == "串口协议");
-    CHECK("SERIAL1_PROTOCOL Chinese option label", db.enum_label("copter", "SERIAL1_PROTOCOL", 2) == "MAVLink 2");
+    CHECK("SERIAL1_PROTOCOL bilingual option label",
+          contains_localized_text(db.enum_label("copter", "SERIAL1_PROTOCOL", 2)) &&
+          db.enum_label("copter", "SERIAL1_PROTOCOL", 2).find("MAVLink") != std::string::npos);
+    CHECK("SERIAL1_PROTOCOL compound option label",
+          contains_localized_text(db.enum_label("copter", "SERIAL1_PROTOCOL", 7)));
+
+    const auto copter_mode = db.get("copter", "FLTMODE1");
+    CHECK("Copter flight mode option label",
+          db.enum_label("copter", "FLTMODE1", 0) == "自稳 (Stabilize)");
+
+    const auto plane_mode = db.get("plane", "FLTMODE1");
+    CHECK("Plane flight mode option label",
+          db.enum_label("plane", "FLTMODE1", 5) == "电传 A (FBWA)");
+
+    const auto servo = db.get("copter", "SERVO1_FUNCTION");
+    CHECK("Servo function option label",
+          contains_localized_text(db.enum_label("copter", "SERVO1_FUNCTION", 6)));
+
+    const auto rc_option = db.get("copter", "RC10_OPTION");
+    CHECK("RC option label",
+          db.enum_label("copter", "RC10_OPTION", 9) == "相机触发 (Camera Trigger)");
+
+    const auto copter_accel = db.get("copter", "ATC_ACC_P_MAX");
+    CHECK("Copter fallback Chinese display",
+          copter_accel.display_name.find("姿态控制") != std::string::npos &&
+          copter_accel.display_name.find("加速度") != std::string::npos);
+    CHECK("Copter fallback preserves official description",
+          copter_accel.description.find("ArduPilot 官方英文说明") != std::string::npos &&
+          copter_accel.description.find("Maximum acceleration in pitch axis") != std::string::npos);
+    CHECK("Copter fallback common option label",
+          db.enum_label("copter", "ATC_ACC_P_MAX", 0) == "禁用 (Disabled)");
+
+    const auto plane_tecs = db.get("plane", "TECS_SPDWEIGHT");
+    CHECK("Plane fallback Chinese display",
+          plane_tecs.display_name.find("速度控制权重") != std::string::npos);
+    CHECK("Plane fallback Chinese description",
+          contains_localized_text(plane_tecs.description));
+
+    const auto copter_coverage = translation_coverage(db, "copter");
+    const auto plane_coverage = translation_coverage(db, "plane");
+    fprintf(stderr,
+            "  [INFO] Copter localized display coverage: %d/%d; descriptions: %d/%d\n",
+            copter_coverage.localized_names,
+            copter_coverage.total,
+            copter_coverage.localized_descriptions,
+            copter_coverage.total);
+    fprintf(stderr,
+            "  [INFO] Plane localized display coverage: %d/%d; descriptions: %d/%d\n",
+            plane_coverage.localized_names,
+            plane_coverage.total,
+            plane_coverage.localized_descriptions,
+            plane_coverage.total);
+    CHECK("Copter localized display coverage at least 99%",
+          copter_coverage.total > 0 &&
+          copter_coverage.localized_names * 100 >= copter_coverage.total * 99);
+    CHECK("Plane localized display coverage at least 99%",
+          plane_coverage.total > 0 &&
+          plane_coverage.localized_names * 100 >= plane_coverage.total * 99);
+    CHECK("Copter localized description coverage at least 99%",
+          copter_coverage.localized_descriptions * 100 >= copter_coverage.total * 99);
+    CHECK("Plane localized description coverage at least 99%",
+          plane_coverage.localized_descriptions * 100 >= plane_coverage.total * 99);
 }
 
 int main() {

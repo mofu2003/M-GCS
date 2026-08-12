@@ -28,7 +28,10 @@ MGCORE_API char* mg_rc_get_channels(mg_core_t* core) {
     auto* cache = get_active_cache(core);
     if (!cache) return to_cstr(R"({"channel_count":0,"rssi":0,"channels":[],"valid":false})");
     auto rc = cache->snapshot_rc();
-    return to_cstr(mg::bridge::rc_channels_json(rc.data));
+    const bool valid = cache->is_fresh(
+        mg::bridge::TelemetryType::kRcChannels, 500) &&
+        rc.data.chancount > 0;
+    return to_cstr(mg::bridge::rc_channels_json(rc.data, valid));
 }
 
 // ================================================================
@@ -41,7 +44,9 @@ MGCORE_API char* mg_servo_get_outputs(mg_core_t* core) {
     auto* cache = get_active_cache(core);
     if (!cache) return to_cstr(R"({"servos":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"valid":false})");
     auto sv = cache->snapshot_servo();
-    return to_cstr(mg::bridge::servo_output_json(sv.data));
+    const bool valid = cache->is_fresh(
+        mg::bridge::TelemetryType::kServoOutput, 500);
+    return to_cstr(mg::bridge::servo_output_json(sv.data, valid));
 }
 
 // ================================================================
@@ -54,11 +59,13 @@ MGCORE_API char* mg_rc_get_channel(mg_core_t* core, int channel) {
     if (!cache) return to_cstr(R"({"value":0,"valid":false})");
     auto rc_snap = cache->snapshot_rc();
     const auto& rc = rc_snap.data;
+    const bool fresh = cache->is_fresh(
+        mg::bridge::TelemetryType::kRcChannels, 500);
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
     jb.field("channel", channel);
     jb.field("value", (int)rc.chan[channel - 1]);
-    jb.field("valid", rc.chancount >= channel);
+    jb.field("valid", fresh && rc.chancount >= channel);
     jb.end_object();
     return to_cstr(jb.str());
 }
@@ -73,12 +80,13 @@ MGCORE_API char* mg_servo_get_output(mg_core_t* core, int channel) {
     if (!cache) return to_cstr(R"({"value":0,"valid":false})");
     auto sv_snap = cache->snapshot_servo();
     const auto& so = sv_snap.data;
+    const bool fresh = cache->is_fresh(
+        mg::bridge::TelemetryType::kServoOutput, 500);
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
     jb.field("channel", channel);
     jb.field("value", (int)so.servo[channel - 1]);
-    jb.field("valid", so.servo[channel - 1] > 0);
+    jb.field("valid", fresh && so.servo[channel - 1] > 0);
     jb.end_object();
     return to_cstr(jb.str());
 }
-

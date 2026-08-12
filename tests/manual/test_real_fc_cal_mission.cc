@@ -185,7 +185,10 @@ static bool near_int(int actual, int expected, int tolerance) {
 
 int main(int argc, char** argv) {
     const char* port = argc > 1 ? argv[1] : getenv("MG_TEST_SERIAL");
-    if (!port || !port[0]) port = "COM12";
+    if (!port || !port[0]) {
+        fprintf(stderr, "[SKIP] Set MG_TEST_SERIAL or pass the serial port explicitly.\n");
+        return 0;
+    }
 
     fprintf(stderr, "=== Real FC Calibration + Mission Check ===\n");
     fprintf(stderr, "Target: %s @ 115200\n", port);

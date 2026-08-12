@@ -19,6 +19,57 @@
 
 namespace mg::core::config {
 
+namespace {
+
+bool contains_non_ascii(const std::string& value) {
+    return std::any_of(value.begin(), value.end(), [](unsigned char ch) {
+        return ch >= 0x80;
+    });
+}
+
+std::vector<std::string> split_parameter_name(const std::string& value) {
+    std::vector<std::string> result;
+    std::stringstream stream(value);
+    std::string token;
+    while (std::getline(stream, token, '_')) {
+        if (!token.empty()) result.push_back(token);
+    }
+    return result;
+}
+
+std::string translate_parameter_token(
+    const std::string& token,
+    const std::map<std::string, std::string>& terms) {
+    auto exact = terms.find(token);
+    if (exact != terms.end()) return exact->second;
+
+    size_t first_digit = token.size();
+    while (first_digit > 0 && std::isdigit(static_cast<unsigned char>(token[first_digit - 1]))) {
+        first_digit--;
+    }
+    if (first_digit > 0 && first_digit < token.size()) {
+        auto base = terms.find(token.substr(0, first_digit));
+        if (base != terms.end()) {
+            return base->second + " " + token.substr(first_digit);
+        }
+    }
+
+    size_t first_alpha = 0;
+    while (first_alpha < token.size() &&
+           std::isdigit(static_cast<unsigned char>(token[first_alpha]))) {
+        first_alpha++;
+    }
+    if (first_alpha > 0 && first_alpha < token.size()) {
+        auto base = terms.find(token.substr(first_alpha));
+        if (base != terms.end()) {
+            return token.substr(0, first_alpha) + " " + base->second;
+        }
+    }
+    return token;
+}
+
+} // namespace
+
 // ================================================================
 // Constructor
 // ================================================================
@@ -63,7 +114,8 @@ ParamDescriptor ParamDescriptors::get(const std::string& param_name) const {
 }
 
 ParamDescriptor ParamDescriptors::get(const std::string& profile, const std::string& param_name) const {
-    return get_from_profile(normalize_profile(profile), param_name, 0);
+    const auto normalized = normalize_profile(profile);
+    return apply_fallback_translation(normalized, get_from_profile(normalized, param_name, 0));
 }
 
 bool ParamDescriptors::has(const std::string& param_name) const {
@@ -343,6 +395,56 @@ bool ParamDescriptors::load_translation_json(const std::string& path) {
         }
     }
 
+    cJSON* fallback = cJSON_GetObjectItem(root, "fallback");
+    if (fallback && cJSON_IsObject(fallback)) {
+        cJSON* fallback_profiles = cJSON_GetObjectItem(fallback, "profiles");
+        if (fallback_profiles && cJSON_IsArray(fallback_profiles)) {
+            cJSON* profile = nullptr;
+            cJSON_ArrayForEach(profile, fallback_profiles) {
+                if (cJSON_IsString(profile)) {
+                    fallback_translation_profiles_.insert(normalize_profile(profile->valuestring));
+                }
+            }
+        }
+
+        cJSON* terms = cJSON_GetObjectItem(fallback, "terms");
+        if (terms && cJSON_IsObject(terms)) {
+            cJSON* term = nullptr;
+            cJSON_ArrayForEach(term, terms) {
+                if (term->string && cJSON_IsString(term)) {
+                    fallback_translation_terms_[term->string] = term->valuestring;
+                }
+            }
+        }
+
+        cJSON* option_labels = cJSON_GetObjectItem(fallback, "option_labels");
+        if (option_labels && cJSON_IsObject(option_labels)) {
+            cJSON* label = nullptr;
+            cJSON_ArrayForEach(label, option_labels) {
+                if (label->string && cJSON_IsString(label)) {
+                    fallback_option_labels_[label->string] = label->valuestring;
+                }
+            }
+        }
+
+        cJSON* option_terms = cJSON_GetObjectItem(fallback, "option_terms");
+        if (option_terms && cJSON_IsObject(option_terms)) {
+            cJSON* term = nullptr;
+            cJSON_ArrayForEach(term, option_terms) {
+                if (term->string && cJSON_IsString(term)) {
+                    fallback_option_terms_[term->string] = term->valuestring;
+                }
+            }
+            fallback_option_terms_sorted_.assign(
+                fallback_option_terms_.begin(), fallback_option_terms_.end());
+            std::sort(fallback_option_terms_sorted_.begin(),
+                      fallback_option_terms_sorted_.end(),
+                      [](const auto& left, const auto& right) {
+                          return left.first.size() > right.first.size();
+                      });
+        }
+    }
+
     cJSON_Delete(root);
     return true;
 }
@@ -461,7 +563,10 @@ bool ParamDescriptors::parse_groups(cJSON* groups,
                             cJSON* l = cJSON_GetObjectItem(opt_iter, "label");
                             cJSON* d = cJSON_GetObjectItem(opt_iter, "description");
                             if (v && cJSON_IsNumber(v)) opt.value = v->valueint;
-                            if (l && cJSON_IsString(l)) opt.label = l->valuestring;
+                            if (l && cJSON_IsString(l)) {
+                                opt.label = l->valuestring;
+                                opt.english_label = opt.label;
+                            }
                             if (d && cJSON_IsString(d)) opt.description = d->valuestring;
                             desc.options.push_back(opt);
                         }
@@ -520,7 +625,10 @@ bool ParamDescriptors::parse_groups(cJSON* groups,
                         cJSON* l = cJSON_GetObjectItem(opt_iter, "label");
                         cJSON* d = cJSON_GetObjectItem(opt_iter, "description");
                         if (v && cJSON_IsNumber(v)) opt.value = v->valueint;
-                        if (l && cJSON_IsString(l)) opt.label = l->valuestring;
+                        if (l && cJSON_IsString(l)) {
+                            opt.label = l->valuestring;
+                            opt.english_label = opt.label;
+                        }
                         if (d && cJSON_IsString(d)) opt.description = d->valuestring;
                         desc.options.push_back(opt);
                     }
@@ -612,6 +720,105 @@ ParamDescriptor ParamDescriptors::get_from_profile(const std::string& profile,
     }
 
     return get(param_name);
+}
+
+ParamDescriptor ParamDescriptors::apply_fallback_translation(
+    const std::string& profile,
+    ParamDescriptor descriptor) const {
+    if (!descriptor.found ||
+        fallback_translation_profiles_.find(profile) == fallback_translation_profiles_.end()) {
+        return descriptor;
+    }
+
+    if (!contains_non_ascii(descriptor.display_name)) {
+        descriptor.display_name = fallback_display_name(profile, descriptor);
+    }
+
+    if (!contains_non_ascii(descriptor.description)) {
+        const auto official_description = descriptor.description;
+        descriptor.description = "用于配置“" + descriptor.display_name +
+                                 "”。修改前请核对参数范围、单位和 ArduPilot 官方说明。";
+        if (!official_description.empty() &&
+            official_description != "Parameter " + descriptor.param_name) {
+            descriptor.description += "\n\nArduPilot 官方英文说明：" + official_description;
+        }
+    }
+
+    for (auto& option : descriptor.options) {
+        option.label = fallback_option_label(option.label, option.english_label);
+    }
+    return descriptor;
+}
+
+std::string ParamDescriptors::fallback_option_label(
+    const std::string& label,
+    const std::string& english_label) const {
+    std::string translated = label;
+    if (!contains_non_ascii(translated)) {
+        auto exact = fallback_option_labels_.find(translated);
+        if (exact != fallback_option_labels_.end()) {
+            translated = exact->second;
+        } else {
+            for (const auto& [english, chinese] : fallback_option_terms_sorted_) {
+                size_t offset = 0;
+                while ((offset = translated.find(english, offset)) != std::string::npos) {
+                    translated.replace(offset, english.size(), chinese);
+                    offset += chinese.size();
+                }
+            }
+        }
+    }
+
+    const auto& original = english_label.empty() ? label : english_label;
+    if (!contains_non_ascii(translated) || original.empty() ||
+        translated.find(original) != std::string::npos) {
+        return translated;
+    }
+    return translated + " (" + original + ")";
+}
+
+std::string ParamDescriptors::fallback_group_display_name(
+    const std::string& profile,
+    const std::string& group,
+    int depth) const {
+    if (depth > 4) return group;
+
+    auto profile_it = profile_groups_.find(profile);
+    if (profile_it != profile_groups_.end()) {
+        auto group_it = profile_it->second.find(group);
+        if (group_it != profile_it->second.end() && !group_it->second.display_name.empty()) {
+            return group_it->second.display_name;
+        }
+    }
+
+    auto extends_it = profile_extends_.find(profile);
+    if (extends_it != profile_extends_.end()) {
+        return fallback_group_display_name(extends_it->second, group, depth + 1);
+    }
+    return group;
+}
+
+std::string ParamDescriptors::fallback_display_name(
+    const std::string& profile,
+    const ParamDescriptor& descriptor) const {
+    std::string group_label = fallback_group_display_name(profile, descriptor.group, 0);
+    if (group_label.empty()) group_label = descriptor.group;
+
+    std::string remainder = descriptor.param_name;
+    if (!descriptor.group.empty() && remainder.rfind(descriptor.group, 0) == 0) {
+        remainder.erase(0, descriptor.group.size());
+    }
+    while (!remainder.empty() && remainder.front() == '_') remainder.erase(0, 1);
+
+    std::string translated_remainder;
+    for (const auto& token : split_parameter_name(remainder)) {
+        if (!translated_remainder.empty()) translated_remainder += " ";
+        translated_remainder += translate_parameter_token(token, fallback_translation_terms_);
+    }
+
+    if (group_label.empty()) return translated_remainder.empty() ? descriptor.param_name : translated_remainder;
+    if (translated_remainder.empty()) return group_label;
+    return group_label + " · " + translated_remainder;
 }
 
 std::map<std::string, GroupDescriptor> ParamDescriptors::merged_profile_groups(const std::string& profile,

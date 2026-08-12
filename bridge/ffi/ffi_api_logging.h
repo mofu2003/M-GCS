@@ -15,6 +15,7 @@ MGCORE_API char* mg_log_record_start(mg_core_t* core, const char* filepath);
 MGCORE_API char* mg_log_record_stop(mg_core_t* core);
 MGCORE_API char* mg_log_record_status(mg_core_t* core);
 
+/* Compatibility aliases retained for older consumers. */
 MGCORE_API char* mg_logging_get_entries(mg_core_t* core, int count);
 MGCORE_API char* mg_logging_get_stats(mg_core_t* core);
 

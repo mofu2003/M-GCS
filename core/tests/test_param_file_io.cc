@@ -4,6 +4,8 @@
  * Tests: export/import .param, CSV, JSON formats, merge, filter_modified.
  */
 #include "core/config/param_file_io.h"
+#include "core/config/parameter_change_set.h"
+#include "core/mavlink/mavlink_adapter.h"
 #include <iostream>
 #include <string>
 #include <map>
@@ -45,10 +47,29 @@ int main() {
 
         auto imported = ParamFileIO::import_param(exported);
         TEST("import returns 3 params", imported.size() == 3);
-        TEST("imported name[0]", imported[0].name == "SERIAL1_PROTOCOL");
-        TEST_NEAR("imported value[0]", imported[0].value, 2.0f, 1e-5f);
-        TEST("imported name[2]", imported[2].name == "BATT_CAPACITY");
-        TEST_NEAR("imported value[2]", imported[2].value, 5000.0f, 1e-5f);
+        TEST("imported name[0]", imported[0].name == "BATT_CAPACITY");
+        TEST_NEAR("imported value[0]", imported[0].value, 5000.0f, 1e-5f);
+        TEST("imported name[2]", imported[2].name == "SERIAL1_PROTOCOL");
+        TEST_NEAR("imported value[2]", imported[2].value, 2.0f, 1e-5f);
+        TEST("export is sorted", exported.find("BATT_CAPACITY") < exported.find("SERIAL1_BAUD"));
+    }
+
+    // ---- Mission Planner-compatible separators and exclusions ----
+    {
+        std::cout << "\n[Group] Mission Planner compatibility" << std::endl;
+        std::string content =
+            "PARAM_SPACE 1.25\n"
+            "PARAM_TAB\t2.5\n"
+            "PARAM_COMMA,3.75\n"
+            "FORMAT_VERSION,120\n"
+            "SYS_NUM_RESETS,9\n";
+
+        auto imported = ParamFileIO::import_param(content);
+        TEST("accepts space comma and tab separators", imported.size() == 3);
+        TEST("space-separated value", imported[0].name == "PARAM_SPACE");
+        TEST_NEAR("tab-separated value", imported[1].value, 2.5f, 1e-5f);
+        TEST("skips volatile Mission Planner parameters",
+             imported[2].name == "PARAM_COMMA");
     }
 
     // ---- .param import with comments ----
@@ -158,11 +179,41 @@ int main() {
         auto empty2 = ParamFileIO::import_param("# only comments\n\n");
         TEST("only comments returns empty", empty2.empty());
 
-        auto bad = ParamFileIO::import_param("BAD_NO_COMMA\n");
+        auto bad = ParamFileIO::import_param("BAD_NO_VALUE\n");
         TEST("malformed line is skipped", bad.empty());
 
-        auto partial = ParamFileIO::import_param("GOOD,1.0\nBAD_NO_COMMA\nALSO_GOOD,2.0\n");
+        auto partial = ParamFileIO::import_param("GOOD,1.0\nBAD_NO_VALUE\nALSO_GOOD,2.0\n");
         TEST("partial parse works", partial.size() == 2);
+    }
+
+    // ---- Parameter change-set planning ----
+    {
+        std::cout << "\n[Group] Parameter change-set" << std::endl;
+        std::vector<mg::core::mavlink::ParamInfo> current = {
+            {"BATT_ENABLE", 1.0f, 9, 0, 3},
+            {"BATT_MONITOR", 0.0f, 9, 1, 3},
+            {"SERIAL1_PROTOCOL", 2.0f, 6, 2, 3},
+        };
+        std::vector<ParamEntry> requested = {
+            {"BATT_ENABLE", 0.0f, 0},
+            {"BATT_MONITOR", 4.0f, 0},
+            {"SERIAL1_PROTOCOL", 2.0f, 0},
+            {"UNKNOWN_PARAM", 7.0f, 0},
+            {"BATT_MONITOR", 5.0f, 0},
+        };
+
+        const auto prepared = ParameterChangeSetPlanner::prepare(requested, current);
+        TEST("deduplicates requested entries", prepared.changes.size() == 4);
+        TEST("classifies ready changes", prepared.ready_count == 2);
+        TEST("classifies unchanged entries", prepared.unchanged_count == 1);
+        TEST("classifies unknown entries", prepared.unknown_count == 1);
+
+        const auto ordered = ParameterChangeSetPlanner::ordered_ready(prepared);
+        TEST("orders two ready changes", ordered.size() == 2);
+        TEST("writes dependent value before enable", ordered[0].entry.name == "BATT_MONITOR");
+        TEST("writes enable parameter last", ordered[1].entry.name == "BATT_ENABLE");
+        TEST_NEAR("uses final duplicate value", ordered[0].entry.value, 5.0f, 1e-5f);
+        TEST("uses cached MAVLink type", ordered[0].entry.type == 9);
     }
 
     std::cout << "\n=== " << passed << " passed, " << failed << " failed ===" << std::endl;

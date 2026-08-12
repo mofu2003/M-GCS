@@ -19,6 +19,7 @@ abstract interface class MgSkin {
     onConnectionTransportChanged,
     ValueChanged<String>? onSerialPortChanged,
     ValueChanged<int>? onBaudRateChanged,
+    Widget? missionPanel,
     required MgMapStyle mapStyle,
     required ValueChanged<MgMapStyle> onMapStyleChanged,
   });

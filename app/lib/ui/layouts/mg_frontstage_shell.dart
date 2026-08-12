@@ -13,6 +13,7 @@ final class MgFrontstageShell extends StatelessWidget {
     required this.onConnectionTransportChanged,
     this.onSerialPortChanged,
     this.onBaudRateChanged,
+    this.missionPanel,
     required this.mapStyle,
     required this.onMapStyleChanged,
     super.key,
@@ -26,6 +27,7 @@ final class MgFrontstageShell extends StatelessWidget {
   onConnectionTransportChanged;
   final ValueChanged<String>? onSerialPortChanged;
   final ValueChanged<int>? onBaudRateChanged;
+  final Widget? missionPanel;
   final MgMapStyle mapStyle;
   final ValueChanged<MgMapStyle> onMapStyleChanged;
 
@@ -40,6 +42,7 @@ final class MgFrontstageShell extends StatelessWidget {
       onConnectionTransportChanged: onConnectionTransportChanged,
       onSerialPortChanged: onSerialPortChanged,
       onBaudRateChanged: onBaudRateChanged,
+      missionPanel: missionPanel,
       mapStyle: mapStyle,
       onMapStyleChanged: onMapStyleChanged,
     );

@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 
 struct cJSON;
 
@@ -29,6 +30,7 @@ namespace mg::core::config {
 struct ParamOption {
     int value;
     std::string label;
+    std::string english_label;
     std::string description;
 };
 
@@ -110,6 +112,11 @@ private:
     std::map<std::string, std::map<std::string, ParamDescriptor>> profile_descriptors_;
     std::map<std::string, std::map<std::string, GroupDescriptor>> profile_groups_;
     std::map<std::string, std::string> profile_extends_;
+    std::set<std::string> fallback_translation_profiles_;
+    std::map<std::string, std::string> fallback_translation_terms_;
+    std::map<std::string, std::string> fallback_option_labels_;
+    std::map<std::string, std::string> fallback_option_terms_;
+    std::vector<std::pair<std::string, std::string>> fallback_option_terms_sorted_;
 
     bool load_json(const std::string& path);
     bool load_translation_json(const std::string& path);
@@ -126,6 +133,15 @@ private:
     ParamDescriptor get_from_profile(const std::string& profile,
                                      const std::string& param_name,
                                      int depth) const;
+    ParamDescriptor apply_fallback_translation(const std::string& profile,
+                                               ParamDescriptor descriptor) const;
+    std::string fallback_group_display_name(const std::string& profile,
+                                            const std::string& group,
+                                            int depth) const;
+    std::string fallback_display_name(const std::string& profile,
+                                      const ParamDescriptor& descriptor) const;
+    std::string fallback_option_label(const std::string& label,
+                                      const std::string& english_label) const;
     std::map<std::string, GroupDescriptor> merged_profile_groups(const std::string& profile,
                                                                  int depth) const;
 };

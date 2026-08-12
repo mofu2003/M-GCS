@@ -215,15 +215,23 @@ static void test_rc_channels_decode() {
 static void test_servo_output_decode() {
     fprintf(stderr, "\n[Group] SERVO_OUTPUT_RAW decode\n");
     TestFixture f;
-    bool received = false;
-    f.adapter.on_servo_output([&](const mg::core::mavlink::ServoOutputInfo&) { received = true; });
+    int received = 0;
+    f.adapter.on_servo_output([&](const mg::core::mavlink::ServoOutputInfo&) { received++; });
     mavlink_message_t msg;
-    { mavlink_servo_output_raw_t s = {}; s.servo1_raw=1500; s.servo2_raw=1500; s.servo3_raw=1100; s.servo4_raw=1500; s.servo5_raw=1800; s.servo6_raw=1200; s.servo7_raw=1500; s.servo8_raw=1500; mavlink_msg_servo_output_raw_encode(1,1,&msg,&s); }
+    { mavlink_servo_output_raw_t s = {}; s.time_usec=123456; s.port=0; s.servo1_raw=1500; s.servo2_raw=1500; s.servo3_raw=1100; s.servo4_raw=1500; s.servo5_raw=1800; s.servo6_raw=1200; s.servo7_raw=1500; s.servo8_raw=1500; mavlink_msg_servo_output_raw_encode(1,1,&msg,&s); }
     f.inject(msg);
-    CHECK("Servo received", received);
+    CHECK("Servo received", received == 1);
     auto sv = f.adapter.latest_servo_output();
     CHECK("servo[0]=1500", sv.has_value() && sv->servo[0] == 1500);
     CHECK("servo[2]=1100", sv.has_value() && sv->servo[2] == 1100);
+    CHECK("time_usec decoded", sv.has_value() && sv->time_usec == 123456);
+
+    { mavlink_servo_output_raw_t s = {}; s.time_usec=654321; s.port=1; s.servo1_raw=1900; mavlink_msg_servo_output_raw_encode(1,1,&msg,&s); }
+    f.inject(msg);
+    sv = f.adapter.latest_servo_output();
+    CHECK("port 1 does not fire 1-16 callback", received == 1);
+    CHECK("port 1 does not overwrite servo 1", sv.has_value() && sv->servo[0] == 1500);
+    CHECK("port 1 does not overwrite timestamp", sv.has_value() && sv->time_usec == 123456);
 }
 
 static void test_statustext_decode() {

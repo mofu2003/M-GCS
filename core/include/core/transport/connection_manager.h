@@ -101,9 +101,11 @@ public:
 
     /// Record one received heartbeat.
     void record_heartbeat() {
-        last_heartbeat_ms_ = static_cast<uint64_t>(
+        const auto now = static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now().time_since_epoch()).count());
+        last_heartbeat_ms_ = now;
+        last_activity_ms_ = now;
         ConnectionState cur = state_.load();
         if (cur == ConnectionState::WaitingHeartbeat ||
             cur == ConnectionState::HeartbeatLost) {
@@ -146,10 +148,13 @@ private:
     std::thread watchdog_thread_;
     std::atomic<bool> watchdog_running_{false};
     std::atomic<uint64_t> last_heartbeat_ms_{0};
+    std::atomic<uint64_t> last_activity_ms_{0};
     // Start heartbeat watchdog.
     void start_watchdog();
     // Stop heartbeat watchdog.
     void stop_watchdog();
+    /// Keep an established connection alive when any MAVLink traffic arrives.
+    void record_activity();
     // Apply state transition and fire callback.
     void transition_to(ConnectionState new_state, const char* reason = "");
 };

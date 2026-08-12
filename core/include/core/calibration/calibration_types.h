@@ -98,6 +98,7 @@ struct CalibrationResult {
     CalibrationStage   stage      = CalibrationStage::Idle;
     CalibrationQuality quality    = CalibrationQuality::Poor;
     uint64_t           timestamp_ms = 0;
+    AccelCalMode       accel_mode = AccelCalMode::Full;
     std::string        failure_reason;
 
     // 校准后从飞控读取的偏移量。
@@ -112,6 +113,7 @@ struct CalibrationResult {
 
     // 磁力计专用：fitness、对角线和非对角线参数。
     float fitness     = 0.0f;    // 0-100，越低越好。
+    bool  mag_report_received = false;  // 由 MAVLink MAG_CAL_REPORT 提供的权威结果。
     float diagonal_x  = 0.0f;
     float diagonal_y  = 0.0f;
     float diagonal_z  = 0.0f;

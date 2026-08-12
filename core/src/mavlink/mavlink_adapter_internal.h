@@ -21,8 +21,10 @@
 #include "core/mission/mission_types.h"
 #include "core/log/logging.h"
 #include "common/mavlink.h"
+#include "common/mavlink_msg_mag_cal_progress.h"
 #include "standard/mavlink_msg_autopilot_version.h"
 #include "core/firmware/firmware_adapter.h"
+#include "core/ftp/mavlink_ftp.h"
 #include "core/platform/platform_mutex.h"
 #include "command_queue.h"
 #include "param_cache.h"
@@ -104,6 +106,9 @@ struct TelemetryLatest {
     FirmwareVersionCallback firmware_version_cb;
     ParamCallback           param_cb;
     CommandAckCallback      command_ack_cb;
+    CommandLongCallback     command_long_cb;
+    MagCalibrationProgressCallback mag_cal_progress_cb;
+    MagCalibrationReportCallback mag_cal_report_cb;
     RcChannelsCallback      rc_channels_cb;
     ServoOutputCallback     servo_output_cb;
     GlobalPositionCallback  global_position_cb;
@@ -228,6 +233,11 @@ struct LogState {
 
 // MavlinkAdapter 的 PIMPL 实现，包含所有可变状态和消息处理逻辑
 struct MavlinkAdapter::Impl {
+    Impl()
+        : ftp([this](const uint8_t* data, size_t size) {
+            return send_cb ? send_cb(data, size) : false;
+        }) {}
+
     mavlink_message_t msg{};
     mavlink_status_t  status{};
     uint64_t          msg_count = 0;
@@ -244,8 +254,67 @@ struct MavlinkAdapter::Impl {
     CommandAckWaiter     ack_waiter;
     CommandQueue         cmd_queue;         // 命令队列（ACK 超时重发）
     SendCallback         send_cb;
+    mg::core::ftp::MavlinkFtpClient ftp;
     std::vector<std::function<void()>> deferred_cbs;
     std::chrono::steady_clock::time_point last_timeout_check_;  // 超时检查节流
+    std::array<uint8_t, MAVLINK_MAX_PACKET_LEN> mag_progress_frame{};
+    size_t mag_progress_frame_len = 0;
+    size_t mag_progress_frame_expected = 0;
+
+    // The common dialect does not list ArduPilot message 191 in its CRC
+    // table. Keep a tiny compatibility parser so a valid MAG_CAL_PROGRESS
+    // frame still reaches the normal message dispatch path.
+    void feed_mag_progress_compat(const uint8_t* data, size_t size) {
+        for (size_t i = 0; i < size; ++i) {
+            const uint8_t byte = data[i];
+            if (mag_progress_frame_len == 0) {
+                if (byte != MAVLINK_STX) continue;
+                mag_progress_frame[mag_progress_frame_len++] = byte;
+                continue;
+            }
+            if (mag_progress_frame_len >= mag_progress_frame.size()) {
+                mag_progress_frame_len = 0;
+                mag_progress_frame_expected = 0;
+                continue;
+            }
+            mag_progress_frame[mag_progress_frame_len++] = byte;
+            if (mag_progress_frame_len == 3) {
+                const uint8_t payload_len = mag_progress_frame[1];
+                const uint8_t incompat_flags = mag_progress_frame[2];
+                mag_progress_frame_expected = 10u + payload_len + 2u +
+                    ((incompat_flags & 0x01u) ? 13u : 0u);
+            }
+            if (mag_progress_frame_expected == 0 ||
+                mag_progress_frame_len < mag_progress_frame_expected) continue;
+
+            const uint32_t msgid = static_cast<uint32_t>(mag_progress_frame[7]) |
+                (static_cast<uint32_t>(mag_progress_frame[8]) << 8) |
+                (static_cast<uint32_t>(mag_progress_frame[9]) << 16);
+            if (msgid == MAVLINK_MSG_ID_MAG_CAL_PROGRESS) {
+                const uint8_t payload_len = mag_progress_frame[1];
+                const uint16_t crc_offset = static_cast<uint16_t>(10u + payload_len);
+                uint16_t checksum = crc_calculate(&mag_progress_frame[1],
+                                                  static_cast<uint16_t>(9u + payload_len));
+                crc_accumulate(MAVLINK_MSG_ID_MAG_CAL_PROGRESS_CRC, &checksum);
+                const uint16_t received = static_cast<uint16_t>(mag_progress_frame[crc_offset]) |
+                    (static_cast<uint16_t>(mag_progress_frame[crc_offset + 1]) << 8);
+                if (checksum == received && payload_len >= MAVLINK_MSG_ID_MAG_CAL_PROGRESS_MIN_LEN) {
+                    mavlink_message_t message{};
+                    message.len = payload_len;
+                    message.incompat_flags = mag_progress_frame[2];
+                    message.compat_flags = mag_progress_frame[3];
+                    message.seq = mag_progress_frame[4];
+                    message.sysid = mag_progress_frame[5];
+                    message.compid = mag_progress_frame[6];
+                    message.msgid = msgid;
+                    memcpy(_MAV_PAYLOAD_NON_CONST(&message), &mag_progress_frame[10], payload_len);
+                    process(message);
+                }
+            }
+            mag_progress_frame_len = 0;
+            mag_progress_frame_expected = 0;
+        }
+    }
 
     mutable mg::core::platform::Mutex mtx;  // 加锁保护所有可变状态
 
@@ -488,6 +557,65 @@ struct MavlinkAdapter::Impl {
         if (tel.command_ack_cb) deferred_cbs.push_back([cb = tel.command_ack_cb, info]() { cb(info); });
     }
 
+    void handle_command_long(const mavlink_message_t& m) {
+        mavlink_command_long_t command;
+        mavlink_msg_command_long_decode(&m, &command);
+        CommandLongInfo info{};
+        info.system_id = m.sysid;
+        info.component_id = m.compid;
+        info.target_system = command.target_system;
+        info.target_component = command.target_component;
+        info.command = command.command;
+        info.param1 = command.param1;
+        if (tel.command_long_cb) {
+            deferred_cbs.push_back([cb = tel.command_long_cb, info]() { cb(info); });
+        }
+    }
+
+    void handle_mag_cal_progress(const mavlink_message_t& m) {
+        // MAG_CAL_PROGRESS belongs to the ArduPilot dialect.  The vendored
+        // common headers do not generate its helper, so decode its fixed
+        // leading bytes directly from the MAVLink payload.
+        if (m.len < 5) return;
+        const auto* payload = reinterpret_cast<const uint8_t*>(m.payload64);
+        MagCalibrationProgressInfo info{};
+        info.system_id = m.sysid;
+        // MAVLink packets use wire ordering: direction vectors occupy bytes
+        // 0..11, then the compact state fields begin at byte 12.
+        info.compass_id = payload[12];
+        info.cal_mask = payload[13];
+        info.cal_status = payload[14];
+        info.attempt = payload[15];
+        info.completion_pct = payload[16];
+        if (tel.mag_cal_progress_cb) {
+            deferred_cbs.push_back([cb = tel.mag_cal_progress_cb, info]() { cb(info); });
+        }
+    }
+
+    void handle_mag_cal_report(const mavlink_message_t& m) {
+        mavlink_mag_cal_report_t report{};
+        mavlink_msg_mag_cal_report_decode(&m, &report);
+        MagCalibrationReportInfo info{};
+        info.system_id = m.sysid;
+        info.compass_id = report.compass_id;
+        info.cal_mask = report.cal_mask;
+        info.cal_status = report.cal_status;
+        info.autosaved = report.autosaved != 0;
+        info.fitness = report.fitness;
+        info.offset_x = report.ofs_x;
+        info.offset_y = report.ofs_y;
+        info.offset_z = report.ofs_z;
+        info.diagonal_x = report.diag_x;
+        info.diagonal_y = report.diag_y;
+        info.diagonal_z = report.diag_z;
+        info.offdiag_x = report.offdiag_x;
+        info.offdiag_y = report.offdiag_y;
+        info.offdiag_z = report.offdiag_z;
+        if (tel.mag_cal_report_cb) {
+            deferred_cbs.push_back([cb = tel.mag_cal_report_cb, info]() { cb(info); });
+        }
+    }
+
     // 处理遥控通道数据
     void handle_rc_channels(const mavlink_message_t& m) {
         mavlink_rc_channels_t rc;
@@ -522,8 +650,12 @@ struct MavlinkAdapter::Impl {
     void handle_servo_output_raw(const mavlink_message_t& m) {
         mavlink_servo_output_raw_t so;
         mavlink_msg_servo_output_raw_decode(&m, &so);
+        // The 1-16 page is backed by port 0.  ArduPilot uses port 1 for
+        // channels 17-32; never let that second packet overwrite channels 1-16.
+        if (so.port != 0) return;
         ServoOutputInfo info{};
         info.system_id = m.sysid;
+        info.time_usec = so.time_usec;
         info.port = so.port;
         info.servo[0] = so.servo1_raw;
         info.servo[1] = so.servo2_raw;
@@ -1142,6 +1274,9 @@ struct MavlinkAdapter::Impl {
             case MAVLINK_MSG_ID_AUTOPILOT_VERSION:   handle_autopilot_version(m); break;
             case MAVLINK_MSG_ID_PARAM_VALUE:         handle_param_value(m); break;
             case MAVLINK_MSG_ID_COMMAND_ACK:         handle_command_ack(m); break;
+            case MAVLINK_MSG_ID_COMMAND_LONG:        handle_command_long(m); break;
+            case 191:                                 handle_mag_cal_progress(m); break;
+            case MAVLINK_MSG_ID_MAG_CAL_REPORT:       handle_mag_cal_report(m); break;
             case MAVLINK_MSG_ID_RC_CHANNELS:        handle_rc_channels(m); break;
             case MAVLINK_MSG_ID_SERVO_OUTPUT_RAW:   handle_servo_output_raw(m); break;
             case MAVLINK_MSG_ID_STATUSTEXT:        handle_statustext(m); break;
@@ -1166,6 +1301,12 @@ struct MavlinkAdapter::Impl {
             case MAVLINK_MSG_ID_LOG_DATA:                handle_log_data(m); break;
             case MAVLINK_MSG_ID_DISTANCE_SENSOR:        handle_distance_sensor(m); break;
             case MAVLINK_MSG_ID_ADSB_VEHICLE:           handle_adsb_vehicle(m); break;
+            case 110: { // FILE_TRANSFER_PROTOCOL
+                mavlink_file_transfer_protocol_t ftp_message{};
+                mavlink_msg_file_transfer_protocol_decode(&m, &ftp_message);
+                ftp.handle_ftp_message(ftp_message);
+                break;
+            }
             // 相机/云台消息
             case 261:   /* CAMERA_INFORMATION */         handle_camera_information(m); break;
             case 254:   /* CAMERA_CAPTURE_STATUS */      handle_camera_capture_status(m); break;

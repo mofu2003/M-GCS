@@ -3,17 +3,50 @@
  * 参数文件 I/O 实现 — .param / CSV / XML 格式解析与导出
  */
 #include "core/config/param_file_io.h"
+#include <algorithm>
+#include <cmath>
 #include <sstream>
 #include <fstream>
+#include <set>
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 
 namespace mg::core::config {
 
+namespace {
+
+bool mission_planner_skips(const std::string& name) {
+    static const std::set<std::string> skipped = {
+        "SYSID_SW_MREV",
+        "WP_TOTAL",
+        "CMD_TOTAL",
+        "FENCE_TOTAL",
+        "SYS_NUM_RESETS",
+        "ARSPD_OFFSET",
+        "GND_ABS_PRESS",
+        "GND_TEMP",
+        "BARO1_GND_PRESS",
+        "BARO2_GND_PRESS",
+        "BARO3_GND_PRESS",
+        "BARO_GND_TEMP",
+        "CMD_INDEX",
+        "LOG_LASTFILE",
+        "FORMAT_VERSION",
+    };
+    return skipped.find(name) != skipped.end();
+}
+
+} // namespace
+
 std::string ParamFileIO::export_param(const std::vector<ParamEntry>& params) {
+    auto sorted = params;
+    std::sort(sorted.begin(), sorted.end(), [](const ParamEntry& left, const ParamEntry& right) {
+        return left.name < right.name;
+    });
+
     std::ostringstream oss;
-    for (const auto& p : params) {
+    for (const auto& p : sorted) {
         oss << p.name << "," << p.value << "\n";
     }
     return oss.str();
@@ -27,13 +60,20 @@ std::vector<ParamEntry> ParamFileIO::import_param(const std::string& content) {
     while (std::getline(stream, line)) {
         if (line.empty() || line[0] == '#') continue; // Skip comments
 
-        size_t comma = line.find(',');
-        if (comma == std::string::npos) continue;
+        std::replace(line.begin(), line.end(), ',', ' ');
+        std::replace(line.begin(), line.end(), '\t', ' ');
+
+        std::istringstream line_stream(line);
+        std::string name;
+        std::string value_text;
+        if (!(line_stream >> name >> value_text) || mission_planner_skips(name)) continue;
 
         ParamEntry entry;
-        entry.name = line.substr(0, comma);
+        entry.name = name;
         try {
-            entry.value = std::stof(line.substr(comma + 1));
+            size_t parsed = 0;
+            entry.value = std::stof(value_text, &parsed);
+            if (parsed != value_text.size() || !std::isfinite(entry.value)) continue;
             result.push_back(entry);
         } catch (...) {
             // Skip malformed lines

@@ -7,6 +7,7 @@
 extern "C" {
 #endif
 
+/* Legacy single-parameter aliases. New consumers use mg_params_* below. */
 MGCORE_API char* mg_param_list(mg_core_t* core);
 MGCORE_API char* mg_param_get(mg_core_t* core, const char* name);
 MGCORE_API char* mg_param_set(mg_core_t* core, const char* name, float value);
@@ -16,6 +17,8 @@ MGCORE_API char* mg_params_get_all(mg_core_t* core);
 MGCORE_API char* mg_params_get_progress(mg_core_t* core);
 MGCORE_API char* mg_params_get_by_name(mg_core_t* core, const char* param_name);
 MGCORE_API char* mg_params_set(mg_core_t* core, const char* param_name, float param_value, int param_type);
+MGCORE_API char* mg_params_prepare_change_set(mg_core_t* core, const char* json_params);
+MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_params);
 MGCORE_API char* mg_params_get_changed(mg_core_t* core);
 MGCORE_API char* mg_params_save_to_file(mg_core_t* core, const char* filepath);
 MGCORE_API char* mg_params_load_from_file(mg_core_t* core, const char* filepath);

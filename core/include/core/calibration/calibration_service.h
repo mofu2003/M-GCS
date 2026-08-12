@@ -37,6 +37,8 @@
 
 namespace mg::core::mavlink {
     class MavlinkAdapter;
+    struct MagCalibrationProgressInfo;
+    struct MagCalibrationReportInfo;
 }
 
 namespace mg::core::calibration {
@@ -54,6 +56,7 @@ struct CalibrationStatus {
     int         retry_count = 0;
     int         max_retries = 0;
     uint64_t    start_time_ms = 0;
+    AccelCalMode accel_mode = AccelCalMode::Full;
 };
 
 /// 校准状态变化回调。
@@ -85,6 +88,14 @@ public:
 
     /// 处理飞控发来的 COMMAND_ACK。
     void process_command_ack(uint16_t command, uint8_t result, uint8_t progress);
+
+    /// 处理 ArduPilot MAV_CAL 专用的罗盘进度和结果消息。
+    void process_mag_cal_progress(const mg::core::mavlink::MagCalibrationProgressInfo& progress);
+    void process_mag_cal_report(const mg::core::mavlink::MagCalibrationReportInfo& report);
+
+    /// Handles the ArduPilot MAV_CMD_ACCELCAL_VEHICLE_POS notification sent
+    /// by the flight controller for the next face or the terminal result.
+    void process_accelerometer_position_request(uint32_t position);
 
     /// 获取当前校准状态线程安全快照。
     CalibrationStatus get_status() const;
@@ -137,6 +148,10 @@ private:
     void update_status_from_result();
     ICalibrationStrategy* get_strategy(CalibrationType type);
     uint64_t now_ms() const;
+    uint64_t wall_clock_now_ms() const;
+    void load_history_from_disk();
+    void persist_history() const;
+    std::string history_storage_path() const;
 };
 
 } // namespace mg::core::calibration

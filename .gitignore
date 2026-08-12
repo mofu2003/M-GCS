@@ -3,6 +3,9 @@ build/
 build-vs/
 build_test/
 build_check/
+build_desktop/
+.venv/
+third_party/mavlink/include/
 
 # === IDE ===
 .idea/

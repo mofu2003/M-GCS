@@ -17,6 +17,10 @@ final class ParameterTreeNode {
     final root = ParameterTreeNode(label: '全部参数', prefix: '');
     final groupedNames = <String, List<String>>{};
     for (final name in names.toSet()..removeWhere((name) => name.isEmpty)) {
+      if (_flightModeParameter.hasMatch(name)) {
+        (groupedNames['FLTMODE'] ??= []).add(name);
+        continue;
+      }
       if (!name.contains('_')) {
         root.children.add(_leaf(name));
         continue;
@@ -26,60 +30,23 @@ final class ParameterTreeNode {
     }
 
     for (final entry in groupedNames.entries) {
-      final categoryPrefix = '${entry.key}_';
+      final categoryPrefix = entry.key == 'FLTMODE'
+          ? 'FLTMODE'
+          : '${entry.key}_';
       final category = ParameterTreeNode(
         label: entry.key,
         prefix: categoryPrefix,
       );
       root.children.add(category);
-      _addCompressedChildren(category, categoryPrefix, entry.value);
+      for (final name in entry.value) {
+        category.children.add(_leaf(name));
+      }
     }
     _sort(root);
     return root;
   }
 
-  // Mirrors Mission Planner's raw-parameter tree: only shared prefix segments
-  // create an intermediate node. Parameters themselves stay intact as leaves.
-  static void _addCompressedChildren(
-    ParameterTreeNode category,
-    String categoryPrefix,
-    List<String> names,
-  ) {
-    final sortedNames = [...names]..sort();
-    var current = category;
-    var currentPrefix = categoryPrefix;
-    final ancestors = <ParameterTreeNode>[category];
-
-    for (var index = 0; index < sortedNames.length; index++) {
-      final name = sortedNames[index];
-      while (!name.startsWith(currentPrefix) && ancestors.length > 1) {
-        ancestors.removeLast();
-        current = ancestors.last;
-        currentPrefix = current.prefix;
-      }
-
-      if (index == sortedNames.length - 1) {
-        current.children.add(_leaf(name));
-        break;
-      }
-
-      final nextName = sortedNames[index + 1];
-      var segment = '${name.substring(currentPrefix.length).split('_').first}_';
-      while (segment.length > 1 &&
-          name.startsWith('$currentPrefix$segment') &&
-          nextName.startsWith('$currentPrefix$segment')) {
-        currentPrefix = '$currentPrefix$segment';
-        current = ParameterTreeNode(
-          label: currentPrefix.substring(0, currentPrefix.length - 1),
-          prefix: currentPrefix,
-        );
-        ancestors.last.children.add(current);
-        ancestors.add(current);
-        segment = '${name.substring(currentPrefix.length).split('_').first}_';
-      }
-      current.children.add(_leaf(name));
-    }
-  }
+  static final RegExp _flightModeParameter = RegExp(r'^FLTMODE[1-6]$');
 
   static ParameterTreeNode _leaf(String name) =>
       ParameterTreeNode(label: name, prefix: name, parameterName: name);

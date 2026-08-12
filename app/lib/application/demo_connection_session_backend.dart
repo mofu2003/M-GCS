@@ -1,9 +1,16 @@
 import 'connection_models.dart';
 import 'connection_session_backend.dart';
+import 'mission_models.dart';
 import 'parameter_models.dart';
 
 final class DemoConnectionSessionBackend
-    implements ConnectionSessionBackend, ParameterSessionBackend {
+    implements
+        ConnectionSessionBackend,
+        ParameterSessionBackend,
+        ParameterFileSessionBackend,
+        ParameterRefreshSessionBackend,
+        ServoOutputSessionBackend,
+        MissionSessionBackend {
   bool _connected = false;
   bool _parameterSyncRequested = false;
   int _parameterProgressReads = 0;
@@ -35,6 +42,19 @@ final class DemoConnectionSessionBackend
       mavlinkType: 9,
       index: 3,
       count: 4,
+    ),
+  ];
+  List<MissionItemSnapshot> _mission = const [
+    MissionItemSnapshot(
+      sequence: 0,
+      command: 16,
+      commandName: 'NAV_WAYPOINT',
+      frame: 3,
+      frameName: 'GLOBAL_RELATIVE_ALT',
+      autoContinue: true,
+      latitude: 31.2304,
+      longitude: 121.4737,
+      altitudeMeters: 60,
     ),
   ];
 
@@ -78,6 +98,82 @@ final class DemoConnectionSessionBackend
   Future<List<FlightControllerParameter>> loadParameters() async => _parameters;
 
   @override
+  Future<List<FlightControllerParameter>> refreshParameters() async =>
+      _parameters;
+
+  @override
+  Future<ServoOutputSnapshot> loadServoOutputs() async => ServoOutputSnapshot(
+    valid: _connected,
+    values: _connected
+        ? List<int>.generate(16, (index) => 1460 + index * 5)
+        : List<int>.filled(16, 0),
+  );
+
+  @override
+  Future<MissionPlanSnapshot> downloadMission() async {
+    if (!_connected) throw StateError('未连接飞控');
+    return MissionPlanSnapshot(items: _mission, valid: _mission.isNotEmpty);
+  }
+
+  @override
+  Future<ConnectionOperationResult> uploadMission(
+    List<MissionItemSnapshot> items,
+  ) async {
+    if (!_connected) {
+      return const ConnectionOperationResult(success: false, message: '未连接飞控');
+    }
+    _mission = items
+        .asMap()
+        .entries
+        .map((entry) => entry.value.copyWith(sequence: entry.key))
+        .toList(growable: false);
+    return const ConnectionOperationResult(success: true, message: '演示任务已写入');
+  }
+
+  @override
+  Future<List<ParameterFileEntry>> parseParameterFile(String content) async {
+    const skipped = {
+      'SYSID_SW_MREV',
+      'WP_TOTAL',
+      'CMD_TOTAL',
+      'FENCE_TOTAL',
+      'SYS_NUM_RESETS',
+      'ARSPD_OFFSET',
+      'GND_ABS_PRESS',
+      'GND_TEMP',
+      'BARO1_GND_PRESS',
+      'BARO2_GND_PRESS',
+      'BARO3_GND_PRESS',
+      'BARO_GND_TEMP',
+      'CMD_INDEX',
+      'LOG_LASTFILE',
+      'FORMAT_VERSION',
+    };
+    final entries = <ParameterFileEntry>[];
+    for (final rawLine in content.split(RegExp(r'\r?\n'))) {
+      final line = rawLine.trim();
+      if (line.isEmpty || line.startsWith('#')) continue;
+      final fields = line.split(RegExp(r'[,\s]+'));
+      if (fields.length < 2 || skipped.contains(fields.first)) continue;
+      final value = double.tryParse(fields[1]);
+      if (value == null || !value.isFinite) continue;
+      entries.add(ParameterFileEntry(name: fields.first, value: value));
+    }
+    if (entries.isEmpty) {
+      throw const FormatException('文件中没有可读取的参数');
+    }
+    return entries;
+  }
+
+  @override
+  Future<String> createParameterFile(
+    List<FlightControllerParameter> parameters,
+  ) async {
+    final sorted = [...parameters]..sort((a, b) => a.name.compareTo(b.name));
+    return '${sorted.map((item) => '${item.name},${item.value}').join('\n')}\n';
+  }
+
+  @override
   Future<ParameterDescriptor> loadParameterDescriptor(String name) async {
     return switch (name) {
       'BATT_MONITOR' => const ParameterDescriptor(
@@ -88,6 +184,11 @@ final class DemoConnectionSessionBackend
         groupDisplayName: '电池',
         type: 'enum',
         found: true,
+        options: [
+          ParameterOption(value: 0, label: '禁用'),
+          ParameterOption(value: 3, label: '模拟电压'),
+          ParameterOption(value: 4, label: '模拟电压和电流'),
+        ],
       ),
       'BATT_ENABLE' => const ParameterDescriptor(
         name: 'BATT_ENABLE',
@@ -179,7 +280,7 @@ final class DemoConnectionSessionBackend
       parameterProgress: ParameterSyncProgress(received: received, total: 1046),
       identity: const FlightControllerIdentity(
         name: '演示飞控',
-        airframe: 'Plane',
+        airframe: 'Copter',
         firmwareType: 'ArduPilot',
         firmwareMajor: 4,
         firmwareMinor: 5,

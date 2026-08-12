@@ -27,6 +27,7 @@ namespace mg::core::mavlink {
 // ================================================================
 static constexpr int PARAM_LIST_TIMEOUT_MS = 5000;     // PARAM_REQUEST_LIST 等待首个回复
 static constexpr int PARAM_LIST_MAX_RETRIES = 4;       // 列表请求最大重试
+static constexpr int PARAM_RECEIVING_STALL_TIMEOUT_MS = 3000;  // 参数流停滞后开始补包
 static constexpr int PARAM_MISSING_TIMEOUT_MS = 3000;  // 缺失参数等待超时
 static constexpr int PARAM_MISSING_MAX_RETRIES = 5;    // 单个缺失参数最大重试
 static constexpr int PARAM_WRITE_TIMEOUT_MS = 1000;    // PARAM_SET 确认超时
@@ -54,8 +55,10 @@ struct ParamCache {
     DownloadState download_state = DownloadState::Idle;
     int list_retry_count = 0;
     std::chrono::steady_clock::time_point last_send_time;
+    std::chrono::steady_clock::time_point last_receive_time;
     uint8_t target_sys = 0;
     uint8_t target_comp = 0;
+    std::unordered_set<uint16_t> received_indices;
 
     // === 缺失参数跟踪 ===
     std::unordered_map<uint16_t, int> missing_indices;

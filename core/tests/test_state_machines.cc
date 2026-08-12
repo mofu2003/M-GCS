@@ -241,6 +241,16 @@ static void test_param_cache() {
     // missing_indices tracking
     pc.download_state = ParamCache::DownloadState::Receiving;
     pc.expected_param_count = 5;
+    pc.received_indices = {0, 1, 2};
+    pc.last_receive_time = std::chrono::steady_clock::now() - std::chrono::seconds(4);
+    action = pc.check_timeouts(cbs);
+    CHECK(action == 2, "action 2 requests missing params after receiving stalls");
+    CHECK(pc.download_state == ParamCache::DownloadState::Recovering, "stalled receiving enters recovery");
+    CHECK(pc.missing_indices.count(3) == 1 && pc.missing_indices.count(4) == 1,
+          "recovery tracks every missing parameter index");
+
+    pc.download_state = ParamCache::DownloadState::Receiving;
+    pc.expected_param_count = 5;
     pc.missing_indices[2] = 0;
     pc.missing_indices[4] = 0;
     pc.on_param_received(2);

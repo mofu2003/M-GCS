@@ -8,7 +8,7 @@
 - `src/mavlink/`：MAVLink 适配器、发送器、命令队列、参数缓存和任务传输。
 - `src/transport/`：串口、TCP、UDP、内存链路、端口发现和连接管理器。
 - `src/vehicle/`：飞控模型和多飞控管理器。
-- `src/mission/`：任务编辑、航点传输和测绘辅助能力。
+- `src/mission/`：MAVLink 任务编辑、航点传输和测绘辅助能力；`mission/cad` 将保存前端无关的参数化任务几何、约束与编译器。
 - `src/geofence/`：围栏数据管理和校验。
 - `src/calibration/`：传感器校准状态机和各传感器策略。
 - `src/firmware/`：ArduPilot/PX4 固件 profile、模式映射和参数重映射。
@@ -38,7 +38,7 @@
 
 - Windows：保留 Win32 串口、Winsock 和硬件测试脚本入口。
 - Linux：使用 POSIX filesystem、BSD sockets 和 POSIX 串口路径。
-- macOS：已验证后端完整构建和默认测试；串口使用 POSIX `termios`。
+- macOS：串口使用 POSIX `termios`；较早环境通过过完整构建和默认测试，当前 checkout 需先生成 MAVLink C 头再重新验证。
 - Android：filesystem 当前仍是占位实现，需要 JNI/AssetManager 上下文。
 
 ## 开发原则
@@ -49,3 +49,4 @@
 4. 真实硬件测试工具放在 `tests/manual/` 或顶层 `tests/`，不得进入默认 CI。
 5. 跨平台实现必须显式隔离平台 API，不能让 Windows、Linux、macOS、Android 的专有头文件泄漏到其他平台编译路径。
 6. 修改 transport 或 connection manager 后，至少运行 `test_transport_links` 和默认 offline/simulation 门禁。
+7. Mission CAD 的文档、几何、约束和编译属于 core，不依赖 Flutter 或任何具体前端；`MissionPlan` 是其编译输出，而不是 CAD 的源模型。

@@ -180,6 +180,46 @@ struct CommandAckInfo {
     std::string result_text;     // optional text
 };
 
+/// 飞控主动发出的 COMMAND_LONG。用于少数由飞控驱动的交互流程，
+/// 例如 ArduPilot 六面加速度计校准的姿态请求。
+struct CommandLongInfo {
+    uint8_t system_id = 0;
+    uint8_t component_id = 0;
+    uint8_t target_system = 0;
+    uint8_t target_component = 0;
+    uint16_t command = 0;
+    float param1 = 0.0f;
+};
+
+/// 罗盘校准进度（msg id 191，ArduPilot MAV_CAL 协议）。
+struct MagCalibrationProgressInfo {
+    uint8_t system_id = 0;
+    uint8_t compass_id = 0;
+    uint8_t cal_mask = 0;
+    uint8_t cal_status = 0;
+    uint8_t attempt = 0;
+    uint8_t completion_pct = 0;
+};
+
+/// 罗盘校准结果（msg id 192，ArduPilot MAV_CAL 协议）。
+struct MagCalibrationReportInfo {
+    uint8_t system_id = 0;
+    uint8_t compass_id = 0;
+    uint8_t cal_mask = 0;
+    uint8_t cal_status = 0;
+    bool autosaved = false;
+    float fitness = 0.0f;
+    float offset_x = 0.0f;
+    float offset_y = 0.0f;
+    float offset_z = 0.0f;
+    float diagonal_x = 0.0f;
+    float diagonal_y = 0.0f;
+    float diagonal_z = 0.0f;
+    float offdiag_x = 0.0f;
+    float offdiag_y = 0.0f;
+    float offdiag_z = 0.0f;
+};
+
 /// 命令队列票据 — 用于跟踪已入队命令的状态
 struct CommandTicket {
     uint64_t id = 0;        // 队列条目 ID
@@ -200,7 +240,7 @@ struct ServoOutputInfo {
     uint8_t system_id = 0;
     uint32_t time_usec = 0;
     uint16_t servo[16] = {};      // Raw PWM output values (us)
-    uint8_t port = 0;             // Port (0 = servo 1-8, port 1 = servo 9-16)
+    uint8_t port = 0;             // ArduPilot: port 0 = outputs 1-16, port 1 = 17-32
 };
 
 /// 电池状态信息（msg id 147）— 详细电池数据
@@ -345,6 +385,9 @@ using VfrHudCallback          = std::function<void(const VfrHudInfo&)>;
 using FirmwareVersionCallback = std::function<void(const FirmwareVersionInfo&)>;
 using ParamCallback           = std::function<void(const ParamInfo&)>;
 using CommandAckCallback      = std::function<void(const CommandAckInfo&)>;
+using CommandLongCallback     = std::function<void(const CommandLongInfo&)>;
+using MagCalibrationProgressCallback = std::function<void(const MagCalibrationProgressInfo&)>;
+using MagCalibrationReportCallback = std::function<void(const MagCalibrationReportInfo&)>;
 using RcChannelsCallback     = std::function<void(const RcChannelsInfo&)>;
 using ServoOutputCallback    = std::function<void(const ServoOutputInfo&)>;
 using StatustextInfoCallback    = std::function<void(const StatustextInfo&)>;
@@ -618,6 +661,9 @@ public:
     void on_firmware_version(FirmwareVersionCallback cb);
     void on_param(ParamCallback cb);
     void on_command_ack(CommandAckCallback cb);
+    void on_command_long(CommandLongCallback cb);
+    void on_mag_cal_progress(MagCalibrationProgressCallback cb);
+    void on_mag_cal_report(MagCalibrationReportCallback cb);
     void on_rc_channels(RcChannelsCallback cb);
     void on_servo_output(ServoOutputCallback cb);
     void on_statustext(StatustextCallback cb);
@@ -749,6 +795,13 @@ public:
     /// 周期性检查超时（由 process() 自动调用，也可手动调用）
     void tick();
 
+    /// Download a small ArduPilot system file through MAVLink FTP.
+    /// Used for board-specific metadata such as @SYS/uarts.txt.
+    bool download_file(uint8_t target_system, uint8_t target_component,
+                       const std::string& remote_path,
+                       const std::string& local_path,
+                       std::string* error = nullptr);
+
 private:
     struct Impl;  // PIMPL 模式，隐藏实现细节
     std::unique_ptr<Impl> impl_;
@@ -765,10 +818,6 @@ private:
 };
 
 } // namespace mg::core::mavlink
-
-
-
-
 
 
 

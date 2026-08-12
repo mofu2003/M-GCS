@@ -132,6 +132,44 @@ void main() {
     );
   });
 
+  testWidgets('frontstage and backstage chrome stay on the same anchors', (
+    WidgetTester tester,
+  ) async {
+    useMinimumDesktopViewport(tester);
+    await tester.pumpWidget(
+      MgcsApp(backendFactory: () => DemoConnectionSessionBackend()),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+
+    final frontHeader = tester.getRect(
+      find.byKey(const ValueKey('mg-top-status-bar')),
+    );
+    final frontDock = tester.getRect(
+      find.byKey(const ValueKey('mg-navigation-dock')),
+    );
+    final frontSwitch = tester.getRect(
+      find.byKey(const ValueKey('mg-navigation-backstage')),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('mg-navigation-backstage')));
+    await tester.pumpAndSettle();
+
+    final backstageHeader = tester.getRect(
+      find.byKey(const ValueKey('mg-backstage-header')),
+    );
+    final backstageDock = tester.getRect(
+      find.byKey(const ValueKey('mg-backstage-navigation-dock')),
+    );
+    final backstageSwitch = tester.getRect(
+      find.byKey(const ValueKey('mg-backstage-return-frontstage')),
+    );
+
+    expect(backstageHeader, frontHeader);
+    expect(backstageDock, frontDock);
+    expect(backstageSwitch.center, frontSwitch.center);
+    expect(backstageSwitch.size, frontSwitch.size);
+  });
+
   testWidgets('output status opens an empty flight information panel', (
     WidgetTester tester,
   ) async {

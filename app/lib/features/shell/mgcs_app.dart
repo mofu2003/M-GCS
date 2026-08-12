@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../application/connection_controller.dart';
@@ -6,6 +8,7 @@ import '../../application/connection_session_backend.dart';
 import '../../application/parameter_controller.dart';
 import '../backstage/backstage_page.dart';
 import '../frontstage/frontstage_page.dart';
+import '../../ui/skins/mac_glass/mac_glass_tokens.dart';
 
 typedef ConnectionBackendFactory = ConnectionSessionBackend Function();
 
@@ -29,7 +32,6 @@ final class _MgcsAppState extends State<MgcsApp> {
     super.initState();
     _backend = widget.backendFactory();
     _connectionController = ConnectionController(backend: _backend);
-    _connectionController.initialize();
     _parameterController = _backend is ParameterSessionBackend
         ? ParameterController(
             backend: _backend as ParameterSessionBackend,
@@ -39,10 +41,23 @@ final class _MgcsAppState extends State<MgcsApp> {
                     ConnectionBootstrapState.complete,
           )
         : null;
+    _connectionController.addListener(_refreshParametersWhenReady);
+    _connectionController.initialize();
+  }
+
+  void _refreshParametersWhenReady() {
+    final controller = _parameterController;
+    if (controller != null &&
+        controller.canEdit &&
+        controller.parameters.isEmpty &&
+        !controller.refreshing) {
+      unawaited(controller.refresh());
+    }
   }
 
   @override
   void dispose() {
+    _connectionController.removeListener(_refreshParametersWhenReady);
     _parameterController?.dispose();
     _connectionController.dispose();
     super.dispose();
@@ -53,6 +68,19 @@ final class _MgcsAppState extends State<MgcsApp> {
     return MaterialApp(
       title: 'M-GCS',
       debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        textTheme: const TextTheme(
+          titleLarge: MacGlassTypography.pageTitle,
+          titleMedium: MacGlassTypography.pageTitle,
+          titleSmall: MacGlassTypography.sectionTitle,
+          bodyLarge: MacGlassTypography.body,
+          bodyMedium: MacGlassTypography.body,
+          bodySmall: MacGlassTypography.caption,
+          labelLarge: MacGlassTypography.control,
+          labelMedium: MacGlassTypography.tableHeader,
+        ),
+      ),
       home: IndexedStack(
         index: _backstageVisible ? 1 : 0,
         children: [

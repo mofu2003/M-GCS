@@ -128,6 +128,47 @@ void main() {
   );
 
   test(
+    'retries a stalled parameter download while telemetry stays active',
+    () async {
+      final backend = _FakeBackend();
+      final controller = ConnectionController(
+        backend: backend,
+        telemetryPollInterval: const Duration(milliseconds: 5),
+        parameterSyncStallTimeout: Duration.zero,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.connect();
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      expect(backend.parameterSyncRequests, greaterThanOrEqualTo(2));
+      expect(backend.telemetrySnapshotCount, greaterThan(1));
+      expect(controller.bootstrapState, ConnectionBootstrapState.downloading);
+    },
+  );
+
+  test(
+    'fails parameter bootstrap after stalled retries are exhausted',
+    () async {
+      final backend = _FakeBackend();
+      final controller = ConnectionController(
+        backend: backend,
+        telemetryPollInterval: const Duration(milliseconds: 5),
+        parameterSyncStallTimeout: Duration.zero,
+        parameterSyncMaxRetries: 0,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.connect();
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      expect(controller.bootstrapState, ConnectionBootstrapState.failed);
+      expect(controller.bootstrapError, contains('参数下载连续停滞'));
+      expect(backend.telemetrySnapshotCount, greaterThan(1));
+    },
+  );
+
+  test(
     'serializes disconnect and reconnect behind an active telemetry refresh',
     () async {
       final backend = _FakeBackend();

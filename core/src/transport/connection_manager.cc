@@ -76,6 +76,7 @@ void ConnectionManager::start_watchdog() {
     stop_watchdog();
     watchdog_running_ = true;
     last_heartbeat_ms_ = 0;
+    last_activity_ms_ = 0;
 
     watchdog_thread_ = std::thread([this]() {
         int wait_count = 0;
@@ -83,10 +84,16 @@ void ConnectionManager::start_watchdog() {
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             if (!watchdog_running_.load()) break;
 
-            // 已经收到过心跳时，进入超时检查。
-            if (last_heartbeat_ms_.load() > 0) {
-                if (!heartbeat_alive(5000)) {
-                    transition_to(ConnectionState::HeartbeatLost, "heartbeat timeout (5s)");
+            // 首次心跳仍是连接身份确认的必要条件。确认后，只要仍有有效
+            // MAVLink 数据流就不应因为心跳短暂抖动断开，例如参数全量同步
+            // 期间串口拥塞时仍会持续收到 PARAM_VALUE/遥测数据。
+            if (state_.load() == ConnectionState::Connected) {
+                const uint64_t activity = last_activity_ms_.load();
+                const uint64_t now = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch()).count());
+                if (activity == 0 || now - activity > 15000) {
+                    transition_to(ConnectionState::HeartbeatLost, "no MAVLink traffic (15s)");
                     // A disconnected GCS session must return to a clean state. The UI
                     // presents an explicit reconnect action instead of silently reusing
                     // a stale transport.
@@ -138,6 +145,12 @@ uint64_t ConnectionManager::heartbeat_age_ms() const {
 bool ConnectionManager::heartbeat_alive(uint64_t timeout_ms) const {
     uint64_t age = heartbeat_age_ms();
     return age > 0 && age <= timeout_ms;
+}
+
+void ConnectionManager::record_activity() {
+    last_activity_ms_ = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
 // ================================================================
@@ -253,6 +266,7 @@ void ConnectionManager::reset() {
         mavlink_ptr.reset();
     }
     last_heartbeat_ms_ = 0;
+    last_activity_ms_ = 0;
     transition_to(ConnectionState::Disconnected, "reset");
 }
 
@@ -262,8 +276,11 @@ void ConnectionManager::wire_callbacks() {
     if (!link_ptr || !mavlink_ptr) return;
 
     link_ptr->set_receive_callback(
-        [mav = mavlink_ptr.get()](const uint8_t* data, size_t size) {
+        [this, mav = mavlink_ptr.get()](const uint8_t* data, size_t size) {
             mav->feed_raw(data, size);
+            if (size > 0 && state_.load() == ConnectionState::Connected) {
+                record_activity();
+            }
         });
 
     mavlink_ptr->set_send_callback(

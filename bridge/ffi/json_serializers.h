@@ -161,11 +161,14 @@ inline std::string command_ack_json(const mg::core::mavlink::CommandAckInfo& ack
 
 
 
-inline std::string rc_channels_json(const mg::core::mavlink::RcChannelsInfo& rc) {
+inline std::string rc_channels_json(
+        const mg::core::mavlink::RcChannelsInfo& rc,
+        bool valid) {
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
     jb.field("chancount", (int)rc.chancount);
     jb.field("rssi",      (int)rc.rssi);
+    jb.field("valid",     valid);
     mg::bridge::JsonBuilder arr;
     arr.begin_array();
     for (int i = 0; i < 18; i++) arr.append_json(std::to_string((int)rc.chan[i]));
@@ -175,10 +178,18 @@ inline std::string rc_channels_json(const mg::core::mavlink::RcChannelsInfo& rc)
     return jb.str();
 }
 
-inline std::string servo_output_json(const mg::core::mavlink::ServoOutputInfo& srv) {
+inline std::string rc_channels_json(const mg::core::mavlink::RcChannelsInfo& rc) {
+    return rc_channels_json(rc, rc.chancount > 0);
+}
+
+inline std::string servo_output_json(
+        const mg::core::mavlink::ServoOutputInfo& srv,
+        bool valid) {
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
     jb.field("port", (int)srv.port);
+    jb.field("time_usec", static_cast<int64_t>(srv.time_usec));
+    jb.field("valid", valid);
     mg::bridge::JsonBuilder arr;
     arr.begin_array();
     for (int i = 0; i < 16; i++) arr.append_json(std::to_string((int)srv.servo[i]));
@@ -186,6 +197,14 @@ inline std::string servo_output_json(const mg::core::mavlink::ServoOutputInfo& s
     jb.raw_field("servos", arr.str());
     jb.end_object();
     return jb.str();
+}
+
+inline std::string servo_output_json(const mg::core::mavlink::ServoOutputInfo& srv) {
+    bool valid = false;
+    for (const uint16_t value : srv.servo) {
+        valid = valid || value > 0;
+    }
+    return servo_output_json(srv, valid);
 }
 
 

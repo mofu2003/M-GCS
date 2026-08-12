@@ -1,9 +1,42 @@
 import '../connection_models.dart';
+import '../calibration_models.dart';
+import '../mission_models.dart';
 import '../parameter_models.dart';
 
 final class MgCoreJsonDecoder {
+  SensorTelemetrySnapshot decodeSensorTelemetry(Map<String, Object?> json) {
+    SensorVector3 vector(String name) {
+      final values = json[name];
+      if (values is! Map<Object?, Object?>) return const SensorVector3();
+      return SensorVector3(
+        x: _double(values['x']) ?? 0,
+        y: _double(values['y']) ?? 0,
+        z: _double(values['z']) ?? 0,
+      );
+    }
+
+    return SensorTelemetrySnapshot(
+      acceleration: vector('acc_m_s2'),
+      gyroscope: vector('gyro_rps'),
+      magnetometer: vector('mag_gauss'),
+      temperatureCelsius: _double(json['temperature_c']),
+      fieldsUpdated: _int(json['fields_updated']) ?? 0,
+    );
+  }
+
   ParameterDescriptor decodeParameterDescriptor(Map<String, Object?> json) {
     final name = _string(json['param_name']) ?? '';
+    final options = (_asList(json['options']) ?? const [])
+        .whereType<Map<Object?, Object?>>()
+        .map(
+          (item) => ParameterOption(
+            value: _int(item['value']) ?? 0,
+            label: _string(item['label']) ?? '',
+            description: _string(item['description']) ?? '',
+          ),
+        )
+        .where((option) => option.label.isNotEmpty)
+        .toList(growable: false);
     return ParameterDescriptor(
       name: name,
       displayName: _string(json['display_name']) ?? name,
@@ -12,6 +45,14 @@ final class MgCoreJsonDecoder {
       groupDisplayName: _string(json['group_display_name']) ?? '',
       type: _string(json['type']) ?? '',
       found: _bool(json['found']) ?? false,
+      options: options,
+      unit: _string(json['unit']) ?? '',
+      category: _string(json['category']) ?? '',
+      minValue: _double(json['min']),
+      maxValue: _double(json['max']),
+      increment: _double(json['increment']),
+      requiresReboot: _bool(json['requires_reboot']) ?? false,
+      readOnly: _bool(json['read_only']) ?? false,
     );
   }
 
@@ -33,15 +74,7 @@ final class MgCoreJsonDecoder {
           final descriptor = decodeParameterDescriptor(
             Map<String, Object?>.from(item),
           );
-          return ParameterDescriptor(
-            name: descriptor.name,
-            displayName: descriptor.displayName,
-            description: descriptor.description,
-            group: descriptor.group,
-            groupDisplayName: groupDisplayName,
-            type: descriptor.type,
-            found: descriptor.found,
-          );
+          return descriptor.withGroupDisplayName(groupDisplayName);
         })
         .where((descriptor) => descriptor.name.isNotEmpty)
         .toList(growable: false);
@@ -67,6 +100,172 @@ final class MgCoreJsonDecoder {
         .where((parameter) => parameter.name.isNotEmpty)
         .toList(growable: false);
   }
+
+  ParameterChangeSetPreview decodeParameterChangeSetPreview(
+    Map<String, Object?> json,
+  ) {
+    final items = (_asList(json['items']) ?? const [])
+        .whereType<Map<Object?, Object?>>()
+        .map((item) {
+          final map = Map<String, Object?>.from(item);
+          return ParameterChangeSetItem(
+            name: _string(map['name']) ?? '',
+            value: _double(map['value']) ?? 0,
+            mavlinkType: _int(map['type']) ?? 9,
+            disposition: _string(map['disposition']) ?? 'invalid',
+            reason: _string(map['reason']) ?? '',
+          );
+        })
+        .where((item) => item.name.isNotEmpty)
+        .toList(growable: false);
+    return ParameterChangeSetPreview(
+      ready: _int(json['ready']) ?? 0,
+      unchanged: _int(json['unchanged']) ?? 0,
+      unknown: _int(json['unknown']) ?? 0,
+      invalid: _int(json['invalid']) ?? 0,
+      items: items,
+    );
+  }
+
+  ParameterWriteSummary decodeParameterChangeSetCommit(
+    Map<String, Object?> json,
+  ) {
+    final succeeded = (_asList(json['succeeded']) ?? const [])
+        .whereType<Map<Object?, Object?>>()
+        .map((item) => _string(item['name']) ?? '')
+        .where((name) => name.isNotEmpty)
+        .toList(growable: false);
+    final failed = <String, String>{};
+    for (final item
+        in (_asList(json['failed']) ?? const [])
+            .whereType<Map<Object?, Object?>>()) {
+      final name = _string(item['name']) ?? '';
+      if (name.isNotEmpty) failed[name] = _string(item['reason']) ?? '写入失败';
+    }
+    return ParameterWriteSummary(succeeded: succeeded, failed: failed);
+  }
+
+  ServoOutputSnapshot decodeServoOutputs(Map<String, Object?> json) {
+    final values = (_asList(json['servos']) ?? const [])
+        .map((value) => value is num ? value.toInt() : 0)
+        .take(16)
+        .toList(growable: true);
+    while (values.length < 16) {
+      values.add(0);
+    }
+    return ServoOutputSnapshot(
+      values: List.unmodifiable(values),
+      valid: _bool(json['valid']) ?? values.any((value) => value > 0),
+    );
+  }
+
+  RemoteControlInputSnapshot decodeRemoteControlInputs(
+    Map<String, Object?> json,
+  ) {
+    final values = (_asList(json['channels']) ?? const [])
+        .map((value) => value is num ? value.toInt() : 0)
+        .take(18)
+        .toList(growable: true);
+    while (values.length < 18) {
+      values.add(0);
+    }
+    final channelCount =
+        (_int(json['chancount']) ?? _int(json['channel_count']) ?? 0).clamp(
+          0,
+          18,
+        );
+    return RemoteControlInputSnapshot(
+      values: List.unmodifiable(values),
+      channelCount: channelCount,
+      valid:
+          (_bool(json['valid']) ?? channelCount > 0) &&
+          values.take(channelCount).any((value) => value > 0),
+    );
+  }
+
+  List<SerialPortHardwareDescriptor> decodeSerialPortHardware(
+    Map<String, Object?> json,
+  ) {
+    final items = json['items'];
+    if (items is! List<Object?>) return const [];
+    return items
+        .whereType<Map<Object?, Object?>>()
+        .map((item) {
+          final index = item['serial_index'];
+          final flow = item['flow_control'];
+          return SerialPortHardwareDescriptor(
+            serialIndex: index is num ? index.toInt() : -1,
+            name: item['name'] as String? ?? '',
+            flowControl: flow is num ? flow.toInt() : null,
+          );
+        })
+        .where((item) => item.serialIndex >= 0 && item.name.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  CalibrationStatusSnapshot decodeCalibrationStatus(Map<String, Object?> json) {
+    return CalibrationStatusSnapshot(
+      active: json['active'] == true,
+      type: json['type'] as String? ?? '',
+      stage: json['stage'] as String? ?? 'idle',
+      progress: (json['progress'] as num?)?.toInt() ?? 0,
+      currentStep: (json['current_step'] as num?)?.toInt() ?? 0,
+      totalSteps: (json['total_steps'] as num?)?.toInt() ?? 0,
+      message: json['message'] as String? ?? '',
+      failureReason: json['failure_reason'] as String? ?? '',
+      retryCount: _int(json['retry_count']) ?? 0,
+      maxRetries: _int(json['max_retries']) ?? 0,
+      accelerometerMode: _string(json['accelerometer_mode']) ?? '',
+    );
+  }
+
+  List<CalibrationResultSnapshot> decodeCalibrationHistory(
+    Map<String, Object?> json,
+  ) {
+    SensorVector3? vector(Object? value) {
+      final map = _asMap(value);
+      if (map == null) return null;
+      return SensorVector3(
+        x: _double(map['x']) ?? 0,
+        y: _double(map['y']) ?? 0,
+        z: _double(map['z']) ?? 0,
+      );
+    }
+
+    return (_asList(json['items']) ?? const [])
+        .whereType<Map<Object?, Object?>>()
+        .map((item) {
+          final map = Map<String, Object?>.from(item);
+          return CalibrationResultSnapshot(
+            type: _string(map['type']) ?? '',
+            stage: _string(map['stage']) ?? 'idle',
+            quality: _string(map['quality']) ?? 'poor',
+            timestampMilliseconds: _int(map['timestamp_ms']) ?? 0,
+            accelerometerMode: _string(map['accelerometer_mode']) ?? '',
+            offsets: vector(map['offsets']) ?? const SensorVector3(),
+            previousOffsets:
+                vector(map['previous_offsets']) ?? const SensorVector3(),
+            scale: vector(map['scale']),
+            diagonals: vector(map['diagonals']),
+            offDiagonals: vector(map['offdiagonals']),
+            fitness: _double(map['fitness']),
+            progress: _int(map['progress']) ?? 0,
+            currentStep: _int(map['current_step']) ?? 0,
+            totalSteps: _int(map['total_steps']) ?? 0,
+            failureReason: _string(map['failure_reason']) ?? '',
+          );
+        })
+        .toList(growable: false);
+  }
+
+  CalibrationRetrySnapshot decodeCalibrationRetryInfo(
+    Map<String, Object?> json,
+  ) => CalibrationRetrySnapshot(
+    retryCount: _int(json['retry_count']) ?? 0,
+    maxRetries: _int(json['max_retries']) ?? 0,
+    backoffMilliseconds: _int(json['backoff_ms']) ?? 0,
+    lastFailure: _string(json['last_failure']) ?? '',
+  );
 
   List<ConnectionSerialPort> decodePorts(Map<String, Object?> json) {
     final items =
@@ -109,6 +308,35 @@ final class MgCoreJsonDecoder {
           _string(json['error']) ??
           (success ? '操作成功' : '操作失败'),
       raw: json,
+    );
+  }
+
+  MissionPlanSnapshot decodeMissionPlan(Map<String, Object?> json) {
+    final rawItems = json['items'];
+    final items = rawItems is List<Object?>
+        ? rawItems
+              .whereType<Map<Object?, Object?>>()
+              .map(
+                (item) => MissionItemSnapshot(
+                  sequence: _int(item['seq']) ?? 0,
+                  command: _int(item['command']) ?? 16,
+                  commandName: _string(item['command_name']) ?? 'NAV_WAYPOINT',
+                  frame: _int(item['frame']) ?? 3,
+                  frameName:
+                      _string(item['frame_name']) ?? 'GLOBAL_RELATIVE_ALT',
+                  autoContinue: (_int(item['autocontinue']) ?? 0) != 0,
+                  latitude: _double(item['lat']),
+                  longitude: _double(item['lon']),
+                  altitudeMeters: _double(item['z']),
+                  holdTimeSeconds: _double(item['param1']) ?? 0,
+                ),
+              )
+              .toList(growable: false)
+        : const <MissionItemSnapshot>[];
+    return MissionPlanSnapshot(
+      items: items,
+      currentIndex: _int(json['current_index']) ?? 0,
+      valid: json['valid'] == true,
     );
   }
 

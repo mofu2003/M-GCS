@@ -1,15 +1,49 @@
 /**
- * mavlink_ftp.cc - MAVLink FTP 客户端实现
+ * mavlink_ftp.cc - MAVLink FTP client implementation
  *
- * 通过 FILE_TRANSFER_PROTOCOL (msg 110) 消息实现文件传输。
- * 参照 QGC FTPManager 实现。
+ * Implements the stop-and-wait OpenFileRO/ReadFile flow used by Mission
+ * Planner for small ArduPilot system files such as @SYS/uarts.txt.
  */
 #include "core/ftp/mavlink_ftp.h"
+
 #include "core/log/logging.h"
+
+#include <algorithm>
+#include <array>
 #include <cstring>
 #include <fstream>
+#include <limits>
 
 namespace mg::core::ftp {
+namespace {
+
+constexpr size_t kFtpHeaderSize = 12;
+
+uint16_t read_u16_le(const uint8_t* value) {
+    return static_cast<uint16_t>(value[0]) |
+           (static_cast<uint16_t>(value[1]) << 8);
+}
+
+uint32_t read_u32_le(const uint8_t* value) {
+    return static_cast<uint32_t>(value[0]) |
+           (static_cast<uint32_t>(value[1]) << 8) |
+           (static_cast<uint32_t>(value[2]) << 16) |
+           (static_cast<uint32_t>(value[3]) << 24);
+}
+
+void write_u16_le(uint8_t* output, uint16_t value) {
+    output[0] = static_cast<uint8_t>(value);
+    output[1] = static_cast<uint8_t>(value >> 8);
+}
+
+void write_u32_le(uint8_t* output, uint32_t value) {
+    output[0] = static_cast<uint8_t>(value);
+    output[1] = static_cast<uint8_t>(value >> 8);
+    output[2] = static_cast<uint8_t>(value >> 16);
+    output[3] = static_cast<uint8_t>(value >> 24);
+}
+
+} // namespace
 
 MavlinkFtpClient::MavlinkFtpClient(SendFn send_fn)
     : send_fn_(std::move(send_fn)) {}
@@ -18,54 +52,128 @@ MavlinkFtpClient::~MavlinkFtpClient() {
     cancel();
 }
 
-bool MavlinkFtpClient::send_ftp_request(uint8_t target_sys, uint8_t target_comp,
-                                         uint8_t opcode, uint8_t session,
-                                         uint32_t offset, uint8_t size,
-                                         const uint8_t* data) {
+bool MavlinkFtpClient::send_ftp_request(uint8_t target_sys,
+                                        uint8_t target_comp,
+                                        uint8_t opcode,
+                                        uint8_t session,
+                                        uint32_t offset,
+                                        uint8_t size,
+                                        uint16_t sequence,
+                                        const uint8_t* data) {
+    if (!send_fn_ || size > kMaxReadSize) return false;
+
     mavlink_file_transfer_protocol_t ftp{};
     ftp.target_system = target_sys;
     ftp.target_component = target_comp;
     ftp.target_network = 0;
 
-    // 构建 FTP 协议载荷
     uint8_t* payload = ftp.payload;
-    payload[0] = seq_number_ & 0xFF;       // seq_number low
-    payload[1] = (seq_number_ >> 8) & 0xFF; // seq_number high
+    write_u16_le(payload, sequence);
     payload[2] = session;
     payload[3] = opcode;
-    payload[4] = size;                      // size
-    payload[5] = 0;                         // req_opcode (0 for request)
-    payload[6] = 0;                         // burst_complete
-    payload[7] = 0;                         // padding
-    // offset at bytes 8-11 (little-endian)
-    payload[8] = offset & 0xFF;
-    payload[9] = (offset >> 8) & 0xFF;
-    payload[10] = (offset >> 16) & 0xFF;
-    payload[11] = (offset >> 24) & 0xFF;
-
-    if (data && size > 0) {
-        memcpy(payload + 12, data, size);
+    payload[4] = size;
+    payload[5] = 0;
+    payload[6] = 0;
+    payload[7] = 0;
+    write_u32_le(payload + 8, offset);
+    if (data != nullptr && size != 0) {
+        std::memcpy(payload + kFtpHeaderSize, data, size);
     }
 
-    seq_number_++;
-
-    // 打包并发送
-    mavlink_message_t msg;
+    mavlink_message_t msg{};
     mavlink_msg_file_transfer_protocol_encode(255, 0, &msg, &ftp);
-    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    return send_fn_(buf, len);
+    std::array<uint8_t, MAVLINK_MAX_PACKET_LEN> buffer{};
+    const uint16_t length = mavlink_msg_to_send_buffer(buffer.data(), &msg);
+    return send_fn_(buffer.data(), length);
 }
 
-bool MavlinkFtpClient::wait_response(int timeout_ms) {
-    std::unique_lock<std::mutex> lk(mtx_);
+bool MavlinkFtpClient::request_response(
+        uint8_t target_sys,
+        uint8_t target_comp,
+        uint8_t opcode,
+        uint8_t session,
+        uint32_t offset,
+        uint8_t size,
+        const uint8_t* data,
+        mavlink_file_transfer_protocol_t* response,
+        int retries,
+        int timeout_ms) {
+    if (response == nullptr) return false;
+
+    const uint16_t request_sequence = seq_number_;
+    const uint16_t response_sequence =
+        static_cast<uint16_t>(request_sequence + 1);
+    const int retry_count = retries < 0 ? max_retries_ : retries;
+    const int response_timeout = timeout_ms < 0 ? timeout_ms_ : timeout_ms;
+
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        response_pending_ = true;
+        response_received_ = false;
+        expected_response_seq_ = response_sequence;
+        expected_request_opcode_ = opcode;
+    }
+
+    bool received = false;
+    for (int attempt = 0;
+         attempt <= retry_count && !cancelled_.load();
+         ++attempt) {
+        // Retries intentionally reuse the exact sequence number. ArduPilot
+        // caches duplicate FTP requests, and both MP and QGC follow this rule.
+        if (!send_ftp_request(target_sys, target_comp, opcode, session, offset,
+                              size, request_sequence, data)) {
+            continue;
+        }
+        if (wait_response(response_timeout, response)) {
+            received = true;
+            break;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        response_pending_ = false;
+        response_received_ = false;
+    }
+
+    // Reserve both the outgoing and expected response sequence numbers even
+    // when the response is lost. This prevents a late ACK from a failed
+    // transaction being accepted by the next transaction.
+    seq_number_ = static_cast<uint16_t>(response_sequence + 1);
+    return received;
+}
+
+bool MavlinkFtpClient::wait_response(
+        int timeout_ms,
+        mavlink_file_transfer_protocol_t* response) {
+    std::unique_lock<std::mutex> lock(mtx_);
+    const bool ready = cv_.wait_for(
+        lock, std::chrono::milliseconds(timeout_ms),
+        [this]() { return response_received_ || cancelled_.load(); });
+    if (!ready || cancelled_.load() || !response_received_) return false;
+
+    *response = last_response_;
     response_received_ = false;
-    return cv_.wait_for(lk, std::chrono::milliseconds(timeout_ms),
-                        [this]() { return response_received_ || cancelled_.load(); });
+    return true;
 }
 
-void MavlinkFtpClient::handle_ftp_message(const mavlink_file_transfer_protocol_t& ftp) {
-    std::lock_guard<std::mutex> lk(mtx_);
+void MavlinkFtpClient::handle_ftp_message(
+        const mavlink_file_transfer_protocol_t& ftp) {
+    const uint8_t* payload = ftp.payload;
+    const uint16_t sequence = read_u16_le(payload);
+    const uint8_t opcode = payload[3];
+    const uint8_t size = payload[4];
+    const uint8_t request_opcode = payload[5];
+
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (!response_pending_ || response_received_) return;
+    if (opcode != kRspAck && opcode != kRspNak) return;
+    if (size > kMaxReadSize) return;
+    if (sequence != expected_response_seq_ ||
+        request_opcode != expected_request_opcode_) {
+        return;
+    }
+
     last_response_ = ftp;
     response_received_ = true;
     cv_.notify_all();
@@ -73,15 +181,26 @@ void MavlinkFtpClient::handle_ftp_message(const mavlink_file_transfer_protocol_t
 
 void MavlinkFtpClient::cancel() {
     cancelled_ = true;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        response_pending_ = false;
+    }
     cv_.notify_all();
     state_ = FtpState::Idle;
 }
 
-std::vector<DirEntry> MavlinkFtpClient::list_directory(uint8_t target_sys, uint8_t target_comp,
-                                                        const std::string& path,
-                                                        FtpResult* result) {
+std::vector<DirEntry> MavlinkFtpClient::list_directory(
+        uint8_t target_sys,
+        uint8_t target_comp,
+        const std::string& path,
+        FtpResult* result) {
+    if (result != nullptr) *result = {};
     if (is_busy()) {
-        if (result) { result->success = false; result->error = "FTP busy"; }
+        if (result != nullptr) result->error = "FTP busy";
+        return {};
+    }
+    if (path.size() > kMaxReadSize) {
+        if (result != nullptr) result->error = "path too long";
         return {};
     }
 
@@ -89,88 +208,98 @@ std::vector<DirEntry> MavlinkFtpClient::list_directory(uint8_t target_sys, uint8
     cancelled_ = false;
     dir_entries_.clear();
 
-    // 发送 LIST_DIRECTORY 请求
-    uint8_t path_data[239] = {};
-    size_t path_len = path.size();
-    if (path_len > 238) path_len = 238;
-    memcpy(path_data, path.c_str(), path_len);
-    path_data[path_len] = 0;  // null terminator
-
-    bool ok = send_ftp_request(target_sys, target_comp,
-                               kOpListDirectory, 0, 0,
-                               static_cast<uint8_t>(path_len + 1),
-                               path_data);
-    if (!ok) {
+    auto fail = [&](const std::string& error, uint8_t error_code = 0) {
         state_ = FtpState::Idle;
-        if (result) { result->success = false; result->error = "send failed"; }
-        return {};
-    }
+        if (result != nullptr) {
+            result->success = false;
+            result->error = error;
+            result->error_code = error_code;
+        }
+        return dir_entries_;
+    };
 
-    // 循环接收 LIST_DIRECTORY 响应
+    uint32_t entry_offset = 0;
     while (!cancelled_.load()) {
-        if (!wait_response(timeout_ms_)) {
-            // 超时，重试一次
-            send_ftp_request(target_sys, target_comp,
-                            kOpListDirectory, 0, 0,
-                            static_cast<uint8_t>(path_len + 1),
-                            path_data);
-            if (!wait_response(timeout_ms_)) {
+        mavlink_file_transfer_protocol_t response{};
+        const auto* path_data = reinterpret_cast<const uint8_t*>(path.data());
+        if (!request_response(
+                target_sys, target_comp, kOpListDirectory, 0, entry_offset,
+                static_cast<uint8_t>(path.size()), path_data, &response)) {
+            return fail(cancelled_.load() ? "cancelled" : "list timeout");
+        }
+
+        const uint8_t* payload = response.payload;
+        if (payload[3] == kRspNak) {
+            const uint8_t error_code =
+                payload[4] >= 1 ? payload[kFtpHeaderSize] : kResultFail;
+            if (error_code == kResultEOF) {
                 state_ = FtpState::Idle;
-                if (result) { result->success = false; result->error = "timeout"; }
+                if (result != nullptr) result->success = true;
                 return dir_entries_;
             }
+            return fail("list rejected", error_code);
         }
 
-        const uint8_t* payload = last_response_.payload;
-        uint8_t opcode = payload[3];
-        uint8_t req_opcode = payload[5];
-        uint8_t error_code = payload[6];  // burst_complete used as error
+        const uint8_t response_size = payload[4];
+        if (response_size == 0) return fail("empty directory response");
 
-        if (req_opcode != kOpListDirectory) break;
+        const uint8_t* cursor = payload + kFtpHeaderSize;
+        const uint8_t* const limit = cursor + response_size;
+        uint32_t returned_entries = 0;
+        while (cursor < limit) {
+            const uint8_t* const terminator =
+                std::find(cursor, limit, static_cast<uint8_t>(0));
+            const std::string encoded(
+                reinterpret_cast<const char*>(cursor),
+                static_cast<size_t>(terminator - cursor));
+            cursor = terminator == limit ? limit : terminator + 1;
+            if (encoded.empty()) continue;
 
-        if (opcode == kOpNone && error_code == kResultEOF) {
-            // 目录列表结束
-            break;
-        }
+            ++returned_entries;
+            if (encoded[0] == 'S') continue;
 
-        if (opcode == kOpNone && error_code == kResultSuccess) {
-            // 解析目录条目
-            uint8_t size = payload[4];
-            if (size > 0) {
-                const char* entry_str = reinterpret_cast<const char*>(payload + 12);
-                DirEntry entry;
-                // 第一个字符表示类型：D=目录, F=文件
-                if (entry_str[0] == 'D') {
-                    entry.is_directory = true;
-                    entry.name = entry_str + 1;
-                } else if (entry_str[0] == 'F') {
-                    entry.is_directory = false;
-                    entry.name = entry_str + 1;
-                    // 文件大小可能在后面的字段
-                    if (size > entry.name.size() + 2) {
-                        entry.size = *reinterpret_cast<const uint32_t*>(
-                            payload + 12 + 1 + entry.name.size() + 1);
-                    }
-                }
-                if (!entry.name.empty()) {
-                    dir_entries_.push_back(entry);
+            DirEntry entry;
+            entry.is_directory = encoded[0] == 'D';
+            if (!entry.is_directory && encoded[0] != 'F') continue;
+
+            const size_t tab = encoded.find('\t', 1);
+            entry.name = encoded.substr(
+                1, tab == std::string::npos ? std::string::npos : tab - 1);
+            if (!entry.is_directory && tab != std::string::npos) {
+                try {
+                    const unsigned long value = std::stoul(encoded.substr(tab + 1));
+                    entry.size = static_cast<uint32_t>(std::min<unsigned long>(
+                        value, std::numeric_limits<uint32_t>::max()));
+                } catch (...) {
+                    entry.size = 0;
                 }
             }
+            if (!entry.name.empty()) dir_entries_.push_back(std::move(entry));
         }
+
+        if (returned_entries == 0) {
+            return fail("invalid directory response");
+        }
+        entry_offset += returned_entries;
     }
 
-    state_ = FtpState::Idle;
-    if (result) { result->success = true; }
-    return dir_entries_;
+    return fail("cancelled");
 }
 
-bool MavlinkFtpClient::download_file(uint8_t target_sys, uint8_t target_comp,
-                                      const std::string& remote_path,
-                                      const std::string& local_path,
-                                      FtpProgressCallback progress_cb,
-                                      FtpResult* result) {
+bool MavlinkFtpClient::download_file(
+        uint8_t target_sys,
+        uint8_t target_comp,
+        const std::string& remote_path,
+        const std::string& local_path,
+        FtpProgressCallback progress_cb,
+        FtpResult* result) {
+    if (result != nullptr) *result = {};
     if (is_busy()) {
-        if (result) { result->success = false; result->error = "FTP busy"; }
+        if (result != nullptr) result->error = "FTP busy";
+        return false;
+    }
+    if (remote_path.empty() || remote_path.size() > kMaxReadSize) {
+        if (result != nullptr) result->error = "invalid remote path";
         return false;
     }
 
@@ -178,103 +307,113 @@ bool MavlinkFtpClient::download_file(uint8_t target_sys, uint8_t target_comp,
     cancelled_ = false;
     file_data_.clear();
 
-    // 1. 打开文件 (OpenFileRO)
-    uint8_t path_data[239] = {};
-    size_t path_len = remote_path.size();
-    if (path_len > 238) path_len = 238;
-    memcpy(path_data, remote_path.c_str(), path_len);
-
-    bool ok = send_ftp_request(target_sys, target_comp,
-                               kOpOpenFileRO, 0, 0,
-                               static_cast<uint8_t>(path_len + 1),
-                               path_data);
-    if (!ok || !wait_response(timeout_ms_)) {
+    auto finish_failure = [&](const std::string& error,
+                              uint8_t error_code = 0) {
         state_ = FtpState::Idle;
-        if (result) { result->success = false; result->error = "open failed"; }
-        return false;
-    }
-
-    const uint8_t* resp = last_response_.payload;
-    if (resp[3] != kOpNone || resp[6] != kResultSuccess) {
-        state_ = FtpState::Idle;
-        if (result) {
+        if (result != nullptr) {
             result->success = false;
-            result->error = "open rejected";
-            result->error_code = resp[6];
+            result->error = error;
+            result->error_code = error_code;
         }
         return false;
+    };
+
+    mavlink_file_transfer_protocol_t response{};
+    // Mission Planner clears any stale read session before opening a system
+    // file. This also recovers from an interrupted earlier metadata request.
+    request_response(target_sys, target_comp, kOpResetSessions, 0, 0, 0,
+                     nullptr, &response, 0, 1000);
+
+    const auto* path_data =
+        reinterpret_cast<const uint8_t*>(remote_path.data());
+    if (!request_response(
+            target_sys, target_comp, kOpOpenFileRO, 0, 0,
+            static_cast<uint8_t>(remote_path.size()), path_data, &response)) {
+        return finish_failure(cancelled_.load() ? "cancelled" : "open timeout");
     }
 
-    // 获取文件大小（在响应的 offset 字段）
-    uint32_t file_size = resp[8] | (resp[9] << 8) | (resp[10] << 16) | (resp[11] << 24);
-    session_ = resp[2];
+    const uint8_t* payload = response.payload;
+    if (payload[3] == kRspNak) {
+        const uint8_t error_code =
+            payload[4] >= 1 ? payload[kFtpHeaderSize] : kResultFail;
+        return finish_failure("open rejected", error_code);
+    }
+    if (payload[3] != kRspAck || payload[4] != sizeof(uint32_t)) {
+        return finish_failure("invalid open response");
+    }
 
-    // 2. 读取文件 (ReadFile) 循环
+    // OpenFileRO ACK stores the file length in data[0..3], not hdr.offset.
+    const uint32_t file_size = read_u32_le(payload + kFtpHeaderSize);
+    session_ = payload[2];
+
     uint32_t offset = 0;
     while (offset < file_size && !cancelled_.load()) {
-        ok = send_ftp_request(target_sys, target_comp,
-                              kOpReadFile, session_, offset, 0);
-        if (!ok || !wait_response(timeout_ms_)) {
-            // 重试
-            if (!ok || !wait_response(timeout_ms_)) {
-                // 终止会话
-                send_ftp_request(target_sys, target_comp,
-                                kOpTerminateSession, session_, 0, 0);
-                state_ = FtpState::Idle;
-                if (result) { result->success = false; result->error = "read timeout"; }
-                return false;
-            }
+        const uint8_t request_size = static_cast<uint8_t>(
+            std::min<uint32_t>(kMaxReadSize, file_size - offset));
+        if (!request_response(target_sys, target_comp, kOpReadFile, session_,
+                              offset, request_size, nullptr, &response)) {
+            request_response(target_sys, target_comp, kOpTerminateSession,
+                             session_, 0, 0, nullptr, &response, 0, 1000);
+            return finish_failure(
+                cancelled_.load() ? "cancelled" : "read timeout");
         }
 
-        resp = last_response_.payload;
-        uint8_t read_size = resp[4];
-        uint8_t read_error = resp[6];
-
-        if (read_error == kResultEOF) {
-            // 文件结束
-            break;
+        payload = response.payload;
+        if (payload[3] == kRspNak) {
+            const uint8_t error_code =
+                payload[4] >= 1 ? payload[kFtpHeaderSize] : kResultFail;
+            // ArduPilot system files such as @SYS/uarts.txt are generated on
+            // demand. Their OpenFileRO size can be an upper bound, so the
+            // final ReadFile is terminated with EOF before that size is
+            // reached. Mission Planner treats this EOF as successful
+            // completion and keeps all bytes received so far.
+            if (error_code == kResultEOF) break;
+            request_response(target_sys, target_comp, kOpTerminateSession,
+                             session_, 0, 0, nullptr, &response, 0, 1000);
+            return finish_failure("read rejected", error_code);
         }
 
-        if (read_error != kResultSuccess) {
-            send_ftp_request(target_sys, target_comp,
-                            kOpTerminateSession, session_, 0, 0);
-            state_ = FtpState::Idle;
-            if (result) { result->success = false; result->error = "read error"; }
-            return false;
+        const uint8_t read_size = payload[4];
+        const uint32_t response_offset = read_u32_le(payload + 8);
+        if (payload[3] != kRspAck || payload[2] != session_ ||
+            response_offset != offset || read_size == 0 ||
+            read_size > request_size ||
+            static_cast<uint64_t>(offset) + read_size > file_size) {
+            request_response(target_sys, target_comp, kOpTerminateSession,
+                             session_, 0, 0, nullptr, &response, 0, 1000);
+            return finish_failure("invalid read response");
         }
 
-        if (read_size > 0) {
-            file_data_.insert(file_data_.end(),
-                              resp + 12, resp + 12 + read_size);
-            offset += read_size;
-            if (progress_cb) {
-                progress_cb(offset, file_size);
-            }
-        }
+        file_data_.insert(file_data_.end(),
+                          payload + kFtpHeaderSize,
+                          payload + kFtpHeaderSize + read_size);
+        offset += read_size;
+        if (progress_cb) progress_cb(offset, file_size);
     }
 
-    // 3. 终止会话
-    send_ftp_request(target_sys, target_comp,
-                     kOpTerminateSession, session_, 0, 0);
-    wait_response(1000);
-
-    // 4. 写入本地文件
-    if (!cancelled_.load() && !file_data_.empty()) {
-        FILE* f = fopen(local_path.c_str(), "wb");
-        if (f) {
-            fwrite(file_data_.data(), 1, file_data_.size(), f);
-            fclose(f);
-            MGC_LOG_INFO("[FTP] Downloaded %s -> %s (%zu bytes)",
-                         remote_path.c_str(), local_path.c_str(), file_data_.size());
-        } else {
-            state_ = FtpState::Idle;
-            if (result) { result->success = false; result->error = "write failed"; }
-            return false;
-        }
+    if (cancelled_.load()) {
+        return finish_failure("cancelled");
     }
 
+    // Session cleanup is best effort. A completed download remains valid even
+    // if the server drops the final TerminateSession ACK.
+    request_response(target_sys, target_comp, kOpTerminateSession, session_,
+                     0, 0, nullptr, &response, 0, 1000);
+    session_ = 0;
+
+    std::ofstream output(local_path, std::ios::binary | std::ios::trunc);
+    if (!output) return finish_failure("write failed");
+    if (!file_data_.empty()) {
+        output.write(reinterpret_cast<const char*>(file_data_.data()),
+                     static_cast<std::streamsize>(file_data_.size()));
+    }
+    output.close();
+    if (!output) return finish_failure("write failed");
+
+    MGC_LOG_INFO("[FTP] Downloaded %s -> %s (%zu bytes)",
+                 remote_path.c_str(), local_path.c_str(), file_data_.size());
     state_ = FtpState::Idle;
-    if (result) { result->success = true; }
+    if (result != nullptr) result->success = true;
     return true;
 }
 

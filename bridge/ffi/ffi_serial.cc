@@ -13,6 +13,10 @@
  */
 #include "ffi_internal.h"
 #include "json_serializers.h"
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <cctype>
 
 static const char* ap_serial_params[] = {
     "SERIAL0_BAUD", "SERIAL1_BAUD", "SERIAL2_BAUD", "SERIAL3_BAUD",
@@ -86,6 +90,124 @@ MGCORE_API char* mg_serial_get_configs(mg_core_t* core) {
 
     jb.end_array();
     return to_cstr(jb.str());
+}
+
+// Read the board-specific SERIALn -> UART/USART mapping exposed by
+// ArduPilot's @SYS/uarts.txt. SERIAL numbers are logical and must not be
+// converted to UART letters by arithmetic.
+MGCORE_API char* mg_serial_get_uart_names(mg_core_t* core) {
+    CHECK_CORE(core);
+    CHECK_MAVLINK(core);
+    CHECK_CONNECTED(core);
+
+    const auto temp = std::filesystem::temp_directory_path() /
+        ("mgcs_uarts_" + std::to_string(reinterpret_cast<uintptr_t>(core)) + ".txt");
+    std::string error;
+    const bool downloaded = get_active_mavlink(core)->download_file(
+        active_target_sys(core), active_target_comp(core), "@SYS/uarts.txt",
+        temp.string(), &error);
+    if (!downloaded) {
+        std::error_code ignored;
+        std::filesystem::remove(temp, ignored);
+        // Do not turn a transport/FTP failure into an empty successful list.
+        // Mission Planner reports this as an unavailable mapping; preserving
+        // the reason here lets the Flutter page distinguish it from a real
+        // board with zero UARTs.
+        mg::bridge::JsonBuilder empty_items;
+        empty_items.begin_array();
+        empty_items.end_array();
+        mg::bridge::JsonBuilder empty;
+        empty.begin_object();
+        empty.field("success", false);
+        empty.field("available", false);
+        const std::string reason = error.empty()
+            ? "飞控未提供 @SYS/uarts.txt，或 MAVLink FTP 读取失败"
+            : error;
+        empty.field("error", reason);
+        empty.raw_field("items", empty_items.str());
+        empty.end_object();
+        return to_cstr(empty.str());
+    }
+
+    std::ifstream input(temp);
+    if (!input) {
+        std::error_code ignored;
+        std::filesystem::remove(temp, ignored);
+        return fail(MG_ERROR_INTERNAL, "无法打开已下载的 @SYS/uarts.txt");
+    }
+
+    mg::bridge::JsonBuilder items;
+    items.begin_array();
+    unsigned item_count = 0;
+    std::string line;
+    while (std::getline(input, line)) {
+        // ArduPilot emits a machine-readable UARTV1 header followed by lines
+        // such as "SERIAL2 USART3 TX=...".  Be tolerant of indentation,
+        // UTF-8 BOMs, and the older "SERIAL2: USART3" spelling.
+        while (!line.empty() && std::isspace(
+                   static_cast<unsigned char>(line.front()))) {
+            line.erase(line.begin());
+        }
+        if (line.size() >= 3 &&
+            static_cast<unsigned char>(line[0]) == 0xEF &&
+            static_cast<unsigned char>(line[1]) == 0xBB &&
+            static_cast<unsigned char>(line[2]) == 0xBF) {
+            line.erase(0, 3);
+        }
+        std::istringstream fields(line);
+        std::string serial_name;
+        std::string hardware_name;
+        fields >> serial_name >> hardware_name;
+        if (!serial_name.empty() && serial_name.back() == ':') {
+            serial_name.pop_back();
+        }
+        while (!hardware_name.empty() &&
+               (hardware_name.back() == ':' || hardware_name.back() == ',')) {
+            hardware_name.pop_back();
+        }
+        if (serial_name.rfind("SERIAL", 0) != 0 || hardware_name.empty()) continue;
+        int serial_index = -1;
+        try {
+            const std::string index_text = serial_name.substr(6);
+            size_t consumed = 0;
+            serial_index = std::stoi(index_text, &consumed);
+            if (consumed != index_text.size()) continue;
+        } catch (...) {
+            continue;
+        }
+        if (serial_index < 0) continue;
+        int flow_control = -1;
+        std::string token;
+        while (fields >> token) {
+            constexpr const char* prefix = "FlowCtrl=";
+            if (token.rfind(prefix, 0) == 0) {
+                try { flow_control = std::stoi(token.substr(9)); } catch (...) {}
+            }
+        }
+        mg::bridge::JsonBuilder item;
+        item.begin_object();
+        item.field("serial_index", serial_index);
+        item.field("name", hardware_name);
+        if (flow_control >= 0) item.field("flow_control", flow_control);
+        item.end_object();
+        items.append_json(item.str());
+        ++item_count;
+    }
+    items.end_array();
+    mg::bridge::JsonBuilder result;
+    result.begin_object();
+    result.field("success", item_count != 0);
+    result.field("available", item_count != 0);
+    result.field("count", item_count);
+    if (item_count == 0) {
+        result.field("error", "@SYS/uarts.txt 为空或格式中没有 SERIALn 硬件接口");
+    }
+    result.raw_field("items", items.str());
+    result.end_object();
+    input.close();
+    std::error_code ignored;
+    std::filesystem::remove(temp, ignored);
+    return to_cstr(result.str());
 }
 
 MGCORE_API char* mg_serial_get_config(mg_core_t* core, const char* port_name) {

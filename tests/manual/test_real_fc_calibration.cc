@@ -141,7 +141,10 @@ static CalStatusSnapshot poll_cal_status(mg_core_t* core, int timeout_ms) {
 
 int main(int argc, char** argv) {
     const char* port = argc > 1 ? argv[1] : std::getenv("MG_TEST_SERIAL");
-    if (!port || !port[0]) port = "COM12";
+    if (!port || !port[0]) {
+        std::fprintf(stderr, "[SKIP] Set MG_TEST_SERIAL or pass the serial port explicitly.\n");
+        return 0;
+    }
 
     std::fprintf(stderr, "=== Real FC Gyro Calibration Test ===\n");
     std::fprintf(stderr, "Target: %s @ 115200\n", port);

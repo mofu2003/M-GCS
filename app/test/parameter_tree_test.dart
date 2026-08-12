@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/features/backstage/parameter_tree.dart';
 
 void main() {
-  test('uses top-level categories and only keeps shared deep prefixes', () {
+  test('uses only top-level categories with complete parameter leaves', () {
     final tree = ParameterTreeNode.build([
       'GPS_TYPE',
       'GPS_TYPE2',
@@ -24,17 +24,10 @@ void main() {
     expect(tree.children.any((node) => node.label == 'Q'), isTrue);
     expect(tree.children.any((node) => node.label == 'BATT'), isTrue);
     expect(tree.children.any((node) => node.label == 'BATT2'), isTrue);
-    expect(atc.children.single.label, 'ATC_RAT');
-    expect(atc.children.single.children.single.label, 'ATC_RAT_RLL');
-    expect(
-      atc.children.single.children.single.children.map(
-        (node) => node.parameterName,
-      ),
-      {
+    expect(atc.children.map((node) => node.parameterName), {
       'ATC_RAT_RLL_I',
       'ATC_RAT_RLL_P',
-      },
-    );
+    });
   });
 
   test('does not add a deep branch without a shared prefix', () {
@@ -51,5 +44,30 @@ void main() {
     final simple = tree.children.firstWhere((node) => node.label == 'SIMPLE');
     expect(simple.parameterName, 'SIMPLE');
     expect(simple.children, isEmpty);
+  });
+
+  test('groups FLTMODE1 through FLTMODE6 under FLTMODE', () {
+    final tree = ParameterTreeNode.build([
+      'FLTMODE1',
+      'FLTMODE2',
+      'FLTMODE6',
+      'FLTMODE_CH',
+      'SIMPLE',
+    ]);
+
+    final flightModes = tree.children.singleWhere(
+      (node) => node.label == 'FLTMODE',
+    );
+    expect(flightModes.prefix, 'FLTMODE');
+    expect(flightModes.children.map((node) => node.parameterName), [
+      'FLTMODE1',
+      'FLTMODE2',
+      'FLTMODE6',
+      'FLTMODE_CH',
+    ]);
+    expect(
+      tree.children.singleWhere((node) => node.label == 'SIMPLE').isLeaf,
+      isTrue,
+    );
   });
 }

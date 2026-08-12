@@ -36,8 +36,16 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
     jb.field("description", desc.description);
     jb.field("group", desc.group);
     jb.field("type", desc.type);
+    jb.field("requires_reboot", desc.requires_reboot);
+    jb.field("read_only", desc.read_only);
     jb.field("found", desc.found);
     if (!desc.unit.empty()) jb.field("unit", desc.unit);
+    if (!desc.category.empty()) jb.field("category", desc.category);
+    if (desc.increment != 0) jb.field("increment", desc.increment);
+    if (desc.min_value != desc.max_value) {
+        jb.field("min", desc.min_value);
+        jb.field("max", desc.max_value);
+    }
     if (!desc.options.empty()) {
         mg::bridge::JsonBuilder opts;
         opts.begin_array();
@@ -46,6 +54,7 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
             o.begin_object();
             o.field("value", opt.value);
             o.field("label", opt.label);
+            if (!opt.description.empty()) o.field("description", opt.description);
             o.end_object();
             opts.append_json(o.str());
         }
@@ -54,7 +63,7 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
     }
     if (val.has_value()) {
         jb.field("value", val->value);
-        jb.field("type", static_cast<int>(val->type));
+        jb.field("mavlink_type", static_cast<int>(val->type));
         jb.field("valid", true);
         if (!desc.options.empty()) {
             std::string label = db.enum_label(profile, param_name, static_cast<int>(val->value));

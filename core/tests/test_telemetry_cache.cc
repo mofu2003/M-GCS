@@ -52,6 +52,10 @@ int main() {
 
         std::string bat_json = cache.battery.to_json();
         CHECK(bat_json.find("voltage") != std::string::npos, "battery JSON has 'voltage' field");
+
+        std::string rc_json = cache.rc_channels.to_json();
+        CHECK(rc_json.find("\"valid\":false") != std::string::npos,
+              "default RC JSON explicitly reports invalid");
     }
 
     // 3. Direct data access

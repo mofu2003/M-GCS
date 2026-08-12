@@ -7,6 +7,8 @@
 extern "C" {
 #endif
 
+/* Compatibility commands with simplified signatures. New consumers should use
+ * the mg_command_* family so force/base/custom values remain explicit. */
 MGCORE_API char* mg_cmd_arm(mg_core_t* core);
 MGCORE_API char* mg_cmd_disarm(mg_core_t* core);
 MGCORE_API char* mg_cmd_set_mode(mg_core_t* core, const char* mode);

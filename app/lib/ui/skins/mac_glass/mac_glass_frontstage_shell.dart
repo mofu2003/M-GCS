@@ -23,6 +23,7 @@ final class MacGlassFrontstageShell extends StatefulWidget {
     required this.onConnectionTransportChanged,
     this.onSerialPortChanged,
     this.onBaudRateChanged,
+    this.missionPanel,
     required this.mapStyle,
     required this.onMapStyleChanged,
     super.key,
@@ -36,6 +37,7 @@ final class MacGlassFrontstageShell extends StatefulWidget {
   onConnectionTransportChanged;
   final ValueChanged<String>? onSerialPortChanged;
   final ValueChanged<int>? onBaudRateChanged;
+  final Widget? missionPanel;
   final MgMapStyle mapStyle;
   final ValueChanged<MgMapStyle> onMapStyleChanged;
 
@@ -158,6 +160,20 @@ final class _MacGlassFrontstageShellState
               offset: const Offset(0, 0.045),
               alignment: Alignment.bottomLeft,
               child: MacGlassAttitudePanel(model: widget.model.attitude),
+            ),
+          ),
+          Positioned(
+            top: 102,
+            left: 106,
+            bottom: MacGlassTokens.pageInset,
+            width: 720,
+            child: _MacGlassOverlayTransition(
+              key: const ValueKey('mg-mission-panel-transition'),
+              visible: widget.model.missionPanelVisible,
+              offset: const Offset(-0.035, 0.018),
+              alignment: Alignment.bottomLeft,
+              expand: true,
+              child: widget.missionPanel ?? const SizedBox.shrink(),
             ),
           ),
           Positioned(

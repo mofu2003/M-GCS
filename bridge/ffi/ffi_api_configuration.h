@@ -15,6 +15,7 @@ MGCORE_API char* mg_config_get_presets(mg_core_t* core);
 MGCORE_API char* mg_config_apply_preset(mg_core_t* core, const char* preset_name);
 
 MGCORE_API char* mg_serial_get_configs(mg_core_t* core);
+MGCORE_API char* mg_serial_get_uart_names(mg_core_t* core);
 MGCORE_API char* mg_serial_get_config(mg_core_t* core, const char* port_name);
 MGCORE_API char* mg_serial_set_baud(mg_core_t* core, const char* port_name, int baud);
 MGCORE_API char* mg_serial_set_protocol(mg_core_t* core, const char* port_name, int protocol);
@@ -34,6 +35,7 @@ MGCORE_API char* mg_rc_calibrate_save(mg_core_t* core);
 MGCORE_API char* mg_rc_get_failsafe(mg_core_t* core);
 MGCORE_API char* mg_rc_set_failsafe(mg_core_t* core, int mode, int threshold);
 
+/* Legacy calibration names. New consumers use mg_calibration_* below. */
 MGCORE_API char* mg_cal_start(mg_core_t* core, int type, int mode);
 MGCORE_API char* mg_cal_cancel(mg_core_t* core);
 MGCORE_API char* mg_cal_status(mg_core_t* core);
@@ -44,6 +46,8 @@ MGCORE_API char* mg_calibration_cancel(mg_core_t* core);
 MGCORE_API char* mg_calibration_get_status(mg_core_t* core);
 MGCORE_API char* mg_calibration_get_history(mg_core_t* core, int type);
 MGCORE_API char* mg_calibration_get_retry_info(mg_core_t* core);
+MGCORE_API char* mg_calibration_accel_confirm(mg_core_t* core, int position);
+MGCORE_API char* mg_calibration_start_airspeed(mg_core_t* core);
 
 MGCORE_API char* mg_px4_actuator_get_config(mg_core_t* core);
 MGCORE_API char* mg_px4_actuator_set_config(mg_core_t* core, const char* json_config);

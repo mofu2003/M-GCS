@@ -5,8 +5,11 @@
  *        error handling, version string, free_string
  */
 #include "ffi_api.h"
+#include "ffi_internal.h"
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <thread>
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -238,7 +241,44 @@ int main() {
         mg_destroy(core);
     }
 
-    // 11. Industrial hardening APIs handle null core consistently
+    // 11. RC input validity follows cache freshness
+    fprintf(stderr, "[Group] RC input freshness\n");
+    {
+        mg_core_t* core = mg_create();
+        auto& cache = core->fallback_vehicle->cache();
+        {
+            mg::core::platform::LockGuard lk(cache.mtx);
+            cache.rc_channels.data.chancount = 8;
+            cache.rc_channels.data.chan[0] = 1500;
+            cache.freshness.mark_updated(mg::bridge::TelemetryType::kRcChannels);
+        }
+
+        char* channels = mg_rc_get_channels(core);
+        CHECK(json_has(channels, "\"valid\":true"),
+              "fresh RC channel snapshot is valid");
+        mg_free_string(channels);
+
+        char* channel = mg_rc_get_channel(core, 1);
+        CHECK(json_has(channel, "\"valid\":true"),
+              "fresh individual RC channel is valid");
+        mg_free_string(channel);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
+        channels = mg_rc_get_channels(core);
+        CHECK(json_has(channels, "\"valid\":false"),
+              "stale RC channel snapshot is invalid");
+        mg_free_string(channels);
+
+        channel = mg_rc_get_channel(core, 1);
+        CHECK(json_has(channel, "\"valid\":false"),
+              "stale individual RC channel is invalid");
+        mg_free_string(channel);
+
+        mg_destroy(core);
+    }
+
+    // 12. Industrial hardening APIs handle null core consistently
     fprintf(stderr, "[Group] Backend hardening API null safety\n");
     {
         char* conn_diag = mg_connection_get_diagnostics(nullptr);

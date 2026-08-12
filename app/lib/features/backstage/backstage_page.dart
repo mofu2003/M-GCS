@@ -1,10 +1,31 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/cupertino.dart' as cupertino;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../application/connection_controller.dart';
+import '../../application/calibration_models.dart';
+import '../../application/connection_session_backend.dart';
 import '../../application/parameter_controller.dart';
 import '../../application/parameter_models.dart';
+import '../../application/polling_task.dart';
+import '../../ui/skins/mac_glass/mac_glass_menu.dart';
+import '../../ui/skins/mac_glass/mac_glass_navigation_dock.dart';
 import '../../ui/skins/mac_glass/mac_glass_tokens.dart';
 import 'parameter_tree.dart';
+
+part 'backstage_calibration.dart';
+part 'backstage_parameters.dart';
+part 'backstage_pid_tuning.dart';
+part 'backstage_remote_control.dart';
+part 'backstage_safety_settings.dart';
+part 'backstage_serial_ports.dart';
+part 'backstage_servo_output.dart';
+part 'backstage_shared.dart';
 
 final class BackstagePage extends StatefulWidget {
   const BackstagePage({
@@ -27,29 +48,23 @@ final class _BackstagePageState extends State<BackstagePage> {
   String _prefix = '';
   String? _selectedName;
   _ParameterFilter _filter = _ParameterFilter.all;
+  MacGlassBackstageSection _section = MacGlassBackstageSection.parameters;
+  bool _fileDialogBusy = false;
+
+  static const _parameterFileTypes = <XTypeGroup>[
+    XTypeGroup(label: 'ArduPilot 参数文件', extensions: <String>['param', 'parm']),
+  ];
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(() => setState(() {}));
-    widget.connectionController.addListener(_refreshWhenReady);
   }
 
   @override
   void dispose() {
-    widget.connectionController.removeListener(_refreshWhenReady);
     _searchController.dispose();
     super.dispose();
-  }
-
-  void _refreshWhenReady() {
-    final controller = widget.parameterController;
-    if (controller != null &&
-        controller.canEdit &&
-        controller.parameters.isEmpty &&
-        !controller.refreshing) {
-      controller.refresh();
-    }
   }
 
   List<FlightControllerParameter> _visibleParameters(
@@ -102,50 +117,151 @@ final class _BackstagePageState extends State<BackstagePage> {
     );
   }
 
+  Future<void> _readParameterFile(ParameterController controller) async {
+    if (_fileDialogBusy || !controller.canManageParameterFiles) return;
+    setState(() => _fileDialogBusy = true);
+    try {
+      final file = await openFile(acceptedTypeGroups: _parameterFileTypes);
+      if (file == null) return;
+      final summary = await controller.importParameterFile(
+        await file.readAsString(),
+      );
+      if (!mounted) return;
+      if (summary.staged > 0) {
+        _searchController.clear();
+        setState(() {
+          _prefix = '';
+          _selectedName = null;
+          _filter = _ParameterFilter.staged;
+        });
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '已读取 ${summary.parsed} 项：${summary.staged} 项待写入，'
+            '${summary.unchanged} 项未变化，${summary.unknown} 项未匹配',
+          ),
+        ),
+      );
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('读取参数文件失败：$error')));
+    } finally {
+      if (mounted) setState(() => _fileDialogBusy = false);
+    }
+  }
+
+  Future<void> _saveParameterFile(ParameterController controller) async {
+    if (_fileDialogBusy || !controller.canManageParameterFiles) return;
+    setState(() => _fileDialogBusy = true);
+    try {
+      final location = await getSaveLocation(
+        suggestedName: 'parameters.param',
+        acceptedTypeGroups: _parameterFileTypes,
+      );
+      if (location == null) return;
+      final path = _ensureParameterFileExtension(location.path);
+      final content = await controller.exportParameterFile();
+      await File(path).writeAsString(content, encoding: utf8, flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已保存 ${controller.parameters.length} 项参数')),
+      );
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('保存参数文件失败：$error')));
+    } finally {
+      if (mounted) setState(() => _fileDialogBusy = false);
+    }
+  }
+
+  String _ensureParameterFileExtension(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.param') || lower.endsWith('.parm')
+        ? path
+        : '$path.param';
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.parameterController;
-    return Scaffold(
-      body: DecoratedBox(
-        key: const ValueKey('mg-backstage-shell'),
-        decoration: const BoxDecoration(color: Color(0xffedf2f5)),
-        child: controller == null
-            ? _UnavailableBackstage(onReturn: widget.onReturnToFrontstage)
-            : ListenableBuilder(
-                listenable: controller,
-                builder: (context, _) {
-                  final visible = _visibleParameters(controller);
-                  final selected = controller.parameters
-                      .where((item) => item.name == _selectedName)
-                      .firstOrNull;
-                  return LayoutBuilder(
-                    builder: (context, constraints) => _BackstageWorkspace(
-                      // Desktop windows may be narrower than 960px. Keep the
-                      // navigation tree visible until the screen is genuinely
-                      // phone-sized, where a horizontal workspace cannot work.
-                      compact: constraints.maxWidth < 720,
-                      controller: controller,
-                      visibleParameters: visible,
-                      selectedParameter: selected,
-                      selectedPrefix: _prefix,
-                      searchController: _searchController,
-                      filter: _filter,
-                      onReturn: widget.onReturnToFrontstage,
-                      onPrefixSelected: (prefix) => setState(() {
-                        _prefix = prefix;
-                        _selectedName = null;
-                      }),
-                      onFilterChanged: (filter) =>
-                          setState(() => _filter = filter),
-                      onSelected: (parameter) {
-                        setState(() => _selectedName = parameter.name);
-                        controller.loadDescriptor(parameter.name);
-                      },
-                      onReviewWrite: () => _reviewAndWrite(controller),
-                    ),
-                  );
-                },
-              ),
+    return cupertino.CupertinoTheme(
+      data: const cupertino.CupertinoThemeData(
+        brightness: Brightness.light,
+        primaryColor: Color(0xff007aff),
+        scaffoldBackgroundColor: Color(0xfff2f2f7),
+        barBackgroundColor: Color(0xfff7f7f8),
+        textTheme: cupertino.CupertinoTextThemeData(
+          textStyle: MacGlassTypography.body,
+          actionTextStyle: MacGlassTypography.control,
+          tabLabelTextStyle: MacGlassTypography.caption,
+          navTitleTextStyle: MacGlassTypography.pageTitle,
+        ),
+      ),
+      child: Scaffold(
+        body: DecoratedBox(
+          key: const ValueKey('mg-backstage-shell'),
+          decoration: const BoxDecoration(color: Color(0xffedf2f5)),
+          child: controller == null
+              ? _UnavailableBackstage(onReturn: widget.onReturnToFrontstage)
+              : ListenableBuilder(
+                  listenable: Listenable.merge([
+                    controller,
+                    widget.connectionController,
+                  ]),
+                  builder: (context, _) {
+                    final visible = _visibleParameters(controller);
+                    final selected = controller.parameters
+                        .where((item) => item.name == _selectedName)
+                        .firstOrNull;
+                    return LayoutBuilder(
+                      builder: (context, constraints) => _BackstageWorkspace(
+                        // Desktop windows may be narrower than 960px. Keep the
+                        // navigation tree visible until the screen is genuinely
+                        // phone-sized, where a horizontal workspace cannot work.
+                        compact: constraints.maxWidth < 720,
+                        controller: controller,
+                        airframe: widget
+                            .connectionController
+                            .snapshot
+                            ?.bootstrap
+                            .identity
+                            .airframe,
+                        visibleParameters: visible,
+                        selectedParameter: selected,
+                        selectedPrefix: _prefix,
+                        section: _section,
+                        searchController: _searchController,
+                        filter: _filter,
+                        onReturn: widget.onReturnToFrontstage,
+                        onSectionChanged: (section) => setState(() {
+                          _section = section;
+                          _selectedName = null;
+                        }),
+                        onPrefixSelected: (prefix) => setState(() {
+                          _prefix = prefix;
+                          _selectedName = null;
+                        }),
+                        onFilterChanged: (filter) =>
+                            setState(() => _filter = filter),
+                        onSelected: (parameter) {
+                          setState(() => _selectedName = parameter.name);
+                          controller.loadDescriptor(parameter.name);
+                        },
+                        onRead: () => _readParameterFile(controller),
+                        onSave: () => _saveParameterFile(controller),
+                        onRefresh: controller.refreshFromVehicle,
+                        onReviewWrite: () => _reviewAndWrite(controller),
+                        fileDialogBusy: _fileDialogBusy,
+                      ),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }
@@ -157,30 +273,44 @@ final class _BackstageWorkspace extends StatelessWidget {
   const _BackstageWorkspace({
     required this.compact,
     required this.controller,
+    required this.airframe,
     required this.visibleParameters,
     required this.selectedParameter,
     required this.selectedPrefix,
+    required this.section,
     required this.searchController,
     required this.filter,
     required this.onReturn,
+    required this.onSectionChanged,
     required this.onPrefixSelected,
     required this.onFilterChanged,
     required this.onSelected,
+    required this.onRead,
+    required this.onSave,
+    required this.onRefresh,
     required this.onReviewWrite,
+    required this.fileDialogBusy,
   });
 
   final bool compact;
   final ParameterController controller;
+  final String? airframe;
   final List<FlightControllerParameter> visibleParameters;
   final FlightControllerParameter? selectedParameter;
   final String selectedPrefix;
+  final MacGlassBackstageSection section;
   final TextEditingController searchController;
   final _ParameterFilter filter;
   final VoidCallback onReturn;
+  final ValueChanged<MacGlassBackstageSection> onSectionChanged;
   final ValueChanged<String> onPrefixSelected;
   final ValueChanged<_ParameterFilter> onFilterChanged;
   final ValueChanged<FlightControllerParameter> onSelected;
+  final VoidCallback onRead;
+  final VoidCallback onSave;
+  final VoidCallback onRefresh;
   final VoidCallback onReviewWrite;
+  final bool fileDialogBusy;
 
   @override
   Widget build(BuildContext context) {
@@ -209,655 +339,157 @@ final class _BackstageWorkspace extends StatelessWidget {
       enabled: controller.canEdit,
       onStage: (value) => controller.stageValue(selected!.name, value),
     );
+    final pendingBar = _PendingWriteBar(
+      count: controller.stagedChanges.length,
+      writing: controller.writing,
+      onDiscard: controller.discardAll,
+      onReviewWrite: onReviewWrite,
+    );
+    final sectionTitle = switch (section) {
+      MacGlassBackstageSection.parameters => '参数配置',
+      MacGlassBackstageSection.servoOutputs => '舵机输出',
+      MacGlassBackstageSection.serialPorts => '串口配置',
+      MacGlassBackstageSection.remoteControl => '遥控配置',
+      MacGlassBackstageSection.pidTuning => 'PID 调参',
+      MacGlassBackstageSection.calibration => '传感器/外设配置',
+      MacGlassBackstageSection.safety => '安全设置',
+    };
+    final serialPortCount = _serialPortNumbers(controller.parameters).length;
+    final sectionSubtitle = switch (section) {
+      MacGlassBackstageSection.parameters =>
+        '${controller.parameters.length} 个飞控参数',
+      MacGlassBackstageSection.servoOutputs => 'SERVO1-16 · 功能、反向和 PWM 范围',
+      MacGlassBackstageSection.serialPorts =>
+        '$serialPortCount 个可用串口 · 修改后立即写入飞控',
+      MacGlassBackstageSection.remoteControl => '飞行模式、通道功能与摇杆校准',
+      MacGlassBackstageSection.pidTuning => '根据当前机架自动显示控制器 · 修改后立即写入飞控',
+      MacGlassBackstageSection.calibration => 'IMU、罗盘、GPS 与空速计',
+      MacGlassBackstageSection.safety => '围栏、解锁检查与电量保护',
+    };
+    final sectionPage = switch (section) {
+      MacGlassBackstageSection.parameters => list,
+      MacGlassBackstageSection.servoOutputs => _ServoOutputPage(
+        controller: controller,
+      ),
+      MacGlassBackstageSection.serialPorts => _SerialPortConfigPage(
+        controller: controller,
+      ),
+      MacGlassBackstageSection.remoteControl => _RemoteControlConfigPage(
+        controller: controller,
+      ),
+      MacGlassBackstageSection.pidTuning => _PidTuningPage(
+        controller: controller,
+        airframe: airframe,
+      ),
+      MacGlassBackstageSection.calibration => _CalibrationPage(
+        controller: controller,
+      ),
+      MacGlassBackstageSection.safety => _SafetySettingsPage(
+        controller: controller,
+      ),
+    };
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: EdgeInsets.fromLTRB(
+          compact ? 12 : MacGlassTokens.pageInset,
+          MacGlassTokens.pageInset,
+          MacGlassTokens.pageInset,
+          MacGlassTokens.pageInset,
+        ),
         child: Column(
           children: [
             _BackstageHeader(
-              parameterCount: controller.parameters.length,
-              onRead: controller.canEdit ? controller.refresh : null,
+              title: sectionTitle,
+              subtitle: sectionSubtitle,
+              showActions: section == MacGlassBackstageSection.parameters,
+              onRead:
+                  section == MacGlassBackstageSection.parameters &&
+                      controller.canManageParameterFiles &&
+                      !fileDialogBusy
+                  ? onRead
+                  : null,
+              onSave:
+                  section == MacGlassBackstageSection.parameters &&
+                      controller.canManageParameterFiles &&
+                      !fileDialogBusy
+                  ? onSave
+                  : null,
+              onRefresh:
+                  section == MacGlassBackstageSection.parameters &&
+                      controller.canEdit &&
+                      !fileDialogBusy
+                  ? onRefresh
+                  : null,
               onReviewWrite:
-                  controller.stagedChanges.isEmpty || controller.writing
+                  section != MacGlassBackstageSection.parameters ||
+                      controller.stagedChanges.isEmpty ||
+                      !controller.canEdit ||
+                      fileDialogBusy
                   ? null
                   : onReviewWrite,
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             Expanded(
               child: compact
                   ? Column(
                       children: [
-                        Expanded(child: list),
-                        const SizedBox(height: 12),
-                        SizedBox(height: 230, child: inspector),
+                        Expanded(child: sectionPage),
+                        if (section == MacGlassBackstageSection.parameters) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(height: 230, child: inspector),
+                        ],
+                        if (controller.stagedChanges.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          pendingBar,
+                        ],
                       ],
                     )
                   : Row(
                       children: [
                         SizedBox(
-                          width: 76,
-                          child: _BackstageNavigationRail(onReturn: onReturn),
+                          width: MacGlassTokens.dockWidth,
+                          child: MacGlassBackstageNavigationDock(
+                            selectedSection: section,
+                            onSectionChanged: onSectionChanged,
+                            onReturnToFrontstage: onReturn,
+                          ),
                         ),
                         const SizedBox(width: 12),
-                        SizedBox(width: 216, child: tree),
-                        const SizedBox(width: 12),
-                        Expanded(child: list),
-                        const SizedBox(width: 12),
-                        SizedBox(width: 306, child: inspector),
+                        Expanded(
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child:
+                                    section ==
+                                        MacGlassBackstageSection.parameters
+                                    ? Row(
+                                        children: [
+                                          SizedBox(width: 216, child: tree),
+                                          const SizedBox(width: 12),
+                                          Expanded(child: list),
+                                          const SizedBox(width: 12),
+                                          SizedBox(
+                                            width: 306,
+                                            child: inspector,
+                                          ),
+                                        ],
+                                      )
+                                    : sectionPage,
+                              ),
+                              if (controller.stagedChanges.isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                pendingBar,
+                              ],
+                            ],
+                          ),
+                        ),
                       ],
                     ),
             ),
-            if (controller.stagedChanges.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              _PendingWriteBar(
-                count: controller.stagedChanges.length,
-                writing: controller.writing,
-                onDiscard: controller.discardAll,
-                onReviewWrite: onReviewWrite,
-              ),
-            ],
           ],
         ),
       ),
     );
   }
-}
-
-class _GlassPanel extends StatelessWidget {
-  const _GlassPanel({required this.child});
-  final Widget child;
-  @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(20),
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.72),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [MacGlassTokens.floatingShadow()],
-      ),
-      child: Material(type: MaterialType.transparency, child: child),
-    ),
-  );
-}
-
-class _BackstageNavigationRail extends StatelessWidget {
-  const _BackstageNavigationRail({required this.onReturn});
-
-  final VoidCallback onReturn;
-
-  @override
-  Widget build(BuildContext context) => _GlassPanel(
-    child: Column(
-      children: [
-        const SizedBox(height: 12),
-        Tooltip(
-          message: '参数配置',
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: MacGlassTokens.black,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const SizedBox(
-              width: 44,
-              height: 44,
-              child: Icon(Icons.tune_rounded, color: Colors.white),
-            ),
-          ),
-        ),
-        const Spacer(),
-        IconButton(
-          key: const ValueKey('mg-backstage-return-frontstage'),
-          tooltip: '返回前台',
-          onPressed: onReturn,
-          icon: const Icon(Icons.map_outlined),
-        ),
-        const SizedBox(height: 8),
-      ],
-    ),
-  );
-}
-
-class _BackstageHeader extends StatelessWidget {
-  const _BackstageHeader({
-    required this.parameterCount,
-    required this.onRead,
-    required this.onReviewWrite,
-  });
-  final int parameterCount;
-  final VoidCallback? onRead;
-  final VoidCallback? onReviewWrite;
-  @override
-  Widget build(BuildContext context) => _GlassPanel(
-    child: SizedBox(
-      height: 58,
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('工程配置', style: Theme.of(context).textTheme.titleMedium),
-                Text(
-                  '$parameterCount 个飞控参数',
-                  style: const TextStyle(
-                    color: MacGlassTokens.muted,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          _CommandButton(
-            icon: Icons.download_rounded,
-            label: '读取',
-            onPressed: onRead,
-          ),
-          const SizedBox(width: 6),
-          _CommandButton(
-            icon: Icons.save_alt_rounded,
-            label: '保存',
-            onPressed: null,
-          ),
-          const SizedBox(width: 6),
-          _CommandButton(
-            icon: Icons.upload_rounded,
-            label: '写入',
-            onPressed: onReviewWrite,
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-class _CommandButton extends StatelessWidget {
-  const _CommandButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) => OutlinedButton.icon(
-    onPressed: onPressed,
-    icon: Icon(icon, size: 16),
-    label: Text(label),
-  );
-}
-
-class _ParameterTree extends StatelessWidget {
-  const _ParameterTree({
-    required this.parameters,
-    required this.selectedPrefix,
-    required this.onSelected,
-  });
-  final List<FlightControllerParameter> parameters;
-  final String selectedPrefix;
-  final ValueChanged<String> onSelected;
-  @override
-  Widget build(BuildContext context) {
-    final root = ParameterTreeNode.build(
-      parameters.map((parameter) => parameter.name),
-    );
-    return _GlassPanel(
-      child: ListView(
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text('参数树', style: TextStyle(fontWeight: FontWeight.w800)),
-          ),
-          _TreeItem(
-            node: root,
-            selectedPrefix: selectedPrefix,
-            onSelected: onSelected,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TreeItem extends StatelessWidget {
-  const _TreeItem({
-    required this.node,
-    required this.selectedPrefix,
-    required this.onSelected,
-  });
-  final ParameterTreeNode node;
-  final String selectedPrefix;
-  final ValueChanged<String> onSelected;
-  @override
-  Widget build(BuildContext context) {
-    final active = selectedPrefix == node.prefix;
-    if (node.children.isEmpty) {
-      return ListTile(
-        dense: true,
-        selected: active,
-        selectedTileColor: MacGlassTokens.blue.withValues(alpha: 0.13),
-        leading: const Icon(Icons.tune_rounded, size: 17),
-        title: Text(node.label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        onTap: () => onSelected(node.prefix),
-      );
-    }
-    return ExpansionTile(
-      initiallyExpanded:
-          node.prefix.isEmpty || selectedPrefix.startsWith(node.prefix),
-      leading: Icon(
-        node.prefix.isEmpty
-            ? Icons.folder_open_outlined
-            : Icons.folder_outlined,
-        size: 18,
-      ),
-      title: Text(node.label, maxLines: 1, overflow: TextOverflow.ellipsis),
-      children: [
-        ListTile(
-          dense: true,
-          selected: active,
-          selectedTileColor: MacGlassTokens.blue.withValues(alpha: 0.13),
-          title: Text(node.prefix.isEmpty ? '全部参数' : '本分类全部参数'),
-          onTap: () => onSelected(node.prefix),
-        ),
-        for (final child in node.children)
-          Padding(
-            padding: const EdgeInsets.only(left: 12),
-            child: _TreeItem(
-              node: child,
-              selectedPrefix: selectedPrefix,
-              onSelected: onSelected,
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _ParameterList extends StatelessWidget {
-  const _ParameterList({
-    required this.parameters,
-    required this.selectedName,
-    required this.staged,
-    required this.searchController,
-    required this.descriptorFor,
-    required this.onSelected,
-  });
-  final List<FlightControllerParameter> parameters;
-  final String? selectedName;
-  final List<StagedParameterChange> staged;
-  final TextEditingController searchController;
-  final ParameterDescriptor? Function(String name) descriptorFor;
-  final ValueChanged<FlightControllerParameter> onSelected;
-  @override
-  Widget build(BuildContext context) {
-    final stagedNames = staged.map((item) => item.parameter.name).toSet();
-    return _GlassPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: searchController,
-              decoration: const InputDecoration(
-                hintText: '查询参数、中文名称或描述',
-                prefixIcon: Icon(Icons.search_rounded),
-              ),
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              key: const ValueKey('mg-parameter-list'),
-              itemCount: parameters.length,
-              itemBuilder: (context, index) {
-                final parameter = parameters[index];
-                final isStaged = stagedNames.contains(parameter.name);
-                final descriptor = descriptorFor(parameter.name);
-                final displayName = _displayNameFor(parameter, descriptor);
-                return ListTile(
-                  dense: true,
-                  minVerticalPadding: 7,
-                  selected: selectedName == parameter.name,
-                  title: Text(
-                    parameter.name,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      fontFeatures: [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                  subtitle: displayName == null
-                      ? null
-                      : Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            displayName,
-                            maxLines: 1,
-                            softWrap: false,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: MacGlassTokens.blue,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                  trailing: Text(
-                    (isStaged
-                            ? staged
-                                  .firstWhere(
-                                    (item) =>
-                                        item.parameter.name == parameter.name,
-                                  )
-                                  .stagedValue
-                            : parameter.value)
-                        .toString(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      fontFeatures: [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                  onTap: () => onSelected(parameter),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ParameterInspector extends StatelessWidget {
-  const _ParameterInspector({
-    required this.parameter,
-    required this.descriptor,
-    required this.staged,
-    required this.enabled,
-    required this.onStage,
-  });
-  final FlightControllerParameter? parameter;
-  final ParameterDescriptor? descriptor;
-  final StagedParameterChange? staged;
-  final bool enabled;
-  final ValueChanged<double> onStage;
-  @override
-  Widget build(BuildContext context) {
-    final selected = parameter;
-    if (selected == null) {
-      return _GlassPanel(
-        child: const Center(
-          child: Text(
-            '选择一个参数查看详情',
-            style: TextStyle(color: MacGlassTokens.muted),
-          ),
-        ),
-      );
-    }
-    return _GlassPanel(
-      child: Padding(
-        key: const ValueKey('mg-parameter-inspector'),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              selected.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (_displayNameFor(selected, descriptor)
-                case final displayName?) ...[
-              const SizedBox(height: 4),
-              Text(
-                displayName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: MacGlassTokens.blue,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-            const Divider(height: 24),
-            Text('当前值 ${selected.value}', maxLines: 1),
-            const SizedBox(height: 18),
-            TextFormField(
-              initialValue: (staged?.stagedValue ?? selected.value).toString(),
-              enabled: enabled,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-                signed: true,
-              ),
-              decoration: const InputDecoration(labelText: '新值'),
-              onFieldSubmitted: (text) {
-                final value = double.tryParse(text);
-                if (value != null) onStage(value);
-              },
-            ),
-            if (staged?.errorMessage case final error?)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Text(
-                  error,
-                  style: const TextStyle(color: MacGlassTokens.red),
-                ),
-              ),
-            const Divider(height: 32),
-            const Text(
-              '参数说明',
-              style: TextStyle(
-                color: MacGlassTokens.muted,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 4),
-            if (_descriptionFor(selected, descriptor)
-                case final description?)
-              Expanded(
-                child: Scrollbar(
-                  child: SingleChildScrollView(
-                    child: SelectableText(
-                      description,
-                      style: const TextStyle(
-                        color: MacGlassTokens.muted,
-                        fontSize: 12,
-                        height: 1.45,
-                      ),
-                    ),
-                  ),
-                ),
-              )
-            else
-              const Expanded(
-                child: Center(
-                  child: Text(
-                    '暂无中文说明',
-                    style: TextStyle(color: MacGlassTokens.muted, fontSize: 12),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-String? _displayNameFor(
-  FlightControllerParameter parameter,
-  ParameterDescriptor? descriptor,
-) {
-  final displayName = descriptor?.displayName.trim() ?? '';
-  return displayName.isEmpty || displayName == parameter.name
-      ? null
-      : displayName;
-}
-
-String? _descriptionFor(
-  FlightControllerParameter parameter,
-  ParameterDescriptor? descriptor,
-) {
-  final description = descriptor?.description.trim() ?? '';
-  return description.isEmpty || description == parameter.name
-      ? null
-      : description;
-}
-
-class _PendingWriteBar extends StatelessWidget {
-  const _PendingWriteBar({
-    required this.count,
-    required this.writing,
-    required this.onDiscard,
-    required this.onReviewWrite,
-  });
-  final int count;
-  final bool writing;
-  final VoidCallback onDiscard;
-  final VoidCallback onReviewWrite;
-  @override
-  Widget build(BuildContext context) => _GlassPanel(
-    child: SizedBox(
-      height: 58,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: [
-            Text(
-              '待写入 $count 项参数',
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: writing ? null : onDiscard,
-              child: const Text('丢弃'),
-            ),
-            const SizedBox(width: 8),
-            FilledButton(
-              key: const ValueKey('mg-parameter-review-write'),
-              onPressed: writing ? null : onReviewWrite,
-              child: Text(writing ? '正在写入' : '复核并写入'),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class _ParameterWriteReviewDialog extends StatelessWidget {
-  const _ParameterWriteReviewDialog({required this.changes});
-  final List<StagedParameterChange> changes;
-  @override
-  Widget build(BuildContext context) => Dialog(
-    backgroundColor: Colors.transparent,
-    insetPadding: const EdgeInsets.all(24),
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: MacGlassTokens.strongBlur,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.82),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.94)),
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [MacGlassTokens.floatingShadow()],
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520, maxHeight: 540),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    '确认参数变更',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '将写入 ${changes.length} 项参数',
-                    style: const TextStyle(color: MacGlassTokens.muted),
-                  ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: ListView.separated(
-                      itemCount: changes.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final change = changes[index];
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(change.parameter.name),
-                          subtitle: Text(
-                            '${change.parameter.value} -> ${change.stagedValue}',
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, false),
-                        child: const Text('取消'),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        key: const ValueKey('mg-parameter-confirm-write'),
-                        onPressed: () => Navigator.pop(context, true),
-                        child: const Text('确认写入'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-class _UnavailableBackstage extends StatelessWidget {
-  const _UnavailableBackstage({required this.onReturn});
-  final VoidCallback onReturn;
-  @override
-  Widget build(BuildContext context) => Center(
-    child: _GlassPanel(
-      child: SizedBox(
-        width: 320,
-        height: 180,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.link_off_rounded, color: MacGlassTokens.muted),
-            const SizedBox(height: 12),
-            const Text('参数服务不可用'),
-            const SizedBox(height: 12),
-            TextButton(onPressed: onReturn, child: const Text('返回前台')),
-          ],
-        ),
-      ),
-    ),
-  );
 }

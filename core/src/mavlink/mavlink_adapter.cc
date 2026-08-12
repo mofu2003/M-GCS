@@ -13,6 +13,8 @@
 
 #include "mavlink_adapter_internal.h"
 
+#include <string>
+
 namespace mg::core::mavlink {
 
 // 生命周期
@@ -24,6 +26,23 @@ MavlinkAdapter::MavlinkAdapter()
 
 MavlinkAdapter::~MavlinkAdapter() = default;
 
+bool MavlinkAdapter::download_file(uint8_t target_system, uint8_t target_component,
+                                    const std::string& remote_path,
+                                    const std::string& local_path,
+                                    std::string* error) {
+    mg::core::ftp::FtpResult result;
+    const bool success = impl_->ftp.download_file(
+        target_system, target_component, remote_path, local_path, nullptr, &result);
+    if (!success && error) {
+        *error = result.error;
+        if (result.error_code != 0) {
+            *error += " (MAVLink FTP 错误码 " +
+                std::to_string(static_cast<unsigned>(result.error_code)) + ")";
+        }
+    }
+    return success;
+}
+
 // ================================================================
 // 接收路径
 // ================================================================
@@ -31,6 +50,7 @@ MavlinkAdapter::~MavlinkAdapter() = default;
 // 喂入原始字节，逐字节解析 MAVLink 消息
 // 使用独立的 parse_msg/parse_status，不与发送函数共享 impl_->msg
 void MavlinkAdapter::feed_raw(const uint8_t* data, size_t size) {
+    impl_->feed_mag_progress_compat(data, size);
     mavlink_message_t parse_msg{};
     mavlink_status_t  parse_status{};
     for (size_t i = 0; i < size; i++) {
@@ -99,6 +119,21 @@ void MavlinkAdapter::on_param(ParamCallback cb) {
 void MavlinkAdapter::on_command_ack(CommandAckCallback cb) {
     mg::core::platform::LockGuard lk(impl_->mtx);
     impl_->tel.command_ack_cb = std::move(cb);
+}
+
+void MavlinkAdapter::on_command_long(CommandLongCallback cb) {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    impl_->tel.command_long_cb = std::move(cb);
+}
+
+void MavlinkAdapter::on_mag_cal_progress(MagCalibrationProgressCallback cb) {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    impl_->tel.mag_cal_progress_cb = std::move(cb);
+}
+
+void MavlinkAdapter::on_mag_cal_report(MagCalibrationReportCallback cb) {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    impl_->tel.mag_cal_report_cb = std::move(cb);
 }
 
 void MavlinkAdapter::on_rc_channels(RcChannelsCallback cb) {

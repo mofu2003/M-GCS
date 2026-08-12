@@ -10,6 +10,8 @@ final class ConnectionController extends ChangeNotifier {
     required this.backend,
     this.telemetryPollInterval = const Duration(milliseconds: 50),
     this.connectionRefreshInterval = const Duration(seconds: 1),
+    this.parameterSyncStallTimeout = const Duration(seconds: 8),
+    this.parameterSyncMaxRetries = 2,
   }) {
     if (backend case final FlightControllerMessageSource source) {
       _messageSubscription = source.messages.listen(_recordMessage);
@@ -23,6 +25,8 @@ final class ConnectionController extends ChangeNotifier {
   final ConnectionSessionBackend backend;
   final Duration telemetryPollInterval;
   final Duration connectionRefreshInterval;
+  final Duration parameterSyncStallTimeout;
+  final int parameterSyncMaxRetries;
 
   ConnectionStatus _status = ConnectionStatus.idle;
   ConnectionRequest _request = const ConnectionRequest.serial(port: '');
@@ -38,6 +42,10 @@ final class ConnectionController extends ChangeNotifier {
   DateTime? _lastBootstrapRefresh;
   ConnectionBootstrapState _bootstrapState = ConnectionBootstrapState.idle;
   bool _parameterSyncStarted = false;
+  int _parameterSyncRetryCount = 0;
+  int? _lastParameterProgressReceived;
+  int? _lastParameterProgressTotal;
+  DateTime? _lastParameterProgressAt;
   String? _bootstrapError;
   StreamSubscription<FlightControllerMessage>? _messageSubscription;
   final List<FlightControllerMessage> _messages = [];
@@ -286,8 +294,16 @@ final class ConnectionController extends ChangeNotifier {
       return;
     }
     _parameterSyncStarted = true;
+    _parameterSyncRetryCount = 0;
     _bootstrapState = ConnectionBootstrapState.downloading;
     _bootstrapError = null;
+    await _requestParameterSync();
+  }
+
+  Future<void> _requestParameterSync() async {
+    _lastParameterProgressReceived = null;
+    _lastParameterProgressTotal = null;
+    _lastParameterProgressAt = DateTime.now();
     final result = await backend.startParameterSync();
     if (!result.success) {
       _bootstrapState = ConnectionBootstrapState.failed;
@@ -321,10 +337,28 @@ final class ConnectionController extends ChangeNotifier {
       return;
     }
     final bootstrap = await backend.loadBootstrapSnapshot();
-    _lastBootstrapRefresh = DateTime.now();
-    if (_bootstrapState == ConnectionBootstrapState.downloading &&
-        bootstrap.parameterProgress.isComplete) {
-      _bootstrapState = ConnectionBootstrapState.complete;
+    final now = DateTime.now();
+    _lastBootstrapRefresh = now;
+    var retryAfterUpdate = false;
+    if (_bootstrapState == ConnectionBootstrapState.downloading) {
+      final progress = bootstrap.parameterProgress;
+      if (progress.isComplete) {
+        _bootstrapState = ConnectionBootstrapState.complete;
+        _bootstrapError = null;
+      } else {
+        final changed =
+            _lastParameterProgressReceived != progress.received ||
+            _lastParameterProgressTotal != progress.total;
+        if (changed) {
+          _lastParameterProgressReceived = progress.received;
+          _lastParameterProgressTotal = progress.total;
+          _lastParameterProgressAt = now;
+        } else if (_lastParameterProgressAt != null &&
+            now.difference(_lastParameterProgressAt!) >=
+                parameterSyncStallTimeout) {
+          retryAfterUpdate = true;
+        }
+      }
     }
     _snapshot = ConnectionSessionSnapshot(
       connection: previous.connection,
@@ -333,11 +367,32 @@ final class ConnectionController extends ChangeNotifier {
       rawDiagnostics: previous.rawDiagnostics,
     );
     notifyListeners();
+    if (retryAfterUpdate) {
+      await _retryParameterSyncAfterStall();
+    }
+  }
+
+  Future<void> _retryParameterSyncAfterStall() async {
+    if (_bootstrapState != ConnectionBootstrapState.downloading) return;
+    if (_parameterSyncRetryCount >= parameterSyncMaxRetries) {
+      _bootstrapState = ConnectionBootstrapState.failed;
+      _bootstrapError = '参数下载连续停滞，已重试 $parameterSyncMaxRetries 次';
+      notifyListeners();
+      return;
+    }
+    _parameterSyncRetryCount++;
+    _bootstrapError =
+        '参数下载停滞，正在重试 ($_parameterSyncRetryCount/$parameterSyncMaxRetries)';
+    await _requestParameterSync();
   }
 
   void _resetBootstrap() {
     _bootstrapState = ConnectionBootstrapState.idle;
     _parameterSyncStarted = false;
+    _parameterSyncRetryCount = 0;
+    _lastParameterProgressReceived = null;
+    _lastParameterProgressTotal = null;
+    _lastParameterProgressAt = null;
     _lastBootstrapRefresh = null;
     _bootstrapError = null;
   }

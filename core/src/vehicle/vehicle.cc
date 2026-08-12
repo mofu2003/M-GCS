@@ -22,8 +22,8 @@ void configure_vehicle_telemetry_streams(Vehicle& vehicle) {
     mav->request_message_interval(sys, comp, 29, 500000);
     mav->request_message_interval(sys, comp, 30, 100000);
     mav->request_message_interval(sys, comp, 33, 500000);
-    mav->request_message_interval(sys, comp, 36, 200000);
-    mav->request_message_interval(sys, comp, 65, 200000);
+    mav->request_message_interval(sys, comp, 36, 50000);
+    mav->request_message_interval(sys, comp, 65, 50000);
     mav->request_message_interval(sys, comp, 74, 100000);
     mav->request_message_interval(sys, comp, 147, 500000);
 
@@ -291,6 +291,21 @@ void Vehicle::wire_telemetry_callbacks() {
     mav->on_command_ack([weak](const mg::core::mavlink::CommandAckInfo& ack) {
         auto self = weak.lock(); if (!self) return;
         self->calibration_.process_command_ack(ack.command, ack.result, ack.progress);
+    });
+    mav->on_mag_cal_progress([weak](const mg::core::mavlink::MagCalibrationProgressInfo& progress) {
+        auto self = weak.lock(); if (!self) return;
+        self->calibration_.process_mag_cal_progress(progress);
+    });
+    mav->on_mag_cal_report([weak](const mg::core::mavlink::MagCalibrationReportInfo& report) {
+        auto self = weak.lock(); if (!self) return;
+        self->calibration_.process_mag_cal_report(report);
+    });
+    mav->on_command_long([weak](const mg::core::mavlink::CommandLongInfo& command) {
+        auto self = weak.lock(); if (!self) return;
+        if (command.command == 42429) {  // MAV_CMD_ACCELCAL_VEHICLE_POS
+            self->calibration_.process_accelerometer_position_request(
+                static_cast<uint32_t>(command.param1));
+        }
     });
 
     mav->on_imu([weak](const mg::core::mavlink::ImuInfo&) {
