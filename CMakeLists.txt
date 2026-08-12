@@ -41,6 +41,10 @@ else()
 endif()
 message(STATUS "mgroundcontrol platform: ${MGCORE_PLATFORM}")
 
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 # Sanitizers (non-MSVC only)
 if(NOT MSVC)
     if(MGCORE_ENABLE_ASAN)
@@ -264,6 +268,16 @@ set_target_properties(mgcore PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${MGCORE_ROOT_DIR}/build
     ARCHIVE_OUTPUT_DIRECTORY ${MGCORE_ROOT_DIR}/build
 )
+if(CMAKE_CONFIGURATION_TYPES)
+    foreach(CONFIG_TYPE IN LISTS CMAKE_CONFIGURATION_TYPES)
+        string(TOUPPER "${CONFIG_TYPE}" CONFIG_TYPE_UPPER)
+        set_target_properties(mgcore PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${MGCORE_ROOT_DIR}/build
+            LIBRARY_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${MGCORE_ROOT_DIR}/build
+            ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_TYPE_UPPER} ${MGCORE_ROOT_DIR}/build
+        )
+    endforeach()
+endif()
 
 # Copy data files
 set(MGCORE_DATA_FILES

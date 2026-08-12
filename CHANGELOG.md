@@ -16,6 +16,8 @@
 - Isolated generated MAVLink headers in a Docker named volume.
 - Made the UDP transport test use an available local port.
 - Updated widget tests to assert the current calibration and safety UI contract.
+- Fixed MSVC standard-library portability and kept multi-config DLL output at `build/mgcore.dll` for Flutter Windows packaging.
+- Built the Linux MgCore shared library before Flutter live FFI tests in CI.
 
 ### Notes
 

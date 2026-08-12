@@ -29,6 +29,7 @@
 #include "command_queue.h"
 #include "param_cache.h"
 #include "mission_transfer.h"
+#include <array>
 #include <cstring>
 #include <chrono>
 #include <deque>

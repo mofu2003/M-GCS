@@ -6,6 +6,7 @@ build_check/
 build_desktop/
 build_docker/
 build_release_*/
+build_flutter_ffi/
 .venv/
 third_party/mavlink/include/
 

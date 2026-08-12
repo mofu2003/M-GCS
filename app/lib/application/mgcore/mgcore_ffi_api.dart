@@ -379,6 +379,8 @@ String _resolveLibraryPath() {
   final bundledCandidates = <String>[
     if (Platform.isMacOS) '$executableDirectory/../Frameworks/mgcore.dylib',
     if (Platform.isWindows) '$executableDirectory/mgcore.dll',
+    if (Platform.isLinux) '$executableDirectory/mgcore.so',
+    if (Platform.isLinux) '$executableDirectory/libmgcore.so',
   ];
   for (final candidate in bundledCandidates) {
     if (File(candidate).existsSync()) {
@@ -391,10 +393,16 @@ String _resolveLibraryPath() {
     if (Platform.isMacOS) 'libmgcore.dylib',
     if (Platform.isWindows) 'mgcore.dll',
     if (Platform.isWindows) 'libmgcore.dll',
+    if (Platform.isLinux) 'mgcore.so',
+    if (Platform.isLinux) 'libmgcore.so',
     if (Platform.isMacOS) '../build/mgcore.dylib',
     if (Platform.isMacOS) '../../build/mgcore.dylib',
     if (Platform.isWindows) r'..\build\mgcore.dll',
     if (Platform.isWindows) r'..\..\build\mgcore.dll',
+    if (Platform.isLinux) '../build/mgcore.so',
+    if (Platform.isLinux) '../build/libmgcore.so',
+    if (Platform.isLinux) '../../build/mgcore.so',
+    if (Platform.isLinux) '../../build/libmgcore.so',
   ];
 
   for (final candidate in candidates) {

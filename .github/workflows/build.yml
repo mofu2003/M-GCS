@@ -40,11 +40,23 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
     - uses: subosito/flutter-action@v2
       with:
         flutter-version: '3.44.7'
         channel: stable
         cache: true
+
+    - name: 生成 MAVLink 头
+      run: PYTHON_BIN=python ./tools/generate-mavlink.sh
+
+    - name: 构建 Linux MgCore FFI
+      run: |
+        cmake -B build_flutter_ffi -DMGCORE_BUILD_SHARED=ON -DCMAKE_BUILD_TYPE=Release
+        cmake --build build_flutter_ffi --config Release --target mgcore
 
     - name: 获取 Flutter 依赖
       working-directory: app
@@ -56,4 +68,6 @@ jobs:
 
     - name: Flutter 测试
       working-directory: app
+      env:
+        MGCORE_LIBRARY_PATH: ${{ github.workspace }}/build/mgcore.so
       run: flutter --no-version-check test
