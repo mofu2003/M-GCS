@@ -9,7 +9,7 @@
 #include "core/transport/in_memory_link.h"
 #include "core/transport/connection_manager.h"
 #include "core/platform/platform_mutex.h"
-#include "common/mavlink.h"
+#include "ardupilotmega/mavlink.h"
 #include <cstdio>
 #include <string>
 #include <thread>

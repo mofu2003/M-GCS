@@ -40,6 +40,8 @@ final class MacGlassSkin implements MgSkin {
   Widget buildFrontstageShell({
     required FrontstageModel model,
     required VoidCallback onConnectPressed,
+    ValueChanged<String>? onTcpConnectPressed,
+    ValueChanged<String>? onUdpConnectPressed,
     required VoidCallback onDisconnectPressed,
     required ValueChanged<FrontstageNavigationItem> onNavigationPressed,
     required ValueChanged<FrontstageConnectionTransport>
@@ -53,6 +55,8 @@ final class MacGlassSkin implements MgSkin {
     return MacGlassFrontstageShell(
       model: model,
       onConnectPressed: onConnectPressed,
+      onTcpConnectPressed: onTcpConnectPressed,
+      onUdpConnectPressed: onUdpConnectPressed,
       onDisconnectPressed: onDisconnectPressed,
       onNavigationPressed: onNavigationPressed,
       onConnectionTransportChanged: onConnectionTransportChanged,

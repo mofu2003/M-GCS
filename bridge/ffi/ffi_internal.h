@@ -27,7 +27,7 @@
 #include "core/flight/flight_mode_manager.h"
 #include "core/mission/mission_types.h"
 #include "core/settings/mavlink_log_writer.h"
-#include "common/mavlink.h"
+#include "ardupilotmega/mavlink.h"
 
 #include <string>
 

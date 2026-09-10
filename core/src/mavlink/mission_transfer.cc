@@ -5,7 +5,7 @@
  */
 #include "mission_transfer.h"
 #include "core/log/logging.h"
-#include "common/mavlink.h"
+#include "ardupilotmega/mavlink.h"
 
 namespace mg::core::mavlink {
 

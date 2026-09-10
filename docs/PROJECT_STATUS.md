@@ -1,12 +1,12 @@
 # 项目状态
 
-更新日期：2026-08-12。当前版本：`0.0.2`。
+更新日期：2026-09-10。当前版本：`0.0.3`。
 
 ## 当前结论
 
 M-GCS 已具备可继续开发的 C++ 后端、C FFI bridge 和 Flutter 桌面前端。后端能力覆盖较广，但正式产品链路仍集中在 macOS 串口与 ArduPilot 只读验证，不能把接口存在等同于生产验收。
 
-Flutter 正式入口会加载 MgCore native library。加载成功后，串口连接、遥测、参数同步、参数浏览和参数写入走真实 FFI；加载失败时应用显示明确错误。UDP、TCP 和蓝牙尚未接入 Dart 应用层。
+Flutter 正式入口会加载 MgCore native library。加载成功后，串口、TCP、UDP 连接、遥测、参数同步、参数浏览和参数写入走真实 FFI；加载失败时应用显示明确错误。蓝牙尚未接入 Dart 应用层。后台已提供 Copter 和 Plane/QuadPlane 机架类型页面，配置值直接通过现有参数写入链路下发。
 
 ## 已实现
 
@@ -22,8 +22,10 @@ Flutter 正式入口会加载 MgCore native library。加载成功后，串口�
 
 - macOS 和 Windows 桌面工程。
 - `ConnectionSessionBackend`、`ConnectionController` 和 Dart MgCore FFI 层。
-- 串口连接、参数启动同步、遥测轮询、参数树和参数写入入口。
+- 串口、TCP、UDP 连接，参数启动同步、遥测轮询、参数树和参数写入入口。
 - 地图、系统定位、连接抽屉、状态栏、姿态仪和后台参数页面。
+- 串口、TCP、UDP、蓝牙连接入口使用统一控件规格；蓝牙扫描仍为未启用状态。
+- Copter `FRAME_CLASS` / `FRAME_TYPE` 和 Plane/QuadPlane `Q_FRAME_CLASS` / `Q_FRAME_TYPE` 机架配置页面。
 - 项目自有皮肤契约和默认 `MacGlassSkin`。
 
 ## 已知验证
@@ -36,6 +38,9 @@ Flutter 正式入口会加载 MgCore native library。加载成功后，串口�
 - 2026-08-12：`0.0.2` 发布候选后端 Release 构建成功；离线与模拟测试 29/29 通过（18 个 offline、11 个 simulation）。
 - 2026-08-12：Flutter 静态分析无问题，组件与控制器测试 79/79 通过。
 - 2026-08-12：Docker Compose 配置解析通过，shell 脚本语法检查通过；镜像拉取阶段因 Docker Hub 匿名认证超时未能完成镜像构建，这不属于项目编译错误，仍需在网络可访问 Docker Hub 的环境补验容器内完整 `check`。
+- 2026-09-10：Flutter 静态分析无问题，全部 84 项测试通过；TCP/UDP 连接和统一连接抽屉均有回归覆盖。
+- 2026-09-10：后端 Release 构建成功，离线/模拟门禁 29/29 通过；Windows 多配置测试目录已补齐运行时 JSON 元数据。
+- 2026-09-10：使用项目本地 Flutter/CMake 工具链完成 Windows Release 构建，生成 `app/build/windows/x64/runner/Release/mgcs.exe` 并安装 `mgcore.dll`。
 
 真实硬件验证未覆盖参数写入、解锁、切模式、任务执行、校准和电机测试。这些能力必须单独设计安全验收。
 
@@ -48,16 +53,14 @@ Flutter 正式入口会加载 MgCore native library。加载成功后，串口�
 - Android filesystem 当前仍是占位实现。
 - 固件下载与刷写当前仍是占位实现。
 - 视频接收/解码只有基础结构，没有完整生产验收。
-- UDP、TCP、蓝牙、任务、告警和更多飞控配置尚未接入前端工作流。
-- CI 已覆盖 Ubuntu/Windows 后端与 Linux Flutter analyze/test，尚未覆盖 macOS、桌面打包和移动平台。
+- 蓝牙、前台完整飞行控制、告警和更多飞控配置尚未接入前端工作流。
+- CI 已覆盖 Ubuntu/Windows 后端、Linux Flutter analyze/test 和 Windows 桌面 Release 打包；尚未覆盖 macOS 和移动平台。
 - 商业地图服务、离线地图、Key 管理和第三方资产授权清单尚未完成。
 
 ## 下一阶段
 
-1. 固化 macOS/Windows native library 打包流程。
-2. 在 CI 中持续验证统一的 MAVLink C 头生成脚本和版本锁定。
-3. 在 Windows 上完成前后端构建、串口连接和硬件只读验证。
-4. 把 UDP/TCP 与任务、告警等已存在后端能力接入应用契约。
-5. 恢复 Android 平台并完成 filesystem、USB/串口和 native packaging。
-6. 将 macOS smoke build 和桌面打包验证纳入 CI。
-7. 为任何危险写操作建立确认、能力检查、超时和真实硬件验收流程。
+1. 在 Windows 真机完成串口、TCP、UDP 只读连接和遥测验收。
+2. 在 CI 中增加 macOS smoke build，并持续验证桌面发布包。
+3. 把蓝牙、任务、告警和更多飞控配置接入应用契约。
+4. 恢复 Android 平台并完成 filesystem、USB/串口和 native packaging。
+5. 为任何危险写操作建立确认、能力检查、超时和真实硬件验收流程。

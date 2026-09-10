@@ -18,6 +18,8 @@ final class MacGlassFrontstageShell extends StatefulWidget {
   const MacGlassFrontstageShell({
     required this.model,
     required this.onConnectPressed,
+    this.onTcpConnectPressed,
+    this.onUdpConnectPressed,
     required this.onDisconnectPressed,
     required this.onNavigationPressed,
     required this.onConnectionTransportChanged,
@@ -31,6 +33,8 @@ final class MacGlassFrontstageShell extends StatefulWidget {
 
   final FrontstageModel model;
   final VoidCallback onConnectPressed;
+  final ValueChanged<String>? onTcpConnectPressed;
+  final ValueChanged<String>? onUdpConnectPressed;
   final VoidCallback onDisconnectPressed;
   final ValueChanged<FrontstageNavigationItem> onNavigationPressed;
   final ValueChanged<FrontstageConnectionTransport>
@@ -190,6 +194,8 @@ final class _MacGlassFrontstageShellState
               child: MacGlassConnectionDrawer(
                 model: widget.model.connection,
                 onConnectPressed: widget.onConnectPressed,
+                onTcpConnectPressed: widget.onTcpConnectPressed,
+                onUdpConnectPressed: widget.onUdpConnectPressed,
                 onDisconnectPressed: widget.onDisconnectPressed,
                 onClose: () => widget.onNavigationPressed(
                   FrontstageNavigationItem.connection,

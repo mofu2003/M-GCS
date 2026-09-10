@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.0.3 - 2026-09-10
+
+### Added
+
+- End-to-end TCP and UDP connection flow from the Flutter application through the MgCore FFI backend, including endpoint validation and focused network tests.
+- Airframe configuration page for Copter and Plane/QuadPlane, driven by the flight controller's existing parameter metadata.
+- Native platform font fallback for Windows, macOS, and Linux.
+- Regression coverage for the unified connection drawer layout and network connection callbacks.
+
+### Changed
+
+- Bumped MgCore and Flutter application versions to `0.0.3`.
+- Unified the Serial, TCP, UDP, and Bluetooth connection pages around the same `302 x 48` field geometry, label hierarchy, spacing, and glass control styling.
+- Made the connection watchdog wake immediately when a disconnect or reset stops it.
+- Kept vehicle shutdown outside the multi-vehicle manager mutex to avoid blocking transport teardown.
+- Copied runtime metadata into every multi-config output directory so Windows Release tests resolve `SensorDeviceInfo.json` and related data files.
+- Improved the Windows desktop build workflow and local toolchain usage.
+
+### Notes
+
+- Bluetooth remains a UI-only connection entry until a native Bluetooth transport and Dart application contract are added.
+- Release verification passed 29 backend offline/simulation tests and 84 Flutter tests; Flutter static analysis reported no issues.
+- A Windows Release package was built locally with the project-local toolchain and contains `mgcs.exe` and `mgcore.dll`.
+
 ## 0.0.2 - 2026-08-12
 
 ### Added

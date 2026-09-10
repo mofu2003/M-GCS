@@ -13,7 +13,7 @@
 
 #include "core/transport/in_memory_link.h"
 #include "core/mavlink/mavlink_adapter.h"
-#include "common/mavlink.h"
+#include "ardupilotmega/mavlink.h"
 #include <map>
 #include <string>
 #include <vector>

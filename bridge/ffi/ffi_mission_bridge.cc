@@ -1,7 +1,7 @@
 #include "ffi_mission_bridge.h"
 
 #include "ffi_vehicle_session.h"
-#include "common/mavlink.h"
+#include "ardupilotmega/mavlink.h"
 
 namespace mg::bridge::ffi {
 

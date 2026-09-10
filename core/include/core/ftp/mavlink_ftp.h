@@ -9,7 +9,7 @@
 #ifndef MGCORE_MAVLINK_FTP_H
 #define MGCORE_MAVLINK_FTP_H
 
-#include "common/mavlink.h"
+#include "ardupilotmega/mavlink.h"
 #include <string>
 #include <vector>
 #include <functional>

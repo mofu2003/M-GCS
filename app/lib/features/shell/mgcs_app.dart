@@ -69,6 +69,8 @@ final class _MgcsAppState extends State<MgcsApp> {
       title: 'M-GCS',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        fontFamily: MacGlassFonts.uiFamily,
+        fontFamilyFallback: MacGlassFonts.uiFallback,
         useMaterial3: true,
         textTheme: const TextTheme(
           titleLarge: MacGlassTypography.pageTitle,

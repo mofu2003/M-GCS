@@ -28,7 +28,7 @@
   </head>
   <body>
     <header>
-      <p class="eyebrow">全仓静态审阅 + 后端门禁复跑 / 2026-08-12</p>
+      <p class="eyebrow">全仓静态审阅 + 后端门禁复跑 / 2026-09-10</p>
       <h1>M-GCS 全局代码优化报告</h1>
       <p class="lead">结论很明确：保留 C++ Core、C FFI 与当前前端适配器的三层结构。下一步应修复可信基线、收紧会话与工作流接缝，而不是推倒重来。</p>
     </header>
@@ -45,12 +45,12 @@
       <section>
         <h2>验证基线</h2>
         <table><thead><tr><th>项目</th><th>结果</th></tr></thead><tbody>
-          <tr><td>Git 跟踪文件</td><td>441</td></tr><tr><td>C/C++ 源码与头文件</td><td>约 37,644 行</td></tr><tr><td>Flutter <code>lib</code> 与 <code>test</code></td><td>约 21,072 行</td></tr><tr><td>默认 CTest</td><td><code>0.0.2</code> 发布门禁 29/29 通过</td></tr><tr><td>Flutter analyze/test</td><td>静态分析无问题，测试 79/79 通过。</td></tr>
+          <tr><td>Git 跟踪文件</td><td>452</td></tr><tr><td>C/C++ 源码与头文件（不含 <code>third_party</code>）</td><td>约 37,860 行</td></tr><tr><td>Flutter <code>lib</code> 与 <code>test</code></td><td>约 21,456 行</td></tr><tr><td>默认 CTest</td><td><code>0.0.3</code> 发布门禁 29/29 通过</td></tr><tr><td>Flutter analyze/test</td><td>静态分析无问题，测试 84/84 通过。</td></tr>
         </tbody></table>
       </section>
       <section>
         <h2>已确认的优势</h2>
-        <ul><li>协议、连接、参数、任务与校准在 <code>core</code>；Flutter feature 不直接访问 MAVLink 或 <code>dart:ffi</code>。</li><li><code>bridge/ffi</code> 已建立 C ABI、JSON envelope、字符串释放规则和 API catalog。</li><li>真实硬件测试默认不进入 CTest，安全隔离正确。</li><li><code>ConnectionController</code> 已处理断链、参数下载停滞和有限重试；<code>PollingTask</code> 防止单一轮询重叠。</li><li>Mission CAD 已明确属于后端领域，能支撑未来更换 UI。</li></ul>
+        <ul><li>协议、连接、参数、任务与校准在 <code>core</code>；Flutter feature 不直接访问 MAVLink 或 <code>dart:ffi</code>。</li><li><code>bridge/ffi</code> 已建立 C ABI、JSON envelope、字符串释放规则和 API catalog。</li><li>真实硬件测试默认不进入 CTest，安全隔离正确。</li><li><code>ConnectionController</code> 已接入串口、TCP、UDP 并处理断链、参数下载停滞和有限重试；<code>PollingTask</code> 防止单一轮询重叠。</li><li>连接抽屉和机架类型页面使用统一控件与参数元数据契约，能支撑后续替换 UI。</li><li>Mission CAD 已明确属于后端领域，能支撑未来更换 UI。</li></ul>
       </section>
       <section>
         <h2>优先问题</h2>
@@ -65,7 +65,7 @@
       </section>
       <section>
         <h2>不改架构的优化路线</h2>
-        <h3>第一阶段：可信基线</h3><ol><li>保持后端 29/29 与 Flutter 79/79 门禁全绿。</li><li>补参数 session reset 与写入异常恢复测试。</li><li>在现有 CI 基础上增加 macOS smoke build 与桌面打包验证。</li></ol>
+        <h3>第一阶段：可信基线</h3><ol><li>保持后端 29/29 与 Flutter 84/84 门禁全绿。</li><li>补参数 session reset 与写入异常恢复测试。</li><li>在现有 CI 基础上增加 macOS smoke build，并维持 Windows 桌面打包门禁。</li></ol>
         <h3>第二阶段：应用层收紧</h3><ol><li>将 Mission 默认航点语义从页面移到 backend interface。</li><li>统一后台采样/长操作调度。</li><li>把后台共享 widget 移出 <code>part</code> 大库，保留 <code>BackstagePage</code> 入口。</li></ol>
         <h3>第三阶段：多前端能力</h3><ol><li>建立 serial、servo、RC、PID、安全、校准的稳定 workflow/profile 契约。</li><li>按文档实现 Mission CAD Core、JSON 往返、fixture 与诊断测试。</li><li>再实现 Flutter 或其他 UI 画布，不让前端各自维护权威航线计算。</li></ol>
       </section>

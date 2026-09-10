@@ -11,7 +11,7 @@
 
 #include "core/core_types.h"
 #include "core/platform/platform_mutex.h"
-#include "common/mavlink.h"
+#include "ardupilotmega/mavlink.h"
 #include <string>
 #include <vector>
 #include <functional>

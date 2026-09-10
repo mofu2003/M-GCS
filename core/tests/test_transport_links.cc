@@ -48,14 +48,48 @@ static uint16_t reserve_udp_port() {
     return port;
 }
 
+static uint16_t reserve_tcp_port() {
+    if (!mg::core::platform::socket_init()) return 0;
+    const mg_socket_t sock = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == MG_INVALID_SOCKET) return 0;
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    if (::bind(sock, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == MG_SOCKET_ERR) {
+        mg::core::platform::socket_close(sock);
+        return 0;
+    }
+
+#ifdef _WIN32
+    int address_size = sizeof(address);
+#else
+    socklen_t address_size = sizeof(address);
+#endif
+    if (getsockname(sock, reinterpret_cast<sockaddr*>(&address), &address_size) == MG_SOCKET_ERR) {
+        mg::core::platform::socket_close(sock);
+        return 0;
+    }
+
+    const uint16_t port = ntohs(address.sin_port);
+    mg::core::platform::socket_close(sock);
+    return port;
+}
+
 static void test_tcp_link() {
     fprintf(stderr, "\n[Group] TCP Link\n");
 
     // 创建 TCP link（不连接）
     LinkDescriptor desc;
-    desc.id = "tcp://127.0.0.1:5760";
+    const uint16_t port = reserve_tcp_port();
+    if (port == 0) {
+        fprintf(stderr, "  [SKIP] TCP port unavailable in this environment\n");
+        return;
+    }
+    desc.id = "tcp://127.0.0.1:" + std::to_string(port);
     desc.type = "tcp";
-    desc.endpoint = "127.0.0.1:5760";
+    desc.endpoint = "127.0.0.1:" + std::to_string(port);
     TcpLink link(desc);
 
     CHECK(!link.is_open(), "TCP link starts closed");
@@ -142,9 +176,14 @@ static void test_tcp_reconnect() {
     fprintf(stderr, "\n[Group] TCP Reconnect\n");
 
     LinkDescriptor desc;
-    desc.id = "tcp://127.0.0.1:19999";
+    const uint16_t port = reserve_tcp_port();
+    if (port == 0) {
+        fprintf(stderr, "  [SKIP] TCP port unavailable in this environment\n");
+        return;
+    }
+    desc.id = "tcp://127.0.0.1:" + std::to_string(port);
     desc.type = "tcp";
-    desc.endpoint = "127.0.0.1:19999";
+    desc.endpoint = "127.0.0.1:" + std::to_string(port);
     TcpLink link(desc);
 
     // 第一次连接失败

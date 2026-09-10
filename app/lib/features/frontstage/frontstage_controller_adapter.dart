@@ -78,7 +78,9 @@ final class FrontstageControllerAdapter {
       connection: FrontstageConnectionModel(
         connected: connected,
         busy: controller.isBusy,
-        transportLabel: _transportLabel(controller.request.transport),
+        transportLabel: connected
+            ? _transportLabel(controller.request.transport)
+            : _frontstageTransportLabel(selectedTransport),
         portLabel: controller.request.port?.isEmpty == false
             ? controller.request.port!
             : '未选择',
@@ -165,6 +167,17 @@ final class FrontstageControllerAdapter {
       ConnectionTransport.serial => 'Serial',
       ConnectionTransport.tcp => 'TCP',
       ConnectionTransport.udp => 'UDP',
+    };
+  }
+
+  static String _frontstageTransportLabel(
+    FrontstageConnectionTransport transport,
+  ) {
+    return switch (transport) {
+      FrontstageConnectionTransport.serial => 'Serial',
+      FrontstageConnectionTransport.udp => 'UDP',
+      FrontstageConnectionTransport.tcp => 'TCP',
+      FrontstageConnectionTransport.bluetooth => '蓝牙',
     };
   }
 

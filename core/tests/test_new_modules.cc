@@ -16,7 +16,7 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "common/mavlink.h"
+#include "ardupilotmega/mavlink.h"
 #include "core/ftp/mavlink_ftp.h"
 
 static int g_pass = 0, g_fail = 0;

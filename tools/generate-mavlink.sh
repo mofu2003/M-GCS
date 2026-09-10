@@ -35,4 +35,4 @@ mkdir -p "$output_dir"
   --lang=C \
   --wire-protocol=2.0 \
   --output="$output_dir" \
-  "$root_dir/third_party/mavlink/message_definitions/v1.0/common.xml"
+  "$root_dir/third_party/mavlink/message_definitions/v1.0/ardupilotmega.xml"

@@ -6,7 +6,7 @@
  */
 #include "core/video/video_receiver.h"
 #include "core/log/logging.h"
-#include "common/mavlink.h"
+#include "ardupilotmega/mavlink.h"
 #include <cstring>
 
 namespace mg::core::video {

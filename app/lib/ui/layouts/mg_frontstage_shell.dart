@@ -8,6 +8,8 @@ final class MgFrontstageShell extends StatelessWidget {
   const MgFrontstageShell({
     required this.model,
     required this.onConnectPressed,
+    this.onTcpConnectPressed,
+    this.onUdpConnectPressed,
     required this.onDisconnectPressed,
     required this.onNavigationPressed,
     required this.onConnectionTransportChanged,
@@ -21,6 +23,8 @@ final class MgFrontstageShell extends StatelessWidget {
 
   final FrontstageModel model;
   final VoidCallback onConnectPressed;
+  final ValueChanged<String>? onTcpConnectPressed;
+  final ValueChanged<String>? onUdpConnectPressed;
   final VoidCallback onDisconnectPressed;
   final ValueChanged<FrontstageNavigationItem> onNavigationPressed;
   final ValueChanged<FrontstageConnectionTransport>
@@ -37,6 +41,8 @@ final class MgFrontstageShell extends StatelessWidget {
     return skin.buildFrontstageShell(
       model: model,
       onConnectPressed: onConnectPressed,
+      onTcpConnectPressed: onTcpConnectPressed,
+      onUdpConnectPressed: onUdpConnectPressed,
       onDisconnectPressed: onDisconnectPressed,
       onNavigationPressed: onNavigationPressed,
       onConnectionTransportChanged: onConnectionTransportChanged,

@@ -43,19 +43,33 @@ final class MgCoreConnectionSessionBackend
 
   @override
   Future<ConnectionOperationResult> connect(ConnectionRequest request) async {
-    if (request.transport != ConnectionTransport.serial) {
-      return const ConnectionOperationResult(
-        success: false,
-        message: '第一版前端只接入串口连接',
-      );
+    switch (request.transport) {
+      case ConnectionTransport.serial:
+        final port = request.port;
+        if (port == null || port.isEmpty) {
+          return const ConnectionOperationResult(
+            success: false,
+            message: '请选择串口',
+          );
+        }
+        return _decoder.decodeOperation(
+          client.connectSerial(port, request.baudRate ?? 115200),
+        );
+      case ConnectionTransport.tcp:
+      case ConnectionTransport.udp:
+        final endpoint = request.endpoint?.trim() ?? '';
+        if (endpoint.isEmpty) {
+          return const ConnectionOperationResult(
+            success: false,
+            message: '请输入有效的网络地址和端口',
+          );
+        }
+        return _decoder.decodeOperation(
+          request.transport == ConnectionTransport.tcp
+              ? client.connectTcp(endpoint)
+              : client.connectUdp(endpoint),
+        );
     }
-    final port = request.port;
-    if (port == null || port.isEmpty) {
-      return const ConnectionOperationResult(success: false, message: '请选择串口');
-    }
-    return _decoder.decodeOperation(
-      client.connectSerial(port, request.baudRate ?? 115200),
-    );
   }
 
   @override

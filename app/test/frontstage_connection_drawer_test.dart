@@ -135,16 +135,44 @@ void main() {
     await tester.pump(const Duration(milliseconds: 250));
     expect(find.text('0.0.0.0'), findsOneWidget);
     expect(find.text('14550'), findsOneWidget);
+    expect(
+      tester.getSize(
+        find.byKey(const ValueKey('mg-connection-network-address')),
+      ),
+      const Size(302, 48),
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('mg-connection-network-port'))),
+      const Size(302, 48),
+    );
     expect(find.text('本轮仅完成前端布局，暂不调用飞控连接接口。'), findsNothing);
 
     await tester.tap(find.text('TCP'));
-    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pumpAndSettle();
     expect(find.text('127.0.0.1'), findsOneWidget);
     expect(find.text('5760'), findsOneWidget);
+    expect(
+      tester.getSize(
+        find.byKey(const ValueKey('mg-connection-network-address')),
+      ),
+      const Size(302, 48),
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('mg-connection-network-port'))),
+      const Size(302, 48),
+    );
 
     await tester.tap(find.text('蓝牙'));
-    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pumpAndSettle();
     expect(find.text('蓝牙设备扫描'), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('mg-bluetooth-device-1'))),
+      const Size(302, 48),
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('mg-bluetooth-device-2'))),
+      const Size(302, 48),
+    );
     expect(find.text('暂未启用'), findsNothing);
     expect(
       tester.widget<OutlinedButton>(find.byType(OutlinedButton)).onPressed,
@@ -227,5 +255,75 @@ void main() {
 
     expect(calls, 1);
     expect(find.text('界面预览，尚未接入'), findsNothing);
+  });
+
+  testWidgets('UDP connection action sends the listener endpoint', (
+    WidgetTester tester,
+  ) async {
+    String? endpoint;
+    final skin = createDefaultSkin();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: skin.themeData,
+        home: skin.buildFrontstageShell(
+          model: FrontstageModel.demoDisconnected().copyWith(
+            connectionDrawerVisible: true,
+            connection: FrontstageModel.demoDisconnected().connection.copyWith(
+              selectedTransport: FrontstageConnectionTransport.udp,
+            ),
+          ),
+          onConnectPressed: () {},
+          onUdpConnectPressed: (value) {
+            endpoint = value;
+          },
+          onDisconnectPressed: () {},
+          onNavigationPressed: (_) {},
+          onConnectionTransportChanged: (_) {},
+          mapStyle: MgMapStyle.standard,
+          onMapStyleChanged: (_) {},
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('连接').last);
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(endpoint, '0.0.0.0:14550');
+  });
+
+  testWidgets('TCP connection action sends the client endpoint', (
+    WidgetTester tester,
+  ) async {
+    String? endpoint;
+    final skin = createDefaultSkin();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: skin.themeData,
+        home: skin.buildFrontstageShell(
+          model: FrontstageModel.demoDisconnected().copyWith(
+            connectionDrawerVisible: true,
+            connection: FrontstageModel.demoDisconnected().connection.copyWith(
+              selectedTransport: FrontstageConnectionTransport.tcp,
+            ),
+          ),
+          onConnectPressed: () {},
+          onTcpConnectPressed: (value) {
+            endpoint = value;
+          },
+          onDisconnectPressed: () {},
+          onNavigationPressed: (_) {},
+          onConnectionTransportChanged: (_) {},
+          mapStyle: MgMapStyle.standard,
+          onMapStyleChanged: (_) {},
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('连接').last);
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(endpoint, '127.0.0.1:5760');
   });
 }

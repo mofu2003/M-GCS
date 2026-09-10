@@ -81,7 +81,13 @@ void ConnectionManager::start_watchdog() {
     watchdog_thread_ = std::thread([this]() {
         int wait_count = 0;
         while (watchdog_running_.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            // Wake immediately when disconnect/reset stops the watchdog.
+            {
+                mg::core::platform::UniqueLock lk(watchdog_mtx_);
+                watchdog_cv_.wait_for(lk, std::chrono::seconds(1), [this] {
+                    return !watchdog_running_.load();
+                });
+            }
             if (!watchdog_running_.load()) break;
 
             // 首次心跳仍是连接身份确认的必要条件。确认后，只要仍有有效
@@ -118,6 +124,7 @@ void ConnectionManager::start_watchdog() {
 // 停止看门狗线程，处理自等待死锁的特殊情况
 void ConnectionManager::stop_watchdog() {
     watchdog_running_ = false;
+    watchdog_cv_.notify_all();
     if (watchdog_thread_.joinable()) {
         if (watchdog_thread_.get_id() == std::this_thread::get_id()) {
             // 如果在看门狗线程自身内部调用 stop_watchdog()，

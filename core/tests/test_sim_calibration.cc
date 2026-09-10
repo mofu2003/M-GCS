@@ -4,7 +4,6 @@
 #include "mock_vehicle_test_env.h"
 #include "core/calibration/strategies/compass_calibration.h"
 #include "core/calibration/calibration_types.h"
-#include "common/mavlink_msg_mag_cal_progress.h"
 #include "ffi_api.h"
 
 #include <cstdio>

@@ -20,8 +20,7 @@
 #include "core/mavlink/mavlink_adapter.h"
 #include "core/mission/mission_types.h"
 #include "core/log/logging.h"
-#include "common/mavlink.h"
-#include "common/mavlink_msg_mag_cal_progress.h"
+#include "ardupilotmega/mavlink.h"
 #include "standard/mavlink_msg_autopilot_version.h"
 #include "core/firmware/firmware_adapter.h"
 #include "core/ftp/mavlink_ftp.h"
@@ -574,9 +573,8 @@ struct MavlinkAdapter::Impl {
     }
 
     void handle_mag_cal_progress(const mavlink_message_t& m) {
-        // MAG_CAL_PROGRESS belongs to the ArduPilot dialect.  The vendored
-        // common headers do not generate its helper, so decode its fixed
-        // leading bytes directly from the MAVLink payload.
+        // Decode the fixed leading bytes directly so calibration progress
+        // remains usable from the compact common wire representation.
         if (m.len < 5) return;
         const auto* payload = reinterpret_cast<const uint8_t*>(m.payload64);
         MagCalibrationProgressInfo info{};

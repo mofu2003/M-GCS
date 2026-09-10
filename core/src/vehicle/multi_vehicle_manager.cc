@@ -22,11 +22,17 @@ Vehicle* MultiVehicleManager::open_vehicle(const mg::core::transport::LinkConfig
                                                   Vehicle::EventCallback event_cb) {
     std::shared_ptr<Vehicle> vehicle;
     int vid = -1;
+    bool first_vehicle = false;
     {
         mg::core::platform::LockGuard lk(mtx_);
         vid = next_vehicle_id();
+        first_vehicle = vehicles_.empty();
         vehicle = std::make_shared<Vehicle>(vid);
         vehicles_.push_back(vehicle);
+    }
+
+    if (first_vehicle) {
+        set_gcs_heartbeat_enabled(true);
     }
 
     // 先设置事件回调，再 connect（避免心跳到达时 event_cb 为空的竞态窗口）
@@ -35,13 +41,24 @@ Vehicle* MultiVehicleManager::open_vehicle(const mg::core::transport::LinkConfig
     }
 
     // 在锁外执行 connect()
-    bool ok = vehicle->connect(config.endpoint);
+    // Keep the full URI so Vehicle::connect can dispatch on scheme and baud.
+    bool ok = vehicle->connect(config.to_uri());
     if (!ok) {
         MGC_LOG_ERROR("[MultiVehicle] Failed to open vehicle %d on %s", vid, config.endpoint.c_str());
         vehicle->disconnect();
-        mg::core::platform::LockGuard lk(mtx_);
-        for (auto it = vehicles_.begin(); it != vehicles_.end(); ++it) {
-            if ((*it)->vehicle_id() == vid) { vehicles_.erase(it); break; }
+        bool failed_empty = false;
+        {
+            mg::core::platform::LockGuard lk(mtx_);
+            for (auto it = vehicles_.begin(); it != vehicles_.end(); ++it) {
+                if ((*it)->vehicle_id() == vid) {
+                    vehicles_.erase(it);
+                    failed_empty = vehicles_.empty();
+                    break;
+                }
+            }
+        }
+        if (failed_empty) {
+            set_gcs_heartbeat_enabled(false);
         }
         return nullptr;
     }
@@ -77,15 +94,19 @@ Vehicle* MultiVehicleManager::open_vehicle(const mg::core::transport::LinkConfig
 }
 
 void MultiVehicleManager::close_vehicle(int vehicle_id) {
+    std::shared_ptr<Vehicle> vehicle_to_close;
     VehicleRemovedCallback removed_cb;
     ActiveVehicleChangedCallback changed_cb;
     Vehicle* fallback = nullptr;
+    bool empty_after_close = false;
 
     {
         mg::core::platform::LockGuard lk(mtx_);
         for (auto it = vehicles_.begin(); it != vehicles_.end(); ++it) {
             if ((*it)->vehicle_id() == vehicle_id) {
-                (*it)->disconnect();
+                // Keep the object alive, but never wait for transport threads
+                // while holding the manager mutex.
+                vehicle_to_close = *it;
                 vehicles_.erase(it);
                 MGC_LOG_INFO("[MultiVehicle] Closed vehicle %d", vehicle_id);
                 removed_cb = on_vehicle_removed_;
@@ -97,9 +118,18 @@ void MultiVehicleManager::close_vehicle(int vehicle_id) {
                         active_vehicle_id_.store(fallback->vehicle_id());
                     }
                 }
+                empty_after_close = vehicles_.empty();
                 break;
             }
         }
+    }
+
+    if (vehicle_to_close) {
+        vehicle_to_close->disconnect();
+    }
+
+    if (empty_after_close) {
+        set_gcs_heartbeat_enabled(false);
     }
 
     if (removed_cb) removed_cb(vehicle_id);
@@ -220,7 +250,9 @@ void MultiVehicleManager::gcs_heartbeat_loop() {
         {
             mg::core::platform::LockGuard lk(mtx_);
             for (auto& v : vehicles_) {
-                if (v->is_connected()) {
+                const auto state = v->conn().state();
+                if (state == mg::core::transport::ConnectionState::WaitingHeartbeat ||
+                    state == mg::core::transport::ConnectionState::Connected) {
                     auto* mav = v->mavlink();
                     if (mav) mav->send_heartbeat();
                 }

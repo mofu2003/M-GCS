@@ -2,13 +2,17 @@
 
 `app/` 是 M-GCS 的 Flutter 前端。当前启用 macOS 和 Windows 桌面平台，Android 和 iOS 尚未恢复。
 
+当前版本：`0.0.3`
+
 ## 接入状态
 
 - `ConnectionSessionBackend` 是 UI 与后端之间的应用契约。
 - `ConnectionController` 管理连接、参数启动同步、遥测轮询和断连状态。
 - 正式入口会加载 MgCore native library；加载失败时显示明确的不可用状态，不会伪装成演示飞控。
-- 串口连接已经接入真实 FFI；UDP、TCP 和蓝牙仍只保留 UI 入口。
+- 串口、TCP、UDP 连接已经接入真实 FFI；蓝牙仍只保留 UI 入口。
 - 参数后台支持读取描述、查看飞控参数和通过 MgCore 写入参数。
+- 机架类型后台支持 Copter 的 `FRAME_CLASS` / `FRAME_TYPE` 和 Plane/QuadPlane 的 `Q_FRAME_CLASS` / `Q_FRAME_TYPE`。
+- 串口、TCP、UDP 和蓝牙入口共用固定规格的连接控件，避免不同传输方式之间的布局漂移。
 - 测试使用 `DemoConnectionSessionBackend` 注入确定性数据，它不是正式运行时回退路径。
 
 ## 目录

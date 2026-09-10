@@ -28,6 +28,8 @@ final class MgCoreFfiApi {
           Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int32),
           Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int)
         >('mg_connection_connect');
+    _connectTcp = _stringArgumentFunction('mg_connection_connect_tcp');
+    _connectUdp = _stringArgumentFunction('mg_connection_connect_udp');
     _disconnect = _jsonFunction('mg_connection_disconnect');
     _connectionDiagnostics = _jsonFunction('mg_connection_get_diagnostics');
     _dashboardSnapshot = _jsonFunction('mg_telemetry_get_dashboard_snapshot');
@@ -115,6 +117,8 @@ final class MgCoreFfiApi {
   late final Pointer<Utf8> Function(Pointer<Void>) _listPorts;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int)
   _connectSerial;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _connectTcp;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _connectUdp;
   late final Pointer<Utf8> Function(Pointer<Void>) _disconnect;
   late final Pointer<Utf8> Function(Pointer<Void>) _connectionDiagnostics;
   late final Pointer<Utf8> Function(Pointer<Void>) _dashboardSnapshot;
@@ -180,6 +184,14 @@ final class MgCoreFfiApi {
     } finally {
       malloc.free(nativePort);
     }
+  }
+
+  String connectTcp(Pointer<Void> core, String endpoint) {
+    return _callWithString(_connectTcp, core, endpoint);
+  }
+
+  String connectUdp(Pointer<Void> core, String endpoint) {
+    return _callWithString(_connectUdp, core, endpoint);
   }
 
   String disconnect(Pointer<Void> core) => _readString(_disconnect(core));

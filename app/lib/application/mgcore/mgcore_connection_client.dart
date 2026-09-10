@@ -27,6 +27,14 @@ final class MgCoreConnectionClient {
     return _decodeObject(api.connectSerial(_core, port, baudRate));
   }
 
+  Map<String, Object?> connectTcp(String endpoint) {
+    return _decodeObject(api.connectTcp(_core, endpoint));
+  }
+
+  Map<String, Object?> connectUdp(String endpoint) {
+    return _decodeObject(api.connectUdp(_core, endpoint));
+  }
+
   Map<String, Object?> disconnect() => _decodeObject(api.disconnect(_core));
 
   Map<String, Object?> connectionDiagnostics() {

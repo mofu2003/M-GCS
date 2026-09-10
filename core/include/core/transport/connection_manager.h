@@ -146,6 +146,8 @@ private:
 
     // Heartbeat watchdog.
     std::thread watchdog_thread_;
+    mutable mg::core::platform::Mutex watchdog_mtx_;
+    mg::core::platform::ConditionVariable watchdog_cv_;
     std::atomic<bool> watchdog_running_{false};
     std::atomic<uint64_t> last_heartbeat_ms_{0};
     std::atomic<uint64_t> last_activity_ms_{0};

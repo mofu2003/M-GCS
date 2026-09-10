@@ -7,7 +7,7 @@
  */
 #include "core/camera/camera_manager.h"
 #include "core/log/logging.h"
-#include "common/mavlink.h"
+#include "ardupilotmega/mavlink.h"
 #include <cstring>
 
 namespace mg::core::camera {

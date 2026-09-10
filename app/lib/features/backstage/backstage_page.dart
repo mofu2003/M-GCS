@@ -19,6 +19,7 @@ import '../../ui/skins/mac_glass/mac_glass_tokens.dart';
 import 'parameter_tree.dart';
 
 part 'backstage_calibration.dart';
+part 'backstage_airframe.dart';
 part 'backstage_parameters.dart';
 part 'backstage_pid_tuning.dart';
 part 'backstage_remote_control.dart';
@@ -190,16 +191,22 @@ final class _BackstagePageState extends State<BackstagePage> {
   Widget build(BuildContext context) {
     final controller = widget.parameterController;
     return cupertino.CupertinoTheme(
-      data: const cupertino.CupertinoThemeData(
+      data: cupertino.CupertinoThemeData(
         brightness: Brightness.light,
         primaryColor: Color(0xff007aff),
         scaffoldBackgroundColor: Color(0xfff2f2f7),
         barBackgroundColor: Color(0xfff7f7f8),
         textTheme: cupertino.CupertinoTextThemeData(
-          textStyle: MacGlassTypography.body,
-          actionTextStyle: MacGlassTypography.control,
-          tabLabelTextStyle: MacGlassTypography.caption,
-          navTitleTextStyle: MacGlassTypography.pageTitle,
+          textStyle: MacGlassFonts.platformTextStyle(MacGlassTypography.body),
+          actionTextStyle: MacGlassFonts.platformTextStyle(
+            MacGlassTypography.control,
+          ),
+          tabLabelTextStyle: MacGlassFonts.platformTextStyle(
+            MacGlassTypography.caption,
+          ),
+          navTitleTextStyle: MacGlassFonts.platformTextStyle(
+            MacGlassTypography.pageTitle,
+          ),
         ),
       ),
       child: Scaffold(
@@ -231,6 +238,12 @@ final class _BackstagePageState extends State<BackstagePage> {
                             ?.bootstrap
                             .identity
                             .airframe,
+                        firmwareType: widget
+                            .connectionController
+                            .snapshot
+                            ?.bootstrap
+                            .identity
+                            .firmwareType,
                         visibleParameters: visible,
                         selectedParameter: selected,
                         selectedPrefix: _prefix,
@@ -274,6 +287,7 @@ final class _BackstageWorkspace extends StatelessWidget {
     required this.compact,
     required this.controller,
     required this.airframe,
+    required this.firmwareType,
     required this.visibleParameters,
     required this.selectedParameter,
     required this.selectedPrefix,
@@ -295,6 +309,7 @@ final class _BackstageWorkspace extends StatelessWidget {
   final bool compact;
   final ParameterController controller;
   final String? airframe;
+  final String? firmwareType;
   final List<FlightControllerParameter> visibleParameters;
   final FlightControllerParameter? selectedParameter;
   final String selectedPrefix;
@@ -347,6 +362,7 @@ final class _BackstageWorkspace extends StatelessWidget {
     );
     final sectionTitle = switch (section) {
       MacGlassBackstageSection.parameters => '参数配置',
+      MacGlassBackstageSection.airframe => '机架类型',
       MacGlassBackstageSection.servoOutputs => '舵机输出',
       MacGlassBackstageSection.serialPorts => '串口配置',
       MacGlassBackstageSection.remoteControl => '遥控配置',
@@ -358,6 +374,8 @@ final class _BackstageWorkspace extends StatelessWidget {
     final sectionSubtitle = switch (section) {
       MacGlassBackstageSection.parameters =>
         '${controller.parameters.length} 个飞控参数',
+      MacGlassBackstageSection.airframe =>
+        '按飞控类型配置 Copter 或 Plane/QuadPlane 机架',
       MacGlassBackstageSection.servoOutputs => 'SERVO1-16 · 功能、反向和 PWM 范围',
       MacGlassBackstageSection.serialPorts =>
         '$serialPortCount 个可用串口 · 修改后立即写入飞控',
@@ -368,6 +386,11 @@ final class _BackstageWorkspace extends StatelessWidget {
     };
     final sectionPage = switch (section) {
       MacGlassBackstageSection.parameters => list,
+      MacGlassBackstageSection.airframe => _AirframePage(
+        controller: controller,
+        airframe: airframe,
+        firmwareType: firmwareType,
+      ),
       MacGlassBackstageSection.servoOutputs => _ServoOutputPage(
         controller: controller,
       ),

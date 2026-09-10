@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 final class MacGlassTokens {
@@ -32,8 +33,41 @@ final class MacGlassTokens {
   }
 }
 
-/// Shared type scale for the operational UI. The default platform family keeps
-/// CJK fallback correct on macOS, Windows and Linux; only identifiers use mono.
+/// Native UI font selection for the operational shell. Linux intentionally
+/// stays on the fontconfig default so it can follow the host distribution.
+final class MacGlassFonts {
+  const MacGlassFonts._();
+
+  static String? get uiFamily {
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      return 'Segoe UI';
+    }
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      return 'CupertinoSystemText';
+    }
+    return null;
+  }
+
+  static List<String>? get uiFallback {
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      return const ['Microsoft YaHei UI', 'Microsoft YaHei'];
+    }
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      return const ['PingFang SC'];
+    }
+    return null;
+  }
+
+  static TextStyle platformTextStyle(TextStyle style) {
+    return style.copyWith(
+      fontFamily: uiFamily,
+      fontFamilyFallback: uiFallback,
+    );
+  }
+}
+
+/// Shared type scale for the operational UI. Root themes apply
+/// [MacGlassFonts.uiFamily]; only identifiers opt into monospace.
 final class MacGlassTypography {
   const MacGlassTypography._();
 

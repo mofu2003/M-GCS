@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(mgcore VERSION 0.0.2 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
+project(mgcore VERSION 0.0.3 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -293,6 +293,22 @@ foreach(DATA_FILE ${MGCORE_DATA_FILES})
     get_filename_component(DATA_NAME ${DATA_FILE} NAME)
     configure_file(${DATA_FILE} ${CMAKE_BINARY_DIR}/${DATA_NAME} COPYONLY)
 endforeach()
+
+# Multi-config generators place test executables in per-config directories.
+# Keep runtime data beside those executables as well as at the build root.
+if(CMAKE_CONFIGURATION_TYPES)
+    foreach(CONFIG_TYPE IN LISTS CMAKE_CONFIGURATION_TYPES)
+        file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${CONFIG_TYPE})
+        foreach(DATA_FILE ${MGCORE_DATA_FILES})
+            get_filename_component(DATA_NAME ${DATA_FILE} NAME)
+            configure_file(
+                ${DATA_FILE}
+                ${CMAKE_BINARY_DIR}/${CONFIG_TYPE}/${DATA_NAME}
+                COPYONLY
+            )
+        endforeach()
+    endforeach()
+endif()
 
 # Tests (optional)
 if(MGCORE_BUILD_TESTS)

@@ -18,7 +18,7 @@
 #ifndef MGCORE_FLIGHT_LOG_REPLAYER_H
 #define MGCORE_FLIGHT_LOG_REPLAYER_H
 
-#include "common/mavlink.h"
+#include "ardupilotmega/mavlink.h"
 #include <string>
 #include <cstdio>
 #include <cstdint>

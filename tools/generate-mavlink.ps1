@@ -31,4 +31,4 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
     --lang=C `
     --wire-protocol=2.0 `
     --output=$OutputDir `
-    (Join-Path $Root "third_party\mavlink\message_definitions\v1.0\common.xml")
+    (Join-Path $Root "third_party\mavlink\message_definitions\v1.0\ardupilotmega.xml")

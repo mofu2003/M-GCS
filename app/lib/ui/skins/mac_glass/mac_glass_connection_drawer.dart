@@ -9,6 +9,8 @@ final class MacGlassConnectionDrawer extends StatefulWidget {
   const MacGlassConnectionDrawer({
     required this.model,
     required this.onConnectPressed,
+    this.onTcpConnectPressed,
+    this.onUdpConnectPressed,
     required this.onDisconnectPressed,
     required this.onClose,
     required this.onTransportChanged,
@@ -19,6 +21,8 @@ final class MacGlassConnectionDrawer extends StatefulWidget {
 
   final FrontstageConnectionModel model;
   final VoidCallback onConnectPressed;
+  final ValueChanged<String>? onTcpConnectPressed;
+  final ValueChanged<String>? onUdpConnectPressed;
   final VoidCallback onDisconnectPressed;
   final VoidCallback onClose;
   final ValueChanged<FrontstageConnectionTransport> onTransportChanged;
@@ -52,6 +56,61 @@ final class _MacGlassConnectionDrawerState
     _tcpAddressController.dispose();
     _tcpPortController.dispose();
     super.dispose();
+  }
+
+  VoidCallback? _actionHandler(FrontstageConnectionTransport selected) {
+    if (widget.model.connected || widget.model.busy) {
+      return widget.onDisconnectPressed;
+    }
+    switch (selected) {
+      case FrontstageConnectionTransport.serial:
+        final hasPort = widget.model.serialPorts.any(
+          (port) => port.path == widget.model.portLabel,
+        );
+        return hasPort ? widget.onConnectPressed : null;
+      case FrontstageConnectionTransport.udp:
+        final callback = widget.onUdpConnectPressed;
+        if (callback == null ||
+            !_validEndpoint(
+              _udpAddressController.text,
+              _udpPortController.text,
+            )) {
+          return null;
+        }
+        return () {
+          callback(
+            _endpoint(_udpAddressController.text, _udpPortController.text),
+          );
+        };
+      case FrontstageConnectionTransport.tcp:
+        final callback = widget.onTcpConnectPressed;
+        if (callback == null ||
+            !_validEndpoint(
+              _tcpAddressController.text,
+              _tcpPortController.text,
+            )) {
+          return null;
+        }
+        return () {
+          callback(
+            _endpoint(_tcpAddressController.text, _tcpPortController.text),
+          );
+        };
+      case FrontstageConnectionTransport.bluetooth:
+        return null;
+    }
+  }
+
+  bool _validEndpoint(String address, String port) {
+    final parsedPort = int.tryParse(port.trim());
+    return address.trim().isNotEmpty &&
+        parsedPort != null &&
+        parsedPort > 0 &&
+        parsedPort <= 65535;
+  }
+
+  String _endpoint(String address, String port) {
+    return '${address.trim()}:${port.trim()}';
   }
 
   @override
@@ -137,15 +196,7 @@ final class _MacGlassConnectionDrawerState
                   key: const ValueKey('mg-connection-action'),
                   height: 44,
                   child: FilledButton(
-                    onPressed:
-                        selected != FrontstageConnectionTransport.serial ||
-                            !widget.model.serialPorts.any(
-                              (port) => port.path == widget.model.portLabel,
-                            )
-                        ? null
-                        : widget.model.connected || widget.model.busy
-                        ? widget.onDisconnectPressed
-                        : widget.onConnectPressed,
+                    onPressed: _actionHandler(selected),
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       textStyle: const TextStyle(
@@ -511,9 +562,17 @@ final class _NetworkPage extends StatelessWidget {
           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 14),
-        _Field(label: modeLabel, controller: addressController),
+        _MacGlassTextField(
+          fieldKey: const ValueKey('mg-connection-network-address'),
+          label: modeLabel,
+          controller: addressController,
+        ),
         const SizedBox(height: 8),
-        _Field(label: '端口', controller: portController),
+        _MacGlassTextField(
+          fieldKey: const ValueKey('mg-connection-network-port'),
+          label: '端口',
+          controller: portController,
+        ),
       ],
     );
   }
@@ -533,12 +592,13 @@ final class _BluetoothPage extends StatelessWidget {
           style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 14),
-        const _DeviceSkeleton(),
+        const _DeviceSkeleton(key: ValueKey('mg-bluetooth-device-1')),
         const SizedBox(height: 8),
-        const _DeviceSkeleton(),
+        const _DeviceSkeleton(key: ValueKey('mg-bluetooth-device-2')),
         const SizedBox(height: 12),
         SizedBox(
-          height: 40,
+          key: const ValueKey('mg-bluetooth-scan'),
+          height: 44,
           child: OutlinedButton.icon(
             onPressed: null,
             icon: const Icon(Icons.bluetooth_searching_rounded, size: 18),
@@ -550,35 +610,59 @@ final class _BluetoothPage extends StatelessWidget {
   }
 }
 
-final class _Field extends StatelessWidget {
-  const _Field({required this.label, required this.controller});
+final class _MacGlassTextField extends StatelessWidget {
+  const _MacGlassTextField({
+    required this.fieldKey,
+    required this.label,
+    required this.controller,
+  });
 
+  final Key fieldKey;
   final String label;
   final TextEditingController controller;
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      style: const TextStyle(fontSize: 13),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: const TextStyle(fontSize: 12),
-        isDense: true,
-        constraints: const BoxConstraints.tightFor(height: 44),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 10,
-        ),
-        filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.54),
-        border: OutlineInputBorder(
+    return SizedBox(
+      key: fieldKey,
+      height: 48,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.58),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.80)),
           borderRadius: BorderRadius.circular(15),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.76)),
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(15),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.76)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: MacGlassTokens.muted,
+                  fontSize: 10.5,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  maxLines: 1,
+                  textAlignVertical: TextAlignVertical.center,
+                  style: const TextStyle(
+                    color: MacGlassTokens.ink,
+                    fontSize: 13,
+                  ),
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    isCollapsed: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -586,17 +670,17 @@ final class _Field extends StatelessWidget {
 }
 
 final class _DeviceSkeleton extends StatelessWidget {
-  const _DeviceSkeleton();
+  const _DeviceSkeleton({super.key});
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.36),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.66)),
+        color: Colors.white.withValues(alpha: 0.30),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.80)),
         borderRadius: BorderRadius.circular(15),
       ),
-      child: const SizedBox(height: 44),
+      child: const SizedBox(height: 48),
     );
   }
 }

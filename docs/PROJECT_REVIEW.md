@@ -1,6 +1,6 @@
 # M-GCS 全局代码优化报告
 
-审阅日期：2026-08-12
+审阅日期：2026-09-10
 审阅方式：全仓静态审阅 + 后端离线/模拟门禁复跑。未执行真实飞控写入、校准、解锁、切模式或任务上传。
 
 ## 结论
@@ -25,14 +25,14 @@ M-GCS 的主链路已经是适合长期演进的形状：
 
 | 项目 | 当前结果 |
 | --- | --- |
-| Git 跟踪文件 | 441 |
-| C/C++ 源码与头文件 | 约 37,644 行 |
-| Flutter `lib` 与 `test` | 约 21,072 行 |
-| C++ 测试源码 | 约 8,219 行 |
-| 默认离线/模拟 CTest | `0.0.2` 发布门禁 29/29 通过 |
-| Flutter `analyze` / `test` | 静态分析无问题，测试 79/79 通过 |
+| Git 跟踪文件 | 452 |
+| C/C++ 源码与头文件（不含 `third_party`） | 约 37,860 行 |
+| Flutter `lib` 与 `test` | 约 21,456 行 |
+| C++ 测试源码 | 约 8,783 行 |
+| 默认离线/模拟 CTest | `0.0.3` 发布门禁 29/29 通过 |
+| Flutter `analyze` / `test` | 静态分析无问题，测试 84/84 通过 |
 
-`0.0.2` 发布整理同时加入 Docker 开发环境、统一 MAVLink 生成脚本和 CI 门禁；报告中的构建结论已经按发布候选复跑结果更新。
+`0.0.3` 完成 TCP/UDP 前端接入、机架类型页面、连接抽屉控件统一和 Windows Release 本地构建验证。
 
 ## 架构评价
 
@@ -41,7 +41,7 @@ M-GCS 的主链路已经是适合长期演进的形状：
 | 后端领域边界 | 8.5 / 10 | `transport`、`mavlink`、`vehicle`、`firmware`、`config`、`mission`、`calibration` 分域合理。 |
 | 前后端解耦 | 8 / 10 | Flutter 未直接导入 MAVLink 或 `dart:ffi`；FFI 集中在 `application/mgcore`。仍有少量任务和参数规则停留在页面层。 |
 | FFI 契约 | 7.5 / 10 | C ABI、JSON envelope、字符串释放规则、API catalog 已建立；需要自动化 ABI/schema 契约检查。 |
-| 测试与构建 | 7.5 / 10 | 后端 29/29、Flutter 79/79 与静态分析均通过；CI 已生成 MAVLink 头并覆盖 Flutter，仍缺 macOS 和桌面打包门禁。 |
+| 测试与构建 | 7.5 / 10 | 后端 29/29、Flutter 84/84 与静态分析均通过；CI 已生成 MAVLink 头、覆盖 Flutter 和 Windows 桌面打包，仍缺 macOS 门禁。 |
 | Flutter 模块局部性 | 6 / 10 | 应用层接缝健康；后台页面通过 `part` 聚合成大库，页面逻辑和轮询仍偏分散。 |
 | 跨平台交付 | 6 / 10 | Docker 方向正确；Linux 容器不能替代 Windows/macOS 原生桌面打包和串口验收。 |
 
@@ -274,7 +274,7 @@ FFI 的方向是正确的，但接口已较多且有 compatibility 别名。当�
 ### 当前缺口
 
 1. `third_party/mavlink` 不提交 C 生成头；本地、Docker 与 CI 均依赖固定 `pymavlink 2.4.49` 的统一生成步骤。
-2. CI 已覆盖 Ubuntu/Windows 后端和 Linux Flutter `analyze`/`test`，但尚未覆盖 macOS smoke build 与桌面打包。
+2. CI 已覆盖 Ubuntu/Windows 后端、Linux Flutter `analyze`/`test` 和 Windows 桌面 Release 打包，但尚未覆盖 macOS smoke build。
 3. Docker 能统一 Linux 下的生成、编译与静态测试，但不能替代 Windows/macOS 原生打包或串口验收。
 4. Docker 首次构建仍需要访问 Docker Hub、Flutter SDK 和 pub 依赖源；本次本地镜像构建在 Docker Hub 匿名认证阶段超时，容器内完整 `check` 仍需在网络畅通环境补验。
 
@@ -284,7 +284,7 @@ FFI 的方向是正确的，但接口已较多且有 compatibility 别名。当�
 
 ### 第一阶段：恢复可信基线
 
-1. 保持后端 29/29 与 Flutter analyze/test 门禁全绿。
+1. 保持后端 29/29 与 Flutter 84/84 门禁全绿。
 2. 补参数会话 reset 与批量写入 fallback 的 `finally`，补相关 Flutter 测试。
 3. 保持 CI 中 MAVLink 生成版本、后端测试和 Flutter 静态门禁同步更新。
 

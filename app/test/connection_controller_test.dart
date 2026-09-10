@@ -27,6 +27,27 @@ void main() {
     expect(backend.connected, isFalse);
   });
 
+  test('connects through TCP and UDP endpoint requests', () async {
+    final backend = _FakeBackend();
+    final controller = ConnectionController(backend: backend);
+    addTearDown(controller.dispose);
+
+    controller.setNetworkEndpoint(ConnectionTransport.tcp, '127.0.0.1:5760');
+    expect(controller.request.transport, ConnectionTransport.tcp);
+    expect(controller.request.endpoint, '127.0.0.1:5760');
+    await controller.connect();
+    expect(backend.lastRequest?.transport, ConnectionTransport.tcp);
+    expect(backend.lastRequest?.endpoint, '127.0.0.1:5760');
+
+    await controller.disconnect();
+    controller.setNetworkEndpoint(ConnectionTransport.udp, '0.0.0.0:14550');
+    expect(controller.request.transport, ConnectionTransport.udp);
+    expect(controller.request.endpoint, '0.0.0.0:14550');
+    await controller.connect();
+    expect(backend.lastRequest?.transport, ConnectionTransport.udp);
+    expect(backend.lastRequest?.endpoint, '0.0.0.0:14550');
+  });
+
   test('refreshes serial ports without clearing the selected port', () async {
     final backend = _FakeBackend();
     final controller = ConnectionController(backend: backend);
@@ -248,6 +269,7 @@ void main() {
 final class _FakeBackend
     implements ConnectionSessionBackend, FlightControllerMessageSource {
   bool connected = false;
+  ConnectionRequest? lastRequest;
   int connectCalls = 0;
   int disconnectCalls = 0;
   int sessionSnapshotCount = 0;
@@ -303,6 +325,7 @@ final class _FakeBackend
   @override
   Future<ConnectionOperationResult> connect(ConnectionRequest request) async {
     connectCalls += 1;
+    lastRequest = request;
     connected = true;
     return const ConnectionOperationResult(success: true, message: 'ok');
   }

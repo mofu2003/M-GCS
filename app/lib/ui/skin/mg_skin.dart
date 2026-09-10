@@ -13,6 +13,8 @@ abstract interface class MgSkin {
   Widget buildFrontstageShell({
     required FrontstageModel model,
     required VoidCallback onConnectPressed,
+    ValueChanged<String>? onTcpConnectPressed,
+    ValueChanged<String>? onUdpConnectPressed,
     required VoidCallback onDisconnectPressed,
     required ValueChanged<FrontstageNavigationItem> onNavigationPressed,
     required ValueChanged<FrontstageConnectionTransport>

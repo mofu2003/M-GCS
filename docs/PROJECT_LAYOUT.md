@@ -19,7 +19,7 @@ M-GCS/
 
 - `app/lib/application/`：应用契约、控制器、模型、JSON 解码和 MgCore FFI 适配。
 - `app/lib/features/frontstage/`：地图工作台和前台交互。
-- `app/lib/features/backstage/`：参数等后台页面。
+- `app/lib/features/backstage/`：参数、机架类型和其他飞控配置后台页面。
 - `app/lib/features/map/`：地图源、地图 surface 和定位封装。
 - `app/lib/features/shell/`：应用根 shell。
 - `app/lib/ui/skin/`：皮肤协议与 token。

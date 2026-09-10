@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT=/workspace
 BUILD_DIR="${MGCORE_BUILD_DIR:-$ROOT/build_docker}"
+export MGCORE_LIBRARY_PATH="$BUILD_DIR/libmgcore.so"
 VENV_DIR="${MGCS_VENV_DIR:-/opt/mgcs-venv}"
 MAVLINK_OUTPUT_DIR="${MAVLINK_OUTPUT_DIR:-/opt/mgcs-mavlink/mavlink/v2.0}"
 
@@ -16,7 +17,7 @@ backend_configure() {
   ensure_mavlink_headers
   cmake -S "$ROOT" -B "$BUILD_DIR" -G Ninja \
     -DMGCORE_BUILD_TESTS=ON \
-    -DMGCORE_BUILD_SHARED=OFF \
+    -DMGCORE_BUILD_SHARED=ON \
     -DMAVLINK_INCLUDE_DIR="$MAVLINK_OUTPUT_DIR" \
     -DCMAKE_BUILD_TYPE=Release
 }

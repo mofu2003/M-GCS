@@ -87,9 +87,22 @@ if(PLUGIN_BUNDLED_LIBRARIES)
     COMPONENT Runtime)
 endif()
 
-set(MGCORE_DLL "${CMAKE_CURRENT_SOURCE_DIR}/../../build/mgcore.dll")
+set(MGCORE_DLL "$ENV{MGCORE_DLL_PATH}" CACHE FILEPATH
+  "Path to the Windows mgcore.dll produced by the root CMake build")
+if(NOT MGCORE_DLL)
+  set(MGCORE_DLL_CANDIDATES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../build_desktop/Release/mgcore.dll"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../build/mgcore.dll"
+  )
+  foreach(MGCORE_DLL_CANDIDATE IN LISTS MGCORE_DLL_CANDIDATES)
+    if(EXISTS "${MGCORE_DLL_CANDIDATE}")
+      set(MGCORE_DLL "${MGCORE_DLL_CANDIDATE}")
+      break()
+    endif()
+  endforeach()
+endif()
 if(NOT EXISTS "${MGCORE_DLL}")
-  message(FATAL_ERROR "mgcore.dll is required. Build the root CMake project for Windows first.")
+  message(FATAL_ERROR "mgcore.dll is required. Build the root CMake project for Windows first. Checked: ${MGCORE_DLL}")
 endif()
 install(FILES "${MGCORE_DLL}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)

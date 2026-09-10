@@ -57,6 +57,23 @@ final class _FrontstagePageState extends State<FrontstagePage> {
     });
   }
 
+  void _connectNetwork(
+    FrontstageConnectionTransport transport,
+    String endpoint,
+  ) {
+    final appTransport = switch (transport) {
+      FrontstageConnectionTransport.udp => ConnectionTransport.udp,
+      FrontstageConnectionTransport.tcp => ConnectionTransport.tcp,
+      FrontstageConnectionTransport.serial ||
+      FrontstageConnectionTransport.bluetooth => null,
+    };
+    if (appTransport == null) {
+      return;
+    }
+    _controller.setNetworkEndpoint(appTransport, endpoint);
+    _controller.connect();
+  }
+
   @override
   void dispose() {
     _serialPortRefreshTimer?.cancel();
@@ -88,6 +105,12 @@ final class _FrontstagePageState extends State<FrontstagePage> {
             model: model,
             onConnectPressed: () {
               _controller.connect();
+            },
+            onTcpConnectPressed: (endpoint) {
+              _connectNetwork(FrontstageConnectionTransport.tcp, endpoint);
+            },
+            onUdpConnectPressed: (endpoint) {
+              _connectNetwork(FrontstageConnectionTransport.udp, endpoint);
             },
             onDisconnectPressed: () {
               _controller.disconnect();

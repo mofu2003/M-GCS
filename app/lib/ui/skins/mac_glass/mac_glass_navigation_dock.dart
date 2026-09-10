@@ -5,6 +5,7 @@ import 'mac_glass_tokens.dart';
 
 enum MacGlassBackstageSection {
   parameters,
+  airframe,
   servoOutputs,
   serialPorts,
   remoteControl,
@@ -114,6 +115,17 @@ final class MacGlassBackstageNavigationDock extends StatelessWidget {
           ),
         ),
         Tooltip(
+          message: '机架类型',
+          child: _DockButton(
+            key: const ValueKey('mg-backstage-airframe'),
+            icon: Icons.airplanemode_active_rounded,
+            active: selectedSection == MacGlassBackstageSection.airframe,
+            activeKey: const ValueKey('mg-backstage-active-airframe'),
+            onPressed: () =>
+                onSectionChanged(MacGlassBackstageSection.airframe),
+          ),
+        ),
+        Tooltip(
           message: '舵机输出',
           child: _DockButton(
             key: const ValueKey('mg-backstage-servo-outputs'),
@@ -153,7 +165,8 @@ final class MacGlassBackstageNavigationDock extends StatelessWidget {
             icon: Icons.tune_rounded,
             active: selectedSection == MacGlassBackstageSection.pidTuning,
             activeKey: const ValueKey('mg-backstage-active-pid-tuning'),
-            onPressed: () => onSectionChanged(MacGlassBackstageSection.pidTuning),
+            onPressed: () =>
+                onSectionChanged(MacGlassBackstageSection.pidTuning),
           ),
         ),
         Tooltip(

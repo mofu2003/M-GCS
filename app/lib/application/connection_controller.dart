@@ -135,6 +135,17 @@ final class ConnectionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setNetworkEndpoint(ConnectionTransport transport, String endpoint) {
+    if (transport == ConnectionTransport.serial) {
+      return;
+    }
+    _request = ConnectionRequest.network(
+      transport: transport,
+      endpoint: endpoint.trim(),
+    );
+    notifyListeners();
+  }
+
   Future<void> connect() => _runSerialized(_connect);
 
   Future<void> _connect() async {
