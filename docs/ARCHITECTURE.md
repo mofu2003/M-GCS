@@ -33,7 +33,7 @@ flowchart TB
 - `core/src/transport/`：串口、TCP、UDP、内存链路、连接管理和端口发现。
 - `core/src/mavlink/`：MAVLink adapter、发送器、命令队列、参数缓存、任务传输。
 - `core/src/vehicle/`：飞控模型、多机管理、连接状态和当前飞控选择。
-- `core/src/mission/`：MAVLink 航点、围栏、集结点、测绘任务和任务管理；Mission CAD 的文档、几何、约束与编译器位于 `core/mission/cad`。
+- `core/src/mission/`：MAVLink 航点、围栏、集结点、测绘任务和任务管理；任务文档、几何、约束与编译属于后端领域。
 - `core/src/calibration/`：陀螺仪、加速度计、罗盘、气压计校准。
 - `core/src/firmware/`：ArduPilot / PX4 固件插件、模式映射和参数重映射。
 - `core/src/telemetry/`：遥测环形缓冲、ADSB 等遥测能力。
@@ -128,7 +128,7 @@ Mission CAD 是面向精确航线设计的后端领域子系统。其可编辑�
 - `MissionPlan` 是编译后的 MAVLink 目标模型；任务上传下载继续由既有 mission transfer 负责。
 - 编辑、校验和编译不写飞控；上传是单独、显式的安全敏感操作。
 
-完整的模型、契约和分期见 [Mission CAD 初步设计](MISSION_CAD.md)。
+任务领域边界由 ADR 0005 约束；新增实现必须先落在 `core/mission/` 和对应的 FFI 契约中。
 
 ## 固件 Profile 与能力契约
 

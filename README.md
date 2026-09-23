@@ -95,7 +95,6 @@ ctest --test-dir build_check --output-on-failure \
 ## 文档
 
 - [文档索引](docs/README.md)
-- [项目状态](docs/PROJECT_STATUS.md)
 - [项目结构](docs/PROJECT_LAYOUT.md)
 - [开发指南](docs/DEVELOPMENT.md)
 - [架构说明](docs/ARCHITECTURE.md)
