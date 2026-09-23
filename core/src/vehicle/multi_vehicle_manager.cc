@@ -77,19 +77,13 @@ Vehicle* MultiVehicleManager::open_vehicle(const mg::core::transport::LinkConfig
     MGC_LOG_INFO("[MultiVehicle] Opened vehicle %d on %s (%s)", vid, config.endpoint.c_str(), config.type_string().c_str());
 
     VehicleAddedCallback added_cb;
-    ActiveVehicleChangedCallback changed_cb;
-    bool is_first = false;
     {
         mg::core::platform::LockGuard lk(mtx_);
         added_cb = on_vehicle_added_;
-        changed_cb = on_active_vehicle_changed_;
-        is_first = (vehicles_.size() == 1);
-        if (is_first) active_vehicle_id_.store(vid);
     }
 
     Vehicle* raw = vehicle.get();
     if (added_cb) added_cb(raw);
-    if (is_first && changed_cb) changed_cb(raw);
     return raw;
 }
 
@@ -97,7 +91,7 @@ void MultiVehicleManager::close_vehicle(int vehicle_id) {
     std::shared_ptr<Vehicle> vehicle_to_close;
     VehicleRemovedCallback removed_cb;
     ActiveVehicleChangedCallback changed_cb;
-    Vehicle* fallback = nullptr;
+    bool focus_cleared = false;
     bool empty_after_close = false;
 
     {
@@ -113,10 +107,7 @@ void MultiVehicleManager::close_vehicle(int vehicle_id) {
                 changed_cb = on_active_vehicle_changed_;
                 if (active_vehicle_id_.load() == vehicle_id) {
                     active_vehicle_id_.store(-1);
-                    if (!vehicles_.empty()) {
-                        fallback = vehicles_[0].get();
-                        active_vehicle_id_.store(fallback->vehicle_id());
-                    }
+                    focus_cleared = true;
                 }
                 empty_after_close = vehicles_.empty();
                 break;
@@ -133,7 +124,7 @@ void MultiVehicleManager::close_vehicle(int vehicle_id) {
     }
 
     if (removed_cb) removed_cb(vehicle_id);
-    if (fallback && changed_cb) changed_cb(fallback);
+    if (focus_cleared && changed_cb) changed_cb(nullptr);
 }
 
 Vehicle* MultiVehicleManager::get_vehicle(int vehicle_id) const {

@@ -35,7 +35,7 @@ public:
     // 初始化管理器
     void init();
 
-    // 根据配置打开一个新的飞行器连接
+    // 根据配置打开一个新的飞行器连接；不会改变 active vehicle focus。
     Vehicle* open_vehicle(const mg::core::transport::LinkConfig& config,
                               Vehicle::EventCallback event_cb = nullptr);
     // 关闭指定 ID 的飞行器

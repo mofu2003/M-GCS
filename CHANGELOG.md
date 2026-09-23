@@ -16,6 +16,7 @@
 - CI now builds and tests the backend on Ubuntu, Windows and macOS.
 - The Docker image and compose file only provision the backend toolchain.
 - `README.md` and the maintained docs describe the backend contract instead of the Flutter client.
+- `mg_vehicle_open()` now creates a session without changing active focus; `mg_vehicle_select()` is the explicit focus operation, while legacy single-connection helpers retain their compatibility behavior.
 
 The full product, including the Flutter frontend, remains on `main` and at tag `v0.0.5`.
 

@@ -116,7 +116,7 @@ FFI 约束：
 - 普通返回 `char*` 由调用方通过 `mg_free_string()` 释放。
 - `mg_event_callback_t` 的 `json` 参数也由回调方通过 `mg_free_string()` 释放。
 - 复杂结果使用 JSON envelope，保持 success/error 语义稳定。
-- 命令和查询默认作用于 `mg_vehicle_select()` 选中的活动飞控；新增接口应逐步改为显式 vehicle 目标。
+- `mg_vehicle_open()` 只创建独立飞控会话，不改变 active/UI focus；`mg_vehicle_select()` 是显式焦点操作。旧的单机便捷连接入口保持连接后选中会话的兼容行为。新增接口应逐步改为显式 vehicle 目标。
 
 ## Mission CAD 领域边界
 
@@ -168,7 +168,7 @@ MGC 当前采用 ArduPilot-first，PX4-compatible 路线：ArduPilot 能力优�
 - 固件刷写：当前为占位实现。
 - 视频接收/解码：已有元数据管理，完整链路未验收。
 - Android filesystem：当前为占位实现，需要 JNI/AssetManager 上下文。
-- 多机命令：仍通过 active vehicle 隐式路由，尚未提供显式 `vehicle_id` 命令目标。
+- 新增会话入口 `mg_vehicle_open()` 不再改变 active/UI focus；旧命令族仍通过显式 `mg_vehicle_select()` 选择目标，下一阶段将继续补充显式 `vehicle_id` 命令目标。
 - 真实硬件验证：只读连接、参数读取和遥测 dump 已验证；写参数、解锁、切模式、任务执行、校准和电机测试仍不得视为生产验收。
 
 ## 架构决策记录

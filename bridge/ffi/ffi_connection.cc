@@ -102,6 +102,10 @@ MGCORE_API char* mg_connection_connect(mg_core_t* core, const char* port, int ba
         jb.end_object();
         return to_cstr(jb.str());
     }
+    // Legacy single-connection API keeps its historical active-vehicle
+    // behavior. The multi-vehicle mg_vehicle_open() path deliberately does
+    // not change focus; callers select a vehicle explicitly when needed.
+    core->vehicles.set_active_vehicle(vehicle_id);
     return ok();
 }
 
@@ -124,6 +128,7 @@ MGCORE_API char* mg_connection_connect_tcp(mg_core_t* core, const char* endpoint
     uri += endpoint;
     const int vehicle_id = mg_vehicle_open(core, uri.c_str());
     if (vehicle_id < 0) return fail(MG_ERROR_SEND_FAILED, "tcp connect failed");
+    core->vehicles.set_active_vehicle(vehicle_id);
     return ok();
 }
 
@@ -135,6 +140,7 @@ MGCORE_API char* mg_connection_connect_udp(mg_core_t* core, const char* endpoint
     uri += endpoint;
     const int vehicle_id = mg_vehicle_open(core, uri.c_str());
     if (vehicle_id < 0) return fail(MG_ERROR_SEND_FAILED, "udp connect failed");
+    core->vehicles.set_active_vehicle(vehicle_id);
     return ok();
 }
 

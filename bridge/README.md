@@ -49,3 +49,4 @@
 5. 新增接口前先确认已有接口是否可复用，不能凭空创造重复接口。
 6. 新增 API 必须放入合适的 `ffi_api_*.h` 并由 `ffi_api.h` 暴露。
 7. 不得复用或扩展标记为 compatibility 的入口；新调用方使用目录中指定的首选 API。
+8. `mg_vehicle_open()` 只创建会话，不改变活动焦点；需要使用旧 active-vehicle 路由时必须显式调用 `mg_vehicle_select()`。

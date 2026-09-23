@@ -6,9 +6,10 @@
  *
  * Lifetime: mg_create() -> mg_destroy()
  * Strings: every returned char* must be released with mg_free_string().
- * Routing: command/query functions operate on the active vehicle selected via
- * mg_vehicle_select(), with legacy single-connection helpers kept for callers
- * that do not manage multiple vehicles yet.
+ * Routing: mg_vehicle_open() creates an independent session without changing
+ * focus. Legacy command/query functions operate on the vehicle selected via
+ * mg_vehicle_select(); single-connection helpers select their own session for
+ * backwards compatibility.
  */
 
 #ifndef MGCORE_FFI_API_H

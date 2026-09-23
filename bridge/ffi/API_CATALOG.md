@@ -48,9 +48,13 @@ specialized public surfaces that are not yet wired into every client workflow.
 | `mg_fence_get`, `mg_fence_set` | `mg_geofence_get_config`, `mg_geofence_set_config`. |
 | `mg_mission_request` | `mg_mission_download`. |
 
+`mg_vehicle_open` creates a vehicle session without changing active/UI focus.
+`mg_vehicle_select` is an explicit focus operation for compatibility APIs.
 `mg_connection_connect`, `mg_connection_disconnect`, and TCP/UDP convenience
-helpers remain supported compatibility APIs for a single active vehicle. New
-multi-vehicle clients should use `mg_vehicle_*` routing.
+helpers remain supported compatibility APIs for a single active vehicle; they
+select the session they create. New multi-vehicle clients should keep the
+returned vehicle ID and select explicitly before using legacy active-vehicle
+queries or commands.
 
 ## Adding or Retiring APIs
 

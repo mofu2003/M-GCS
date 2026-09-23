@@ -7,6 +7,8 @@
 extern "C" {
 #endif
 
+/// Opens an independent vehicle session. Does not change the active/UI focus.
+/// Use mg_vehicle_select() only when legacy active-vehicle APIs are intended.
 MGCORE_API int mg_vehicle_open(mg_core_t* core, const char* endpoint);
 MGCORE_API char* mg_vehicle_close(mg_core_t* core, int vehicle_id);
 MGCORE_API char* mg_vehicle_list(mg_core_t* core);

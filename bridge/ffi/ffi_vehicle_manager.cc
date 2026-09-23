@@ -17,8 +17,6 @@ MGCORE_API int mg_vehicle_open(mg_core_t* core, const char* endpoint) {
     });
     if (!v) return -1;
 
-    core->vehicles.set_active_vehicle(v->vehicle_id());
-
     // Copy sensor decoder database to new vehicle if fallback runtime has it loaded.
     if (core->fallback_vehicle && core->fallback_vehicle->sensor_decoder().is_loaded()) {
         std::string db_path = mg::core::platform::find_data_file("SensorDeviceInfo.json");

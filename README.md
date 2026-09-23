@@ -49,7 +49,7 @@ bridge/ffi/ffi_api.h
 2. 事件回调的 `json` 参数也由回调方释放。
 3. 复杂结果使用 JSON envelope，`success` / `error` 语义稳定。
 4. 生命周期为 `mg_create()` → `mg_*()` → `mg_destroy()`。
-5. 命令和查询默认作用于 `mg_vehicle_select()` 选中的活动飞控。
+5. `mg_vehicle_open()` 只创建独立飞控会话，不改变当前焦点；只有 `mg_vehicle_select()` 才改变焦点。旧的 `mg_connection_connect()`、TCP/UDP 便捷入口会保持单机兼容行为，连接成功后选中它创建的会话。
 
 完整分组、兼容入口和新增/弃用规则见 [`bridge/ffi/API_CATALOG.md`](bridge/ffi/API_CATALOG.md)。
 
