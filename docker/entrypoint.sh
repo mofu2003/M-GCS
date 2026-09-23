@@ -3,9 +3,8 @@ set -euo pipefail
 
 ROOT=/workspace
 BUILD_DIR="${MGCORE_BUILD_DIR:-$ROOT/build_docker}"
-export MGCORE_LIBRARY_PATH="$BUILD_DIR/libmgcore.so"
-VENV_DIR="${MGCS_VENV_DIR:-/opt/mgcs-venv}"
-MAVLINK_OUTPUT_DIR="${MAVLINK_OUTPUT_DIR:-/opt/mgcs-mavlink/mavlink/v2.0}"
+VENV_DIR="${MGCS_VENV_DIR:-/opt/mgcore-venv}"
+MAVLINK_OUTPUT_DIR="${MAVLINK_OUTPUT_DIR:-/opt/mgcore-mavlink/mavlink/v2.0}"
 
 ensure_mavlink_headers() {
   MGCS_VENV_DIR="$VENV_DIR" \
@@ -22,6 +21,13 @@ backend_configure() {
     -DCMAKE_BUILD_TYPE=Release
 }
 
+backend_test() {
+  backend_configure
+  cmake --build "$BUILD_DIR"
+  ctest --test-dir "$BUILD_DIR" --output-on-failure \
+    -L 'offline|simulation' -LE 'hardware|manual'
+}
+
 case "${1:-shell}" in
   shell)
     ensure_mavlink_headers
@@ -34,31 +40,8 @@ case "${1:-shell}" in
     backend_configure
     cmake --build "$BUILD_DIR"
     ;;
-  test)
-    backend_configure
-    cmake --build "$BUILD_DIR"
-    ctest --test-dir "$BUILD_DIR" --output-on-failure \
-      -L 'offline|simulation' -LE 'hardware|manual'
-    ;;
-  flutter-analyze)
-    cd "$ROOT/app"
-    flutter --no-version-check pub get
-    flutter --no-version-check analyze
-    ;;
-  flutter-test)
-    cd "$ROOT/app"
-    flutter --no-version-check pub get
-    flutter --no-version-check test
-    ;;
-  check)
-    backend_configure
-    cmake --build "$BUILD_DIR"
-    ctest --test-dir "$BUILD_DIR" --output-on-failure \
-      -L 'offline|simulation' -LE 'hardware|manual'
-    cd "$ROOT/app"
-    flutter --no-version-check pub get
-    flutter --no-version-check analyze
-    flutter --no-version-check test
+  test | check)
+    backend_test
     ;;
   *)
     exec "$@"

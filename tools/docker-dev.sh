@@ -6,4 +6,4 @@ command_name="${1:-shell}"
 shift || true
 
 cd "$root_dir"
-exec docker compose run --rm mgcs-dev "$command_name" "$@"
+exec docker compose run --rm mgcore-dev "$command_name" "$@"

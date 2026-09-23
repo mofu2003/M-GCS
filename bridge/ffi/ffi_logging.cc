@@ -31,7 +31,7 @@ MGCORE_API char* mg_log_start(mg_core_t* core) {
             core->log_events.erase(core->log_events.begin());
         }
         }
-        // Fire FFI event so Dart side can react in real-time (lock released first)
+        // Fire FFI event so the client can react in real-time (lock released first)
         post_event(core, MG_EVENT_LOG, json_event_line);
     });
 
@@ -65,4 +65,3 @@ MGCORE_API char* mg_log_get_events(mg_core_t* core) {
     jb.end_array();
     return to_cstr(jb.str());
 }
-

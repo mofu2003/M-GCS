@@ -6,12 +6,12 @@ event callback payload, is owned by the caller and must be released with
 
 ## Stability Rules
 
-- **Preferred**: available to new Flutter and external consumers. Keep the
+- **Preferred**: available to new frontend and external consumers. Keep the
   JSON envelope and function signature stable within the current major ABI.
 - **Compatibility**: exported for existing tools. Do not add new consumers or
   new behavior to these names. A replacement is listed where one exists.
 - **Specialized**: public, but intended for a feature-specific client rather
-  than the current Flutter application. Its lack of a Dart binding does not
+  than a general-purpose client. Its lack of a first-party binding does not
   make it removable.
 
 No compatibility symbol may be removed until a documented ABI-major release
@@ -31,10 +31,10 @@ and a migration note have been published.
 | Flight commands | `mg_command_*` |
 | Logging | `mg_log_request_list`, `mg_log_get_entries`, `mg_log_record_*` |
 
-The current Flutter binding deliberately covers connection, dashboard,
+Existing first-party bindings deliberately cover connection, dashboard,
 parameters, servo/RC telemetry, serial mapping, and calibration. Mission,
 flight command, geofence, payload, logging, SITL, and firmware APIs are
-specialized public surfaces that are not yet wired into the Flutter workflow.
+specialized public surfaces that are not yet wired into every client workflow.
 
 ## Compatibility Entries
 
@@ -59,4 +59,4 @@ multi-vehicle clients should use `mg_vehicle_*` routing.
    and a catalog entry.
 3. Preserve JSON envelope and ownership rules.
 4. Mark replacements as compatibility before removal; do not delete symbols
-   based only on current Flutter usage.
+   based only on current first-party usage.

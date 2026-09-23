@@ -1,5 +1,24 @@
 # Changelog
 
+## Backend branch - 2026-09-23
+
+`New-main` is the backend and interface branch. It is created from `v0.0.5` and keeps only the C++ core, the C FFI contract, backend tests, build tooling and backend documentation.
+
+### Removed on this branch
+
+- The Flutter desktop application and all Dart sources.
+- Flutter desktop build scripts and toolchain checks.
+- Frontend architecture, component and review documents.
+- Frontend-specific release notes and the frontend session contract ADR.
+
+### Changed on this branch
+
+- CI now builds and tests the backend on Ubuntu, Windows and macOS.
+- The Docker image and compose file only provision the backend toolchain.
+- `README.md` and the maintained docs describe the backend contract instead of the Flutter client.
+
+The full product, including the Flutter frontend, remains on `main` and at tag `v0.0.5`.
+
 ## 0.0.5 - 2026-09-23
 
 ### Changed

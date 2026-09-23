@@ -9,7 +9,6 @@ build_desktop_tests/
 build_docker/
 build_smoke_win/
 build_release_*/
-build_flutter_ffi/
 .venv/
 .tools/
 third_party/mavlink/include/
@@ -36,17 +35,6 @@ build_log.txt
 build_output.txt
 real_fc_dump_*.txt
 real_fc_dump_latest.txt
-
-# === Flutter app generated/local files ===
-app/.dart_tool/
-app/build/
-app/.flutter-plugins
-app/.flutter-plugins-dependencies
-app/windows/flutter/ephemeral/
-app/**/*.dll
-app/**/*.exe
-app/**/*.ilk
-app/**/*.pdb
 
 # === Local scratch ===
 backups/

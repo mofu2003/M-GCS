@@ -30,7 +30,7 @@ struct EventDispatcher {
         mg::core::platform::UniqueLock lk(mtx);
         callback = cb;
         user_data = ud;
-        // Clearing the callback is the ownership boundary used by Dart before
+        // Clearing the callback is the ownership boundary used by a client before
         // destroying mg_core and closing NativeCallable.  Wait until every
         // native thread that already observed the old callback has returned.
         if (!cb) {

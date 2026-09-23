@@ -5,7 +5,7 @@
  * 任务管理：增删改查航点、重排序、飞行模式控制。
  *
  * NOTE: Each FFI mutation function (add, update, remove, move) uses a local
- * MissionManager with a read-modify-upload cycle. If the Flutter caller
+ * MissionManager with a read-modify-upload cycle. If the caller
  * invokes multiple mission mutations concurrently, a lost-update race occurs.
  * The caller MUST serialize mission mutations (e.g., await each call before
  * issuing the next).

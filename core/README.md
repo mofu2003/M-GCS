@@ -1,6 +1,6 @@
 # 后端核心模块地图
 
-`core/` 保存地面站后端引擎，负责连接传输层、飞控对象和 MAVLink 协议状态。这里不依赖 Flutter，也不承担界面展示职责。
+`core/` 保存地面站后端引擎，负责连接传输层、飞控对象和 MAVLink 协议状态。这里不依赖任何前端框架，也不承担界面展示职责。
 
 ## 目录说明
 
@@ -49,4 +49,4 @@
 4. 真实硬件测试工具放在 `tests/manual/` 或顶层 `tests/`，不得进入默认 CI。
 5. 跨平台实现必须显式隔离平台 API，不能让 Windows、Linux、macOS、Android 的专有头文件泄漏到其他平台编译路径。
 6. 修改 transport 或 connection manager 后，至少运行 `test_transport_links` 和默认 offline/simulation 门禁。
-7. Mission CAD 的文档、几何、约束和编译属于 core，不依赖 Flutter 或任何具体前端；`MissionPlan` 是其编译输出，而不是 CAD 的源模型。
+7. Mission CAD 的文档、几何、约束和编译属于 core，不依赖任何具体前端；`MissionPlan` 是其编译输出，而不是 CAD 的源模型。

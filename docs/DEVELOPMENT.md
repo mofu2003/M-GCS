@@ -2,17 +2,16 @@
 
 ## 日常流程
 
-1. 先确认改动属于 `core`、`bridge/ffi`、`app`、`tests`、`tools` 或 `docs`。
-2. 后端行为变化补 C++ 测试；FFI 契约变化同时更新头文件、绑定、测试和文档。
-3. 前端状态或 UI 变化至少运行 `flutter analyze` 和相关 Flutter 测试。
-4. 连接、任务、参数、校准或命令路径变化必须运行聚焦测试和默认门禁。
-5. 提交前使用 `git status` 和 `git diff --check` 检查范围与格式。
+1. 先确认改动属于 `core`、`bridge/ffi`、`tests`、`tools`、`docker` 或 `docs`。
+2. 后端行为变化补 C++ 测试；FFI 契约变化同时更新头文件、实现、测试、`API_CATALOG.md` 和文档。
+3. 连接、任务、参数、校准或命令路径变化必须运行聚焦测试和默认门禁。
+4. 提交前使用 `git status` 和 `git diff --check` 检查范围与格式。
 
-参数文件导入与批量写入的变更必须覆盖后端参数变更集测试：去重、未知参数、未变化参数、`_ENABLE` 最后写入和逐项失败结果均属于 FFI 契约，不得重新放进某个前端 adapter。
+参数文件导入与批量写入的变更必须覆盖后端参数变更集测试：去重、未知参数、未变化参数、`_ENABLE` 最后写入和逐项失败结果均属于 FFI 契约。
 
 ## Mission CAD 开发
 
-Mission CAD 的文档模型、坐标换算、几何、约束、编译、任务估算和诊断属于 `core/mission/cad`。任何新前端只能通过版本化 FFI 契约提交语义化编辑请求和消费结果，不得在 UI 内计算权威航线或 MAVLink 任务项。
+Mission CAD 的文档模型、坐标换算、几何、约束、编译、任务估算和诊断属于 `core/mission/cad`。任何前端只能通过版本化 FFI 契约提交语义化编辑请求和消费结果，不得在调用方内计算权威航线或 MAVLink 任务项。
 
 修改 Mission CAD 时至少应补齐以下离线测试：
 
@@ -23,14 +22,11 @@ Mission CAD 的文档模型、坐标换算、几何、约束、编译、任务�
 
 CAD 的创建、编辑、校验和编译不得接触真实飞控。只有把已编译的 `MissionPlan` 交给既有任务传输后，才进入硬件操作安全边界。完整设计见 [Mission CAD 初步设计](MISSION_CAD.md)。
 
-## 后端构建
+## 构建
 
-### Docker 开发环境（推荐用于 Windows 迁移）
+### Docker 开发环境
 
-Docker 环境用于统一 Linux 下的 C++ 后端、MAVLink 头生成和 Flutter
-静态检查/测试。源码通过卷挂载；Python/MAVLink 虚拟环境和 Flutter 下载缓存
-使用 Docker named volume，避免在宿主机安装这些依赖。`build_docker/` 和
-`app/.dart_tool/` 是被忽略的本地生成物。
+Docker 环境统一 Linux 下的 C++ 后端构建、MAVLink 头生成和默认门禁。源码通过卷挂载；Python/MAVLink 虚拟环境使用 Docker named volume，避免在宿主机安装这些依赖。`build_docker/` 是被忽略的本地生成物。
 
 ```bash
 ./tools/docker-dev.sh check
@@ -39,12 +35,10 @@ Docker 环境用于统一 Linux 下的 C++ 后端、MAVLink 头生成和 Flutter
 常用命令：
 
 ```bash
-./tools/docker-dev.sh shell             # 进入开发容器
-./tools/docker-dev.sh configure         # 生成 MAVLink 头并配置 CMake
-./tools/docker-dev.sh build             # 编译 MgCore
-./tools/docker-dev.sh test              # 后端 offline/simulation 门禁
-./tools/docker-dev.sh flutter-analyze   # Flutter 静态分析
-./tools/docker-dev.sh flutter-test      # Flutter 测试
+./tools/docker-dev.sh shell        # 进入开发容器
+./tools/docker-dev.sh configure    # 生成 MAVLink 头并配置 CMake
+./tools/docker-dev.sh build        # 编译 MgCore
+./tools/docker-dev.sh test         # 后端 offline/simulation 门禁
 ```
 
 Windows 安装 Docker Desktop 后，在 PowerShell 中执行等价命令：
@@ -53,18 +47,18 @@ Windows 安装 Docker Desktop 后，在 PowerShell 中执行等价命令：
 .\tools\docker-dev.ps1 check
 ```
 
-Compose 固定使用 `linux/amd64` 开发镜像，保证 Flutter Linux SDK 在 Intel
-Windows、Intel Mac 和 Apple Silicon Mac 上使用同一套容器产物；Apple Silicon
-会通过 Docker Desktop 的架构模拟运行，首次构建速度会慢一些。
+容器不能替代 Windows 或 macOS 原生构建；后端在两个平台都使用同一套 CMake 配置。
 
-容器不能生成 macOS `.app`，也不能替代 Windows 原生 Flutter 打包环境。
-macOS 和 Windows 发布包仍分别使用 Xcode/macOS 或 Visual Studio/Windows
-构建；Docker 负责把共享的后端和前端逻辑先验证一致。
+### 本地构建
 
 仓库包含 MAVLink XML 定义，但没有提交生成后的 C 头。首次构建前创建本地 Python 环境，安装已验证的 `pymavlink 2.4.49`，并生成 `common` dialect：
 
 ```bash
 ./tools/generate-mavlink.sh
+```
+
+```powershell
+.\tools\generate-mavlink.ps1
 ```
 
 脚本固定使用 `pymavlink 2.4.49` 和 `--no-validate`；当前 XML 使用了新版枚举标记，旧版严格校验会拒绝它。生成目录和 `.venv/` 均为本地生成物，不提交。Docker 使用独立 named volume 保存生成头，不会污染宿主源码树。
@@ -94,94 +88,51 @@ ctest --test-dir build_check --output-on-failure \
   -LE "hardware|manual"
 ```
 
-测试标签：
+## 测试标签
 
 - `offline`：不依赖真实链路。
 - `simulation`：使用内存链路或模拟飞控。
 - `hardware`：依赖真实串口、飞控或外部设备。
 - `manual`：需要人工确认或存在更高操作风险。
 
-`hardware` 和 `manual` 默认不会注册到 CTest。需要由操作者显式允许其
-进入 CTest 时，在配置命令中追加
-`-DMGCORE_REGISTER_HARDWARE_TESTS=ON`；日常硬件操作仍优先使用专用脚本或直接运行对应可执行文件。
+`hardware` 和 `manual` 默认不会注册到 CTest。需要由操作者显式允许其进入 CTest 时，在配置命令中追加 `-DMGCORE_REGISTER_HARDWARE_TESTS=ON`；日常硬件操作仍优先使用专用脚本或直接运行对应可执行文件。
 
-## Flutter
+## 共享库产物
 
-macOS 已验证 Flutter `3.44.7`（Dart `3.12.2`）、Ninja `1.13.2` 和 CocoaPods `1.17.0`。Flutter SDK 位于 `~/development/flutter`，其 `bin` 已加入 `~/.zshrc`。
+外部前端通过 `mgcore` 共享库调用 FFI：
 
-当前网络使用以下镜像，已写入 `~/.zprofile`。打开新终端后自动生效；当前终端可先执行 `source ~/.zprofile`。为避免 Flutter 访问 GitHub 版本检查超时，以下命令使用 `--no-version-check`。
+- macOS：`build/mgcore.dylib`
+- Windows：`build/mgcore.dll`
+- Linux：`build/libmgcore.so`
 
-```bash
-source ~/.zprofile
-cd app
-flutter --no-version-check pub get
-flutter --no-version-check analyze
-flutter --no-version-check test
-flutter --no-version-check build macos
-```
-
-如果出现 `Invalid request method, uri=//pub.dev:443`，说明终端继承了格式错误的代理变量。清除该次命令的代理后重试：
+构建共享库：
 
 ```bash
-env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
-  -u http_proxy -u https_proxy -u all_proxy \
-  flutter --no-version-check pub get
+cmake -S . -B build -DMGCORE_BUILD_SHARED=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release --target mgcore
 ```
 
-完整 macOS 构建要求系统选择完整 Xcode，而不是 Command Line Tools。首次配置执行：
+### macOS 工具链注意
+
+macOS 完整构建要求系统选择完整 Xcode，而不是 Command Line Tools：
 
 ```bash
 sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
 sudo xcodebuild -runFirstLaunch
-flutter doctor -v
 ```
 
 如果完整 Xcode 已安装但暂时不能切换全局开发目录，可只为本次构建指定它：
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  flutter --no-version-check build macos
+  cmake -S . -B build -DMGCORE_BUILD_SHARED=ON -DCMAKE_BUILD_TYPE=Release
 ```
-
-Windows 构建在 Windows 环境执行：
-
-```powershell
-cd app
-flutter build windows
-```
-
-一键构建会先编译 MgCore，再生成桌面应用并嵌入 native library：
-
-```bash
-./tools/build-desktop-macos.sh
-```
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\build-desktop-windows.ps1
-```
-
-Windows 脚本会通过 `tools/generate-mavlink.ps1` 自动创建 `.venv`、安装固定版本
-`pymavlink 2.4.49`、生成 MAVLink C 头，再编译 `mgcore.dll` 和 Flutter 桌面应用。
-脚本从 `PATH` 查找 Python、CMake 和 Flutter，也可以通过 `PYTHON_BIN`、
-`FLUTTER_BIN` 指向可执行文件；通过 `MGCORE_BUILD_DIR` 覆盖后端 CMake 构建目录。
-
-Android/iOS 尚未启用。恢复平台工程时，平台目录只承载权限、打包、签名和 native adapter，不复制业务页面。
-
-## Native library
-
-Dart FFI 依次检查：
-
-1. `MGCORE_LIBRARY_PATH`。
-2. 应用包或可执行文件附近的库。
-3. 当前目录附近的 `build/mgcore.dylib`、`build/mgcore.dll` 或 Linux `mgcore.so`。
-
-找不到库时应用进入不可用状态，不会自动使用演示数据。`DemoConnectionSessionBackend` 只用于测试。
 
 ## ArduPilot 参数兼容
 
 - ArduPilot Copter 和 Plane `4.6.0`（2025-05-21）到 `4.6.3` 使用 `ARMING_CHECK`：值 `1` 表示全部解锁检查，其他位表示单项检查。
 - 后续 ArduPilot 开发线将其迁移为 `ARMING_SKIPCHK`：值 `0` 表示不跳过任何检查，位值表示跳过对应检查。
-- 安全设置、枚举和位掩码控件必须以飞控实际下发的参数名和描述元数据决定读写语义；缺少参数或元数据时仅显示不可用状态，禁止猜测参数名或写入替代值。
+- 安全设置、枚举和位掩码语义必须以飞控实际下发的参数名和描述元数据决定读写语义；缺少参数或元数据时仅返回不可用状态，禁止猜测参数名或写入替代值。
 
 ## 真实硬件
 
@@ -195,7 +146,7 @@ build_check/test_real_fc_dump /dev/cu.usbmodem1101 --quick
 Windows 入口：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\run-hardware-test.ps1 \
+powershell -ExecutionPolicy Bypass -File .\tools\run-hardware-test.ps1 `
   -Test dump -Port COM16
 ```
 
@@ -209,6 +160,6 @@ powershell -ExecutionPolicy Bypass -File .\tools\run-hardware-test.ps1 \
 
 以下目录和文件不提交：
 
-- `build/`、`build_check/`、`app/build/`、`app/.dart_tool/`。
+- `build/`、`build_check/`、`build_docker/` 及同类构建目录。
 - IDE 状态、系统缓存、测试 dump、硬件日志和临时报告。
 - 一次性计划、agent 过程记录和已经完成的迁移清单。

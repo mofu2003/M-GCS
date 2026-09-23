@@ -1,7 +1,7 @@
 /**
  * ffi_api.h - Umbrella C FFI interface for mgroundcontrol.
  *
- * Flutter/Dart may include this single header, or bind by domain using the
+ * Consumers may include this single header, or bind by domain using the
  * smaller ffi_api_*.h headers. All functions use C-compatible types only.
  *
  * Lifetime: mg_create() -> mg_destroy()

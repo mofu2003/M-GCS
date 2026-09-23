@@ -4,32 +4,20 @@
 
 ```text
 M-GCS/
-|- app/                  Flutter 前端
-|- bridge/ffi/           对外 C ABI 与后端适配
+|- bridge/ffi/           对外 C ABI 与后端适配（唯一稳定接口边界）
 |- core/                 C++ 后端核心
 |- docs/                 当前维护文档与 ADR
 |- tests/                集成、硬件和手动测试
 |- tools/                开发与硬件测试工具
+|- docker/               Linux 开发容器入口
 |- third_party/          第三方源码、协议定义和许可证
 |- CMakeLists.txt        后端构建入口
 \- .github/workflows/    CI
 ```
 
-## Flutter 前端
+本分支不包含前端应用；前端版本在 `main` 分支。
 
-- `app/lib/application/`：应用契约、控制器、模型、JSON 解码和 MgCore FFI 适配。
-- `app/lib/application/`：模型、capability interface 和前端无关工作流。
-- `app/lib/infrastructure/`：MgCore、Demo 等具体 backend Adapter。
-- `app/lib/presentation/controllers/`：Flutter 状态控制器。
-- `app/lib/presentation/features/frontstage/`：地图工作台和前台交互。
-- `app/lib/presentation/features/backstage/`：参数、机架类型和其他飞控配置后台页面。
-- `app/lib/presentation/features/map/`：地图源、地图 surface 和定位封装。
-- `app/lib/presentation/features/shell/`：应用根 shell。
-- `app/lib/presentation/ui/`：皮肤协议、布局和当前 MacGlass 实现。
-- `app/test/`：单元和 Widget 测试。
-- `app/macos/`、`app/windows/`：Flutter 平台工程。
-
-## 后端
+## 后端核心
 
 - `core/include/core/`：后端公共 C++ 头文件。
 - `core/src/transport/`：串口、TCP、UDP、内存链路、端口发现和连接管理。
@@ -37,10 +25,17 @@ M-GCS/
 - `core/src/vehicle/`：飞控模型与多机管理。
 - `core/src/firmware/`：ArduPilot/PX4 profile、模式和参数映射。
 - `core/src/mission/`、`geofence/`、`calibration/`：任务、围栏与校准。
-- `core/src/telemetry/`、`settings/`、`log/`：遥测与日志。
+- `core/src/telemetry/`、`settings/`、`log/`、`ftp/`：遥测、日志与文件传输。
+- `core/src/camera/`、`video/`、`terrain/`、`sitl/`：载荷、视觉、地形和仿真。
 - `core/tests/`：后端离线与模拟测试。
 
-`bridge/ffi/` 是外部消费者唯一稳定的 native 契约边界。公共函数放入对应的 `ffi_api_*.h`，并由 `ffi_api.h` 聚合。
+## FFI 桥接层
+
+`bridge/ffi/` 是外部消费者唯一稳定的 native 契约边界。公共函数放入对应的 `ffi_api_*.h`，由 `ffi_api.h` 聚合：
+
+- 声明：`ffi_api_core.h`、`ffi_api_connection.h`、`ffi_api_telemetry.h` 等。
+- 实现：`ffi_*.cc` 按领域拆分。
+- 契约目录：[`API_CATALOG.md`](../bridge/ffi/API_CATALOG.md)。
 
 ## 测试与第三方源码
 

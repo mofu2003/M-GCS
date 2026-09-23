@@ -1,79 +1,96 @@
-# M-GCS
+# M-GCS Backend
 
-M-GCS 是面向 ArduPilot / PX4 生态的跨平台地面站，由 C++ 后端核心、C FFI 桥接层和 Flutter 前端组成。
+这是 M-GCS 的**后端与接口分支**（`New-main`）。仓库在这里只保留 C++ 后端核心、C FFI 契约、后端测试和构建工具，用于给新的前端实现提供稳定接口。
 
 当前版本：`0.0.5`
 
-## 当前状态
+## 仓库范围
 
-- C++17 后端和 C FFI bridge 包含 macOS、Windows、Linux 实现，并提供离线、模拟、硬件和手动测试分层。
-- Flutter 已启用 macOS 和 Windows 桌面工程，业务 UI 通过应用契约调用 MgCore，不直接访问 MAVLink。
-- 前端已接入真实串口、TCP、UDP 连接、遥测、参数同步与参数读写；蓝牙目前仍未接入 Dart 应用层。
-- 应用层已按 capability contract 接入任务规划、围栏/Rally、飞行日志与 MAVLink FTP 文件浏览、上传下载、多机控制和基础飞行控制。
-- 后台已提供按飞控类型显示的机架类型、PID、电机输出、遥控、串口、安全和校准页面，并复用飞控参数元数据。
-- 前台和后台统一使用可替换的应用层模型与 MacGlass 皮肤；本地化资源使用中英文一一对应的 ARB 文件并有自动测试。
-- 连接抽屉已统一串口、TCP、UDP 和蓝牙入口的控件尺寸、标签层级与布局。
-- macOS 已完成真实 ArduPilot Copter 的只读连接验证；危险写操作、多机批量控制和任务执行不属于默认验收范围。
-- 当前仓库未包含 MAVLink C 生成头；首次构建前需要按开发指南生成 `third_party/mavlink/include/mavlink/v2.0`。
-- Android 和 iOS 尚未恢复平台工程。macOS/Windows 桌面工程会在构建时嵌入 native library；Windows Release 包由 CI 持续构建，真实串口和飞控仍需单独验收。
-
-详细完成度和已知边界见 [项目状态](docs/PROJECT_STATUS.md)，本版本变更见 [0.0.5 发布说明](docs/RELEASE_NOTES_0.0.5.md)。
-
-## 目录
+本分支包含：
 
 ```text
 M-GCS/
-|- app/                  Flutter 跨平台前端
-|- bridge/ffi/           C ABI 与 MgCore 适配层
-|- core/                 C++ 后端领域模型与 MAVLink 引擎
-|- docs/                 长期开发文档和 ADR
-|- tests/                集成测试、硬件测试和手动测试
-|- tools/                开发与硬件测试辅助脚本
-|- third_party/          MAVLink 定义、cJSON 等第三方源码
-|- CMakeLists.txt        后端构建入口
-\- .github/workflows/    CI 工作流
+|- core/                  C++ 后端核心：传输、MAVLink、飞控、任务、参数、遥测、校准、日志
+|- bridge/ffi/            对外 C ABI 与 JSON 契约（唯一稳定接口边界）
+|- tests/                 跨模块测试、硬件只读工具和手动测试
+|- tools/                 MAVLink 生成、Docker 开发和硬件测试脚本
+|- docker/                Linux 开发容器
+|- docs/                  后端架构、约束、开发指南和 ADR
+|- third_party/           MAVLink 定义、cJSON 等第三方源码
+|- CMakeLists.txt         后端构建入口
+\- .github/workflows/     CI（后端构建与测试）
 ```
+
+本分支**不包含** Flutter 应用。完整前端版本在 `main` 分支和 `v0.0.5` 标签中。
+
+## 前端如何接入
+
+前端不直接依赖 `core/` 的 C++ 类型，只通过：
+
+```text
+bridge/ffi/ffi_api.h
+```
+
+该头文件聚合了各领域接口：
+
+- `ffi_api_core.h`：生命周期、错误码、事件回调。
+- `ffi_api_connection.h`：多机打开/关闭/选择、设备发现、连接状态。
+- `ffi_api_telemetry.h`：遥测、健康、传感器、RC 和 servo 快照。
+- `ffi_api_params.h`：参数下载、读取、写入和参数变更集。
+- `ffi_api_mission.h`：任务上传下载、围栏、Rally 和测绘。
+- `ffi_api_flight.h`：飞控命令、模式、上锁/解锁和引导。
+- `ffi_api_configuration.h`：参数元数据、机架和配置页面数据。
+- `ffi_api_firmware.h`：固件类型、能力和版本。
+- `ffi_api_geofence.h`、`ffi_api_logging.h`、`ffi_api_payload.h`、`ffi_api_environment.h`：围栏、日志、载荷和环境能力。
+
+契约约定：
+
+1. 所有返回的 `char*` 都由调用方通过 `mg_free_string()` 释放。
+2. 事件回调的 `json` 参数也由回调方释放。
+3. 复杂结果使用 JSON envelope，`success` / `error` 语义稳定。
+4. 生命周期为 `mg_create()` → `mg_*()` → `mg_destroy()`。
+5. 命令和查询默认作用于 `mg_vehicle_select()` 选中的活动飞控。
+
+完整分组、兼容入口和新增/弃用规则见 [`bridge/ffi/API_CATALOG.md`](bridge/ffi/API_CATALOG.md)。
 
 ## 快速验证
 
-使用 Docker（macOS、Windows、Linux 均可）：
+### Docker
 
 ```bash
 ./tools/docker-dev.sh check
 ```
 
-Windows PowerShell：
-
 ```powershell
 .\tools\docker-dev.ps1 check
 ```
 
-Docker 负责统一后端编译、MAVLink 生成和 Flutter analyze/test；桌面发布包
-仍需在对应原生系统构建。
+### 本地构建
 
-后端：
+先生成 MAVLink C 头文件：
 
-先按 [开发指南](docs/DEVELOPMENT.md) 生成 MAVLink C 头文件，然后执行：
+```bash
+./tools/generate-mavlink.sh
+```
+
+```powershell
+.\tools\generate-mavlink.ps1
+```
+
+然后编译并运行默认门禁：
 
 ```bash
 cmake -S . -B build_check -DMGCORE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build_check
+cmake --build build_check --config Release
 ctest --test-dir build_check --output-on-failure \
   -L "offline|simulation" -LE "hardware|manual"
 ```
 
-前端：
-
-```bash
-source ~/.zprofile
-cd app
-flutter --no-version-check pub get
-flutter --no-version-check analyze
-flutter --no-version-check test
-flutter --no-version-check build macos
-```
+## 安全边界
 
 真实硬件测试前必须确认飞控未解锁，并明确测试会发送的命令。未经确认不得执行解锁、起飞、切模式、写参数、任务启动、电机测试或危险校准。
+
+`hardware` 和 `manual` 标签的测试默认不进入 CTest；需要显式开启 `MGCORE_REGISTER_HARDWARE_TESTS=ON`。
 
 ## 文档
 

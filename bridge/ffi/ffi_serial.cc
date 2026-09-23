@@ -111,7 +111,7 @@ MGCORE_API char* mg_serial_get_uart_names(mg_core_t* core) {
         std::filesystem::remove(temp, ignored);
         // Do not turn a transport/FTP failure into an empty successful list.
         // Mission Planner reports this as an unavailable mapping; preserving
-        // the reason here lets the Flutter page distinguish it from a real
+        // the reason here lets the client distinguish it from a real
         // board with zero UARTs.
         mg::bridge::JsonBuilder empty_items;
         empty_items.begin_array();

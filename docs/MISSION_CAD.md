@@ -16,12 +16,12 @@ Mission CAD 不是立即实现完整通用 CAD。圆弧、相切、全局几何�
 
 ## 不可突破的架构边界
 
-Mission CAD 的任何领域功能不得绑定 Flutter 或其他具体界面。后续即使为不同用户提供 Flutter、Swift、React、Web、CLI 或自动化脚本界面，也不得因为界面替换而重写任务几何、约束、编译和校验逻辑。
+Mission CAD 的任何领域功能不得绑定某个具体界面框架。后续即使为不同用户提供桌面、移动、Web、CLI 或自动化脚本界面，也不得因为界面替换而重写任务几何、约束、编译和校验逻辑。
 
 | 层 | 职责 | 禁止承担的职责 |
 | --- | --- | --- |
 | `core/mission/cad` | 文档、几何、坐标换算、约束、编译、估算、校验、持久化 | UI 控件、地图 SDK、窗口状态、MAVLink 上传 |
-| `bridge/ffi` | 稳定的版本化 C ABI 和 JSON 契约 | Flutter/Dart、Swift、React 类型或界面术语 |
+| `bridge/ffi` | 稳定的版本化 C ABI 和 JSON 契约 | 任何前端语言类型或界面术语 |
 | 各前端适配层 | 绘制地图或画布、选择、拖拽、输入、快捷操作和本地展示状态 | 权威几何计算、任务序号分配、航线编译、机型限制判断 |
 | 既有任务传输 | 接收已编译的 `MissionPlan` 并执行上传、下载、进度和超时处理 | 作为 CAD 文档源数据 |
 
@@ -29,7 +29,7 @@ Mission CAD 的任何领域功能不得绑定 Flutter 或其他具体界面。�
 
 ```mermaid
 flowchart LR
-    Editor["任意编辑器: Flutter / Swift / React / CLI"]
+    Editor["任意编辑器: 桌面 / 移动 / Web / CLI"]
     Contract["Mission CAD JSON / C ABI 契约"]
     Cad["core/mission/cad\n文档、几何、约束"]
     Compiler["任务编译器与诊断"]
@@ -59,7 +59,7 @@ MissionCadDocument --compile--> CompiledMission --extract--> MissionPlan --uploa
 
 CAD 文档在一个明确的 WGS84 原点附近使用局部 ENU 米制坐标：`east`、`north`、`up`。这样距离、方位角、平行和转弯计算具有稳定的米制语义；WGS84 纬经度只在导入、导出、地图显示和 MAVLink 编译边界转换。
 
-所有实体使用稳定 UUID，而不是 Flutter widget key、图层序号或界面列表索引。
+所有实体使用稳定 UUID，而不是 widget key、图层序号或界面列表索引。
 
 第一版文档包含：
 
@@ -175,6 +175,6 @@ compile(document, vehicle_profile, capabilities, vehicle_constraints) -> Compile
 2. 实现点、航段、距离/方位约束，以及确定性编译和 FFI 预览。
 3. 将 `SurveyCalculator` 适配到 `survey_area`，补齐源到任务项映射与估算。
 4. 加入 Copter/Plane profile 的转弯、速度、爬升和任务上限校验。
-5. 分别在 Flutter、Swift、React 或 CLI 中实现编辑器；它们共享同一份文档与编译契约。
+5. 分别在桌面、移动、Web 或 CLI 中实现编辑器；它们共享同一份文档与编译契约。
 
 每个里程碑都必须有不依赖 UI 和真实飞控的离线 fixture 测试。

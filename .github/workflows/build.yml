@@ -2,16 +2,18 @@ name: 构建与测试
 
 on:
   push:
-    branches: [ main ]
+    branches: [ New-main ]
   pull_request:
-    branches: [ main ]
+    branches: [ New-main ]
+  workflow_dispatch:
 
 jobs:
   backend:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         build_type: [Release]
 
     steps:
@@ -21,7 +23,7 @@ jobs:
       with:
         python-version: '3.12'
 
-    - name: 安装 MAVLink 生成工具
+    - name: 生成 MAVLink C 头
       shell: bash
       run: PYTHON_BIN=python ./tools/generate-mavlink.sh
 
@@ -29,79 +31,8 @@ jobs:
       run: cmake -B build -DMGCORE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
 
     - name: 构建
-      run: cmake --build build --config ${{ matrix.build_type }}
+      run: cmake --build build --config ${{ matrix.build_type }} --parallel
 
     - name: 运行离线与模拟测试
       working-directory: build
-      run: ctest --output-on-failure -L "offline|simulation" -LE "hardware|manual"
-
-  flutter:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-
-    - uses: subosito/flutter-action@v2
-      with:
-        flutter-version: '3.44.7'
-        channel: stable
-        cache: true
-
-    - name: 生成 MAVLink 头
-      run: PYTHON_BIN=python ./tools/generate-mavlink.sh
-
-    - name: 构建 Linux MgCore FFI
-      run: |
-        cmake -B build_flutter_ffi -DMGCORE_BUILD_SHARED=ON -DCMAKE_BUILD_TYPE=Release
-        cmake --build build_flutter_ffi --config Release --target mgcore
-
-    - name: 获取 Flutter 依赖
-      working-directory: app
-      run: flutter --no-version-check pub get
-
-    - name: Flutter 静态分析
-      working-directory: app
-      run: flutter --no-version-check analyze
-
-    - name: Flutter 测试
-      working-directory: app
-      env:
-        MGCORE_LIBRARY_PATH: ${{ github.workspace }}/build/mgcore.so
-      run: flutter --no-version-check test
-
-  windows-desktop:
-    runs-on: windows-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-
-    - uses: subosito/flutter-action@v2
-      with:
-        flutter-version: '3.44.7'
-        channel: stable
-        cache: true
-
-    - name: 构建 Windows 桌面应用
-      shell: pwsh
-      run: .\tools\build-desktop-windows.ps1
-
-    - name: 检查 Windows 发布产物
-      shell: pwsh
-      run: |
-        $release = Join-Path $env:GITHUB_WORKSPACE "app\build\windows\x64\runner\Release"
-        if (-not (Test-Path (Join-Path $release "mgcs.exe"))) { throw "mgcs.exe missing" }
-        if (-not (Test-Path (Join-Path $release "mgcore.dll"))) { throw "mgcore.dll missing" }
-        @(
-          "USBBoardInfo.json",
-          "SensorDeviceInfo.json",
-          "ParameterDescriptors.json",
-          "ParameterTranslations.zh-CN.json"
-        ) | ForEach-Object {
-          if (-not (Test-Path (Join-Path $release $_))) { throw "$_ missing" }
-        }
+      run: ctest --output-on-failure -C ${{ matrix.build_type }} -L "offline|simulation" -LE "hardware|manual"

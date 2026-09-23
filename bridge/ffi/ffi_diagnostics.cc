@@ -1,8 +1,8 @@
 #define MGCORE_EXPORTS
 /**
- * ffi_diagnostics.cc - High-level diagnostics and frontend snapshots.
+ * ffi_diagnostics.cc - High-level diagnostics and client snapshots.
  *
- * Aggregates existing backend state into stable FFI contracts for UI,
+ * Aggregates existing backend state into stable FFI contracts for clients,
  * support tooling, and hardware test reports.
  */
 #include "ffi_internal.h"
