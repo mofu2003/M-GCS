@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mgcs/application/mgcore/mgcore_connection_client.dart';
-import 'package:mgcs/application/mgcore/mgcore_ffi_api.dart';
+import 'package:mgcs/infrastructure/mgcore/mgcore_connection_client.dart';
+import 'package:mgcs/infrastructure/mgcore/mgcore_ffi_api.dart';
 
 MgCoreFfiApi? _tryOpenApi() {
   try {

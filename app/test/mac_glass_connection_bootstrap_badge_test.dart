@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/application/connection_models.dart';
-import 'package:mgcs/features/frontstage/frontstage_models.dart';
-import 'package:mgcs/ui/skins/mac_glass/mac_glass_connection_bootstrap_badge.dart';
-import 'package:mgcs/ui/skins/mac_glass/mac_glass_status_bar.dart';
+import 'package:mgcs/presentation/features/frontstage/frontstage_models.dart';
+import 'package:mgcs/presentation/ui/skins/mac_glass/mac_glass_connection_bootstrap_badge.dart';
+import 'package:mgcs/presentation/ui/skins/mac_glass/mac_glass_status_bar.dart';
 
 void main() {
   Widget buildBadge(FrontstageConnectionBootstrapModel model) {

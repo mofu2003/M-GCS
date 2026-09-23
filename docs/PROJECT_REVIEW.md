@@ -21,7 +21,7 @@ M-GCS 的主链路已经是适合长期演进的形状：
 
 当前的优先事项不是“换技术栈”或“拆掉后端”，而是：把已进入应用层的任务、安全、日志/文件和多机能力继续做成可验收闭环，再逐步拆分过大的页面库。以下建议都可以局部完成，不需要改变总体架构。
 
-## 0.0.4 跟进结论
+## 0.0.5 跟进结论
 
 本轮已经完成了上一版报告中最直接的应用层改进：
 
@@ -84,8 +84,8 @@ M-GCS 的主链路已经是适合长期演进的形状：
 
 涉及位置：
 
-- `app/lib/features/shell/mgcs_app.dart:24`
-- `app/lib/features/shell/mgcs_app.dart:48`
+- `app/lib/presentation/features/shell/mgcs_app.dart:24`
+- `app/lib/presentation/features/shell/mgcs_app.dart:48`
 - `app/lib/application/parameter_controller.dart:12`
 - `app/lib/application/parameter_controller.dart:219`
 
@@ -177,7 +177,7 @@ M-GCS 的主链路已经是适合长期演进的形状：
 
 涉及位置：
 
-- `app/lib/features/frontstage/mission_transfer_panel.dart:70`
+- `app/lib/presentation/features/frontstage/mission_transfer_panel.dart:70`
 - `app/lib/application/connection_session_backend.dart:69`
 
 建议：短期先把“添加默认航点”和 sequence 规范化收进 `MissionSessionBackend` 的语义方法；长期让 Mission CAD 通过 core/FFI 接收语义化编辑请求，前端只显示和编辑 CAD 文档。上传继续是独立、显式确认的硬件操作。
@@ -192,10 +192,10 @@ FFI session 解析会取得裸 `Vehicle*`；如果另一个线程同时关闭活
 
 涉及位置：
 
-- `app/lib/features/backstage/backstage_remote_control.dart:153`
-- `app/lib/features/backstage/backstage_serial_ports.dart:144`
-- `app/lib/features/backstage/backstage_pid_tuning.dart:128`
-- `app/lib/features/backstage/backstage_calibration.dart:854`
+- `app/lib/presentation/features/backstage/backstage_remote_control.dart:153`
+- `app/lib/presentation/features/backstage/backstage_serial_ports.dart:144`
+- `app/lib/presentation/features/backstage/backstage_pid_tuning.dart:128`
+- `app/lib/presentation/features/backstage/backstage_calibration.dart:854`
 
 建议：不要立即把全部页面改为“后端生成 UI”。先在应用层增加配置 workflow/view-model，集中页面所需字段、选项、依赖条件和实时写入策略；随后将稳定的 firmware/profile 规则逐项下沉 FFI。这样既避免一次大重构，也让 Swift/React 能复用同一语义契约。
 
@@ -205,10 +205,10 @@ FFI session 解析会取得裸 `Vehicle*`；如果另一个线程同时关闭活
 
 涉及位置：
 
-- `app/lib/features/shell/mgcs_app.dart:84`
-- `app/lib/features/backstage/backstage_servo_output.dart:23`
-- `app/lib/features/backstage/backstage_remote_control.dart:80`
-- `app/lib/features/backstage/backstage_calibration.dart:50`
+- `app/lib/presentation/features/shell/mgcs_app.dart:84`
+- `app/lib/presentation/features/backstage/backstage_servo_output.dart:23`
+- `app/lib/presentation/features/backstage/backstage_remote_control.dart:80`
+- `app/lib/presentation/features/backstage/backstage_calibration.dart:50`
 - `app/lib/application/polling_task.dart:3`
 
 建议：保留 `PollingTask`，但把状态与启停归属移到应用层的领域控制器，例如 `ServoOutputController`、`RemoteControlController`、`CalibrationController` 或统一 operation scheduler。页面只订阅状态，并在当前页不可见时停止高频轮询。这不需要改变后端架构。
@@ -231,8 +231,8 @@ FFI session 解析会取得裸 `Vehicle*`；如果另一个线程同时关闭活
 
 涉及位置：
 
-- `app/lib/features/backstage/backstage_page.dart:21`
-- `app/lib/features/backstage/backstage_pid_tuning.dart:180`
+- `app/lib/presentation/features/backstage/backstage_page.dart:21`
+- `app/lib/presentation/features/backstage/backstage_pid_tuning.dart:180`
 
 建议分两步：
 

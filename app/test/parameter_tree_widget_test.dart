@@ -2,14 +2,14 @@ import 'package:flutter/cupertino.dart' as cupertino;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/application/calibration_models.dart';
-import 'package:mgcs/application/connection_controller.dart';
+import 'package:mgcs/presentation/controllers/connection_controller.dart';
 import 'package:mgcs/application/connection_models.dart';
 import 'package:mgcs/application/connection_session_backend.dart';
-import 'package:mgcs/application/demo_connection_session_backend.dart';
-import 'package:mgcs/application/parameter_controller.dart';
+import 'package:mgcs/infrastructure/demo/demo_connection_session_backend.dart';
+import 'package:mgcs/presentation/controllers/parameter_controller.dart';
 import 'package:mgcs/application/parameter_models.dart';
-import 'package:mgcs/features/backstage/backstage_page.dart';
-import 'package:mgcs/ui/skins/mac_glass/mac_glass_tokens.dart';
+import 'package:mgcs/presentation/features/backstage/backstage_page.dart';
+import 'package:mgcs/presentation/ui/skins/mac_glass/mac_glass_tokens.dart';
 
 void main() {
   testWidgets('parameter tree uses one secondary title style for every group', (

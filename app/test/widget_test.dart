@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mgcs/application/demo_connection_session_backend.dart';
-import 'package:mgcs/features/shell/mgcs_app.dart';
-import 'package:mgcs/ui/skins/mac_glass/mac_glass_close_button.dart';
+import 'package:mgcs/infrastructure/demo/demo_connection_session_backend.dart';
+import 'package:mgcs/presentation/features/shell/mgcs_app.dart';
+import 'package:mgcs/presentation/ui/skins/mac_glass/mac_glass_close_button.dart';
 
 void useMinimumDesktopViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(1040, 720);

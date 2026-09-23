@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mgcs/features/backstage/parameter_tree.dart';
+import 'package:mgcs/presentation/features/backstage/parameter_tree.dart';
 
 void main() {
   test('uses only top-level categories with complete parameter leaves', () {

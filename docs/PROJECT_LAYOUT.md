@@ -18,13 +18,14 @@ M-GCS/
 ## Flutter 前端
 
 - `app/lib/application/`：应用契约、控制器、模型、JSON 解码和 MgCore FFI 适配。
-- `app/lib/features/frontstage/`：地图工作台和前台交互。
-- `app/lib/features/backstage/`：参数、机架类型和其他飞控配置后台页面。
-- `app/lib/features/map/`：地图源、地图 surface 和定位封装。
-- `app/lib/features/shell/`：应用根 shell。
-- `app/lib/ui/skin/`：皮肤协议与 token。
-- `app/lib/ui/layouts/`：业务页面使用的稳定布局入口。
-- `app/lib/ui/skins/mac_glass/`：当前默认皮肤实现。
+- `app/lib/application/`：模型、capability interface 和前端无关工作流。
+- `app/lib/infrastructure/`：MgCore、Demo 等具体 backend Adapter。
+- `app/lib/presentation/controllers/`：Flutter 状态控制器。
+- `app/lib/presentation/features/frontstage/`：地图工作台和前台交互。
+- `app/lib/presentation/features/backstage/`：参数、机架类型和其他飞控配置后台页面。
+- `app/lib/presentation/features/map/`：地图源、地图 surface 和定位封装。
+- `app/lib/presentation/features/shell/`：应用根 shell。
+- `app/lib/presentation/ui/`：皮肤协议、布局和当前 MacGlass 实现。
 - `app/test/`：单元和 Widget 测试。
 - `app/macos/`、`app/windows/`：Flutter 平台工程。
 

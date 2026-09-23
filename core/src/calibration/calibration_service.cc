@@ -52,6 +52,7 @@ void CalibrationService::set_event_callback(CalibrationEventCallback cb) {
 
 bool CalibrationService::start(CalibrationType type,
                                 AccelCalMode accel_mode) {
+    EventDispatchScope dispatch(*this);
     mg::core::platform::LockGuard lk(mtx_);
 
     if (status_.active) {
@@ -126,6 +127,7 @@ bool CalibrationService::start(CalibrationType type,
 }
 
 bool CalibrationService::cancel() {
+    EventDispatchScope dispatch(*this);
     mg::core::platform::LockGuard lk(mtx_);
 
     if (!status_.active) return false;
@@ -141,6 +143,7 @@ bool CalibrationService::cancel() {
 }
 
 void CalibrationService::process_statustext(const std::string& text, uint8_t severity) {
+    EventDispatchScope dispatch(*this);
     mg::core::platform::LockGuard lk(mtx_);
 
     if (!status_.active || !active_strategy_) return;
@@ -199,6 +202,7 @@ void CalibrationService::process_statustext(const std::string& text, uint8_t sev
 
 void CalibrationService::process_command_ack(uint16_t command, uint8_t result,
                                                uint8_t progress) {
+    EventDispatchScope dispatch(*this);
     mg::core::platform::LockGuard lk(mtx_);
 
     if (!status_.active || !active_strategy_) return;
@@ -231,6 +235,7 @@ void CalibrationService::process_mag_cal_progress(
     constexpr uint8_t kMagCalSuccess = 4;
     constexpr uint8_t kMagCalFailed = 5;
 
+    EventDispatchScope dispatch(*this);
     mg::core::platform::LockGuard lk(mtx_);
     if (!status_.active || status_.current_type != CalibrationType::Magnetometer) return;
 
@@ -261,6 +266,7 @@ void CalibrationService::process_mag_cal_report(
     constexpr uint8_t kMagCalSuccess = 4;
     constexpr uint8_t kMagCalFailed = 5;
 
+    EventDispatchScope dispatch(*this);
     mg::core::platform::LockGuard lk(mtx_);
     if (!status_.active || status_.current_type != CalibrationType::Magnetometer) return;
 
@@ -296,6 +302,7 @@ void CalibrationService::process_accelerometer_position_request(uint32_t positio
     constexpr uint32_t kAccelCalSuccess = 16777215;
     constexpr uint32_t kAccelCalFailed = 16777216;
 
+    EventDispatchScope dispatch(*this);
     mg::core::platform::LockGuard lk(mtx_);
     if (!status_.active ||
         status_.current_type != CalibrationType::Accelerometer ||
@@ -389,23 +396,29 @@ void CalibrationService::transition_to(CalibrationStage new_stage) {
 }
 
 void CalibrationService::fire_event() {
-    // NOTE: caller must hold mtx_.
-    // Callbacks route to FFI post_event() which never re-enters CalibrationService,
-    // so the held lock does not cause deadlock in practice.
-    if (event_cb_) event_cb_(status_);
+    // NOTE: caller must hold mtx_. The enclosing EventDispatchScope invokes
+    // fire_event_safe after the lock is released.
+    if (event_cb_) {
+        pending_events_.push_back(status_);
+    }
 }
 
 void CalibrationService::fire_event_safe() {
     // Self-locks, copies callback+state, invokes outside lock.
     // Safe for re-entrant callbacks. Callers must NOT hold mtx_.
-    CalibrationStatus copy;
+    std::vector<CalibrationStatus> pending;
     CalibrationEventCallback cb_fn;
     {
         mg::core::platform::LockGuard lk(mtx_);
-        copy = status_;
+        if (pending_events_.empty()) return;
+        pending.swap(pending_events_);
         cb_fn = event_cb_;
     }
-    if (cb_fn) cb_fn(copy);
+    if (cb_fn) {
+        for (const auto& status : pending) {
+            cb_fn(status);
+        }
+    }
 }
 
 void CalibrationService::handle_success() {

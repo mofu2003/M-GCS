@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/application/connection_models.dart';
 import 'package:mgcs/application/connection_session_backend.dart';
 import 'package:mgcs/application/mission_models.dart';
-import 'package:mgcs/features/frontstage/mission_transfer_panel.dart';
+import 'package:mgcs/presentation/features/frontstage/mission_transfer_panel.dart';
 
 void main() {
   testWidgets('mission panel reads edits and writes a local mission draft', (

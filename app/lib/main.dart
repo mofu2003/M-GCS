@@ -4,13 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'application/connection_controller.dart';
 import 'application/connection_session_backend.dart';
-import 'application/mgcore/mgcore_connection_client.dart';
-import 'application/mgcore/mgcore_connection_session_backend.dart';
-import 'application/mgcore/mgcore_ffi_api.dart';
-import 'application/unavailable_connection_session_backend.dart';
-import 'features/shell/mgcs_app.dart';
+import 'presentation/features/shell/mgcs_app.dart';
+import 'infrastructure/mgcore/mgcore_connection_client.dart';
+import 'infrastructure/mgcore/mgcore_connection_session_backend.dart';
+import 'infrastructure/mgcore/mgcore_ffi_api.dart';
+import 'infrastructure/unavailable_connection_session_backend.dart';
+import 'presentation/controllers/connection_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

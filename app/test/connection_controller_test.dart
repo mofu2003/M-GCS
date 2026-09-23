@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mgcs/application/connection_controller.dart';
+import 'package:mgcs/presentation/controllers/connection_controller.dart';
 import 'package:mgcs/application/connection_models.dart';
 import 'package:mgcs/application/connection_session_backend.dart';
 

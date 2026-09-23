@@ -39,4 +39,24 @@ void main() {
 
     expect(refreshCount, 0);
   });
+
+  test('pauses and resumes scheduled refreshes', () async {
+    var refreshCount = 0;
+    final task = PollingTask(
+      interval: const Duration(milliseconds: 5),
+      onTick: () async => refreshCount++,
+    );
+    addTearDown(task.dispose);
+
+    task.start();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    task.pause();
+    final pausedCount = refreshCount;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(refreshCount, pausedCount);
+
+    task.resume();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(refreshCount, greaterThan(pausedCount));
+  });
 }

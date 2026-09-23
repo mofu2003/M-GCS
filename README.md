@@ -2,7 +2,7 @@
 
 M-GCS 是面向 ArduPilot / PX4 生态的跨平台地面站，由 C++ 后端核心、C FFI 桥接层和 Flutter 前端组成。
 
-当前版本：`0.0.4`
+当前版本：`0.0.5`
 
 ## 当前状态
 
@@ -17,7 +17,7 @@ M-GCS 是面向 ArduPilot / PX4 生态的跨平台地面站，由 C++ 后端核�
 - 当前仓库未包含 MAVLink C 生成头；首次构建前需要按开发指南生成 `third_party/mavlink/include/mavlink/v2.0`。
 - Android 和 iOS 尚未恢复平台工程。macOS/Windows 桌面工程会在构建时嵌入 native library；Windows Release 包由 CI 持续构建，真实串口和飞控仍需单独验收。
 
-详细完成度和已知边界见 [项目状态](docs/PROJECT_STATUS.md)，本版本变更见 [0.0.4 发布说明](docs/RELEASE_NOTES_0.0.4.md)。
+详细完成度和已知边界见 [项目状态](docs/PROJECT_STATUS.md)，本版本变更见 [0.0.5 发布说明](docs/RELEASE_NOTES_0.0.5.md)。
 
 ## 目录
 

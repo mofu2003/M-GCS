@@ -1,6 +1,6 @@
 # 项目状态
 
-更新日期：2026-09-23。当前版本：`0.0.4`。
+更新日期：2026-09-23。当前版本：`0.0.5`。
 
 ## 当前结论
 
@@ -46,9 +46,10 @@ Flutter 正式入口会加载 MgCore native library。加载成功后，串口�
 - 2026-09-10：Flutter 静态分析无问题，全部 84 项测试通过；TCP/UDP 连接和统一连接抽屉均有回归覆盖。
 - 2026-09-10：后端 Release 构建成功，离线/模拟门禁 29/29 通过；Windows 多配置测试目录已补齐运行时 JSON 元数据。
 - 2026-09-10：使用项目本地 Flutter/CMake 工具链完成 Windows Release 构建，生成 `app/build/windows/x64/runner/Release/mgcs.exe` 并安装 `mgcore.dll`。
-- 2026-09-23：Flutter 3.44.9 工具链下静态分析无问题，全部 114 项测试通过；新增多机、任务编辑/校验、本地化、坐标转换、参数同步、会话能力和飞控文件回归覆盖。
+- 2026-09-23：Flutter 3.44.9 工具链下静态分析无问题，全部 119 项测试通过；新增多机、任务编辑/校验、本地化、坐标转换、参数同步、会话能力、架构守卫和飞控文件回归覆盖。
 - 2026-09-23：`flutter build macos --debug` 成功，生成 `app/build/macos/Build/Products/Debug/mgcs.app`；macOS 最低部署版本固定为 12.0。
 - 2026-09-23：native 离线/模拟 CTest 29/29 通过；MAVLink FTP 文件浏览、上传、下载和取消路径完成 FFI/应用层接入。
+- 2026-09-23：完成 Flutter application/infrastructure/presentation 目录收拢，Core、FFI 和 Flutter 版本同步至 0.0.5；后台隐藏页面轮询已按可见性暂停。
 
 真实硬件验证未覆盖参数写入、解锁、切模式、任务执行、校准和电机测试。这些能力必须单独设计安全验收。
 

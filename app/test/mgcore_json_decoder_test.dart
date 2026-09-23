@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/application/connection_models.dart';
-import 'package:mgcs/application/mgcore/mgcore_json_decoder.dart';
+import 'package:mgcs/infrastructure/mgcore/mgcore_json_decoder.dart';
 
 void main() {
   test('decodes serial ports from the real mgcore FFI list', () {

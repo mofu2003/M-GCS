@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.5 - 2026-09-23
+
+### Changed
+
+- Preserved the complete Flutter desktop frontend while restructuring the client into `application`, `infrastructure`, and `presentation` layers.
+- Moved MgCore FFI and JSON adapters into `app/lib/infrastructure/mgcore/` and Flutter controllers/UI into `app/lib/presentation/`.
+- Added dependency-direction guards for application, infrastructure, and presentation code.
+- Fixed parameter fallback recovery, calibration callback lock boundaries, truncated magnetometer progress parsing, and hidden backstage polling.
+- Synchronized CMake, FFI, and Flutter version metadata to `0.0.5` (build `5`).
+
+### Verification
+
+- Flutter tests: 119 passed.
+- Native CTest offline/simulation gate: 29/29 passed.
+- macOS Debug build: succeeded.
+
+### Notes
+
+- This release keeps the existing Flutter frontend intact. The backend-only client branch is created from this tag and intentionally removes the Flutter application there.
+
 ## 0.0.4 - 2026-09-23
 
 ### Added

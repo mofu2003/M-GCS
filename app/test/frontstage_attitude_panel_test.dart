@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mgcs/features/frontstage/frontstage_models.dart';
-import 'package:mgcs/ui/skins/mac_glass/mac_glass_attitude_panel.dart';
+import 'package:mgcs/presentation/features/frontstage/frontstage_models.dart';
+import 'package:mgcs/presentation/ui/skins/mac_glass/mac_glass_attitude_panel.dart';
 
 void main() {
   testWidgets(

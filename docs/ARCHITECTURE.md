@@ -175,13 +175,14 @@ MGC 当前采用 ArduPilot-first，PX4-compatible 路线：ArduPilot 能力优�
 `app/` 使用一套 Flutter 业务 UI 服务各目标平台。Flutter 是当前前端适配实现，不是领域能力所有者；未来替换或新增前端不得改变 core/FFI 任务、参数、遥测和 CAD 语义。当前 macOS/Windows 平台工程已启用，Windows 与 macOS 的视觉输出以同屏一致为验收目标。主要目录为：
 
 - `app/lib/application/`：应用侧契约、Dart MgCore client、FFI 绑定、JSON 解码和会话后端。
-- `app/lib/features/frontstage/`：前台任务工作台页面、view model 和 controller adapter。
-- `app/lib/features/backstage/`：参数等后台页面；连接 bootstrap 完成后的参数加载由 app shell 会话层触发，页面仅消费参数状态。
-- `app/lib/features/map/`：地图源、定位和地图 surface 封装。
-- `app/lib/features/shell/`：Flutter app 根入口。
-- `app/lib/ui/skin/`：皮肤协议、token、scope 和默认皮肤工厂。
-- `app/lib/ui/layouts/`：业务页面依赖的稳定布局入口。
-- `app/lib/ui/skins/mac_glass/`：默认浅色玻璃皮肤实现。
+- `app/lib/application/`：Dart 模型、capability interface 和前端无关的确定性工作流。
+- `app/lib/infrastructure/`：MgCore FFI/JSON Adapter、演示后端和不可用后端。
+- `app/lib/presentation/controllers/`：Flutter `ChangeNotifier` 状态和交互编排。
+- `app/lib/presentation/features/frontstage/`：前台任务工作台页面和 controller adapter。
+- `app/lib/presentation/features/backstage/`：参数等后台页面；连接 bootstrap 完成后的参数加载由 app shell 会话层触发，页面仅消费参数状态。
+- `app/lib/presentation/features/map/`：地图源、定位和地图 surface 封装。
+- `app/lib/presentation/features/shell/`：Flutter app 根入口。
+- `app/lib/presentation/ui/`：皮肤协议、布局和默认 MacGlass 实现。
 - `app/test/`：前端测试。
 
 前端架构边界：

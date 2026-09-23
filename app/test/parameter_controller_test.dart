@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/application/connection_models.dart';
 import 'package:mgcs/application/connection_session_backend.dart';
-import 'package:mgcs/application/parameter_controller.dart';
+import 'package:mgcs/presentation/controllers/parameter_controller.dart';
 import 'package:mgcs/application/parameter_models.dart';
 
 void main() {
@@ -42,6 +42,23 @@ void main() {
     expect(result.failed, {'BATT_ENABLE': 'write failed'});
     expect(controller.stagedChanges.single.parameter.name, 'BATT_ENABLE');
     expect(controller.stagedChanges.single.errorMessage, 'write failed');
+  });
+
+  test('recovers from an exception in single-write fallback', () async {
+    final backend = _ThrowingParameterBackend();
+    final controller = ParameterController(
+      backend: backend,
+      isSessionReady: () => true,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.refresh();
+    controller.stageValue('BATT_MONITOR', 4);
+    final result = await controller.writeStaged();
+
+    expect(result.failed['BATT_MONITOR'], contains('transport failed'));
+    expect(controller.writing, isFalse);
+    expect(controller.canEdit, isTrue);
   });
 
   test('parameter file import stages only known changed values', () async {
@@ -252,6 +269,16 @@ class _DelayedParameterBackend extends _ParameterBackend {
   Future<List<FlightControllerParameter>> loadParameters() {
     if (!loadStarted.isCompleted) loadStarted.complete();
     return release.future;
+  }
+}
+
+final class _ThrowingParameterBackend extends _ParameterBackend {
+  @override
+  Future<ConnectionOperationResult> writeParameter(
+    FlightControllerParameter parameter,
+    double value,
+  ) async {
+    throw StateError('transport failed');
   }
 }
 

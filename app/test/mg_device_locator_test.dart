@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:mgcs/features/map/mg_device_locator.dart';
+import 'package:mgcs/presentation/features/map/mg_device_locator.dart';
 
 void main() {
   test(

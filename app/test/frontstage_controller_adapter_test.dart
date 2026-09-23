@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mgcs/application/connection_controller.dart';
-import 'package:mgcs/application/demo_connection_session_backend.dart';
-import 'package:mgcs/features/frontstage/frontstage_controller_adapter.dart';
+import 'package:mgcs/presentation/controllers/connection_controller.dart';
+import 'package:mgcs/infrastructure/demo/demo_connection_session_backend.dart';
+import 'package:mgcs/presentation/features/frontstage/frontstage_controller_adapter.dart';
 
 void main() {
   test(

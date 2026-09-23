@@ -111,6 +111,18 @@ public:
     const CalibrationValidator& validator() const { return validator_; }
 
 private:
+    class EventDispatchScope {
+    public:
+        explicit EventDispatchScope(CalibrationService& owner) : owner_(owner) {}
+        ~EventDispatchScope() { owner_.fire_event_safe(); }
+
+        EventDispatchScope(const EventDispatchScope&) = delete;
+        EventDispatchScope& operator=(const EventDispatchScope&) = delete;
+
+    private:
+        CalibrationService& owner_;
+    };
+
     // 每种校准类型对应一个策略。
     std::array<std::unique_ptr<ICalibrationStrategy>, 4> strategies_;
 
@@ -133,6 +145,7 @@ private:
 
     // 状态变化回调。
     CalibrationEventCallback event_cb_;
+    std::vector<CalibrationStatus> pending_events_;
 
     // 线程安全保护。
     mutable mg::core::platform::Mutex mtx_;

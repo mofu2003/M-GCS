@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mgcs/features/map/mg_map_catalog.dart';
+import 'package:mgcs/presentation/features/map/mg_map_catalog.dart';
 
 void main() {
   test(

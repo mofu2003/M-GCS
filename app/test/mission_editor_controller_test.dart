@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/application/connection_models.dart';
 import 'package:mgcs/application/connection_session_backend.dart';
 import 'package:mgcs/application/mission_models.dart';
-import 'package:mgcs/features/mission/mission_editor_controller.dart';
+import 'package:mgcs/presentation/controllers/mission_editor_controller.dart';
 
 void main() {
   test('editor supports add, reorder, validate and remove', () {

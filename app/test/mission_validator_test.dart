@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/application/mission_models.dart';
-import 'package:mgcs/features/mission/mission_validator.dart';
+import 'package:mgcs/application/mission_validator.dart';
 
 MissionItemSnapshot waypoint({
   int sequence = 0,

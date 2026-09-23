@@ -10,11 +10,25 @@ final class PollingTask {
   Timer? _timer;
   bool _inFlight = false;
   bool _disposed = false;
+  bool _paused = false;
 
   void start({bool runImmediately = true}) {
-    if (_disposed || _timer != null) return;
+    if (_disposed || _paused || _timer != null) return;
     if (runImmediately) unawaited(runOnce());
     _timer = Timer.periodic(interval, (_) => unawaited(runOnce()));
+  }
+
+  void pause() {
+    if (_disposed) return;
+    _paused = true;
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  void resume({bool runImmediately = true}) {
+    if (_disposed) return;
+    _paused = false;
+    start(runImmediately: runImmediately);
   }
 
   Future<void> runOnce() async {

@@ -581,7 +581,11 @@ struct MavlinkAdapter::Impl {
     void handle_mag_cal_progress(const mavlink_message_t& m) {
         // Decode the fixed leading bytes directly so calibration progress
         // remains usable from the compact common wire representation.
-        if (m.len < 5) return;
+        // The compact fields below occupy payload bytes 12..16.  Reject
+        // truncated frames before touching them; malformed MAVLink frames can
+        // otherwise turn a protocol error into an out-of-bounds read.
+        constexpr uint8_t kCompactProgressMinLen = 17;
+        if (m.len < kCompactProgressMinLen) return;
         const auto* payload = reinterpret_cast<const uint8_t*>(m.payload64);
         MagCalibrationProgressInfo info{};
         info.system_id = m.sysid;

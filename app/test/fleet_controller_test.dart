@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/application/connection_models.dart';
 import 'package:mgcs/application/connection_session_backend.dart';
-import 'package:mgcs/application/fleet_controller.dart';
+import 'package:mgcs/presentation/controllers/fleet_controller.dart';
 import 'package:mgcs/application/fleet_models.dart';
 import 'package:mgcs/application/flight_control_models.dart';
 

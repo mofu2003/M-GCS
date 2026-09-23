@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mgcs/features/frontstage/frontstage_models.dart';
-import 'package:mgcs/features/map/mg_map_catalog.dart';
-import 'package:mgcs/ui/shell/mg_frontstage_shell_contract.dart';
-import 'package:mgcs/ui/skin/mg_skin_factory.dart';
+import 'package:mgcs/presentation/features/frontstage/frontstage_models.dart';
+import 'package:mgcs/presentation/features/map/mg_map_catalog.dart';
+import 'package:mgcs/presentation/ui/shell/mg_frontstage_shell_contract.dart';
+import 'package:mgcs/presentation/ui/skin/mg_skin_factory.dart';
 
 void main() {
   testWidgets('MacGlass frontstage uses full-map floating layout', (

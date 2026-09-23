@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:mgcs/application/demo_connection_session_backend.dart';
+import 'package:mgcs/infrastructure/demo/demo_connection_session_backend.dart';
 import 'package:mgcs/application/session_capabilities.dart';
 
 void main() {
