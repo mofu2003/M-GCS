@@ -11,6 +11,7 @@ class _ServoOutputPage extends StatefulWidget {
 
 class _ServoOutputPageState extends State<_ServoOutputPage> {
   final _scrollController = ScrollController();
+  bool _functionDescriptorsReloaded = false;
   late final List<ValueNotifier<int>> _outputValues = List.generate(
     16,
     (_) => ValueNotifier<int>(0),
@@ -26,6 +27,18 @@ class _ServoOutputPageState extends State<_ServoOutputPage> {
     );
     unawaited(_pollOutputs());
     _poller.start();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_reloadFunctionDescriptors());
+    });
+  }
+
+  Future<void> _reloadFunctionDescriptors() async {
+    if (_functionDescriptorsReloaded) return;
+    _functionDescriptorsReloaded = true;
+    await Future.wait([
+      for (var channel = 1; channel <= 16; channel++)
+        widget.controller.reloadDescriptor('SERVO${channel}_FUNCTION'),
+    ]);
   }
 
   @override
@@ -48,9 +61,8 @@ class _ServoOutputPageState extends State<_ServoOutputPage> {
   }
 
   Future<void> _pollOutputs() async {
-    final backend = widget.controller.backend;
-    if (backend is! ServoOutputSessionBackend) return;
-    final servoBackend = backend as ServoOutputSessionBackend;
+    final servoBackend = widget.controller.capabilities.servoOutputs;
+    if (servoBackend == null) return;
     try {
       final outputs = await servoBackend.loadServoOutputs();
       if (mounted) _publishOutputs(outputs);
@@ -124,7 +136,7 @@ class _ServoOutputTableHeader extends StatelessWidget {
   Widget build(BuildContext context) => const Row(
     children: [
       SizedBox(width: 74, child: _ServoTableLabel('通道')),
-      Expanded(flex: 3, child: _ServoTableLabel('功能')),
+      Expanded(flex: 3, child: _ServoTableLabel('电机功能')),
       SizedBox(width: 80, child: _ServoTableLabel('反向')),
       Expanded(child: _ServoTableLabel('实时 PWM')),
       SizedBox(width: 94, child: _ServoTableLabel('最小')),
@@ -183,7 +195,12 @@ class _ServoChannelRow extends StatelessWidget {
     final functionName = _name('FUNCTION');
     final function = parameters[functionName];
     final functionDescriptor = controller.descriptorFor(functionName);
-    final functionOptions = _distinctParameterOptions(functionDescriptor);
+    final functionValue = (_value('FUNCTION') ?? 0).round();
+    final functionOptions = _servoFunctionOptions(
+      functionDescriptor,
+      functionValue: functionValue,
+      liveOutput: output.value,
+    );
     final reversedName = _name('REVERSED');
     final reversed = parameters[reversedName];
     final min = _value('MIN') ?? 800;
@@ -226,7 +243,7 @@ class _ServoChannelRow extends StatelessWidget {
             child: function != null && functionOptions.length > 1
                 ? _MacParameterPicker(
                     key: ValueKey('mg-servo-$channel-function'),
-                    value: (_value('FUNCTION') ?? 0).round(),
+                    value: functionValue,
                     options: functionOptions,
                     enabled:
                         enabled && !(functionDescriptor?.readOnly ?? false),
@@ -308,6 +325,37 @@ class _ServoChannelRow extends StatelessWidget {
       ),
     );
   }
+}
+
+List<ParameterOption> _servoFunctionOptions(
+  ParameterDescriptor? descriptor, {
+  required int functionValue,
+  required int liveOutput,
+}) {
+  final options = _distinctParameterOptions(descriptor);
+  final hasCurrentValue = options.any(
+    (option) => option.value == functionValue,
+  );
+  final normalized = [
+    for (final option in options)
+      if (option.value == 0 && functionValue == 0 && liveOutput > 0)
+        ParameterOption(
+          value: option.value,
+          label: '未分配（PWM 活跃）',
+          description: option.description,
+        )
+      else
+        option,
+  ];
+  if (hasCurrentValue || functionValue == 0) return normalized;
+  return [
+    ...normalized,
+    ParameterOption(
+      value: functionValue,
+      label: '当前功能值 $functionValue',
+      description: '当前飞控返回的功能值，元数据暂未收录。',
+    ),
+  ];
 }
 
 class _ServoOutputIndicator extends StatelessWidget {
@@ -471,12 +519,18 @@ class _ServoNumberFieldState extends State<_ServoNumberField> {
               focusNode: _focusNode,
               enabled: widget.enabled,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                color: MacGlassTokens.ink,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
               keyboardType: const TextInputType.numberWithOptions(),
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 11),
               decoration: const BoxDecoration(
-                color: Color(0xfff2f2f7),
-                borderRadius: BorderRadius.all(Radius.circular(7)),
+                color: MacGlassTokens.controlFill,
+                borderRadius: BorderRadius.all(
+                  Radius.circular(MacGlassTokens.radiusControl),
+                ),
               ),
               onSubmitted: (_) => _commit(),
             ),

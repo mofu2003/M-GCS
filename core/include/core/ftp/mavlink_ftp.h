@@ -70,6 +70,12 @@ public:
                        FtpProgressCallback progress_cb = nullptr,
                        FtpResult* result = nullptr);
 
+    bool upload_file(uint8_t target_sys, uint8_t target_comp,
+                     const std::string& local_path,
+                     const std::string& remote_path,
+                     FtpProgressCallback progress_cb = nullptr,
+                     FtpResult* result = nullptr);
+
     /// 处理收到的 FILE_TRANSFER_PROTOCOL 消息
     /// 在 MavlinkAdapter 的 process() 中调用
     void handle_ftp_message(const mavlink_file_transfer_protocol_t& ftp);

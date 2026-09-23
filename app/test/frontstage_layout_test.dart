@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/features/frontstage/frontstage_models.dart';
 import 'package:mgcs/features/map/mg_map_catalog.dart';
+import 'package:mgcs/ui/shell/mg_frontstage_shell_contract.dart';
 import 'package:mgcs/ui/skin/mg_skin_factory.dart';
 
 void main() {
@@ -15,15 +16,19 @@ void main() {
       MaterialApp(
         theme: skin.themeData,
         home: skin.buildFrontstageShell(
-          model: FrontstageModel.demoDisconnected(),
-          onConnectPressed: () {},
-          onDisconnectPressed: () {},
-          onNavigationPressed: (_) {},
-          onConnectionTransportChanged: (_) {},
-          mapStyle: MgMapStyle.standard,
-          onMapStyleChanged: (style) {
-            selectedMapStyle = style;
-          },
+          model: MgFrontstageShellModel(
+            frontstage: FrontstageModel.demoDisconnected(),
+            mapStyle: MgMapStyle.standard,
+          ),
+          actions: MgFrontstageShellActions(
+            onConnect: () {},
+            onDisconnect: () {},
+            onNavigation: (_) {},
+            onTransportChanged: (_) {},
+            onMapStyleChanged: (style) {
+              selectedMapStyle = style;
+            },
+          ),
         ),
       ),
     );

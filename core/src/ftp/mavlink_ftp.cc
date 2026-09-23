@@ -417,4 +417,108 @@ bool MavlinkFtpClient::download_file(
     return true;
 }
 
+bool MavlinkFtpClient::upload_file(
+        uint8_t target_sys,
+        uint8_t target_comp,
+        const std::string& local_path,
+        const std::string& remote_path,
+        FtpProgressCallback progress_cb,
+        FtpResult* result) {
+    if (result != nullptr) *result = {};
+    if (is_busy()) {
+        if (result != nullptr) result->error = "FTP busy";
+        return false;
+    }
+    if (remote_path.empty() || remote_path.size() > kMaxReadSize) {
+        if (result != nullptr) result->error = "invalid remote path";
+        return false;
+    }
+
+    std::ifstream input(local_path, std::ios::binary | std::ios::ate);
+    if (!input) {
+        if (result != nullptr) result->error = "open local file failed";
+        return false;
+    }
+    const auto end = input.tellg();
+    if (end < 0 || static_cast<uint64_t>(end) > std::numeric_limits<uint32_t>::max()) {
+        if (result != nullptr) result->error = "local file too large";
+        return false;
+    }
+    const uint32_t file_size = static_cast<uint32_t>(end);
+    input.seekg(0, std::ios::beg);
+
+    state_ = FtpState::Uploading;
+    cancelled_ = false;
+    session_ = 0;
+    auto finish_failure = [&](const std::string& error,
+                              uint8_t error_code = 0) {
+        state_ = FtpState::Idle;
+        if (result != nullptr) {
+            result->success = false;
+            result->error = error;
+            result->error_code = error_code;
+        }
+        return false;
+    };
+
+    mavlink_file_transfer_protocol_t response{};
+    request_response(target_sys, target_comp, kOpResetSessions, 0, 0, 0,
+                     nullptr, &response, 0, 1000);
+    const auto* path_data = reinterpret_cast<const uint8_t*>(remote_path.data());
+    if (!request_response(target_sys, target_comp, kOpCreateFile, 0, 0,
+                          static_cast<uint8_t>(remote_path.size()), path_data,
+                          &response)) {
+        return finish_failure(cancelled_.load() ? "cancelled" : "create timeout");
+    }
+    const uint8_t* payload = response.payload;
+    if (payload[3] == kRspNak) {
+        const uint8_t error_code = payload[4] >= 1 ? payload[kFtpHeaderSize] : kResultFail;
+        return finish_failure("create rejected", error_code);
+    }
+    if (payload[3] != kRspAck) return finish_failure("invalid create response");
+    session_ = payload[2];
+
+    uint32_t offset = 0;
+    std::array<uint8_t, kMaxReadSize> chunk{};
+    while (offset < file_size && !cancelled_.load()) {
+        const uint32_t remaining = file_size - offset;
+        const uint8_t chunk_size = static_cast<uint8_t>(
+            std::min<uint32_t>(kMaxReadSize, remaining));
+        input.read(reinterpret_cast<char*>(chunk.data()), chunk_size);
+        if (input.gcount() != chunk_size) {
+            request_response(target_sys, target_comp, kOpTerminateSession,
+                             session_, 0, 0, nullptr, &response, 0, 1000);
+            return finish_failure("read local file failed");
+        }
+        if (!request_response(target_sys, target_comp, kOpWriteFile, session_,
+                              offset, chunk_size, chunk.data(), &response)) {
+            request_response(target_sys, target_comp, kOpTerminateSession,
+                             session_, 0, 0, nullptr, &response, 0, 1000);
+            return finish_failure(cancelled_.load() ? "cancelled" : "write timeout");
+        }
+        payload = response.payload;
+        if (payload[3] == kRspNak) {
+            const uint8_t error_code = payload[4] >= 1 ? payload[kFtpHeaderSize] : kResultFail;
+            request_response(target_sys, target_comp, kOpTerminateSession,
+                             session_, 0, 0, nullptr, &response, 0, 1000);
+            return finish_failure("write rejected", error_code);
+        }
+        if (payload[3] != kRspAck) {
+            request_response(target_sys, target_comp, kOpTerminateSession,
+                             session_, 0, 0, nullptr, &response, 0, 1000);
+            return finish_failure("invalid write response");
+        }
+        offset += chunk_size;
+        if (progress_cb) progress_cb(offset, file_size);
+    }
+    if (cancelled_.load()) return finish_failure("cancelled");
+
+    request_response(target_sys, target_comp, kOpTerminateSession, session_,
+                     0, 0, nullptr, &response, 0, 1000);
+    session_ = 0;
+    state_ = FtpState::Idle;
+    if (result != nullptr) result->success = true;
+    return true;
+}
+
 } // namespace mg::core::ftp

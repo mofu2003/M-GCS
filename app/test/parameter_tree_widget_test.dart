@@ -74,25 +74,28 @@ void main() {
     expect(secondCategory.style?.fontFamily, isNull);
     expect(secondCategory.style?.color, MacGlassTokens.ink);
 
+    final leaf = tester.widget<Text>(
+      find.byKey(const ValueKey('mg-parameter-tree-leaf-ATC_RAT_RLL_I')),
+    );
+    expect(leaf.style?.fontFamily, 'monospace');
+    expect(leaf.style?.fontSize, 11.5);
+
     await tester.tap(
-      find.byKey(const ValueKey('mg-parameter-tree-select-ATC_')),
+      find.byKey(const ValueKey('mg-parameter-tree-toggle-ATC_')),
     );
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('mg-parameter-tree-branch-ATC_RAT_')),
       findsNothing,
     );
-    expect(find.text('本分类全部参数'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('mg-parameter-tree-leaf-ATC_RAT_RLL_I')),
+      findsNothing,
+    );
     expect(
       tester.widget<Text>(find.text('ATC').first).style?.color,
       MacGlassTokens.blue,
     );
-
-    final leaf = tester.widget<Text>(
-      find.byKey(const ValueKey('mg-parameter-tree-leaf-ATC_RAT_RLL_I')),
-    );
-    expect(leaf.style?.fontFamily, 'monospace');
-    expect(leaf.style?.fontSize, 11.5);
   });
 
   testWidgets('PID page infers the Copter layout from downloaded parameters', (
@@ -127,8 +130,30 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('mg-backstage-pid-tuning')));
     await tester.pumpAndSettle();
 
-    expect(find.text('多旋翼控制器'), findsOneWidget);
-    expect(find.text('角速度内环'), findsWidgets);
+    expect(find.text('多旋翼姿态控制'), findsOneWidget);
+    expect(find.byKey(const ValueKey('mg-pid-copter-page')), findsOneWidget);
+    expect(find.text('角速率控制'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('mg-pid-copter-rate-roll')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('mg-pid-copter-rate-pitch')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('mg-pid-copter-rate-yaw')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('mg-pid-stepper-ATC_RAT_RLL_P-increment')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('mg-pid-stepper-ATC_RAT_RLL_P-increment')),
+    );
+    await tester.pumpAndSettle();
+    expect(parameterController.stagedChanges, isEmpty);
     expect(find.text('固定翼控制器'), findsNothing);
     expect(find.text('固定翼轴速率'), findsNothing);
   });
@@ -264,13 +289,14 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('mg-backstage-servo-outputs')));
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('舵机输出'), findsOneWidget);
+    expect(find.text('电机输出'), findsOneWidget);
     expect(find.text('读取'), findsNothing);
     expect(find.text('最小'), findsAtLeastNWidgets(1));
     expect(find.text('中位'), findsAtLeastNWidgets(1));
     expect(find.text('最大'), findsAtLeastNWidgets(1));
     expect(find.text('微调'), findsNothing);
     expect(find.byKey(const ValueKey('mg-servo-channel-1')), findsOneWidget);
+    expect(find.text('33 · 电机 1'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('mg-servo-channel-16')),
       300,
@@ -353,7 +379,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('mg-backstage-serial-ports')));
     await tester.pumpAndSettle();
 
-    expect(find.text('串口配置'), findsAtLeastNWidgets(1));
+    expect(find.text('端口配置'), findsAtLeastNWidgets(1));
     expect(find.text('2 个可用串口 · 修改后立即写入飞控'), findsOneWidget);
     expect(find.byKey(const ValueKey('mg-serial-port-0')), findsOneWidget);
     expect(find.byKey(const ValueKey('mg-serial-port-1')), findsNothing);
@@ -363,6 +389,24 @@ void main() {
     expect(find.text('读取'), findsNothing);
     expect(find.text('57 · 57600'), findsNothing);
     expect(find.text('57600'), findsOneWidget);
+
+    final protocolRect = tester.getRect(
+      find.byKey(const ValueKey('mg-serial-2-protocol')),
+    );
+    final baudRect = tester.getRect(
+      find.byKey(const ValueKey('mg-serial-2-baud')),
+    );
+    final optionsRect = tester.getRect(
+      find.byKey(const ValueKey('mg-serial-2-options')),
+    );
+    expect(protocolRect.center.dy, baudRect.center.dy);
+    expect(protocolRect.right, lessThan(baudRect.left));
+    expect(optionsRect.top - baudRect.bottom, closeTo(18, 0.1));
+    expect(
+      tester.getSize(find.byKey(const ValueKey('mg-serial-port-2'))).height,
+      lessThanOrEqualTo(176),
+    );
+    expect(tester.takeException(), isNull);
 
     await tester.tap(find.byKey(const ValueKey('mg-serial-2-flow-control')));
     await tester.pumpAndSettle();
@@ -438,8 +482,8 @@ void main() {
     expect(find.text('遥控配置'), findsOneWidget);
     expect(find.text('通道映射'), findsOneWidget);
     expect(find.text('摇杆校准'), findsOneWidget);
-    expect(find.text('飞行模式通道'), findsOneWidget);
-    expect(find.text('其他通道开关选项'), findsOneWidget);
+    expect(find.text('飞行模式'), findsOneWidget);
+    expect(find.text('RC 通道功能'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('mg-remote-flight-mode-5')),
       findsOneWidget,

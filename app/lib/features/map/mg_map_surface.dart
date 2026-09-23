@@ -6,10 +6,25 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'mg_map_catalog.dart';
+import 'mg_coordinate_transform.dart';
 import 'mg_device_locator.dart';
 
 const LatLng mgDefaultMapCenter = LatLng(31.2304, 121.4737);
 const double mgDefaultMapZoom = 12;
+
+final class MgMapMissionPoint {
+  const MgMapMissionPoint({
+    required this.latitude,
+    required this.longitude,
+    required this.sequence,
+    this.current = false,
+  });
+
+  final double latitude;
+  final double longitude;
+  final int sequence;
+  final bool current;
+}
 
 typedef MgLocationResolver = Future<LatLng?> Function();
 
@@ -18,12 +33,18 @@ final class MgMapSurface extends StatefulWidget {
     required this.style,
     required this.controller,
     this.locationResolver,
+    this.missionPoints = const [],
+    this.onMapSecondaryTap,
+    this.onMissionPointTap,
     super.key,
   });
 
   final MgMapStyle style;
   final MapController controller;
   final MgLocationResolver? locationResolver;
+  final List<MgMapMissionPoint> missionPoints;
+  final ValueChanged<LatLng>? onMapSecondaryTap;
+  final ValueChanged<int>? onMissionPointTap;
 
   @override
   State<MgMapSurface> createState() => _MgMapSurfaceState();
@@ -47,7 +68,11 @@ final class _MgMapSurfaceState extends State<MgMapSurface> {
     if (!mounted || location == null) {
       return;
     }
-    widget.controller.move(location, widget.controller.camera.zoom);
+    final source = MgMapCatalog.sourceFor(widget.style);
+    widget.controller.move(
+      mgCoordinateForMap(location, source.coordinateSystem),
+      widget.controller.camera.zoom,
+    );
   }
 
   @override
@@ -66,14 +91,61 @@ final class _MgMapSurfaceState extends State<MgMapSurface> {
             minZoom: 3,
             maxZoom: 19,
             onMapReady: _handleMapReady,
+            onSecondaryTap: (tapPosition, point) {
+              widget.onMapSecondaryTap?.call(point);
+            },
           ),
           children: [
             TileLayer(
               urlTemplate: source.urlTemplate,
               fallbackUrl: source.fallbackUrlTemplate,
+              subdomains: source.subdomains,
               maxNativeZoom: source.maxNativeZoom,
               userAgentPackageName: 'com.mgcs.app',
             ),
+            if (source.overlay case final overlay?)
+              TileLayer(
+                urlTemplate: overlay.urlTemplate,
+                fallbackUrl: overlay.fallbackUrlTemplate,
+                subdomains: overlay.subdomains,
+                maxNativeZoom: overlay.maxNativeZoom,
+                userAgentPackageName: 'com.mgcs.app',
+              ),
+            if (widget.missionPoints.length > 1)
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: [
+                      for (final point in widget.missionPoints)
+                        mgCoordinateForMap(
+                          LatLng(point.latitude, point.longitude),
+                          source.coordinateSystem,
+                        ),
+                    ],
+                    color: const Color(0xff1769ff),
+                    strokeWidth: 3,
+                  ),
+                ],
+              ),
+            if (widget.missionPoints.isNotEmpty)
+              MarkerLayer(
+                markers: [
+                  for (final point in widget.missionPoints)
+                    Marker(
+                      point: mgCoordinateForMap(
+                        LatLng(point.latitude, point.longitude),
+                        source.coordinateSystem,
+                      ),
+                      width: 42,
+                      height: 42,
+                      child: _MissionMarker(
+                        point: point,
+                        onTap: () =>
+                            widget.onMissionPointTap?.call(point.sequence),
+                      ),
+                    ),
+                ],
+              ),
           ],
         ),
         Positioned(
@@ -102,6 +174,36 @@ final class _MgMapSurfaceState extends State<MgMapSurface> {
       ],
     );
   }
+}
+
+final class _MissionMarker extends StatelessWidget {
+  const _MissionMarker({required this.point, this.onTap});
+
+  final MgMapMissionPoint point;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: point.current ? const Color(0xff1769ff) : Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xff1769ff), width: 2),
+        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+      ),
+      child: Center(
+        child: Text(
+          '${point.sequence + 1}',
+          style: TextStyle(
+            color: point.current ? Colors.white : const Color(0xff1769ff),
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 final class _MgMapFallbackBackground extends StatelessWidget {

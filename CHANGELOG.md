@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.0.4 - 2026-09-23
+
+### Added
+
+- Capability-based application contracts for mission planning, geofence/Rally, flight logs, MAVLink FTP files, fleet management, and flight control.
+- Mission editor support for local waypoint creation, map-coordinate waypoint insertion, validation, JSON/CSV export, and mission transfer progress.
+- Flight Logs page with onboard storage browsing, file selection, download progress, cancellation, and upload progress.
+- Fleet controller and frontstage vehicle panel for vehicle discovery, active-vehicle selection, batch arm/disarm, mode changes, RTL, landing, per-vehicle results, and active-vehicle restoration.
+- Geofence and Rally workflows with validation plus JSON/KML import and export.
+- Chinese/English localization catalogs, generated localization bindings, and localization contract tests.
+- MacGlass shell contracts and shared frontstage models so the visual shell can be replaced without rewriting application logic.
+
+### Changed
+
+- Bumped MgCore and Flutter application versions to `0.0.4` (build `4`).
+- Improved connection/session handling, parameter-session isolation, telemetry polling, and reconnect/disconnect behavior.
+- Extended MAVLink FTP and logging FFI paths for onboard file listing, upload, download, cancellation, and progress reporting.
+- Raised the macOS deployment target to 12.0 to match the current Flutter/Xcode toolchain baseline.
+- Expanded the regression suite to cover fleet control, mission editing/validation, localization, coordinate conversion, parameter synchronization, vehicle files, and session capabilities.
+
+### Verification
+
+- Flutter static analysis: passed with no issues.
+- Flutter tests: 114 passed.
+- macOS debug build: `mgcs.app` built successfully.
+- Native CTest offline/simulation gate: 29/29 passed.
+
+### Known limitations
+
+- Native multi-vehicle batch commands still route through the active-vehicle selection as a compatibility bridge; a future explicit `vehicle_id` command target would remove this temporary coupling.
+- Camera, gimbal, and video FFI primitives are present but are not yet exposed as complete Flutter workflows.
+- Mission command coverage, log analysis/replay, offline map packages, firmware flashing, mobile packaging, and real-hardware write-operation acceptance remain future work.
+
 ## 0.0.3 - 2026-09-10
 
 ### Added

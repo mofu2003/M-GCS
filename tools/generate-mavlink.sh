@@ -5,9 +5,9 @@ root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python_bin="${PYTHON_BIN:-python3}"
 venv_dir="${MGCS_VENV_DIR:-$root_dir/.venv}"
 output_dir="${MAVLINK_OUTPUT_DIR:-$root_dir/third_party/mavlink/include/mavlink/v2.0}"
-common_header="$output_dir/common/mavlink.h"
+required_header="$output_dir/ardupilotmega/mavlink.h"
 
-if [[ -f "$common_header" ]]; then
+if [[ -f "$required_header" ]]; then
   exit 0
 fi
 

@@ -6,6 +6,7 @@
 #include "core/core_status.h"
 #include "core/mission/mission_types.h"
 #include "core/firmware/firmware_adapter.h"
+#include "core/ftp/mavlink_ftp.h"
 #include <functional>
 #include <memory>
 #include <cstdint>
@@ -413,7 +414,10 @@ public:
     ~MavlinkAdapter();
 
     // 喂入原始字节流进行 MAVLink 解析
-    void feed_raw(const uint8_t* data, size_t size);
+    /// Feed raw bytes and return whether at least one valid MAVLink frame was parsed.
+    /// The return value lets the connection watchdog distinguish real protocol
+    /// traffic from random bytes/noise on a serial or UDP transport.
+    bool feed_raw(const uint8_t* data, size_t size);
     // 设置底层发送回调
     void set_send_callback(SendCallback cb);
 
@@ -587,6 +591,19 @@ public:
 
     /// 检查日志下载是否正在进行
     bool log_download_active() const;
+
+    struct LogDownloadStatus {
+        bool active = false;
+        bool completed = false;
+        bool cancelled = false;
+        uint16_t id = 0;
+        uint32_t received_bytes = 0;
+        uint32_t total_bytes = 0;
+        std::string filepath;
+        std::string error;
+    };
+
+    LogDownloadStatus log_download_status();
     /// 开始执行任务（MAV_CMD_MISSION_START）
     bool mission_start(uint8_t target_system, uint8_t target_component);
 
@@ -802,6 +819,20 @@ public:
                        const std::string& local_path,
                        std::string* error = nullptr);
 
+    bool upload_file(uint8_t target_system, uint8_t target_component,
+                     const std::string& local_path,
+                     const std::string& remote_path,
+                     std::string* error = nullptr);
+
+    /// List a directory on the vehicle's MAVLink FTP filesystem.
+    std::vector<mg::core::ftp::DirEntry> list_directory(
+        uint8_t target_system, uint8_t target_component,
+        const std::string& remote_path,
+        std::string* error = nullptr);
+
+    /// Cancel an active MAVLink FTP operation.
+    void cancel_file_transfer();
+
 private:
     struct Impl;  // PIMPL 模式，隐藏实现细节
     std::unique_ptr<Impl> impl_;
@@ -818,9 +849,4 @@ private:
 };
 
 } // namespace mg::core::mavlink
-
-
-
-
-
 

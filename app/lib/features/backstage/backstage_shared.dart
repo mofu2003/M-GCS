@@ -1,23 +1,64 @@
 part of 'backstage_page.dart';
 
-class _GlassPanel extends StatelessWidget {
-  const _GlassPanel({required this.child, this.radius = 8, this.blur = false});
-  final Widget child;
-  final double radius;
-  final bool blur;
+class _BackstageAtmosphere extends StatelessWidget {
+  const _BackstageAtmosphere();
 
   @override
-  Widget build(BuildContext context) {
-    final panel = DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xfffbfbfd),
-        border: Border.all(color: const Color(0xffd1d1d6)),
-        borderRadius: BorderRadius.circular(radius),
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      Positioned(
+        top: -150,
+        right: -80,
+        child: _AtmosphereOrb(
+          size: 430,
+          color: MacGlassTokens.blue.withValues(alpha: 0.10),
+        ),
       ),
-      child: Material(type: MaterialType.transparency, child: child),
-    );
-    return ClipRRect(borderRadius: BorderRadius.circular(radius), child: panel);
-  }
+      Positioned(
+        bottom: -190,
+        left: -110,
+        child: _AtmosphereOrb(
+          size: 520,
+          color: const Color(0xff8c79ff).withValues(alpha: 0.08),
+        ),
+      ),
+      Positioned(
+        top: 230,
+        left: 280,
+        child: _AtmosphereOrb(
+          size: 240,
+          color: const Color(0xff48c5b0).withValues(alpha: 0.045),
+        ),
+      ),
+    ],
+  );
+}
+
+class _AtmosphereOrb extends StatelessWidget {
+  const _AtmosphereOrb({required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+    child: SizedBox(width: size, height: size),
+  );
+}
+
+class _GlassPanel extends StatelessWidget {
+  const _GlassPanel({required this.child, this.radius = 18});
+  final Widget child;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) => MacGlassSurface(
+    radius: radius,
+    emphasis: MacGlassSurfaceEmphasis.strong,
+    child: child,
+  );
 }
 
 /// Reusable configuration-module surface for the backstage setting pages.
@@ -27,14 +68,8 @@ class _BackstageFeatureCard extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: const Color(0xfff7f7f9),
-      border: Border.all(color: MacGlassTokens.ink.withValues(alpha: 0.10)),
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Material(type: MaterialType.transparency, child: child),
-  );
+  Widget build(BuildContext context) =>
+      MacGlassSurface(radius: MacGlassTokens.radiusCard, child: child);
 }
 
 class _BackstageHeader extends StatelessWidget {
@@ -56,8 +91,7 @@ class _BackstageHeader extends StatelessWidget {
   final VoidCallback? onReviewWrite;
   @override
   Widget build(BuildContext context) => _GlassPanel(
-    radius: MacGlassTokens.radiusPanel,
-    blur: true,
+    radius: MacGlassTokens.radiusLarge,
     child: SizedBox(
       key: const ValueKey('mg-backstage-header'),
       height: MacGlassTokens.topBarHeight,
@@ -124,8 +158,8 @@ class _CommandButton extends StatelessWidget {
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
     minimumSize: const Size(0, 34),
     borderRadius: BorderRadius.circular(7),
-    color: const Color(0xfff2f2f7),
-    disabledColor: const Color(0xfff2f2f7),
+    color: Colors.white.withValues(alpha: 0.58),
+    disabledColor: Colors.white.withValues(alpha: 0.28),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [

@@ -22,6 +22,14 @@
 
 namespace mg::core::transport {
 
+namespace {
+// A flight-control link should become visibly disconnected quickly enough for
+// the operator to react, while allowing normal short serial/UDP jitter.
+constexpr auto kEstablishedTrafficTimeout = std::chrono::seconds(5);
+constexpr int kWatchdogPeriodSeconds = 1;
+constexpr int kInitialHeartbeatTimeoutSeconds = 10;
+}
+
 ConnectionManager::ConnectionManager() = default;
 
 ConnectionManager::~ConnectionManager() {
@@ -84,7 +92,7 @@ void ConnectionManager::start_watchdog() {
             // Wake immediately when disconnect/reset stops the watchdog.
             {
                 mg::core::platform::UniqueLock lk(watchdog_mtx_);
-                watchdog_cv_.wait_for(lk, std::chrono::seconds(1), [this] {
+                watchdog_cv_.wait_for(lk, std::chrono::seconds(kWatchdogPeriodSeconds), [this] {
                     return !watchdog_running_.load();
                 });
             }
@@ -93,13 +101,31 @@ void ConnectionManager::start_watchdog() {
             // 首次心跳仍是连接身份确认的必要条件。确认后，只要仍有有效
             // MAVLink 数据流就不应因为心跳短暂抖动断开，例如参数全量同步
             // 期间串口拥塞时仍会持续收到 PARAM_VALUE/遥测数据。
-            if (state_.load() == ConnectionState::Connected) {
+            const auto current_state = state_.load();
+            bool link_open = true;
+            {
+                mg::core::platform::LockGuard lk(link_mtx_);
+                link_open = link_ptr && link_ptr->is_open();
+            }
+
+            if (!link_open &&
+                (current_state == ConnectionState::Connected ||
+                 current_state == ConnectionState::WaitingHeartbeat)) {
+                transition_to(ConnectionState::HeartbeatLost, "transport closed");
+                reset();
+                break;
+            }
+
+            if (current_state == ConnectionState::Connected) {
                 const uint64_t activity = last_activity_ms_.load();
                 const uint64_t now = static_cast<uint64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now().time_since_epoch()).count());
-                if (activity == 0 || now - activity > 15000) {
-                    transition_to(ConnectionState::HeartbeatLost, "no MAVLink traffic (15s)");
+                const auto timeout_ms = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        kEstablishedTrafficTimeout).count());
+                if (activity == 0 || now - activity > timeout_ms) {
+                    transition_to(ConnectionState::HeartbeatLost, "no valid MAVLink traffic (5s)");
                     // A disconnected GCS session must return to a clean state. The UI
                     // presents an explicit reconnect action instead of silently reusing
                     // a stale transport.
@@ -108,8 +134,8 @@ void ConnectionManager::start_watchdog() {
                 }
             }
             // 首包心跳等待超过 10 秒时，判定连接失败。
-            else if (state_.load() == ConnectionState::WaitingHeartbeat) {
-                if (++wait_count >= 10) {
+            else if (current_state == ConnectionState::WaitingHeartbeat) {
+                if (++wait_count >= kInitialHeartbeatTimeoutSeconds) {
                     transition_to(ConnectionState::HeartbeatLost, "no heartbeat received (10s)");
                     // No heartbeat was ever received, so automatic reconnect has no
                     // established vehicle session to preserve. Return to a clean state.
@@ -284,8 +310,8 @@ void ConnectionManager::wire_callbacks() {
 
     link_ptr->set_receive_callback(
         [this, mav = mavlink_ptr.get()](const uint8_t* data, size_t size) {
-            mav->feed_raw(data, size);
-            if (size > 0 && state_.load() == ConnectionState::Connected) {
+            const bool parsed_frame = mav->feed_raw(data, size);
+            if (parsed_frame && state_.load() == ConnectionState::Connected) {
                 record_activity();
             }
         });

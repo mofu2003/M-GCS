@@ -17,6 +17,7 @@
 #include "core/log/logging.h"
 
 #ifndef _WIN32
+#include <cerrno>
 #include <chrono>
 #include <fcntl.h>
 #include <termios.h>
@@ -200,7 +201,11 @@ void SerialLink::join_read_thread() {
 
 // 关闭串口，停止读取线程并释放句柄
 void SerialLink::close() {
-    if (!opened_.load()) return;
+#ifdef _WIN32
+    if (!opened_.load() && read_thread_ == nullptr && handle_ == INVALID_HANDLE_VALUE) return;
+#else
+    if (!opened_.load() && !read_thread_.joinable() && fd_ < 0) return;
+#endif
 
     // 通知读取线程停止
     stop_requested_.store(true);
@@ -288,6 +293,7 @@ DWORD WINAPI SerialLink::read_thread_proc(LPVOID lpParam) {
                 break;
             }
             // 真实错误，也退出
+            self->opened_.store(false);
             break;
         }
         // result==true 但 bytes_read==0 表示无数据可用（非阻塞模式）
@@ -295,6 +301,10 @@ DWORD WINAPI SerialLink::read_thread_proc(LPVOID lpParam) {
         if (result && bytes_read == 0) {
             Sleep(10);
         }
+    }
+
+    if (!self->stop_requested_.load()) {
+        self->opened_.store(false);
     }
 
     return 0;
@@ -312,9 +322,23 @@ void SerialLink::read_thread_proc(SerialLink* self) {
                 cb_copy = self->receive_cb_;
             }
             if (cb_copy) cb_copy(buffer, static_cast<size_t>(bytes_read));
-        } else {
+        } else if (bytes_read == 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        } else {
+            // EAGAIN/EINTR are transient; other errors usually mean that a
+            // USB-serial device was removed or the descriptor became invalid.
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+                continue;
+            }
+            if (!self->stop_requested_.load()) {
+                MGC_LOG_ERROR("[SerialLink] Read error: %d", errno);
+            }
+            break;
         }
+    }
+
+    if (!self->stop_requested_.load()) {
+        self->opened_.store(false);
     }
 }
 #endif

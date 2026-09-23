@@ -3,6 +3,7 @@ build/
 build-vs/
 build_test/
 build_check/
+build_mgcore_check/
 build_desktop/
 build_desktop_tests/
 build_docker/

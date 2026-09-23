@@ -67,8 +67,8 @@ class _SerialPortConfigPageState extends State<_SerialPortConfigPage> {
         !widget.controller.canEdit) {
       return;
     }
-    final backend = widget.controller.backend;
-    if (backend is! SerialHardwareSessionBackend) {
+    final backend = widget.controller.capabilities.serialHardware;
+    if (backend == null) {
       _hardwareRequested = true;
       setState(() => _hardwareError = '当前连接后端不支持硬件串口映射');
       return;
@@ -79,8 +79,7 @@ class _SerialPortConfigPageState extends State<_SerialPortConfigPage> {
       _hardwareError = null;
     });
     unawaited(
-      (backend as SerialHardwareSessionBackend)
-          .loadSerialPortHardware()
+      backend.loadSerialPortHardware()
           .then((items) {
             if (!mounted) return;
             setState(() {
@@ -277,110 +276,42 @@ class _SerialPortConfigurationPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final showHardware = hardware.isNotEmpty;
-    return _BackstageFeatureCard(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('串口配置', style: MacGlassTypography.sectionTitle),
-            const SizedBox(height: 14),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final metrics = _SerialTableMetrics(showHardware: showHardware);
-                return SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SizedBox(
-                    width: metrics.totalWidth,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _SerialPortTableHeader(metrics: metrics),
-                        const Divider(height: 18),
-                        for (var index = 0; index < ports.length; index++) ...[
-                          _SerialPortRow(
-                            key: ValueKey('mg-serial-port-${ports[index]}'),
-                            port: ports[index],
-                            parameters: parameters,
-                            staged: staged,
-                            hardware: hardware[ports[index]],
-                            metrics: metrics,
-                            controller: controller,
-                            onWrite: onWrite,
-                            onProtocolChanged: onProtocolChanged,
-                          ),
-                          if (index < ports.length - 1)
-                            const Divider(height: 14),
-                        ],
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 760 ? 2 : 1;
+        final spacing = columns == 2 ? 14.0 : 10.0;
+        return GridView.builder(
+          key: const ValueKey('mg-serial-port-grid'),
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 12),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: spacing,
+            mainAxisSpacing: spacing,
+            // The protocol and baud-rate controls share one row. Keep the
+            // card compact so the old second-row height is not left as a
+            // blank spacer above the divider.
+            mainAxisExtent: 176,
+          ),
+          itemCount: ports.length,
+          itemBuilder: (context, index) {
+            final port = ports[index];
+            return _SerialPortRow(
+              key: ValueKey('mg-serial-port-$port'),
+              port: port,
+              parameters: parameters,
+              staged: staged,
+              hardware: hardware[port],
+              controller: controller,
+              onWrite: onWrite,
+              onProtocolChanged: onProtocolChanged,
+            );
+          },
+        );
+      },
     );
   }
-}
-
-class _SerialTableMetrics {
-  _SerialTableMetrics({required this.showHardware})
-    : port = 104,
-      hardware = showHardware ? 150 : 0,
-      protocol = 180,
-      baud = 150,
-      flow = 148,
-      options = 196;
-
-  final bool showHardware;
-  final double port;
-  final double hardware;
-  final double protocol;
-  final double baud;
-  final double flow;
-  final double options;
-
-  double get totalWidth => port + hardware + protocol + baud + flow + options;
-}
-
-class _SerialPortTableHeader extends StatelessWidget {
-  const _SerialPortTableHeader({required this.metrics});
-
-  final _SerialTableMetrics metrics;
-
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      SizedBox(width: metrics.port, child: const _SerialTableLabel('端口')),
-      if (metrics.showHardware)
-        SizedBox(
-          width: metrics.hardware,
-          child: const _SerialTableLabel('硬件接口'),
-        ),
-      SizedBox(width: metrics.protocol, child: const _SerialTableLabel('协议')),
-      SizedBox(width: metrics.baud, child: const _SerialTableLabel('波特率')),
-      SizedBox(
-        width: metrics.flow,
-        child: const _SerialTableLabel('CTS / RTS'),
-      ),
-      SizedBox(width: metrics.options, child: const _SerialTableLabel('线路选项')),
-    ],
-  );
-}
-
-class _SerialTableLabel extends StatelessWidget {
-  const _SerialTableLabel(this.label);
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => Text(
-    label,
-    textAlign: TextAlign.center,
-    style: MacGlassTypography.tableHeader,
-  );
 }
 
 class _SerialPortRow extends StatelessWidget {
@@ -389,7 +320,6 @@ class _SerialPortRow extends StatelessWidget {
     required this.parameters,
     required this.staged,
     required this.hardware,
-    required this.metrics,
     required this.controller,
     required this.onWrite,
     required this.onProtocolChanged,
@@ -400,7 +330,6 @@ class _SerialPortRow extends StatelessWidget {
   final Map<String, FlightControllerParameter> parameters;
   final Map<String, StagedParameterChange> staged;
   final SerialPortHardwareDescriptor? hardware;
-  final _SerialTableMetrics metrics;
   final ParameterController controller;
   final Future<bool> Function(String name, double value) onWrite;
   final Future<void> Function(int port, int protocol) onProtocolChanged;
@@ -442,114 +371,278 @@ class _SerialPortRow extends StatelessWidget {
           ]
         : const <ParameterOption>[];
 
-    return Row(
-      children: [
-        SizedBox(
-          width: metrics.port,
-          child: Text(
-            'SERIAL$port',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
-          ),
-        ),
-        if (metrics.showHardware)
-          SizedBox(
-            width: metrics.hardware,
-            child: _SerialHardwareLabel(hardware: hardware),
-          ),
-        SizedBox(
-          width: metrics.protocol,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: protocol != null && protocolOptions.isNotEmpty
-                ? _MacParameterPicker(
-                    key: ValueKey('mg-serial-$port-protocol'),
-                    value: protocol,
-                    options: protocolOptions,
-                    enabled: enabled,
-                    label: '',
-                    compact: true,
-                    inset: true,
-                    showValue: false,
-                    onChanged: (value) =>
-                        unawaited(onProtocolChanged(port, value)),
-                  )
-                : const _ServoUnavailableCell('无协议元数据'),
-          ),
-        ),
-        SizedBox(
-          width: metrics.baud,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: baud != null && baudOptions.isNotEmpty
-                ? _MacParameterPicker(
-                    key: ValueKey('mg-serial-$port-baud'),
-                    value: baud,
-                    options: baudOptions,
-                    enabled: enabled,
-                    label: '',
-                    compact: true,
-                    inset: true,
-                    centered: true,
-                    showValue: false,
-                    onChanged: (value) =>
-                        unawaited(onWrite(baudName, value.toDouble())),
-                  )
-                : const _ServoUnavailableCell('无波特率元数据'),
-          ),
-        ),
-        SizedBox(
-          width: metrics.flow,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: _SerialFlowControlPicker(
-              pickerKey: ValueKey('mg-serial-$port-flow-control'),
-              value: flowControl,
-              options: flowControlOptions,
-              enabled: enabled,
-              onChanged: (value) =>
-                  unawaited(onWrite(flowControlName, value.toDouble())),
-            ),
-          ),
-        ),
-        SizedBox(
-          width: metrics.options,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: optionValue != null && options.isNotEmpty
-                ? _SerialOptionsPicker(
-                    key: ValueKey('mg-serial-$port-options'),
-                    parameterName: optionsName,
-                    value: optionValue,
-                    options: options,
-                    enabled: enabled,
-                    onChanged: (value) =>
-                        unawaited(onWrite(optionsName, value.toDouble())),
-                  )
-                : const _ServoUnavailableCell('此端口无线路选项'),
-          ),
-        ),
-      ],
+    return _SerialPortCard(
+      port: port,
+      hardware: hardware,
+      protocol: protocol,
+      protocolOptions: protocolOptions,
+      baud: baud,
+      baudOptions: baudOptions,
+      optionValue: optionValue,
+      options: options,
+      optionsName: optionsName,
+      flowControl: flowControl,
+      flowControlOptions: flowControlOptions,
+      enabled: enabled,
+      onProtocolChanged: protocol == null || protocolOptions.isEmpty
+          ? null
+          : (value) => unawaited(onProtocolChanged(port, value)),
+      onBaudChanged: baud == null || baudOptions.isEmpty
+          ? null
+          : (value) => unawaited(onWrite(baudName, value.toDouble())),
+      onOptionsChanged: optionValue == null || options.isEmpty
+          ? null
+          : (value) => unawaited(onWrite(optionsName, value.toDouble())),
+      onFlowControlChanged: flowControl == null || flowControlOptions.isEmpty
+          ? null
+          : (value) => unawaited(onWrite(flowControlName, value.toDouble())),
     );
   }
 }
 
-class _SerialHardwareLabel extends StatelessWidget {
-  const _SerialHardwareLabel({required this.hardware});
+class _SerialPortCard extends StatelessWidget {
+  const _SerialPortCard({
+    required this.port,
+    required this.hardware,
+    required this.protocol,
+    required this.protocolOptions,
+    required this.baud,
+    required this.baudOptions,
+    required this.optionValue,
+    required this.options,
+    required this.optionsName,
+    required this.flowControl,
+    required this.flowControlOptions,
+    required this.enabled,
+    required this.onProtocolChanged,
+    required this.onBaudChanged,
+    required this.onOptionsChanged,
+    required this.onFlowControlChanged,
+  });
 
+  final int port;
   final SerialPortHardwareDescriptor? hardware;
+  final int? protocol;
+  final List<ParameterOption> protocolOptions;
+  final int? baud;
+  final List<ParameterOption> baudOptions;
+  final int? optionValue;
+  final List<ParameterOption> options;
+  final String optionsName;
+  final int? flowControl;
+  final List<ParameterOption> flowControlOptions;
+  final bool enabled;
+  final ValueChanged<int>? onProtocolChanged;
+  final ValueChanged<int>? onBaudChanged;
+  final ValueChanged<int>? onOptionsChanged;
+  final ValueChanged<int>? onFlowControlChanged;
 
   @override
   Widget build(BuildContext context) {
-    if (hardware == null) return const SizedBox.shrink();
-    return Text(
-      hardware!.name,
-      textAlign: TextAlign.center,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+    final hardwareName = hardware?.name.trim();
+    final hardwareLabel = hardwareName == null || hardwareName.isEmpty
+        ? '未映射'
+        : hardwareName;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: BackdropFilter(
+        filter: MacGlassTokens.strongBlur,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.48),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.78)),
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [MacGlassTokens.floatingShadow()],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'SERIAL$port',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: MacGlassTokens.blue.withValues(alpha: 0.13),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        child: Text(
+                          hardwareLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: hardwareName == null || hardwareName.isEmpty
+                                ? MacGlassTokens.muted
+                                : MacGlassTokens.blue,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          const _SerialFieldLabel('协议'),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child:
+                                protocol != null && protocolOptions.isNotEmpty
+                                ? _MacParameterPicker(
+                                    key: ValueKey('mg-serial-$port-protocol'),
+                                    value: protocol!,
+                                    options: protocolOptions,
+                                    enabled: enabled,
+                                    label: '',
+                                    compact: true,
+                                    inset: true,
+                                    showValue: false,
+                                    onChanged: onProtocolChanged ?? (_) {},
+                                  )
+                                : const _ServoUnavailableCell('无协议元数据'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          const _SerialFieldLabel('波特率'),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: baud != null && baudOptions.isNotEmpty
+                                ? _MacParameterPicker(
+                                    key: ValueKey('mg-serial-$port-baud'),
+                                    value: baud!,
+                                    options: baudOptions,
+                                    enabled: enabled,
+                                    label: '',
+                                    compact: true,
+                                    inset: true,
+                                    centered: true,
+                                    showValue: false,
+                                    onChanged: onBaudChanged ?? (_) {},
+                                  )
+                                : const _ServoUnavailableCell('无波特率元数据'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                Divider(
+                  height: 18,
+                  color: MacGlassTokens.ink.withValues(alpha: 0.08),
+                ),
+                Row(
+                  children: [
+                    if (optionValue != null && options.isNotEmpty)
+                      SizedBox(
+                        width: 126,
+                        child: _SerialOptionsPicker(
+                          key: ValueKey('mg-serial-$port-options'),
+                          parameterName: optionsName,
+                          value: optionValue!,
+                          options: options,
+                          enabled: enabled,
+                          onChanged: onOptionsChanged ?? (_) {},
+                        ),
+                      )
+                    else
+                      const _SerialOptionsButton(
+                        label: 'Options 0',
+                        enabled: false,
+                      ),
+                    if (flowControl != null &&
+                        flowControlOptions.isNotEmpty) ...[
+                      const Spacer(),
+                      const Text('CTS/RTS', style: MacGlassTypography.caption),
+                      const SizedBox(width: 7),
+                      SizedBox(
+                        width: 92,
+                        child: _SerialFlowControlPicker(
+                          pickerKey: ValueKey('mg-serial-$port-flow-control'),
+                          value: flowControl,
+                          options: flowControlOptions,
+                          enabled: enabled,
+                          onChanged: onFlowControlChanged ?? (_) {},
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
+}
+
+class _SerialFieldLabel extends StatelessWidget {
+  const _SerialFieldLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 44,
+    child: Text(
+      label,
+      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+    ),
+  );
+}
+
+class _SerialOptionsButton extends StatelessWidget {
+  const _SerialOptionsButton({required this.label, required this.enabled});
+
+  final String label;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: MacGlassTokens.ink.withValues(alpha: enabled ? 0.045 : 0.025),
+      border: Border.all(
+        color: MacGlassTokens.ink.withValues(alpha: enabled ? 0.075 : 0.04),
+      ),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: enabled ? MacGlassTokens.ink : MacGlassTokens.muted,
+          fontSize: 12.5,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ),
+  );
 }
 
 class _SerialFlowControlPicker extends StatelessWidget {
@@ -603,11 +696,7 @@ class _SerialOptionsPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selected = options
-        .where((option) => (value & option.value) != 0)
-        .map((option) => option.label)
-        .toList(growable: false);
-    final label = selected.isEmpty ? '无附加选项' : selected.join(' / ');
+    final label = 'Options $value';
     final menuHeight = (options.length * 42.0).clamp(42.0, 360.0);
     return MenuAnchor(
       style: MacGlassMenu.style(minimumWidth: 268),

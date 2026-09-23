@@ -2,20 +2,22 @@
 
 M-GCS 是面向 ArduPilot / PX4 生态的跨平台地面站，由 C++ 后端核心、C FFI 桥接层和 Flutter 前端组成。
 
-当前版本：`0.0.3`
+当前版本：`0.0.4`
 
 ## 当前状态
 
 - C++17 后端和 C FFI bridge 包含 macOS、Windows、Linux 实现，并提供离线、模拟、硬件和手动测试分层。
 - Flutter 已启用 macOS 和 Windows 桌面工程，业务 UI 通过应用契约调用 MgCore，不直接访问 MAVLink。
 - 前端已接入真实串口、TCP、UDP 连接、遥测、参数同步与参数读写；蓝牙目前仍未接入 Dart 应用层。
-- 后台已提供按飞控类型显示的机架类型配置页，覆盖 Copter 和 Plane/QuadPlane，并复用飞控参数元数据。
+- 应用层已按 capability contract 接入任务规划、围栏/Rally、飞行日志与 MAVLink FTP 文件浏览、上传下载、多机控制和基础飞行控制。
+- 后台已提供按飞控类型显示的机架类型、PID、电机输出、遥控、串口、安全和校准页面，并复用飞控参数元数据。
+- 前台和后台统一使用可替换的应用层模型与 MacGlass 皮肤；本地化资源使用中英文一一对应的 ARB 文件并有自动测试。
 - 连接抽屉已统一串口、TCP、UDP 和蓝牙入口的控件尺寸、标签层级与布局。
-- macOS 已完成真实 ArduPilot Copter 的只读连接验证；危险写操作不属于默认验收范围。
+- macOS 已完成真实 ArduPilot Copter 的只读连接验证；危险写操作、多机批量控制和任务执行不属于默认验收范围。
 - 当前仓库未包含 MAVLink C 生成头；首次构建前需要按开发指南生成 `third_party/mavlink/include/mavlink/v2.0`。
 - Android 和 iOS 尚未恢复平台工程。macOS/Windows 桌面工程会在构建时嵌入 native library；Windows Release 包由 CI 持续构建，真实串口和飞控仍需单独验收。
 
-详细完成度和已知边界见 [项目状态](docs/PROJECT_STATUS.md)。
+详细完成度和已知边界见 [项目状态](docs/PROJECT_STATUS.md)，本版本变更见 [0.0.4 发布说明](docs/RELEASE_NOTES_0.0.4.md)。
 
 ## 目录
 

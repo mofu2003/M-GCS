@@ -216,7 +216,11 @@ void UdpLink::join_read_thread() {
 // ================================================================
 
 void UdpLink::close() {
-    if (!opened_.load()) return;
+#ifdef _WIN32
+    if (!opened_.load() && read_thread_ == nullptr && sock_ == MG_INVALID_SOCKET) return;
+#else
+    if (!opened_.load() && read_thread_ == 0 && sock_ == MG_INVALID_SOCKET) return;
+#endif
 
     stop_requested_.store(true);
     set_receive_callback(nullptr);
@@ -323,9 +327,14 @@ void* UdpLink::read_thread_proc(void* lpParam) {
 #endif
             if (!self->stop_requested_.load()) {
                 MGC_LOG_ERROR("[UdpLink] Recvfrom error: %d", err);
+                self->opened_.store(false);
             }
             break;
         }
+    }
+
+    if (!self->stop_requested_.load()) {
+        self->opened_.store(false);
     }
 
 #ifdef _WIN32

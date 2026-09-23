@@ -121,8 +121,7 @@ class _PidParameterPane extends StatefulWidget {
 }
 
 class _PidParameterPaneState extends State<_PidParameterPane> {
-  String? _selectedDomain;
-  _PidTuningSection? _selectedSection;
+  bool _lockRollPitch = false;
 
   @override
   Widget build(BuildContext context) {
@@ -138,6 +137,31 @@ class _PidParameterPaneState extends State<_PidParameterPane> {
             )
             .toList()
           ..sort((a, b) => a.name.compareTo(b.name));
+    if (widget.profile.kind == _PidProfile.copter) {
+      return _CalibrationPane(
+        pageKey: widget.pageKey,
+        children: [
+          const _CopterPidIntro(),
+          const SizedBox(height: 14),
+          if (parameters.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 56),
+              child: Center(
+                child: Text(
+                  widget.profile.emptyMessage,
+                  style: const TextStyle(color: MacGlassTokens.muted),
+                ),
+              ),
+            )
+          else
+            _CopterPidTuningView(
+              parameters: parameters,
+              controller: widget.controller,
+              onWrite: widget.onWrite,
+            ),
+        ],
+      );
+    }
     final groups = _pidGroupsFor(widget.profile.kind);
     final remaining = List<FlightControllerParameter>.of(parameters);
     final categorized = <_PidCategorizedGroup>[];
@@ -148,7 +172,7 @@ class _PidParameterPaneState extends State<_PidParameterPane> {
         categorized.add(_PidCategorizedGroup(group: group, parameters: items));
       }
     }
-    final domains = [
+    final categorizedGroups = [
       ...categorized,
       if (remaining.isNotEmpty)
         _PidCategorizedGroup(
@@ -160,23 +184,7 @@ class _PidParameterPaneState extends State<_PidParameterPane> {
           parameters: remaining,
         ),
     ];
-    final selectedDomain =
-        domains
-            .where((domain) => domain.group.title == _selectedDomain)
-            .firstOrNull ??
-        domains.firstOrNull;
-    final domainParameters = selectedDomain?.parameters ?? const [];
-    final sections = _pidSectionsFor(domainParameters);
-    final selectedSection = sections.contains(_selectedSection)
-        ? _selectedSection!
-        : sections.firstOrNull;
-    final sectionParameters = selectedSection == null
-        ? const <FlightControllerParameter>[]
-        : domainParameters
-              .where(
-                (parameter) => _pidSectionFor(parameter) == selectedSection,
-              )
-              .toList(growable: false);
+    final matrix = _pidMatrixFor(categorizedGroups);
     return _CalibrationPane(
       pageKey: widget.pageKey,
       children: [
@@ -196,36 +204,21 @@ class _PidParameterPaneState extends State<_PidParameterPane> {
             ),
           )
         else ...[
-          _PidDomainPicker(
-            domains: domains,
-            selectedTitle: selectedDomain?.group.title,
-            onSelected: (domain) => setState(() {
-              _selectedDomain = domain.group.title;
-              _selectedSection = null;
-            }),
+          _PidMatrixView(
+            matrix: matrix,
+            controller: widget.controller,
+            lockRollPitch: _lockRollPitch,
+            onLockRollPitchChanged: (value) =>
+                setState(() => _lockRollPitch = value),
+            onWrite: widget.onWrite,
           ),
-          const SizedBox(height: 14),
-          if (selectedDomain != null) ...[
-            _CalibrationSectionHeader(
-              title: selectedDomain.group.title,
-              subtitle: selectedDomain.group.subtitle,
+          if (matrix.advancedGroups.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            _PidAdvancedGroups(
+              groups: matrix.advancedGroups,
+              controller: widget.controller,
+              onWrite: widget.onWrite,
             ),
-            const SizedBox(height: 12),
-            _PidSectionPicker(
-              sections: sections,
-              selected: selectedSection,
-              onSelected: (section) =>
-                  setState(() => _selectedSection = section),
-            ),
-            const SizedBox(height: 16),
-            if (selectedSection != null)
-              _PidTuningSectionView(
-                group: selectedDomain.group,
-                section: selectedSection,
-                controller: widget.controller,
-                parameters: sectionParameters,
-                onWrite: widget.onWrite,
-              ),
           ],
         ],
       ],
@@ -264,285 +257,831 @@ class _PidParameterPaneState extends State<_PidParameterPane> {
   }
 }
 
-class _PidCategorizedGroup {
-  const _PidCategorizedGroup({required this.group, required this.parameters});
-
-  final _PidGroup group;
-  final List<FlightControllerParameter> parameters;
-}
-
-enum _PidTuningSection {
-  gains,
-  integrator,
-  filters,
-  protection,
-  limits,
-  advanced,
-}
-
-List<_PidTuningSection> _pidSectionsFor(
-  List<FlightControllerParameter> parameters,
-) {
-  final sections = parameters
-      .map(_pidSectionFor)
-      .toSet()
-      .toList(growable: false);
-  sections.sort(
-    (left, right) => _pidSectionOrder(left).compareTo(_pidSectionOrder(right)),
-  );
-  return sections;
-}
-
-_PidTuningSection _pidSectionFor(FlightControllerParameter parameter) {
-  final name = parameter.name;
-  if (name.endsWith('_IMAX') || name.endsWith('_ILMI')) {
-    return _PidTuningSection.integrator;
-  }
-  if (name.endsWith('_FLTD') ||
-      name.endsWith('_FLTE') ||
-      name.endsWith('_FLTT') ||
-      name.endsWith('_NEF') ||
-      name.endsWith('_NTF')) {
-    return _PidTuningSection.filters;
-  }
-  if (name.endsWith('_SMAX') || name.endsWith('_PDMX')) {
-    return _PidTuningSection.protection;
-  }
-  if (RegExp(r'_(P|I|D|FF)$').hasMatch(name)) {
-    return _PidTuningSection.gains;
-  }
-  if (name.contains('ANGLE_MAX') ||
-      name.contains('RATE_MAX') ||
-      name.contains('_ACC_') ||
-      name.contains('JERK') ||
-      name.contains('INPUT_TC') ||
-      name.contains('THR_MIX') ||
-      name.contains('LAND_')) {
-    return _PidTuningSection.limits;
-  }
-  return _PidTuningSection.advanced;
-}
-
-int _pidSectionOrder(_PidTuningSection section) => switch (section) {
-  _PidTuningSection.gains => 0,
-  _PidTuningSection.integrator => 1,
-  _PidTuningSection.filters => 2,
-  _PidTuningSection.protection => 3,
-  _PidTuningSection.limits => 4,
-  _PidTuningSection.advanced => 5,
-};
-
-String _pidSectionLabel(_PidTuningSection section) => switch (section) {
-  _PidTuningSection.gains => 'PID 增益',
-  _PidTuningSection.integrator => '积分管理',
-  _PidTuningSection.filters => '滤波',
-  _PidTuningSection.protection => '输出保护',
-  _PidTuningSection.limits => '限制与响应',
-  _PidTuningSection.advanced => '高级参数',
-};
-
-String _pidSectionSubtitle(_PidTuningSection section) => switch (section) {
-  _PidTuningSection.gains => '比例、积分、微分与前馈增益。',
-  _PidTuningSection.integrator => '限制积分累积，避免持续误差导致输出饱和。',
-  _PidTuningSection.filters => '分别处理目标、误差、D 项和陷波频率。',
-  _PidTuningSection.protection => '限制瞬时输出变化和 P/D 合成输出。',
-  _PidTuningSection.limits => '速度、加速度、角度、输入响应与工作边界。',
-  _PidTuningSection.advanced => '固件报告的扩展控制参数。',
-};
-
-class _PidDomainPicker extends StatelessWidget {
-  const _PidDomainPicker({
-    required this.domains,
-    required this.selectedTitle,
-    required this.onSelected,
-  });
-
-  final List<_PidCategorizedGroup> domains;
-  final String? selectedTitle;
-  final ValueChanged<_PidCategorizedGroup> onSelected;
+class _CopterPidIntro extends StatelessWidget {
+  const _CopterPidIntro();
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: const Color(0xfff2f2f7),
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Padding(
-      padding: const EdgeInsets.all(4),
-      child: Wrap(
-        spacing: 4,
-        runSpacing: 4,
-        children: [
-          for (final domain in domains)
-            _PidDomainTile(
-              domain: domain,
-              selected: selectedTitle == domain.group.title,
-              onPressed: () => onSelected(domain),
+  Widget build(BuildContext context) => Column(
+    key: const ValueKey('mg-pid-copter-page'),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text('多旋翼姿态控制', style: MacGlassTypography.sectionTitle),
+      const SizedBox(height: 3),
+      Text('横滚、俯仰、偏航统一放在同一页，先调姿态环，再调角速度环。', style: MacGlassTypography.caption),
+    ],
+  );
+}
+
+class _CopterPidTuningView extends StatelessWidget {
+  const _CopterPidTuningView({
+    required this.parameters,
+    required this.controller,
+    required this.onWrite,
+  });
+
+  final List<FlightControllerParameter> parameters;
+  final ParameterController controller;
+  final Future<bool> Function(String name, double value) onWrite;
+
+  @override
+  Widget build(BuildContext context) {
+    final axes = <_CopterAxisDefinition>[
+      const _CopterAxisDefinition(
+        token: 'RLL',
+        shortLabel: 'Roll',
+        label: '横滚',
+      ),
+      const _CopterAxisDefinition(
+        token: 'PIT',
+        shortLabel: 'Pitch',
+        label: '俯仰',
+      ),
+      const _CopterAxisDefinition(token: 'YAW', shortLabel: 'Yaw', label: '偏航'),
+    ];
+    final used = <String>{};
+    final rateCards = [
+      for (final axis in axes)
+        _CopterAxisPanel(
+          axis: axis,
+          parameters: _takeCopterRateParameters(parameters, axis, used),
+          controller: controller,
+          onWrite: onWrite,
+        ),
+    ];
+    final attitude = _takeCopterControlParameters(
+      parameters,
+      used,
+      title: '姿态',
+      matcher: (name) =>
+          name.startsWith('ATC_ANG_') ||
+          name == 'ATC_ANGLE_RLL_MAX' ||
+          name == 'ATC_ANGLE_PIT_MAX' ||
+          name == 'ATC_ACCEL_R_MAX' ||
+          name == 'ATC_ACCEL_P_MAX' ||
+          name == 'ATC_ACCEL_Y_MAX',
+    );
+    final altitude = _takeCopterControlParameters(
+      parameters,
+      used,
+      title: '高度',
+      matcher: (name) =>
+          name.startsWith('PSC_POSZ_') ||
+          name.startsWith('PSC_VELZ_') ||
+          name.startsWith('PSC_ACCZ_'),
+    );
+    final position = _takeCopterControlParameters(
+      parameters,
+      used,
+      title: '位置',
+      matcher: (name) =>
+          name.startsWith('PSC_POSXY_') ||
+          name.startsWith('PSC_VELXY_') ||
+          name.startsWith('PSC_ACCXY_'),
+    );
+    final remaining = parameters
+        .where((parameter) => !used.contains(parameter.name))
+        .toList();
+
+    return Column(
+      key: const ValueKey('mg-pid-copter-view'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _CopterPidSectionHeading(
+          title: '角速率控制',
+          subtitle: '横滚、俯仰、偏航使用相同的速率环布局。',
+        ),
+        const SizedBox(height: 8),
+        _CopterResponsiveCardGrid(children: rateCards),
+        const SizedBox(height: 18),
+        _CopterPidSectionHeading(
+          title: '姿态与位置控制',
+          subtitle: '外环、位置和高度参数按控制链路分组。',
+        ),
+        const SizedBox(height: 8),
+        _CopterResponsiveCardGrid(
+          children: [
+            _CopterControlCard(
+              key: const ValueKey('mg-pid-copter-attitude'),
+              title: '姿态',
+              subtitle: '姿态角响应与最大倾角/加速度限制',
+              parameters: attitude,
+              controller: controller,
+              onWrite: onWrite,
             ),
+            _CopterControlCard(
+              key: const ValueKey('mg-pid-copter-altitude'),
+              title: '高度',
+              subtitle: '高度位置、速度和加速度控制',
+              parameters: altitude,
+              controller: controller,
+              onWrite: onWrite,
+            ),
+            _CopterControlCard(
+              key: const ValueKey('mg-pid-copter-position'),
+              title: '位置',
+              subtitle: '水平位置、速度和加速度控制',
+              parameters: position,
+              controller: controller,
+              onWrite: onWrite,
+            ),
+          ],
+        ),
+        if (remaining.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          _CopterAdditionalParameters(
+            parameters: remaining,
+            controller: controller,
+            onWrite: onWrite,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _CopterPidSectionHeading extends StatelessWidget {
+  const _CopterPidSectionHeading({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(title, style: MacGlassTypography.cardTitle),
+      const SizedBox(height: 2),
+      Text(subtitle, style: MacGlassTypography.caption),
+    ],
+  );
+}
+
+class _CopterResponsiveCardGrid extends StatelessWidget {
+  const _CopterResponsiveCardGrid({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns = constraints.maxWidth >= 980
+          ? 3
+          : constraints.maxWidth >= 650
+          ? 2
+          : 1;
+      const gap = 12.0;
+      final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+      return Wrap(
+        spacing: gap,
+        runSpacing: gap,
+        children: [
+          for (final child in children) SizedBox(width: width, child: child),
+        ],
+      );
+    },
+  );
+}
+
+class _CopterAxisDefinition {
+  const _CopterAxisDefinition({
+    required this.token,
+    required this.shortLabel,
+    required this.label,
+  });
+
+  final String token;
+  final String shortLabel;
+  final String label;
+}
+
+List<FlightControllerParameter> _takeCopterRateParameters(
+  List<FlightControllerParameter> parameters,
+  _CopterAxisDefinition axis,
+  Set<String> used,
+) {
+  final result =
+      parameters
+          .where(
+            (parameter) =>
+                parameter.name.startsWith('ATC_RAT_${axis.token}_') &&
+                const {
+                  'P',
+                  'I',
+                  'D',
+                  'FF',
+                  'IMAX',
+                  'ILMI',
+                  'FLTE',
+                  'FLTD',
+                  'FLTT',
+                  'NEF',
+                  'NTF',
+                  'SMAX',
+                  'PDMX',
+                }.any((suffix) => parameter.name.endsWith('_$suffix')),
+          )
+          .toList()
+        ..sort(_comparePidCardParameters);
+  used.addAll(result.map((parameter) => parameter.name));
+  return result;
+}
+
+List<FlightControllerParameter> _takeCopterControlParameters(
+  List<FlightControllerParameter> parameters,
+  Set<String> used, {
+  required String title,
+  required bool Function(String name) matcher,
+}) {
+  final result =
+      parameters.where((parameter) => matcher(parameter.name)).toList()
+        ..sort((a, b) {
+          final aLabel = _copterControlLabel(a.name, title);
+          final bLabel = _copterControlLabel(b.name, title);
+          return aLabel.compareTo(bLabel);
+        });
+  used.addAll(result.map((parameter) => parameter.name));
+  return result;
+}
+
+String _copterControlLabel(String name, String section) {
+  if (section == '姿态') {
+    if (name == 'ATC_ANG_RLL_P') return '横滚控制力度';
+    if (name == 'ATC_ANG_PIT_P') return '俯仰控制力度';
+    if (name == 'ATC_ANG_YAW_P') return '偏航控制力度';
+    if (name == 'ATC_ANGLE_RLL_MAX') return 'R_MAX';
+    if (name == 'ATC_ANGLE_PIT_MAX') return 'P_MAX';
+    if (name == 'ATC_ACCEL_Y_MAX') return 'Y_MAX';
+  }
+  if (section == '高度') {
+    if (name.startsWith('PSC_POSZ_')) return '高度P';
+    if (name.startsWith('PSC_VELZ_')) {
+      return '速度${name.substring('PSC_VELZ_'.length)}';
+    }
+    if (name.startsWith('PSC_ACCZ_')) {
+      return '加速度${name.substring('PSC_ACCZ_'.length)}';
+    }
+  }
+  if (section == '位置') {
+    if (name.startsWith('PSC_POSXY_')) return '位置P';
+    if (name.startsWith('PSC_VELXY_')) {
+      return '速度${name.substring('PSC_VELXY_'.length)}';
+    }
+    if (name.startsWith('PSC_ACCXY_')) {
+      return '加速度${name.substring('PSC_ACCXY_'.length)}';
+    }
+  }
+  return _pidFieldShortLabel(name);
+}
+
+class _CopterAxisPanel extends StatelessWidget {
+  const _CopterAxisPanel({
+    required this.axis,
+    required this.parameters,
+    required this.controller,
+    required this.onWrite,
+  });
+
+  final _CopterAxisDefinition axis;
+  final List<FlightControllerParameter> parameters;
+  final ParameterController controller;
+  final Future<bool> Function(String name, double value) onWrite;
+
+  @override
+  Widget build(BuildContext context) => _CopterControlCard(
+    key: ValueKey(
+      'mg-pid-copter-rate-${switch (axis.token) {
+        'RLL' => 'roll',
+        'PIT' => 'pitch',
+        _ => 'yaw',
+      }}',
+    ),
+    title: '${axis.label}角速率',
+    subtitle: '${axis.shortLabel} rate controller',
+    parameters: parameters,
+    controller: controller,
+    onWrite: onWrite,
+  );
+}
+
+class _CopterControlCard extends StatefulWidget {
+  const _CopterControlCard({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.parameters,
+    required this.controller,
+    required this.onWrite,
+  });
+
+  final String title;
+  final String subtitle;
+  final List<FlightControllerParameter> parameters;
+  final ParameterController controller;
+  final Future<bool> Function(String name, double value) onWrite;
+
+  @override
+  State<_CopterControlCard> createState() => _CopterControlCardState();
+}
+
+class _CopterControlCardState extends State<_CopterControlCard> {
+  bool _expanded = true;
+
+  @override
+  Widget build(BuildContext context) => _PidGlassSurface(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(13, 12, 13, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(widget.title, style: MacGlassTypography.cardTitle),
+              ),
+              Text(
+                '${widget.parameters.length} 项',
+                style: MacGlassTypography.caption.copyWith(
+                  color: MacGlassTokens.blue,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(widget.subtitle, style: MacGlassTypography.caption),
+          AnimatedCrossFade(
+            firstChild: Padding(
+              padding: const EdgeInsets.only(top: 11),
+              child: _CopterPidFields(
+                parameters: widget.parameters,
+                controller: widget.controller,
+                onWrite: widget.onWrite,
+                sectionTitle: widget.title,
+              ),
+            ),
+            secondChild: const SizedBox.shrink(),
+            crossFadeState: _expanded
+                ? CrossFadeState.showFirst
+                : CrossFadeState.showSecond,
+            duration: const Duration(milliseconds: 160),
+          ),
+          const SizedBox(height: 4),
+          InkWell(
+            key: ValueKey('mg-pid-copter-toggle-${widget.title}'),
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Icon(
+                _expanded
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.keyboard_arrow_down_rounded,
+                size: 20,
+                color: MacGlassTokens.muted,
+              ),
+            ),
+          ),
         ],
       ),
     ),
   );
 }
 
-class _PidDomainTile extends StatelessWidget {
-  const _PidDomainTile({
-    required this.domain,
-    required this.selected,
-    required this.onPressed,
+class _CopterPidFields extends StatelessWidget {
+  const _CopterPidFields({
+    required this.parameters,
+    required this.controller,
+    required this.onWrite,
+    this.sectionTitle = '',
   });
 
-  final _PidCategorizedGroup domain;
-  final bool selected;
-  final VoidCallback onPressed;
+  final List<FlightControllerParameter> parameters;
+  final ParameterController controller;
+  final Future<bool> Function(String name, double value) onWrite;
+  final String sectionTitle;
 
   @override
-  Widget build(BuildContext context) => cupertino.CupertinoButton(
-    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-    onPressed: onPressed,
-    borderRadius: BorderRadius.circular(6),
-    color: selected ? Colors.white : Colors.transparent,
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
+  Widget build(BuildContext context) {
+    if (parameters.isEmpty) {
+      return const Text('固件未报告该参数', style: MacGlassTypography.caption);
+    }
+    return Column(
       children: [
-        Icon(
-          _pidDomainIcon(domain.group.title),
-          color: selected ? MacGlassTokens.blue : MacGlassTokens.muted,
-          size: 16,
-        ),
-        const SizedBox(width: 7),
-        Text(
-          domain.group.title,
-          style: MacGlassTypography.control.copyWith(
-            color: selected ? MacGlassTokens.blue : MacGlassTokens.ink,
+        for (var index = 0; index < parameters.length; index++) ...[
+          if (index > 0) const SizedBox(height: 6),
+          _PidValueField(
+            parameter: parameters[index],
+            descriptor: controller.descriptorFor(parameters[index].name),
+            enabled: controller.canEdit,
+            compactLabel: _copterControlLabel(
+              parameters[index].name,
+              sectionTitle,
+            ),
+            onWrite: onWrite,
           ),
-        ),
+        ],
       ],
+    );
+  }
+}
+
+class _CopterAdditionalParameters extends StatelessWidget {
+  const _CopterAdditionalParameters({
+    required this.parameters,
+    required this.controller,
+    required this.onWrite,
+  });
+
+  final List<FlightControllerParameter> parameters;
+  final ParameterController controller;
+  final Future<bool> Function(String name, double value) onWrite;
+
+  @override
+  Widget build(BuildContext context) => _CopterControlCard(
+    key: const ValueKey('mg-pid-copter-additional'),
+    title: '其他控制参数',
+    subtitle: '当前固件提供、但未归入标准控制链路的参数',
+    parameters: parameters,
+    controller: controller,
+    onWrite: onWrite,
+  );
+}
+
+class _PidGlassSurface extends StatelessWidget {
+  const _PidGlassSurface({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.30),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+      borderRadius: BorderRadius.circular(14),
+      boxShadow: [MacGlassTokens.floatingShadow()],
+    ),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Material(type: MaterialType.transparency, child: child),
     ),
   );
 }
 
-IconData _pidDomainIcon(String title) => switch (title) {
-  '姿态外环' => Icons.threed_rotation_rounded,
-  '角速度内环' || '固定翼轴速率' => Icons.speed_rounded,
-  '角速度滤波与保护' => Icons.filter_alt_outlined,
-  '水平位置与速度' => Icons.navigation_rounded,
-  '高度与爬升速度' => Icons.height_rounded,
-  '限制与响应' => Icons.tune_rounded,
-  _ => Icons.settings_input_component_rounded,
-};
-
-class _PidSectionPicker extends StatelessWidget {
-  const _PidSectionPicker({
-    required this.sections,
-    required this.selected,
-    required this.onSelected,
+class _PidMatrixLayout {
+  const _PidMatrixLayout({
+    required this.attitudeCards,
+    required this.rateCards,
+    required this.advancedGroups,
   });
 
-  final List<_PidTuningSection> sections;
-  final _PidTuningSection? selected;
-  final ValueChanged<_PidTuningSection> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    if (sections.length < 2) return const SizedBox.shrink();
-    return SizedBox(
-      height: 34,
-      child: cupertino.CupertinoSlidingSegmentedControl<_PidTuningSection>(
-        groupValue: selected,
-        padding: const EdgeInsets.all(2),
-        backgroundColor: const Color(0xffe9e9ee),
-        thumbColor: Colors.white,
-        children: {
-          for (final section in sections)
-            section: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 5),
-              child: Text(
-                _pidSectionLabel(section),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-        },
-        onValueChanged: (value) {
-          if (value != null) onSelected(value);
-        },
-      ),
-    );
-  }
+  final List<_PidControllerCardModel> attitudeCards;
+  final List<_PidControllerCardModel> rateCards;
+  final List<_PidCategorizedGroup> advancedGroups;
 }
 
-class _PidTuningSectionView extends StatelessWidget {
-  const _PidTuningSectionView({
-    required this.group,
-    required this.section,
+_PidMatrixLayout _pidMatrixFor(List<_PidCategorizedGroup> groups) {
+  final attitudeTitles = <String>{'姿态外环', '横滚控制器', '俯仰控制器', '偏航与转向'};
+  final rateTitles = <String>{'角速度内环', '角速度滤波与保护', '固定翼轴速率'};
+  final attitudeGroups = groups
+      .where((group) => attitudeTitles.contains(group.group.title))
+      .toList(growable: false);
+  final rateGroups = groups
+      .where((group) => rateTitles.contains(group.group.title))
+      .toList(growable: false);
+  final used = <String>{
+    for (final group in [...attitudeGroups, ...rateGroups])
+      for (final parameter in group.parameters) parameter.name,
+  };
+  final advanced = groups
+      .where(
+        (group) =>
+            !attitudeTitles.contains(group.group.title) &&
+            !rateTitles.contains(group.group.title),
+      )
+      .toList(growable: false);
+  final cardGroup = _PidGroup(
+    title: attitudeGroups.isNotEmpty ? '姿态外环' : '角速度内环',
+    subtitle: attitudeGroups.isNotEmpty
+        ? '横滚、俯仰和偏航的姿态目标响应。'
+        : '以 P / I / D / FF 追踪目标角速度。',
+    matches: _PidParameterPaneState._matchesEverything,
+  );
+  final rateGroup = _PidGroup(
+    title: '角速度内环',
+    subtitle: '速率增益、滤波与输出保护。',
+    matches: _PidParameterPaneState._matchesEverything,
+  );
+  return _PidMatrixLayout(
+    attitudeCards: _mergePidCards(cardGroup, attitudeGroups),
+    rateCards: _mergePidCards(rateGroup, rateGroups),
+    advancedGroups: [
+      for (final group in advanced)
+        _PidCategorizedGroup(
+          group: group.group,
+          parameters: group.parameters
+              .where((parameter) => !used.contains(parameter.name))
+              .toList(growable: false),
+        ),
+    ]..removeWhere((group) => group.parameters.isEmpty),
+  );
+}
+
+List<_PidControllerCardModel> _mergePidCards(
+  _PidGroup cardGroup,
+  List<_PidCategorizedGroup> groups,
+) {
+  if (groups.isEmpty) return const [];
+  final parameters = <FlightControllerParameter>[
+    for (final group in groups) ...group.parameters,
+  ];
+  return _pidCardsFor(cardGroup, parameters);
+}
+
+class _PidMatrixView extends StatelessWidget {
+  const _PidMatrixView({
+    required this.matrix,
     required this.controller,
-    required this.parameters,
+    required this.lockRollPitch,
+    required this.onLockRollPitchChanged,
     required this.onWrite,
   });
 
-  final _PidGroup group;
-  final _PidTuningSection section;
+  final _PidMatrixLayout matrix;
   final ParameterController controller;
-  final List<FlightControllerParameter> parameters;
+  final bool lockRollPitch;
+  final ValueChanged<bool> onLockRollPitchChanged;
+  final Future<bool> Function(String name, double value) onWrite;
+
+  Future<bool> _writeWithLock(String name, double value) async {
+    final primary = await onWrite(name, value);
+    if (!primary || !lockRollPitch) return primary;
+    final counterpart = _pidRollPitchCounterpart(name);
+    if (counterpart == null ||
+        !controller.parameters.any(
+          (parameter) => parameter.name == counterpart,
+        )) {
+      return primary;
+    }
+    final linked = await onWrite(counterpart, value);
+    return primary && linked;
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    key: const ValueKey('mg-pid-matrix'),
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      if (matrix.attitudeCards.isNotEmpty) ...[
+        const _PidMatrixSectionHeading(
+          title: '姿态角控制',
+          subtitle: '横向比较外环增益，保持 Roll / Pitch / Yaw 的调参节奏一致。',
+        ),
+        const SizedBox(height: 10),
+        _PidMatrixCardGrid(
+          rowKey: 'attitude',
+          cards: matrix.attitudeCards,
+          controller: controller,
+          onWrite: _writeWithLock,
+        ),
+      ],
+      if (matrix.attitudeCards.isNotEmpty && matrix.rateCards.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        _PidLockControl(
+          value: lockRollPitch,
+          onChanged: onLockRollPitchChanged,
+        ),
+        const SizedBox(height: 14),
+      ],
+      if (matrix.rateCards.isNotEmpty) ...[
+        const _PidMatrixSectionHeading(
+          title: '角速度控制',
+          subtitle: '内环 PID、滤波和输出保护集中在同一行，便于快速比较。',
+        ),
+        const SizedBox(height: 10),
+        _PidMatrixCardGrid(
+          rowKey: 'rate',
+          cards: matrix.rateCards,
+          controller: controller,
+          onWrite: _writeWithLock,
+        ),
+      ],
+      if (matrix.attitudeCards.isEmpty && matrix.rateCards.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        _PidLockControl(
+          value: lockRollPitch,
+          onChanged: onLockRollPitchChanged,
+        ),
+      ],
+    ],
+  );
+}
+
+String? _pidRollPitchCounterpart(String name) {
+  if (name.contains('_RLL_')) return name.replaceFirst('_RLL_', '_PIT_');
+  if (name.contains('_PIT_')) return name.replaceFirst('_PIT_', '_RLL_');
+  if (name.startsWith('RLL2SRV_')) {
+    return name.replaceFirst('RLL2SRV_', 'PTCH2SRV_');
+  }
+  if (name.startsWith('PTCH2SRV_')) {
+    return name.replaceFirst('PTCH2SRV_', 'RLL2SRV_');
+  }
+  if (name.startsWith('RLL_')) return name.replaceFirst('RLL_', 'PTCH_');
+  if (name.startsWith('PTCH_')) return name.replaceFirst('PTCH_', 'RLL_');
+  return null;
+}
+
+class _PidMatrixSectionHeading extends StatelessWidget {
+  const _PidMatrixSectionHeading({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(title, style: MacGlassTypography.sectionTitle),
+      const SizedBox(height: 2),
+      Text(subtitle, style: MacGlassTypography.caption),
+    ],
+  );
+}
+
+class _PidMatrixCardGrid extends StatelessWidget {
+  const _PidMatrixCardGrid({
+    required this.rowKey,
+    required this.cards,
+    required this.controller,
+    required this.onWrite,
+  });
+
+  final String rowKey;
+  final List<_PidControllerCardModel> cards;
+  final ParameterController controller;
+  final Future<bool> Function(String name, double value) onWrite;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns = constraints.maxWidth >= 980
+          ? 4
+          : constraints.maxWidth >= 620
+          ? 2
+          : 1;
+      const gap = 10.0;
+      final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+      return Wrap(
+        spacing: gap,
+        runSpacing: gap,
+        children: [
+          for (final card in cards)
+            SizedBox(
+              width: width,
+              child: KeyedSubtree(
+                key: ValueKey('mg-pid-card-$rowKey-${card.key}'),
+                child: _PidControllerCard(
+                  card: card,
+                  controller: controller,
+                  enabled: controller.canEdit,
+                  onWrite: onWrite,
+                ),
+              ),
+            ),
+        ],
+      );
+    },
+  );
+}
+
+class _PidLockControl extends StatelessWidget {
+  const _PidLockControl({required this.value, required this.onChanged});
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.30),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.70)),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.link_rounded, size: 16, color: MacGlassTokens.blue),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('锁定 Pitch 和 Roll 的值', style: MacGlassTypography.control),
+                SizedBox(height: 1),
+                Text(
+                  '开启后用于联动调参提示，实际写入仍由每个参数单独确认。',
+                  style: MacGlassTypography.caption,
+                ),
+              ],
+            ),
+          ),
+          cupertino.CupertinoSwitch(
+            key: ValueKey('mg-pid-lock-roll-pitch'),
+            value: value,
+            onChanged: onChanged,
+            activeTrackColor: MacGlassTokens.blue,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _PidAdvancedGroups extends StatelessWidget {
+  const _PidAdvancedGroups({
+    required this.groups,
+    required this.controller,
+    required this.onWrite,
+  });
+
+  final List<_PidCategorizedGroup> groups;
+  final ParameterController controller;
+  final Future<bool> Function(String name, double value) onWrite;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    key: const ValueKey('mg-pid-advanced'),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.24),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.68)),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        leading: const Icon(
+          Icons.tune_rounded,
+          size: 18,
+          color: MacGlassTokens.muted,
+        ),
+        title: const Text('高级控制参数', style: MacGlassTypography.cardTitle),
+        subtitle: Text(
+          '${groups.length} 个控制域 · 固件提供的扩展项',
+          style: MacGlassTypography.caption,
+        ),
+        children: [
+          for (var index = 0; index < groups.length; index++) ...[
+            if (index > 0) const SizedBox(height: 12),
+            _PidAdvancedGroup(
+              group: groups[index],
+              controller: controller,
+              onWrite: onWrite,
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
+class _PidAdvancedGroup extends StatelessWidget {
+  const _PidAdvancedGroup({
+    required this.group,
+    required this.controller,
+    required this.onWrite,
+  });
+
+  final _PidCategorizedGroup group;
+  final ParameterController controller;
   final Future<bool> Function(String name, double value) onWrite;
 
   @override
   Widget build(BuildContext context) {
-    final cards = _pidCardsFor(group, parameters);
+    final cards = _pidCardsFor(group.group, group.parameters);
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _CalibrationSectionHeader(
-          title: _pidSectionLabel(section),
-          subtitle: _pidSectionSubtitle(section),
-        ),
-        const SizedBox(height: 10),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final rows = constraints.maxWidth < 710
-                ? [
-                    for (final card in cards)
-                      [_PidCardLayout(card: card, span: 3)],
-                  ]
-                : _pidCardRows(cards);
-            return Column(
-              children: [
-                for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) ...[
-                  if (rowIndex > 0) const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (
-                        var cardIndex = 0;
-                        cardIndex < rows[rowIndex].length;
-                        cardIndex++
-                      ) ...[
-                        if (cardIndex > 0) const SizedBox(width: 12),
-                        Expanded(
-                          flex: rows[rowIndex][cardIndex].span,
-                          child: _PidControllerCard(
-                            card: rows[rowIndex][cardIndex].card,
-                            controller: controller,
-                            enabled: controller.canEdit,
-                            onWrite: onWrite,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ],
-            );
-          },
+        Text(group.group.title, style: MacGlassTypography.control),
+        const SizedBox(height: 2),
+        Text(group.group.subtitle, style: MacGlassTypography.caption),
+        const SizedBox(height: 8),
+        _PidMatrixCardGrid(
+          rowKey: 'advanced-${group.group.title}',
+          cards: cards,
+          controller: controller,
+          onWrite: onWrite,
         ),
       ],
     );
   }
+}
+
+class _PidCategorizedGroup {
+  const _PidCategorizedGroup({required this.group, required this.parameters});
+
+  final _PidGroup group;
+  final List<FlightControllerParameter> parameters;
 }
 
 enum _PidProfile { copter, plane, vtol, common, generic }
@@ -808,53 +1347,6 @@ class _PidControllerCardModel {
   final List<FlightControllerParameter> parameters;
 }
 
-class _PidCardLayout {
-  const _PidCardLayout({required this.card, required this.span});
-
-  final _PidControllerCardModel card;
-  final int span;
-}
-
-List<List<_PidCardLayout>> _pidCardRows(List<_PidControllerCardModel> cards) {
-  if (cards.isEmpty) return const [];
-  final rows = <List<_PidCardLayout>>[];
-  var current = <_PidCardLayout>[];
-  var used = 0;
-  for (var index = 0; index < cards.length; index++) {
-    final card = cards[index];
-    final span = _pidCardSpan(card, index, cards.length);
-    if (span == 3) {
-      if (current.isNotEmpty) rows.add(current);
-      rows.add([_PidCardLayout(card: card, span: 3)]);
-      current = <_PidCardLayout>[];
-      used = 0;
-      continue;
-    }
-    if (used + span > 3) {
-      rows.add(current);
-      current = <_PidCardLayout>[];
-      used = 0;
-    }
-    current.add(_PidCardLayout(card: card, span: span));
-    used += span;
-    if (used == 3) {
-      rows.add(current);
-      current = <_PidCardLayout>[];
-      used = 0;
-    }
-  }
-  if (current.isNotEmpty) rows.add(current);
-  return rows;
-}
-
-int _pidCardSpan(_PidControllerCardModel card, int index, int count) {
-  if (count == 1) return 3;
-  if (count == 2) return index == 0 ? 2 : 1;
-  if (card.parameters.length >= 9) return 3;
-  if (card.parameters.length >= 5) return 2;
-  return 1;
-}
-
 List<_PidControllerCardModel> _pidCardsFor(
   _PidGroup group,
   List<FlightControllerParameter> parameters,
@@ -1042,12 +1534,13 @@ class _PidControllerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => DecoratedBox(
     decoration: BoxDecoration(
-      color: const Color(0xfff7f7f9),
-      border: Border.all(color: MacGlassTokens.ink.withValues(alpha: 0.10)),
-      borderRadius: BorderRadius.circular(8),
+      color: Colors.white.withValues(alpha: 0.30),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+      borderRadius: BorderRadius.circular(12),
+      boxShadow: [MacGlassTokens.floatingShadow()],
     ),
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(16, 13, 16, 16),
+      padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1061,12 +1554,19 @@ class _PidControllerCard extends StatelessWidget {
                   style: MacGlassTypography.cardTitle,
                 ),
               ),
-              Icon(card.icon, size: 16, color: MacGlassTokens.muted),
+              Icon(card.icon, size: 16, color: MacGlassTokens.blue),
             ],
           ),
+          const SizedBox(height: 3),
+          Text(
+            card.subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: MacGlassTypography.caption,
+          ),
+          const SizedBox(height: 9),
+          Divider(height: 1, color: Colors.white.withValues(alpha: 0.60)),
           const SizedBox(height: 10),
-          Divider(height: 1, color: MacGlassTokens.ink.withValues(alpha: 0.08)),
-          const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
               final width = (constraints.maxWidth - 10) / 2;
@@ -1100,12 +1600,14 @@ class _PidValueField extends StatefulWidget {
     required this.descriptor,
     required this.enabled,
     required this.onWrite,
+    this.compactLabel,
   });
 
   final FlightControllerParameter parameter;
   final ParameterDescriptor? descriptor;
   final bool enabled;
   final Future<bool> Function(String name, double value) onWrite;
+  final String? compactLabel;
 
   @override
   State<_PidValueField> createState() => _PidValueFieldState();
@@ -1161,6 +1663,35 @@ class _PidValueFieldState extends State<_PidValueField> {
         .toDouble();
     _controller.text = _formatParameterNumber(value);
     if (value == widget.parameter.value) return;
+    await _writeValue(value);
+  }
+
+  double _step() {
+    final increment = widget.descriptor?.increment;
+    if (increment != null && increment > 0) return increment;
+    final value = widget.parameter.value.abs();
+    if (value >= 100) return 1;
+    if (value >= 10) return 0.1;
+    if (value >= 1) return 0.01;
+    if (value >= 0.1) return 0.01;
+    if (value >= 0.01) return 0.001;
+    return 0.0001;
+  }
+
+  Future<void> _stepValue(double direction) async {
+    if (!widget.enabled || _writing) return;
+    final value = (widget.parameter.value + direction * _step())
+        .clamp(
+          widget.descriptor?.minValue ?? double.negativeInfinity,
+          widget.descriptor?.maxValue ?? double.infinity,
+        )
+        .toDouble();
+    if (value == widget.parameter.value) return;
+    _controller.text = _formatParameterNumber(value);
+    await _writeValue(value);
+  }
+
+  Future<void> _writeValue(double value) async {
     _writing = true;
     try {
       await widget.onWrite(widget.parameter.name, value);
@@ -1171,8 +1702,44 @@ class _PidValueFieldState extends State<_PidValueField> {
 
   @override
   Widget build(BuildContext context) {
-    final label = _pidFieldLabel(widget.parameter.name);
+    final label = widget.compactLabel ?? _pidFieldLabel(widget.parameter.name);
     final unit = widget.descriptor?.unit ?? '';
+    if (widget.compactLabel != null) {
+      return Row(
+        key: ValueKey('mg-pid-row-${widget.parameter.name}'),
+        children: [
+          Expanded(
+            child: Tooltip(
+              message: widget.parameter.name,
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: MacGlassTypography.tableHeader.copyWith(
+                  color: MacGlassTokens.ink,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          _PidStepButton(
+            key: ValueKey('mg-pid-stepper-${widget.parameter.name}-decrement'),
+            icon: Icons.remove_rounded,
+            enabled: widget.enabled && !_writing,
+            onTap: () => unawaited(_stepValue(-1)),
+          ),
+          const SizedBox(width: 4),
+          SizedBox(width: 86, height: 34, child: _valueEditor(unit)),
+          const SizedBox(width: 4),
+          _PidStepButton(
+            key: ValueKey('mg-pid-stepper-${widget.parameter.name}-increment'),
+            icon: Icons.add_rounded,
+            enabled: widget.enabled && !_writing,
+            onTap: () => unawaited(_stepValue(1)),
+          ),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1201,43 +1768,93 @@ class _PidValueFieldState extends State<_PidValueField> {
           ),
         ),
         const SizedBox(height: 5),
-        SizedBox(
-          height: 38,
-          child: cupertino.CupertinoTextField(
-            key: ValueKey('mg-pid-${widget.parameter.name}'),
-            controller: _controller,
-            focusNode: _focusNode,
-            enabled: widget.enabled,
-            textAlign: TextAlign.center,
-            keyboardType: const TextInputType.numberWithOptions(
-              decimal: true,
-              signed: true,
-            ),
-            style: MacGlassTypography.value.copyWith(fontFamily: 'monospace'),
-            suffix: unit.isEmpty
-                ? null
-                : Padding(
-                    padding: const EdgeInsets.only(right: 7),
-                    child: Text(
-                      unit,
-                      style: const TextStyle(
-                        color: MacGlassTokens.muted,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ),
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 9),
-            decoration: BoxDecoration(
-              color: const Color(0xfff2f2f7),
-              border: Border.all(color: const Color(0xffc7c7cc)),
-              borderRadius: BorderRadius.circular(7),
-            ),
-            onSubmitted: (_) => unawaited(_commit()),
-          ),
-        ),
+        SizedBox(height: 38, child: _valueEditor(unit)),
       ],
     );
   }
+
+  Widget _valueEditor(String unit) => cupertino.CupertinoTextField(
+    key: ValueKey('mg-pid-${widget.parameter.name}'),
+    controller: _controller,
+    focusNode: _focusNode,
+    enabled: widget.enabled,
+    textAlign: TextAlign.center,
+    keyboardType: const TextInputType.numberWithOptions(
+      decimal: true,
+      signed: true,
+    ),
+    style: MacGlassTypography.value.copyWith(
+      color: MacGlassTokens.ink,
+      fontFamily: 'monospace',
+    ),
+    suffix: unit.isEmpty
+        ? null
+        : Padding(
+            padding: const EdgeInsets.only(right: 7),
+            child: Text(
+              unit,
+              style: const TextStyle(color: MacGlassTokens.muted, fontSize: 10),
+            ),
+          ),
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
+    decoration: BoxDecoration(
+      color: MacGlassTokens.controlFill,
+      border: Border.all(color: MacGlassTokens.controlBorder),
+      borderRadius: BorderRadius.circular(MacGlassTokens.radiusControl),
+    ),
+    onSubmitted: (_) => unawaited(_commit()),
+  );
+}
+
+class _PidStepButton extends StatelessWidget {
+  const _PidStepButton({
+    super.key,
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white.withValues(alpha: enabled ? 0.58 : 0.28),
+    borderRadius: BorderRadius.circular(7),
+    child: InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(7),
+      child: SizedBox(
+        width: 30,
+        height: 34,
+        child: Icon(icon, size: 16, color: MacGlassTokens.ink),
+      ),
+    ),
+  );
+}
+
+String _pidFieldShortLabel(String parameterName) {
+  const labels = <String, String>{
+    '_P': 'P',
+    '_I': 'I',
+    '_D': 'D',
+    '_FF': 'FF',
+    '_IMAX': 'IMAX',
+    '_ILMI': 'ILMI',
+    '_FLTD': 'FLTD',
+    '_FLTE': 'FLTE',
+    '_FLTT': 'FLTT',
+    '_SMAX': 'SMAX',
+    '_PDMX': 'PDMX',
+    '_NEF': 'NEF',
+    '_NTF': 'NTF',
+  };
+  return labels.entries
+          .where((entry) => parameterName.endsWith(entry.key))
+          .firstOrNull
+          ?.value ??
+      parameterName.replaceAll('_', ' ');
 }
 
 String _pidFieldLabel(String parameterName) {

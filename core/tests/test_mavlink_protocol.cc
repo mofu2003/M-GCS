@@ -443,6 +443,23 @@ static void test_send_heartbeat() {
     CHECK("outgoing is HEARTBEAT (id=0)", parsed && msg.msgid == 0);
 }
 
+static void test_feed_raw_reports_valid_frames() {
+    fprintf(stderr, "\n[Group] Receive path - valid frame detection\n");
+    mg::core::mavlink::MavlinkAdapter adapter;
+
+    const uint8_t noise[] = {0x01, 0x02, 0x03, 0x7f, 0xff};
+    CHECK("noise is not valid MAVLink traffic",
+          !adapter.feed_raw(noise, sizeof(noise)));
+
+    mavlink_message_t msg{};
+    mavlink_msg_heartbeat_pack(
+        1, 1, &msg, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
+        MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 0, MAV_STATE_ACTIVE);
+    const auto bytes = pack_msg(msg);
+    CHECK("valid MAVLink frame is reported",
+          adapter.feed_raw(bytes.data(), bytes.size()));
+}
+
 int main() {
     fprintf(stderr, "=== MAVLink Protocol Layer Tests ===\n");
     fprintf(stderr, "(Inspired by QGC MockLink + MP MAVLinkInterface)\n\n");
@@ -468,6 +485,7 @@ int main() {
     test_heartbeat_alive();
     test_link_quality();
     test_send_heartbeat();
+    test_feed_raw_reports_valid_frames();
 
     fprintf(stderr, "\n=== Results: %d/%d passed ===\n", g_passed, g_passed + g_failed);
     return (g_failed > 0) ? 1 : 0;

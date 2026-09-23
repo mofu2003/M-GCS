@@ -22,24 +22,15 @@ class _CalibrationPageState extends State<_CalibrationPage>
   bool _airspeedCommandSent = false;
 
   CalibrationSessionBackend? get _backend {
-    final backend = widget.controller.backend;
-    return backend is CalibrationSessionBackend
-        ? backend as CalibrationSessionBackend
-        : null;
+    return widget.controller.capabilities.calibration;
   }
 
   CalibrationHistorySessionBackend? get _historyBackend {
-    final backend = widget.controller.backend;
-    return backend is CalibrationHistorySessionBackend
-        ? backend as CalibrationHistorySessionBackend
-        : null;
+    return widget.controller.capabilities.calibrationHistory;
   }
 
   ConnectionSessionBackend? get _connectionBackend {
-    final backend = widget.controller.backend;
-    return backend is ConnectionSessionBackend
-        ? backend as ConnectionSessionBackend
-        : null;
+    return widget.controller.capabilities.connection;
   }
 
   @override

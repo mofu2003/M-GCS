@@ -415,7 +415,11 @@ class _AirframeDropdownRow extends StatelessWidget {
             for (final option in options)
               DropdownMenuItem<int>(
                 value: option.value,
-                child: Text(option.label, overflow: TextOverflow.ellipsis),
+                child: Text(
+                  option.label,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: MacGlassTokens.ink),
+                ),
               ),
           ],
           onChanged: enabled

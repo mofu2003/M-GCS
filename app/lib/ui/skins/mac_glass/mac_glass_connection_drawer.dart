@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../features/frontstage/frontstage_models.dart';
+import '../../../l10n/mg_localizations.dart';
 import 'mac_glass_close_button.dart';
 import 'mac_glass_menu.dart';
+import 'mac_glass_surface.dart';
 import 'mac_glass_tokens.dart';
 
 final class MacGlassConnectionDrawer extends StatefulWidget {
@@ -16,6 +18,7 @@ final class MacGlassConnectionDrawer extends StatefulWidget {
     required this.onTransportChanged,
     this.onSerialPortChanged,
     this.onBaudRateChanged,
+    this.fleetPanel,
     super.key,
   });
 
@@ -28,6 +31,7 @@ final class MacGlassConnectionDrawer extends StatefulWidget {
   final ValueChanged<FrontstageConnectionTransport> onTransportChanged;
   final ValueChanged<String>? onSerialPortChanged;
   final ValueChanged<int>? onBaudRateChanged;
+  final Widget? fleetPanel;
 
   @override
   State<MacGlassConnectionDrawer> createState() =>
@@ -96,8 +100,6 @@ final class _MacGlassConnectionDrawerState
             _endpoint(_tcpAddressController.text, _tcpPortController.text),
           );
         };
-      case FrontstageConnectionTransport.bluetooth:
-        return null;
     }
   }
 
@@ -116,66 +118,58 @@ final class _MacGlassConnectionDrawerState
   @override
   Widget build(BuildContext context) {
     final selected = widget.model.selectedTransport;
-    return ClipRRect(
+    final l10n = mgLocalizationsOf(context);
+    return MacGlassSurface(
       key: const ValueKey('mg-connection-drawer'),
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: MacGlassTokens.strongBlur,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.64),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.88)),
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [MacGlassTokens.floatingShadow()],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+      radius: MacGlassTokens.radiusLarge,
+      emphasis: MacGlassSurfaceEmphasis.strong,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: SegmentedButton<FrontstageConnectionTransport>(
-                        key: const ValueKey('mg-connection-transport-selector'),
-                        showSelectedIcon: false,
-                        segments: const [
-                          ButtonSegment(
-                            value: FrontstageConnectionTransport.serial,
-                            label: Text('Serial'),
-                          ),
-                          ButtonSegment(
-                            value: FrontstageConnectionTransport.udp,
-                            label: Text('UDP'),
-                          ),
-                          ButtonSegment(
-                            value: FrontstageConnectionTransport.tcp,
-                            label: Text('TCP'),
-                          ),
-                          ButtonSegment(
-                            value: FrontstageConnectionTransport.bluetooth,
-                            label: Text('蓝牙'),
-                          ),
-                        ],
-                        selected: {selected},
-                        onSelectionChanged: (selection) {
-                          widget.onTransportChanged(selection.single);
-                        },
-                        style: _segmentedStyle(),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    MacGlassCloseButton(
-                      key: const ValueKey('mg-close-connection'),
-                      tooltip: '关闭连接面板',
-                      onPressed: widget.onClose,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
                 Expanded(
-                  child: SingleChildScrollView(
-                    child: AnimatedSwitcher(
+                  child: SegmentedButton<FrontstageConnectionTransport>(
+                    key: const ValueKey('mg-connection-transport-selector'),
+                    showSelectedIcon: false,
+                    segments: [
+                      ButtonSegment(
+                        value: FrontstageConnectionTransport.serial,
+                        label: Text(l10n.serial),
+                      ),
+                      ButtonSegment(
+                        value: FrontstageConnectionTransport.udp,
+                        label: Text(l10n.udp),
+                      ),
+                      ButtonSegment(
+                        value: FrontstageConnectionTransport.tcp,
+                        label: Text(l10n.tcp),
+                      ),
+                    ],
+                    selected: {selected},
+                    onSelectionChanged: (selection) {
+                      widget.onTransportChanged(selection.single);
+                    },
+                    style: _segmentedStyle(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                MacGlassCloseButton(
+                  key: const ValueKey('mg-close-connection'),
+                  tooltip: l10n.closeConnectionPanel,
+                  onPressed: widget.onClose,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AnimatedSwitcher(
                       duration: const Duration(milliseconds: 180),
                       child: _TransportBody(
                         key: ValueKey(selected),
@@ -189,42 +183,44 @@ final class _MacGlassConnectionDrawerState
                         onBaudRateChanged: widget.onBaudRateChanged,
                       ),
                     ),
-                  ),
+                    if (widget.fleetPanel != null) ...[
+                      const SizedBox(height: 12),
+                      widget.fleetPanel!,
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  key: const ValueKey('mg-connection-action'),
-                  height: 44,
-                  child: FilledButton(
-                    onPressed: _actionHandler(selected),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      textStyle: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      backgroundColor: MacGlassTokens.black,
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: Colors.black.withValues(
-                        alpha: 0.16,
-                      ),
-                      disabledForegroundColor: MacGlassTokens.muted,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                    ),
-                    child: Text(
-                      widget.model.connected
-                          ? '断开'
-                          : widget.model.busy
-                          ? '取消连接'
-                          : '连接',
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(height: 10),
+            SizedBox(
+              key: const ValueKey('mg-connection-action'),
+              height: 44,
+              child: FilledButton(
+                onPressed: _actionHandler(selected),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  textStyle: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  backgroundColor: MacGlassTokens.black,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: Colors.black.withValues(alpha: 0.16),
+                  disabledForegroundColor: MacGlassTokens.muted,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                ),
+                child: Text(
+                  widget.model.connected
+                      ? l10n.disconnect
+                      : widget.model.busy
+                      ? l10n.cancelConnection
+                      : l10n.connect,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -284,6 +280,7 @@ final class _TransportBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = mgLocalizationsOf(context);
     return switch (selected) {
       FrontstageConnectionTransport.serial => _SerialPage(
         model: model,
@@ -291,18 +288,17 @@ final class _TransportBody extends StatelessWidget {
         onBaudRateChanged: onBaudRateChanged,
       ),
       FrontstageConnectionTransport.udp => _NetworkPage(
-        title: 'UDP 监听',
-        modeLabel: '监听模式',
+        title: l10n.udpListen,
+        modeLabel: l10n.listenMode,
         addressController: udpAddressController,
         portController: udpPortController,
       ),
       FrontstageConnectionTransport.tcp => _NetworkPage(
-        title: 'TCP 连接',
-        modeLabel: '远端地址',
+        title: l10n.tcpConnection,
+        modeLabel: l10n.remoteAddress,
         addressController: tcpAddressController,
         portController: tcpPortController,
       ),
-      FrontstageConnectionTransport.bluetooth => const _BluetoothPage(),
     };
   }
 }
@@ -320,6 +316,7 @@ final class _SerialPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = mgLocalizationsOf(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -327,9 +324,9 @@ final class _SerialPage extends StatelessWidget {
           _ConnectionInterruptedNotice(message: model.errorMessage!),
           const SizedBox(height: 12),
         ],
-        const Text(
-          '串口连接',
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+        Text(
+          l10n.serialPort,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 14),
         SizedBox(
@@ -337,11 +334,11 @@ final class _SerialPage extends StatelessWidget {
           height: 48,
           child: _MacGlassSelectField<String>(
             triggerKey: const ValueKey('mg-connection-port-selector'),
-            label: '端口',
+            label: l10n.port,
             value: model.serialPorts.any((port) => port.path == model.portLabel)
                 ? model.portLabel
                 : null,
-            hint: '请选择串口',
+            hint: l10n.selectSerialPort,
             items: model.serialPorts
                 .map(
                   (port) => DropdownMenuItem(
@@ -361,7 +358,7 @@ final class _SerialPage extends StatelessWidget {
           height: 48,
           child: _MacGlassSelectField<int>(
             triggerKey: const ValueKey('mg-connection-baud-selector'),
-            label: '波特率',
+            label: l10n.baudRate,
             value: int.tryParse(model.baudRateLabel) ?? 115200,
             items: const [9600, 57600, 115200, 230400, 460800, 921600]
                 .map(
@@ -578,38 +575,6 @@ final class _NetworkPage extends StatelessWidget {
   }
 }
 
-final class _BluetoothPage extends StatelessWidget {
-  const _BluetoothPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          '蓝牙设备扫描',
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 14),
-        const _DeviceSkeleton(key: ValueKey('mg-bluetooth-device-1')),
-        const SizedBox(height: 8),
-        const _DeviceSkeleton(key: ValueKey('mg-bluetooth-device-2')),
-        const SizedBox(height: 12),
-        SizedBox(
-          key: const ValueKey('mg-bluetooth-scan'),
-          height: 44,
-          child: OutlinedButton.icon(
-            onPressed: null,
-            icon: const Icon(Icons.bluetooth_searching_rounded, size: 18),
-            label: const Text('扫描设备'),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 final class _MacGlassTextField extends StatelessWidget {
   const _MacGlassTextField({
     required this.fieldKey,
@@ -628,9 +593,9 @@ final class _MacGlassTextField extends StatelessWidget {
       height: 48,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.58),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.80)),
-          borderRadius: BorderRadius.circular(15),
+          color: MacGlassTokens.controlFill,
+          border: Border.all(color: MacGlassTokens.controlBorder),
+          borderRadius: BorderRadius.circular(MacGlassTokens.radiusControl),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -665,22 +630,6 @@ final class _MacGlassTextField extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-final class _DeviceSkeleton extends StatelessWidget {
-  const _DeviceSkeleton({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.30),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.80)),
-        borderRadius: BorderRadius.circular(15),
-      ),
-      child: const SizedBox(height: 48),
     );
   }
 }

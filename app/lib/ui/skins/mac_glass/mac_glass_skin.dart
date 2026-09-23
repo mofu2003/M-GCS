@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-
-import '../../../features/frontstage/frontstage_models.dart';
-import '../../../features/map/mg_map_catalog.dart';
+import '../../shell/mg_frontstage_shell_contract.dart';
 import '../../skin/mg_skin.dart';
 import '../../skin/mg_skin_tokens.dart';
 import 'mac_glass_frontstage_shell.dart';
+import 'mac_glass_theme.dart';
 
 final class MacGlassSkin implements MgSkin {
   const MacGlassSkin();
@@ -30,41 +29,13 @@ final class MacGlassSkin implements MgSkin {
   );
 
   @override
-  ThemeData get themeData => ThemeData(
-    colorScheme: ColorScheme.fromSeed(seedColor: tokens.accent),
-    useMaterial3: true,
-    visualDensity: VisualDensity.compact,
-  );
+  ThemeData get themeData => buildMacGlassTheme();
 
   @override
   Widget buildFrontstageShell({
-    required FrontstageModel model,
-    required VoidCallback onConnectPressed,
-    ValueChanged<String>? onTcpConnectPressed,
-    ValueChanged<String>? onUdpConnectPressed,
-    required VoidCallback onDisconnectPressed,
-    required ValueChanged<FrontstageNavigationItem> onNavigationPressed,
-    required ValueChanged<FrontstageConnectionTransport>
-    onConnectionTransportChanged,
-    ValueChanged<String>? onSerialPortChanged,
-    ValueChanged<int>? onBaudRateChanged,
-    Widget? missionPanel,
-    required MgMapStyle mapStyle,
-    required ValueChanged<MgMapStyle> onMapStyleChanged,
+    required MgFrontstageShellModel model,
+    required MgFrontstageShellActions actions,
   }) {
-    return MacGlassFrontstageShell(
-      model: model,
-      onConnectPressed: onConnectPressed,
-      onTcpConnectPressed: onTcpConnectPressed,
-      onUdpConnectPressed: onUdpConnectPressed,
-      onDisconnectPressed: onDisconnectPressed,
-      onNavigationPressed: onNavigationPressed,
-      onConnectionTransportChanged: onConnectionTransportChanged,
-      onSerialPortChanged: onSerialPortChanged,
-      onBaudRateChanged: onBaudRateChanged,
-      missionPanel: missionPanel,
-      mapStyle: mapStyle,
-      onMapStyleChanged: onMapStyleChanged,
-    );
+    return MacGlassFrontstageShell(model: model, actions: actions);
   }
 }

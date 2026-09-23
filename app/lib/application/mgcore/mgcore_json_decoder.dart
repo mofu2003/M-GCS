@@ -2,6 +2,9 @@ import '../connection_models.dart';
 import '../calibration_models.dart';
 import '../mission_models.dart';
 import '../parameter_models.dart';
+import '../flight_log_models.dart';
+import '../flight_control_models.dart';
+import '../safety_models.dart';
 
 final class MgCoreJsonDecoder {
   SensorTelemetrySnapshot decodeSensorTelemetry(Map<String, Object?> json) {
@@ -311,26 +314,54 @@ final class MgCoreJsonDecoder {
     );
   }
 
+  List<FlightModeOption> decodeFlightModes(List<Object?> json) {
+    return json
+        .whereType<Map<Object?, Object?>>()
+        .map((item) {
+          final name = _string(item['name']) ?? _string(item['mode']) ?? '';
+          return FlightModeOption(name: name, label: _string(item['label']));
+        })
+        .where((item) => item.name.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  FlightModeStatus decodeFlightModeStatus(Map<String, Object?> json) {
+    return FlightModeStatus(
+      currentMode:
+          _string(json['current_mode']) ?? _string(json['mode']) ?? 'UNKNOWN',
+      armed: _bool(json['armed']) ?? false,
+      inFlight: _bool(json['in_flight']) ?? false,
+      baseMode: _int(json['base_mode']) ?? 0,
+      customMode: _int(json['custom_mode']) ?? 0,
+    );
+  }
+
+  PreflightCheckResult decodePreflightCheck(Map<String, Object?> json) {
+    final rawItems =
+        _asList(json['checks']) ?? _asList(json['items']) ?? const [];
+    final items = rawItems
+        .whereType<Map<Object?, Object?>>()
+        .map(
+          (item) => PreflightCheckItem(
+            name: _string(item['name']) ?? '检查项',
+            ok: _bool(item['ok']) ?? _bool(item['passed']) ?? false,
+            message: _string(item['message']) ?? '',
+          ),
+        )
+        .toList(growable: false);
+    return PreflightCheckResult(
+      ready: _bool(json['ready']) ?? _bool(json['success']) ?? false,
+      message: _string(json['ready_message']) ?? _string(json['message']) ?? '',
+      items: items,
+    );
+  }
+
   MissionPlanSnapshot decodeMissionPlan(Map<String, Object?> json) {
     final rawItems = json['items'];
     final items = rawItems is List<Object?>
         ? rawItems
               .whereType<Map<Object?, Object?>>()
-              .map(
-                (item) => MissionItemSnapshot(
-                  sequence: _int(item['seq']) ?? 0,
-                  command: _int(item['command']) ?? 16,
-                  commandName: _string(item['command_name']) ?? 'NAV_WAYPOINT',
-                  frame: _int(item['frame']) ?? 3,
-                  frameName:
-                      _string(item['frame_name']) ?? 'GLOBAL_RELATIVE_ALT',
-                  autoContinue: (_int(item['autocontinue']) ?? 0) != 0,
-                  latitude: _double(item['lat']),
-                  longitude: _double(item['lon']),
-                  altitudeMeters: _double(item['z']),
-                  holdTimeSeconds: _double(item['param1']) ?? 0,
-                ),
-              )
+              .map(_decodeMissionItem)
               .toList(growable: false)
         : const <MissionItemSnapshot>[];
     return MissionPlanSnapshot(
@@ -339,6 +370,96 @@ final class MgCoreJsonDecoder {
       valid: json['valid'] == true,
     );
   }
+
+  MissionItemSnapshot _decodeMissionItem(Map<Object?, Object?> item) =>
+      MissionItemSnapshot(
+        sequence: _int(item['seq']) ?? 0,
+        command: _int(item['command']) ?? 16,
+        commandName: _string(item['command_name']) ?? 'NAV_WAYPOINT',
+        frame: _int(item['frame']) ?? 3,
+        frameName: _string(item['frame_name']) ?? 'GLOBAL_REL_ALT',
+        autoContinue: (_int(item['autocontinue']) ?? 0) != 0,
+        latitude: _double(item['lat']),
+        longitude: _double(item['lon']) ?? _double(item['x']),
+        altitudeMeters: _double(item['z']) ?? _double(item['alt']),
+        holdTimeSeconds:
+            _double(item['param1']) ?? _double(item['hold_time']) ?? 0,
+        speedMetersPerSecond:
+            _double(item['speed']) ??
+            (_int(item['command']) == 178 ? _double(item['param2']) : null),
+      );
+
+  MissionProgressSnapshot decodeMissionProgress(Map<String, Object?> json) {
+    final state = switch (_string(json['state'])) {
+      'downloading' => MissionTransferState.downloading,
+      'uploading' => MissionTransferState.uploading,
+      'waiting_ack' => MissionTransferState.waitingAck,
+      _ => MissionTransferState.idle,
+    };
+    return MissionProgressSnapshot(
+      state: state,
+      total: _int(json['total']) ?? 0,
+      received: _int(json['received']) ?? 0,
+      sent: _int(json['sent']) ?? 0,
+      result: _int(json['result']) ?? 0,
+      error: _string(json['error']) ?? '',
+      progressPercent: (_int(json['progress_pct']) ?? 0).clamp(0, 100),
+    );
+  }
+
+  MissionGenerationResult decodeMissionGeneration(Map<String, Object?> json) {
+    final rawItems = json['waypoints'];
+    final items = rawItems is List
+        ? rawItems
+              .whereType<Map<Object?, Object?>>()
+              .map(_decodeMissionItem)
+              .toList(growable: false)
+        : const <MissionItemSnapshot>[];
+    return MissionGenerationResult(
+      valid: json['valid'] == true,
+      items: items,
+      waypointCount: _int(json['waypoint_count']) ?? items.length,
+      flightLineCount: _int(json['flight_line_count']) ?? 0,
+      totalDistanceMeters: _double(json['total_distance_m']) ?? 0,
+      estimatedTimeSeconds: _double(json['estimated_time_s']) ?? 0,
+      areaSquareMeters: _double(json['area_m2']) ?? 0,
+      photoCount: _int(json['photo_count']) ?? 0,
+      error: _string(json['error']) ?? '',
+    );
+  }
+
+  GeofenceConfigSnapshot decodeGeofenceConfig(Map<String, Object?> json) =>
+      GeofenceConfigSnapshot(
+        enabled: _bool(json['enabled']) ?? false,
+        maxAltitudeMeters: _double(json['max_altitude']) ?? 120,
+        minAltitudeMeters: _double(json['min_altitude']) ?? 0,
+        action: _int(json['action']) ?? 0,
+        returnAtMinimum: _bool(json['return_at_min']) ?? false,
+        breachDistanceMeters: _double(json['breach_distance']) ?? 10,
+      );
+
+  List<FencePointSnapshot> decodeGeofencePoints(List<Object?> json) => [
+    for (final value in json.whereType<Map<Object?, Object?>>())
+      FencePointSnapshot(
+        latitude: _double(value['lat']) ?? 0,
+        longitude: _double(value['lon']) ?? 0,
+        altitudeMeters: _double(value['alt']) ?? 0,
+      ),
+  ];
+
+  GeofenceValidationSnapshot decodeGeofenceValidation(
+    Map<String, Object?> json,
+  ) => GeofenceValidationSnapshot(
+    valid: _bool(json['valid']) ?? false,
+    error: _string(json['error']) ?? '',
+    warnings: (_asList(json['warnings']) ?? const [])
+        .whereType<Map<Object?, Object?>>()
+        .map((item) => _string(item['msg']) ?? '')
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false),
+    areaSquareMeters: _double(json['area_m2']) ?? 0,
+    perimeterMeters: _double(json['perimeter_m']) ?? 0,
+  );
 
   AppConnectionSummary decodeConnection(Map<String, Object?> json) {
     final vehicle = _asMap(json['vehicle']) ?? const {};
@@ -499,6 +620,41 @@ final class MgCoreJsonDecoder {
       text: _string(json['text']) ?? '飞控未提供文本',
       severity: _string(json['severity_label']) ?? 'info',
       receivedAt: DateTime.now(),
+    );
+  }
+
+  List<FlightLogEntry> decodeFlightLogs(List<Object?> items) {
+    return items
+        .map(_asMap)
+        .whereType<Map<String, Object?>>()
+        .map(
+          (item) => FlightLogEntry(
+            id: _int(item['id']) ?? 0,
+            sizeBytes: _int(item['size_bytes']) ?? _int(item['size']) ?? 0,
+            timestamp: flightLogTimestampFromUtcSeconds(
+              _int(item['time_utc']) ?? 0,
+            ),
+          ),
+        )
+        .where((item) => item.id > 0)
+        .toList(growable: false);
+  }
+
+  FlightLogDownloadProgress decodeFlightLogProgress(Map<String, Object?> json) {
+    final state = switch (_string(json['state'])) {
+      'downloading' => FlightLogDownloadState.downloading,
+      'completed' => FlightLogDownloadState.completed,
+      'cancelled' => FlightLogDownloadState.cancelled,
+      'failed' => FlightLogDownloadState.failed,
+      _ => FlightLogDownloadState.idle,
+    };
+    return FlightLogDownloadProgress(
+      logId: _int(json['log_id']) ?? 0,
+      receivedBytes: _int(json['received_bytes']) ?? 0,
+      totalBytes: _int(json['total_bytes']) ?? 0,
+      state: state,
+      destinationPath: _string(json['path']),
+      message: _string(json['message']) ?? '',
     );
   }
 }

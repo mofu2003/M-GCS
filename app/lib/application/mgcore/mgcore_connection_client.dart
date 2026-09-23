@@ -22,6 +22,16 @@ final class MgCoreConnectionClient {
   Stream<MgCoreEvent> get events => _events.stream;
 
   Map<String, Object?> listPorts() => _decodeObject(api.listPorts(_core));
+  List<Object?> vehicleList() {
+    final value = jsonDecode(api.vehicleList(_core));
+    return value is List<Object?> ? value : const [];
+  }
+
+  Map<String, Object?> vehicleSelect(int vehicleId) =>
+      _decodeObject(api.vehicleSelect(_core, vehicleId));
+  Map<String, Object?> vehicleClose(int vehicleId) =>
+      _decodeObject(api.vehicleClose(_core, vehicleId));
+  int vehicleGetActive() => api.vehicleGetActive(_core);
 
   Map<String, Object?> connectSerial(String port, int baudRate) {
     return _decodeObject(api.connectSerial(_core, port, baudRate));
@@ -138,10 +148,84 @@ final class MgCoreConnectionClient {
     return _decodeObject(api.missionUpload(_core, jsonEncode(items)));
   }
 
+  Map<String, Object?> missionClear() => _decodeObject(api.missionClear(_core));
+
+  Map<String, Object?> missionSetCurrent(int sequence) =>
+      _decodeObject(api.missionSetCurrent(_core, sequence));
+
+  Map<String, Object?> missionStart() => _decodeObject(api.missionStart(_core));
+
   Map<String, Object?> missionPlan() => _decodeObject(api.missionPlan(_core));
 
   Map<String, Object?> missionProgress() =>
       _decodeObject(api.missionProgress(_core));
+
+  Map<String, Object?> surveyGenerate(Map<String, Object?> config) =>
+      _decodeObject(api.surveyGenerate(_core, jsonEncode(config)));
+
+  Map<String, Object?> surveyGenerateCorridor(Map<String, Object?> config) =>
+      _decodeObject(api.surveyGenerateCorridor(_core, jsonEncode(config)));
+
+  Map<String, Object?> geofenceGetConfig() =>
+      _decodeObject(api.geofenceGetConfig(_core));
+  Map<String, Object?> geofenceSetConfig(Map<String, Object?> config) =>
+      _decodeObject(api.geofenceSetConfig(_core, jsonEncode(config)));
+  Map<String, Object?> geofenceAddPoint(double lat, double lon, double alt) =>
+      _decodeObject(api.geofenceAddPoint(_core, lat, lon, alt));
+  Map<String, Object?> geofenceRemovePoint(int index) =>
+      _decodeObject(api.geofenceRemovePoint(_core, index));
+  List<Object?> geofenceGetPoints() {
+    final value = jsonDecode(api.geofenceGetPoints(_core));
+    return value is List<Object?> ? value : const [];
+  }
+
+  Map<String, Object?> geofenceValidate() =>
+      _decodeObject(api.geofenceValidate(_core));
+  String geofenceExportJson() => api.geofenceExportJson(_core);
+  Map<String, Object?> geofenceImportJson(String json) =>
+      _decodeObject(api.geofenceImportJson(_core, json));
+  String geofenceExportKml(String name) => api.geofenceExportKml(_core, name);
+  Map<String, Object?> fenceDownload() =>
+      _decodeObject(api.fenceDownload(_core));
+  Map<String, Object?> fenceGetPlan() => _decodeObject(api.fenceGetPlan(_core));
+  Map<String, Object?> fenceClear() => _decodeObject(api.fenceClear(_core));
+  Map<String, Object?> fenceEnable(bool enabled) =>
+      _decodeObject(api.fenceEnable(_core, enabled ? 1 : 0));
+  Map<String, Object?> rallyDownload() =>
+      _decodeObject(api.rallyDownload(_core));
+  Map<String, Object?> rallyGetPlan() => _decodeObject(api.rallyGetPlan(_core));
+  Map<String, Object?> rallyClear() => _decodeObject(api.rallyClear(_core));
+
+  Map<String, Object?> logRequestList() =>
+      _decodeObject(api.logRequestList(_core));
+
+  List<Object?> logGetEntries() {
+    final value = jsonDecode(api.logGetEntries(_core));
+    return value is List<Object?> ? value : const [];
+  }
+
+  Map<String, Object?> logDownload(int logId, String filepath) =>
+      _decodeObject(api.logDownload(_core, logId, filepath));
+
+  Map<String, Object?> logDownloadCancel() =>
+      _decodeObject(api.logDownloadCancel(_core));
+
+  Map<String, Object?> logDownloadStatus() =>
+      _decodeObject(api.logDownloadStatus(_core));
+
+  Map<String, Object?> listVehicleDirectory(String path) =>
+      _decodeObject(api.fsListDirectory(_core, path));
+
+  Map<String, Object?> downloadVehicleFile(
+    String remotePath,
+    String localPath,
+  ) => _decodeObject(api.fsDownloadFile(_core, remotePath, localPath));
+
+  Map<String, Object?> cancelVehicleFileDownload() =>
+      _decodeObject(api.fsDownloadCancel(_core));
+
+  Map<String, Object?> uploadVehicleFile(String localPath, String remotePath) =>
+      _decodeObject(api.fsUploadFile(_core, localPath, remotePath));
 
   Map<String, Object?> firmwareType() {
     return _decodeObject(api.firmwareType(_core));
@@ -154,6 +238,37 @@ final class MgCoreConnectionClient {
   Map<String, Object?> systemDiagnostics() {
     return _decodeObject(api.systemDiagnostics(_core));
   }
+
+  Map<String, Object?> commandArm({bool force = false}) =>
+      _decodeObject(api.commandArm(_core, force));
+  Map<String, Object?> commandDisarm({bool force = false}) =>
+      _decodeObject(api.commandDisarm(_core, force));
+  Map<String, Object?> commandSetMode(String mode) =>
+      _decodeObject(api.commandSetModeByName(_core, mode));
+  Map<String, Object?> commandRtl() => _decodeObject(api.commandRtl(_core));
+  Map<String, Object?> commandTakeoff(double altitude) =>
+      _decodeObject(api.commandTakeoff(_core, altitude));
+  Map<String, Object?> commandLand() => _decodeObject(api.commandLand(_core));
+  Map<String, Object?> commandEmergencyStop() =>
+      _decodeObject(api.commandEmergencyStop(_core));
+  Map<String, Object?> commandGuidedPoint(
+    double latitude,
+    double longitude,
+    double altitude,
+    double yaw,
+    double speed,
+  ) => _decodeObject(
+    api.commandGuidedPoint(_core, latitude, longitude, altitude, yaw, speed),
+  );
+  List<Object?> flightAvailableModes() {
+    final value = jsonDecode(api.flightAvailableModes(_core));
+    return value is List<Object?> ? value : const [];
+  }
+
+  Map<String, Object?> flightModeStatus() =>
+      _decodeObject(api.flightModeStatus(_core));
+  Map<String, Object?> preflightCheck() =>
+      _decodeObject(api.preflightCheck(_core));
 
   void dispose() {
     if (_disposed) {

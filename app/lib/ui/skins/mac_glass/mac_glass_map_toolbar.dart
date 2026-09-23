@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'mac_glass_surface.dart';
 import 'mac_glass_tokens.dart';
 
 final class MacGlassMapToolbar extends StatelessWidget {
@@ -20,53 +21,42 @@ final class MacGlassMapToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
+    return MacGlassSurface(
       key: const ValueKey('mg-map-toolbar'),
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: MacGlassTokens.strongBlur,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.58),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.86)),
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [MacGlassTokens.floatingShadow()],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _ToolButton(
-                  tooltip: '放大',
-                  icon: Icons.add_rounded,
-                  onPressed: onZoomIn,
-                ),
-                _ToolButton(
-                  tooltip: '缩小',
-                  icon: Icons.remove_rounded,
-                  onPressed: onZoomOut,
-                ),
-                const _Divider(),
-                _ToolButton(
-                  tooltip: '回到默认位置',
-                  icon: Icons.my_location_rounded,
-                  onPressed: onReset,
-                ),
-                _ToolButton(
-                  tooltip: '恢复正北',
-                  icon: Icons.explore_rounded,
-                  onPressed: onNorth,
-                ),
-                const _Divider(),
-                _ToolButton(
-                  tooltip: '图层',
-                  icon: Icons.layers_rounded,
-                  onPressed: onLayers,
-                ),
-              ],
+      radius: MacGlassTokens.radiusLarge,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _ToolButton(
+              tooltip: '放大',
+              icon: Icons.add_rounded,
+              onPressed: onZoomIn,
             ),
-          ),
+            _ToolButton(
+              tooltip: '缩小',
+              icon: Icons.remove_rounded,
+              onPressed: onZoomOut,
+            ),
+            const _Divider(),
+            _ToolButton(
+              tooltip: '回到默认位置',
+              icon: Icons.my_location_rounded,
+              onPressed: onReset,
+            ),
+            _ToolButton(
+              tooltip: '恢复正北',
+              icon: Icons.explore_rounded,
+              onPressed: onNorth,
+            ),
+            const _Divider(),
+            _ToolButton(
+              tooltip: '图层',
+              icon: Icons.layers_rounded,
+              onPressed: onLayers,
+            ),
+          ],
         ),
       ),
     );

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../features/frontstage/frontstage_models.dart';
+import '../../../l10n/mg_localizations.dart';
+import 'mac_glass_surface.dart';
 import 'mac_glass_tokens.dart';
 
 enum MacGlassBackstageSection {
@@ -12,6 +14,7 @@ enum MacGlassBackstageSection {
   pidTuning,
   calibration,
   safety,
+  flightLogs,
 }
 
 final class MacGlassNavigationDock extends StatelessWidget {
@@ -30,13 +33,14 @@ final class MacGlassNavigationDock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = mgLocalizationsOf(context);
     return _MacGlassDockFrame(
       frameKey: const ValueKey('mg-navigation-dock'),
       child: Column(
         children: [
           const SizedBox(height: 16),
           Tooltip(
-            message: '连接',
+            message: l10n.navConnection,
             child: _DockButton(
               key: const ValueKey('mg-navigation-connection'),
               icon: Icons.cable_rounded,
@@ -47,7 +51,7 @@ final class MacGlassNavigationDock extends StatelessWidget {
             ),
           ),
           Tooltip(
-            message: '任务',
+            message: l10n.navMission,
             child: _DockButton(
               key: const ValueKey('mg-navigation-mission'),
               icon: Icons.route_rounded,
@@ -58,7 +62,7 @@ final class MacGlassNavigationDock extends StatelessWidget {
             ),
           ),
           Tooltip(
-            message: '仪表盘',
+            message: l10n.returnFrontstage,
             child: _DockButton(
               key: const ValueKey('mg-navigation-dashboard'),
               icon: Icons.space_dashboard_rounded,
@@ -70,7 +74,7 @@ final class MacGlassNavigationDock extends StatelessWidget {
           ),
           const Spacer(),
           Tooltip(
-            message: '参数配置',
+            message: l10n.parameters,
             child: _DockButton(
               key: const ValueKey('mg-navigation-backstage'),
               icon: Icons.tune_rounded,
@@ -98,111 +102,126 @@ final class MacGlassBackstageNavigationDock extends StatelessWidget {
   final VoidCallback onReturnToFrontstage;
 
   @override
-  Widget build(BuildContext context) => _MacGlassDockFrame(
-    frameKey: const ValueKey('mg-backstage-navigation-dock'),
-    child: Column(
-      children: [
-        const SizedBox(height: 16),
-        Tooltip(
-          message: '参数配置',
-          child: _DockButton(
-            key: const ValueKey('mg-backstage-parameters'),
-            icon: Icons.tune_rounded,
-            active: selectedSection == MacGlassBackstageSection.parameters,
-            activeKey: const ValueKey('mg-backstage-active-parameters'),
-            onPressed: () =>
-                onSectionChanged(MacGlassBackstageSection.parameters),
+  Widget build(BuildContext context) {
+    final l10n = mgLocalizationsOf(context);
+    return _MacGlassDockFrame(
+      frameKey: const ValueKey('mg-backstage-navigation-dock'),
+      child: Column(
+        children: [
+          const SizedBox(height: 16),
+          Tooltip(
+            message: l10n.parameters,
+            child: _DockButton(
+              key: const ValueKey('mg-backstage-parameters'),
+              icon: Icons.tune_rounded,
+              active: selectedSection == MacGlassBackstageSection.parameters,
+              activeKey: const ValueKey('mg-backstage-active-parameters'),
+              onPressed: () =>
+                  onSectionChanged(MacGlassBackstageSection.parameters),
+            ),
           ),
-        ),
-        Tooltip(
-          message: '机架类型',
-          child: _DockButton(
-            key: const ValueKey('mg-backstage-airframe'),
-            icon: Icons.airplanemode_active_rounded,
-            active: selectedSection == MacGlassBackstageSection.airframe,
-            activeKey: const ValueKey('mg-backstage-active-airframe'),
-            onPressed: () =>
-                onSectionChanged(MacGlassBackstageSection.airframe),
+          Tooltip(
+            message: l10n.airframe,
+            child: _DockButton(
+              key: const ValueKey('mg-backstage-airframe'),
+              icon: Icons.airplanemode_active_rounded,
+              active: selectedSection == MacGlassBackstageSection.airframe,
+              activeKey: const ValueKey('mg-backstage-active-airframe'),
+              onPressed: () =>
+                  onSectionChanged(MacGlassBackstageSection.airframe),
+            ),
           ),
-        ),
-        Tooltip(
-          message: '舵机输出',
-          child: _DockButton(
-            key: const ValueKey('mg-backstage-servo-outputs'),
-            icon: Icons.settings_input_component_rounded,
-            active: selectedSection == MacGlassBackstageSection.servoOutputs,
-            activeKey: const ValueKey('mg-backstage-active-servo-outputs'),
-            onPressed: () =>
-                onSectionChanged(MacGlassBackstageSection.servoOutputs),
+          Tooltip(
+            message: l10n.motorOutputs,
+            child: _DockButton(
+              key: const ValueKey('mg-backstage-servo-outputs'),
+              icon: Icons.settings_input_component_rounded,
+              active: selectedSection == MacGlassBackstageSection.servoOutputs,
+              activeKey: const ValueKey('mg-backstage-active-servo-outputs'),
+              onPressed: () =>
+                  onSectionChanged(MacGlassBackstageSection.servoOutputs),
+            ),
           ),
-        ),
-        Tooltip(
-          message: '串口配置',
-          child: _DockButton(
-            key: const ValueKey('mg-backstage-serial-ports'),
-            icon: Icons.usb_rounded,
-            active: selectedSection == MacGlassBackstageSection.serialPorts,
-            activeKey: const ValueKey('mg-backstage-active-serial-ports'),
-            onPressed: () =>
-                onSectionChanged(MacGlassBackstageSection.serialPorts),
+          Tooltip(
+            message: l10n.portConfiguration,
+            child: _DockButton(
+              key: const ValueKey('mg-backstage-serial-ports'),
+              icon: Icons.usb_rounded,
+              active: selectedSection == MacGlassBackstageSection.serialPorts,
+              activeKey: const ValueKey('mg-backstage-active-serial-ports'),
+              onPressed: () =>
+                  onSectionChanged(MacGlassBackstageSection.serialPorts),
+            ),
           ),
-        ),
-        Tooltip(
-          message: '遥控配置',
-          child: _DockButton(
-            key: const ValueKey('mg-backstage-remote-control'),
-            icon: Icons.settings_remote_rounded,
-            active: selectedSection == MacGlassBackstageSection.remoteControl,
-            activeKey: const ValueKey('mg-backstage-active-remote-control'),
-            onPressed: () =>
-                onSectionChanged(MacGlassBackstageSection.remoteControl),
+          Tooltip(
+            message: l10n.remoteControl,
+            child: _DockButton(
+              key: const ValueKey('mg-backstage-remote-control'),
+              icon: Icons.settings_remote_rounded,
+              active: selectedSection == MacGlassBackstageSection.remoteControl,
+              activeKey: const ValueKey('mg-backstage-active-remote-control'),
+              onPressed: () =>
+                  onSectionChanged(MacGlassBackstageSection.remoteControl),
+            ),
           ),
-        ),
-        Tooltip(
-          message: 'PID 调参',
-          child: _DockButton(
-            key: const ValueKey('mg-backstage-pid-tuning'),
-            icon: Icons.tune_rounded,
-            active: selectedSection == MacGlassBackstageSection.pidTuning,
-            activeKey: const ValueKey('mg-backstage-active-pid-tuning'),
-            onPressed: () =>
-                onSectionChanged(MacGlassBackstageSection.pidTuning),
+          Tooltip(
+            message: l10n.pidTuning,
+            child: _DockButton(
+              key: const ValueKey('mg-backstage-pid-tuning'),
+              icon: Icons.tune_rounded,
+              active: selectedSection == MacGlassBackstageSection.pidTuning,
+              activeKey: const ValueKey('mg-backstage-active-pid-tuning'),
+              onPressed: () =>
+                  onSectionChanged(MacGlassBackstageSection.pidTuning),
+            ),
           ),
-        ),
-        Tooltip(
-          message: '传感器/外设配置',
-          child: _DockButton(
-            key: const ValueKey('mg-backstage-calibration'),
-            icon: Icons.explore_rounded,
-            active: selectedSection == MacGlassBackstageSection.calibration,
-            activeKey: const ValueKey('mg-backstage-active-calibration'),
-            onPressed: () =>
-                onSectionChanged(MacGlassBackstageSection.calibration),
+          Tooltip(
+            message: l10n.calibration,
+            child: _DockButton(
+              key: const ValueKey('mg-backstage-calibration'),
+              icon: Icons.explore_rounded,
+              active: selectedSection == MacGlassBackstageSection.calibration,
+              activeKey: const ValueKey('mg-backstage-active-calibration'),
+              onPressed: () =>
+                  onSectionChanged(MacGlassBackstageSection.calibration),
+            ),
           ),
-        ),
-        Tooltip(
-          message: '安全设置',
-          child: _DockButton(
-            key: const ValueKey('mg-backstage-safety'),
-            icon: Icons.shield_outlined,
-            active: selectedSection == MacGlassBackstageSection.safety,
-            activeKey: const ValueKey('mg-backstage-active-safety'),
-            onPressed: () => onSectionChanged(MacGlassBackstageSection.safety),
+          Tooltip(
+            message: l10n.safetySettings,
+            child: _DockButton(
+              key: const ValueKey('mg-backstage-safety'),
+              icon: Icons.shield_outlined,
+              active: selectedSection == MacGlassBackstageSection.safety,
+              activeKey: const ValueKey('mg-backstage-active-safety'),
+              onPressed: () =>
+                  onSectionChanged(MacGlassBackstageSection.safety),
+            ),
           ),
-        ),
-        const Spacer(),
-        Tooltip(
-          message: '返回前台',
-          child: _DockButton(
-            key: const ValueKey('mg-backstage-return-frontstage'),
-            icon: Icons.map_outlined,
-            onPressed: onReturnToFrontstage,
+          Tooltip(
+            message: l10n.flightLogs,
+            child: _DockButton(
+              key: const ValueKey('mg-backstage-flight-logs'),
+              icon: Icons.description_outlined,
+              active: selectedSection == MacGlassBackstageSection.flightLogs,
+              activeKey: const ValueKey('mg-backstage-active-flight-logs'),
+              onPressed: () =>
+                  onSectionChanged(MacGlassBackstageSection.flightLogs),
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-      ],
-    ),
-  );
+          const Spacer(),
+          Tooltip(
+            message: l10n.navDashboard,
+            child: _DockButton(
+              key: const ValueKey('mg-backstage-return-frontstage'),
+              icon: Icons.map_outlined,
+              onPressed: onReturnToFrontstage,
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
 }
 
 final class _MacGlassDockFrame extends StatelessWidget {
@@ -212,21 +231,10 @@ final class _MacGlassDockFrame extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
+  Widget build(BuildContext context) => MacGlassSurface(
     key: frameKey,
-    borderRadius: BorderRadius.circular(MacGlassTokens.radiusLarge),
-    child: BackdropFilter(
-      filter: MacGlassTokens.strongBlur,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.58),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.86)),
-          borderRadius: BorderRadius.circular(MacGlassTokens.radiusLarge),
-          boxShadow: [MacGlassTokens.floatingShadow()],
-        ),
-        child: child,
-      ),
-    ),
+    radius: MacGlassTokens.radiusLarge,
+    child: child,
   );
 }
 

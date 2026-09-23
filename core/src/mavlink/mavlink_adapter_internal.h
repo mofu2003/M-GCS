@@ -224,11 +224,17 @@ struct LogState {
     uint32_t download_ofs = 0;
     uint32_t download_size = 0;
     std::vector<uint8_t> download_data;
+    std::vector<uint8_t> download_received;
+    uint32_t download_received_bytes = 0;
+    std::chrono::steady_clock::time_point download_last_data_at{};
     std::string download_filepath;
     uint8_t download_target_sys = 0;
     uint8_t download_target_comp = 0;
     std::function<void(uint32_t received, uint32_t total)> download_progress_cb;
     std::function<void(bool success, const std::string& path)> download_complete_cb;
+    bool download_completed = false;
+    bool download_cancelled = false;
+    std::string download_error;
 };
 
 // MavlinkAdapter 的 PIMPL 实现，包含所有可变状态和消息处理逻辑
@@ -1129,13 +1135,46 @@ struct MavlinkAdapter::Impl {
         mavlink_msg_log_data_decode(&m, &ld);
         if (ld.id != log_state.download_id) return;
 
-        log_state.download_data.insert(log_state.download_data.end(), ld.data, ld.data + ld.count);
-        log_state.download_ofs = ld.ofs + ld.count;
+        const uint32_t end = ld.ofs + ld.count;
+        // 日志列表提供了已知大小时，忽略飞控偶发发送到文件尾之外的字节，
+        // 避免额外字节被计入完成条件或写入本地文件。
+        const uint32_t write_end = log_state.download_size > 0
+            ? std::min(end, log_state.download_size)
+            : end;
+        if (write_end > log_state.download_data.size()) {
+            log_state.download_data.resize(write_end);
+        }
+        if (write_end > log_state.download_received.size()) {
+            log_state.download_received.resize(write_end, 0);
+        }
+        for (uint32_t i = 0; i < ld.count; ++i) {
+            const auto index = ld.ofs + i;
+            if (log_state.download_size > 0 && index >= log_state.download_size) {
+                break;
+            }
+            log_state.download_data[index] = ld.data[i];
+            if (!log_state.download_received[index]) {
+                log_state.download_received[index] = 1;
+                ++log_state.download_received_bytes;
+            }
+        }
+        log_state.download_ofs = write_end;
+        log_state.download_last_data_at = std::chrono::steady_clock::now();
+        if (log_state.download_size == 0 && ld.count < 90) {
+            log_state.download_size = end;
+        }
 
-        if (ld.count == 0 || (log_state.download_size > 0 && log_state.download_ofs >= log_state.download_size)) {
+        const bool complete =
+            (log_state.download_size > 0 &&
+             log_state.download_received_bytes >= log_state.download_size) ||
+            (ld.count == 0 && log_state.download_size == 0);
+        if (complete) {
             // 延迟文件写入到锁外执行，避免在 Impl::mtx 锁内做阻塞 I/O
             auto filepath = log_state.download_filepath;
             auto data = std::move(log_state.download_data);
+            if (log_state.download_size > 0 && data.size() > log_state.download_size) {
+                data.resize(log_state.download_size);
+            }
             deferred_cbs.push_back([filepath, data = std::move(data)]() {
                 FILE* f = fopen(filepath.c_str(), "wb");
                 if (f) {
@@ -1149,6 +1188,7 @@ struct MavlinkAdapter::Impl {
                 }
             });
             log_state.downloading = false;
+            log_state.download_completed = true;
         } else {
             mavlink_msg_log_request_data_pack(
                 255, 0, &msg,

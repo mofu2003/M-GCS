@@ -43,21 +43,61 @@ bool MavlinkAdapter::download_file(uint8_t target_system, uint8_t target_compone
     return success;
 }
 
+bool MavlinkAdapter::upload_file(uint8_t target_system, uint8_t target_component,
+                                 const std::string& local_path,
+                                 const std::string& remote_path,
+                                 std::string* error) {
+    mg::core::ftp::FtpResult result;
+    const bool success = impl_->ftp.upload_file(
+        target_system, target_component, local_path, remote_path, nullptr, &result);
+    if (!success && error) {
+        *error = result.error;
+        if (result.error_code != 0) {
+            *error += " (MAVLink FTP 错误码 " +
+                std::to_string(static_cast<unsigned>(result.error_code)) + ")";
+        }
+    }
+    return success;
+}
+
+std::vector<mg::core::ftp::DirEntry> MavlinkAdapter::list_directory(
+    uint8_t target_system, uint8_t target_component,
+    const std::string& remote_path, std::string* error) {
+    mg::core::ftp::FtpResult result;
+    auto entries = impl_->ftp.list_directory(
+        target_system, target_component, remote_path, &result);
+    if (!result.success && error != nullptr) {
+        *error = result.error;
+        if (result.error_code != 0) {
+            *error += " (MAVLink FTP 错误码 " +
+                std::to_string(static_cast<unsigned>(result.error_code)) + ")";
+        }
+    }
+    return entries;
+}
+
+void MavlinkAdapter::cancel_file_transfer() {
+    impl_->ftp.cancel();
+}
+
 // ================================================================
 // 接收路径
 // ================================================================
 
 // 喂入原始字节，逐字节解析 MAVLink 消息
 // 使用独立的 parse_msg/parse_status，不与发送函数共享 impl_->msg
-void MavlinkAdapter::feed_raw(const uint8_t* data, size_t size) {
+bool MavlinkAdapter::feed_raw(const uint8_t* data, size_t size) {
+    bool parsed_frame = false;
     impl_->feed_mag_progress_compat(data, size);
     mavlink_message_t parse_msg{};
     mavlink_status_t  parse_status{};
     for (size_t i = 0; i < size; i++) {
         if (mavlink_parse_char(MAVLINK_COMM_0, data[i], &parse_msg, &parse_status)) {
+            parsed_frame = true;
             impl_->process(parse_msg);
         }
     }
+    return parsed_frame;
 }
 
 // 设置底层发送回调，加锁保护

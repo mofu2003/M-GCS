@@ -1,7 +1,7 @@
 # M-GCS 全局代码优化报告
 
-审阅日期：2026-09-10
-审阅方式：全仓静态审阅 + 后端离线/模拟门禁复跑。未执行真实飞控写入、校准、解锁、切模式或任务上传。
+审阅日期：2026-09-23
+审阅方式：全仓静态审阅 + 后端离线/模拟门禁复跑 + Flutter analyze/test/macOS Debug 构建。未执行真实飞控写入、校准、解锁、切模式或任务上传。
 
 ## 结论
 
@@ -19,7 +19,16 @@ M-GCS 的主链路已经是适合长期演进的形状：
 
 这里的关键模块是 `core`、`bridge/ffi` 和 `ConnectionSessionBackend`。它们已经形成了清晰的接缝：飞控协议、连接、参数、任务、校准和安全敏感状态机留在后端；Flutter 页面主要是当前的交互适配器。未来替换 UI 时，应该重建呈现和调用适配，而不是重写后端领域能力。
 
-当前的优先事项不是“换技术栈”或“拆掉后端”，而是：修复可复现门禁、避免跨飞控会话残留参数、收紧前端任务语义和轮询归属、再逐步拆分过大的页面库。以下建议都可以局部完成，不需要改变总体架构。
+当前的优先事项不是“换技术栈”或“拆掉后端”，而是：把已进入应用层的任务、安全、日志/文件和多机能力继续做成可验收闭环，再逐步拆分过大的页面库。以下建议都可以局部完成，不需要改变总体架构。
+
+## 0.0.4 跟进结论
+
+本轮已经完成了上一版报告中最直接的应用层改进：
+
+- 参数控制器现在绑定 `sessionEpoch`，连接/断开/活动飞控变化时可隔离旧会话结果；批量写入 fallback 也统一使用 `try/finally` 恢复 busy 状态。
+- `SessionCapabilities`、`FleetController`、`SafetyController`、任务编辑控制器和飞控文件模型已经形成应用层接缝；Flutter 页面不需要直接依赖 native FFI。
+- 多机、围栏/Rally、任务编辑、飞行日志/FTP 文件树和本地化已有回归测试与 UI 入口。
+- 本版本仍不把“接口已接入”当成“真实硬件生产验收”：多机 active-vehicle 路由、日志分析、危险写操作和跨平台硬件覆盖仍是后续工作。
 
 ## 审阅范围与事实基线
 
@@ -29,10 +38,10 @@ M-GCS 的主链路已经是适合长期演进的形状：
 | C/C++ 源码与头文件（不含 `third_party`） | 约 37,860 行 |
 | Flutter `lib` 与 `test` | 约 21,456 行 |
 | C++ 测试源码 | 约 8,783 行 |
-| 默认离线/模拟 CTest | `0.0.3` 发布门禁 29/29 通过 |
-| Flutter `analyze` / `test` | 静态分析无问题，测试 84/84 通过 |
+| 默认离线/模拟 CTest | `0.0.4` 发布门禁 29/29 通过 |
+| Flutter `analyze` / `test` | 静态分析无问题，测试 114/114 通过 |
 
-`0.0.3` 完成 TCP/UDP 前端接入、机架类型页面、连接抽屉控件统一和 Windows Release 本地构建验证。
+`0.0.4` 在此基础上完成多机基础控制、任务/围栏/Rally、飞行日志与 MAVLink FTP 文件传输、能力发现、本地化和可替换前端壳层接缝，并完成 macOS Debug 构建验证。
 
 ## 架构评价
 
@@ -41,11 +50,11 @@ M-GCS 的主链路已经是适合长期演进的形状：
 | 后端领域边界 | 8.5 / 10 | `transport`、`mavlink`、`vehicle`、`firmware`、`config`、`mission`、`calibration` 分域合理。 |
 | 前后端解耦 | 8 / 10 | Flutter 未直接导入 MAVLink 或 `dart:ffi`；FFI 集中在 `application/mgcore`。仍有少量任务和参数规则停留在页面层。 |
 | FFI 契约 | 7.5 / 10 | C ABI、JSON envelope、字符串释放规则、API catalog 已建立；需要自动化 ABI/schema 契约检查。 |
-| 测试与构建 | 7.5 / 10 | 后端 29/29、Flutter 84/84 与静态分析均通过；CI 已生成 MAVLink 头、覆盖 Flutter 和 Windows 桌面打包，仍缺 macOS 门禁。 |
+| 测试与构建 | 7.8 / 10 | 后端 29/29、Flutter 114/114、静态分析和 macOS Debug 构建均通过；CI 仍缺 macOS 门禁和真实硬件覆盖。 |
 | Flutter 模块局部性 | 6 / 10 | 应用层接缝健康；后台页面通过 `part` 聚合成大库，页面逻辑和轮询仍偏分散。 |
 | 跨平台交付 | 6 / 10 | Docker 方向正确；Linux 容器不能替代 Windows/macOS 原生桌面打包和串口验收。 |
 
-总体评分：**7.3 / 10，具备继续深化的基础，不应进行推倒式重构。**
+总体评分：**7.5 / 10，具备继续深化的基础，不应进行推倒式重构。**
 
 ## 已确认的优势
 
@@ -69,9 +78,9 @@ M-GCS 的主链路已经是适合长期演进的形状：
 
 ## 需要优先处理的问题
 
-### P0：跨飞控会话的参数/草稿可能残留
+### 已处理：跨飞控会话的参数/草稿隔离
 
-`ParameterController` 在应用生命周期内创建，内部缓存 `_parameters`、`_staged`、`_descriptors`；而 shell 只在参数列表为空时加载。断开后重连、或切换活动飞控时，旧飞控的参数和草稿有机会保留，并被写到新会话。
+`ParameterController` 仍在应用生命周期内创建，内部缓存 `_parameters`、`_staged`、`_descriptors`；0.0.4 已通过 `ConnectionController.sessionEpoch` 把异步结果绑定到当前连接会话，避免断开重连或切换活动飞控后旧数据写入新会话。
 
 涉及位置：
 
@@ -80,9 +89,9 @@ M-GCS 的主链路已经是适合长期演进的形状：
 - `app/lib/application/parameter_controller.dart:12`
 - `app/lib/application/parameter_controller.dart:219`
 
-建议：在 `ConnectionController` 暴露单调递增的 `sessionEpoch` 或稳定的活动飞控 identity；发生连接、断开、重连、active vehicle 变化时，调用 `ParameterController.resetSession()` 清空参数、描述元数据、草稿和错误。等 bootstrap 完成后再重新加载。该修复只影响 Flutter 应用层，不改 Core/FFI。
+当前做法只影响 Flutter 应用层，不改 Core/FFI；后续仍应在多机显式 `vehicle_id` 路由完成后补一次跨飞控端到端硬件验收。
 
-必须补测：飞控 A 断开后连接 B、同一飞控重连、参数同步失败重试；确认旧会话参数和未写入草稿绝不会展示或发送到新会话。
+已补充会话代次、参数同步失败和旧结果隔离测试；飞控 A/B 的真实硬件切换仍属于手动验收范围。
 
 ### P0：多飞控解析状态需要实例隔离
 
@@ -284,9 +293,9 @@ FFI 的方向是正确的，但接口已较多且有 compatibility 别名。当�
 
 ### 第一阶段：恢复可信基线
 
-1. 保持后端 29/29 与 Flutter 84/84 门禁全绿。
-2. 补参数会话 reset 与批量写入 fallback 的 `finally`，补相关 Flutter 测试。
-3. 保持 CI 中 MAVLink 生成版本、后端测试和 Flutter 静态门禁同步更新。
+1. 保持后端 29/29 与 Flutter 114/114 门禁全绿，并把 macOS Debug 构建纳入持续验证。
+2. 为多机 native/FFI 增加显式 `vehicle_id` 目标，逐步替换 active vehicle 批量路由。
+3. 保持 CI 中 MAVLink 生成版本、后端测试、Flutter 静态门禁和本地化契约同步更新。
 
 ### 第二阶段：收紧应用层模块
 

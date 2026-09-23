@@ -166,12 +166,18 @@ static void test_config_uses_ardupilot_profile_metadata() {
     CHECK("BATT_MONITOR bilingual enum option",
           strstr(descriptor, "模拟电压和电流") != nullptr &&
           strstr(descriptor, "Analog Voltage and Current") != nullptr);
+    CHECK("BATT_MONITOR enum option keeps explicit English field",
+          strstr(descriptor,
+                 "\"english_label\":\"Analog Voltage and Current\"") != nullptr);
     mg_free_string(descriptor);
 
     char* values = mg_config_read_group(env.core, "BATT");
     CHECK("BATT_MONITOR bilingual live display value",
           strstr(values, "模拟电压和电流") != nullptr &&
           strstr(values, "Analog Voltage and Current") != nullptr);
+    CHECK("BATT_MONITOR live value exposes English field",
+          strstr(values,
+                 "\"display_value_en\":\"Analog Voltage and Current\"") != nullptr);
     mg_free_string(values);
 }
 

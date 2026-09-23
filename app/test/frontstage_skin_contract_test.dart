@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/features/frontstage/frontstage_models.dart';
 import 'package:mgcs/features/map/mg_map_catalog.dart';
 import 'package:mgcs/ui/skin/mg_skin_factory.dart';
+import 'package:mgcs/ui/shell/mg_frontstage_shell_contract.dart';
 
 void main() {
   test('default skin exposes MacGlass frontstage contract', () {
@@ -24,13 +25,17 @@ void main() {
       MaterialApp(
         theme: skin.themeData,
         home: skin.buildFrontstageShell(
-          model: model,
-          onConnectPressed: () {},
-          onDisconnectPressed: () {},
-          onNavigationPressed: (_) {},
-          onConnectionTransportChanged: (_) {},
-          mapStyle: MgMapStyle.standard,
-          onMapStyleChanged: (_) {},
+          model: MgFrontstageShellModel(
+            frontstage: model,
+            mapStyle: MgMapStyle.standard,
+          ),
+          actions: MgFrontstageShellActions(
+            onConnect: () {},
+            onDisconnect: () {},
+            onNavigation: (_) {},
+            onTransportChanged: (_) {},
+            onMapStyleChanged: (_) {},
+          ),
         ),
       ),
     );

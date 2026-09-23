@@ -23,6 +23,22 @@ final class MgCoreFfiApi {
           void Function(Pointer<Utf8>)
         >('mg_free_string');
     _listPorts = _jsonFunction('mg_connection_list_ports');
+    _vehicleList = _jsonFunction('mg_vehicle_list');
+    _vehicleSelect = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32),
+          Pointer<Utf8> Function(Pointer<Void>, int)
+        >('mg_vehicle_select');
+    _vehicleClose = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32),
+          Pointer<Utf8> Function(Pointer<Void>, int)
+        >('mg_vehicle_close');
+    _vehicleGetActive = _library
+        .lookupFunction<
+          Int32 Function(Pointer<Void>),
+          int Function(Pointer<Void>)
+        >('mg_vehicle_get_active');
     _connectSerial = _library
         .lookupFunction<
           Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int32),
@@ -85,11 +101,109 @@ final class MgCoreFfiApi {
     _serialUartNames = _jsonFunction('mg_serial_get_uart_names');
     _missionDownload = _jsonFunction('mg_mission_download');
     _missionUpload = _stringArgumentFunction('mg_mission_upload');
+    _missionClear = _jsonFunction('mg_mission_clear');
+    _missionSetCurrent = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32),
+          Pointer<Utf8> Function(Pointer<Void>, int)
+        >('mg_mission_set_current');
+    _missionStart = _jsonFunction('mg_mission_start');
     _missionPlan = _jsonFunction('mg_mission_get_plan');
     _missionProgress = _jsonFunction('mg_mission_get_progress');
+    _surveyGenerate = _stringArgumentFunction('mg_survey_generate');
+    _surveyGenerateCorridor = _stringArgumentFunction(
+      'mg_survey_generate_corridor',
+    );
+    _geofenceGetConfig = _jsonFunction('mg_geofence_get_config');
+    _geofenceSetConfig = _stringArgumentFunction('mg_geofence_set_config');
+    _geofenceAddPoint = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Double, Double, Float),
+          Pointer<Utf8> Function(Pointer<Void>, double, double, double)
+        >('mg_geofence_add_point');
+    _geofenceRemovePoint = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32),
+          Pointer<Utf8> Function(Pointer<Void>, int)
+        >('mg_geofence_remove_point');
+    _geofenceGetPoints = _jsonFunction('mg_geofence_get_points');
+    _geofenceValidate = _jsonFunction('mg_geofence_validate');
+    _geofenceExportJson = _jsonFunction('mg_geofence_export_json');
+    _geofenceImportJson = _stringArgumentFunction('mg_geofence_import_json');
+    _geofenceExportKml = _stringArgumentFunction('mg_geofence_export_kml');
+    _fenceDownload = _jsonFunction('mg_fence_download');
+    _fenceGetPlan = _jsonFunction('mg_fence_get_plan');
+    _fenceClear = _jsonFunction('mg_fence_clear');
+    _fenceEnable = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32),
+          Pointer<Utf8> Function(Pointer<Void>, int)
+        >('mg_fence_enable');
+    _rallyDownload = _jsonFunction('mg_rally_download');
+    _rallyGetPlan = _jsonFunction('mg_rally_get_plan');
+    _rallyClear = _jsonFunction('mg_rally_clear');
+    _logRequestList = _jsonFunction('mg_log_request_list');
+    _logGetEntries = _jsonFunction('mg_log_get_entries');
+    _logDownload = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32, Pointer<Utf8>),
+          Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
+        >('mg_log_download');
+    _logDownloadCancel = _jsonFunction('mg_log_download_cancel');
+    _logDownloadStatus = _jsonFunction('mg_log_download_status');
+    _fsListDirectory = _stringArgumentFunction('mg_fs_list_directory');
+    _fsDownloadFile = _twoStringArgumentFunction('mg_fs_download_file');
+    _fsUploadFile = _twoStringArgumentFunction('mg_fs_upload_file');
+    _fsDownloadCancel = _jsonFunction('mg_fs_download_cancel');
     _firmwareType = _jsonFunction('mg_firmware_get_type');
     _firmwareVersion = _jsonFunction('mg_vehicle_get_firmware_version');
     _systemDiagnostics = _jsonFunction('mg_system_get_diagnostics');
+    _commandArm = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32),
+          Pointer<Utf8> Function(Pointer<Void>, int)
+        >('mg_command_arm');
+    _commandDisarm = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32),
+          Pointer<Utf8> Function(Pointer<Void>, int)
+        >('mg_command_disarm');
+    _commandSetMode = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Int32, Int32),
+          Pointer<Utf8> Function(Pointer<Void>, int, int)
+        >('mg_command_set_mode');
+    _commandSetModeByName = _stringArgumentFunction('mg_cmd_set_mode');
+    _commandRtl = _jsonFunction('mg_command_rtl');
+    _commandTakeoff = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Float),
+          Pointer<Utf8> Function(Pointer<Void>, double)
+        >('mg_command_takeoff');
+    _commandLand = _jsonFunction('mg_command_land');
+    _commandEmergencyStop = _jsonFunction('mg_command_emergency_stop');
+    _commandGuidedPoint = _library
+        .lookupFunction<
+          Pointer<Utf8> Function(
+            Pointer<Void>,
+            Double,
+            Double,
+            Float,
+            Float,
+            Float,
+          ),
+          Pointer<Utf8> Function(
+            Pointer<Void>,
+            double,
+            double,
+            double,
+            double,
+            double,
+          )
+        >('mg_command_guided_point');
+    _flightAvailableModes = _jsonFunction('mg_flight_get_available_modes');
+    _flightModeStatus = _jsonFunction('mg_flight_get_mode_status');
+    _preflightCheck = _jsonFunction('mg_preflight_check');
     _setEventCallback = _library
         .lookupFunction<
           Void Function(
@@ -115,6 +229,10 @@ final class MgCoreFfiApi {
   late final void Function(Pointer<Void>) _destroy;
   late final void Function(Pointer<Utf8>) _freeString;
   late final Pointer<Utf8> Function(Pointer<Void>) _listPorts;
+  late final Pointer<Utf8> Function(Pointer<Void>) _vehicleList;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _vehicleSelect;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _vehicleClose;
+  late final int Function(Pointer<Void>) _vehicleGetActive;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int)
   _connectSerial;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _connectTcp;
@@ -155,11 +273,72 @@ final class MgCoreFfiApi {
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDownload;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _missionUpload;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionClear;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _missionSetCurrent;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionStart;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionPlan;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionProgress;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _surveyGenerate;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _surveyGenerateCorridor;
+  late final Pointer<Utf8> Function(Pointer<Void>) _geofenceGetConfig;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _geofenceSetConfig;
+  late final Pointer<Utf8> Function(Pointer<Void>, double, double, double)
+  _geofenceAddPoint;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _geofenceRemovePoint;
+  late final Pointer<Utf8> Function(Pointer<Void>) _geofenceGetPoints;
+  late final Pointer<Utf8> Function(Pointer<Void>) _geofenceValidate;
+  late final Pointer<Utf8> Function(Pointer<Void>) _geofenceExportJson;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _geofenceImportJson;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _geofenceExportKml;
+  late final Pointer<Utf8> Function(Pointer<Void>) _fenceDownload;
+  late final Pointer<Utf8> Function(Pointer<Void>) _fenceGetPlan;
+  late final Pointer<Utf8> Function(Pointer<Void>) _fenceClear;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _fenceEnable;
+  late final Pointer<Utf8> Function(Pointer<Void>) _rallyDownload;
+  late final Pointer<Utf8> Function(Pointer<Void>) _rallyGetPlan;
+  late final Pointer<Utf8> Function(Pointer<Void>) _rallyClear;
+  late final Pointer<Utf8> Function(Pointer<Void>) _logRequestList;
+  late final Pointer<Utf8> Function(Pointer<Void>) _logGetEntries;
+  late final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
+  _logDownload;
+  late final Pointer<Utf8> Function(Pointer<Void>) _logDownloadCancel;
+  late final Pointer<Utf8> Function(Pointer<Void>) _logDownloadStatus;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _fsListDirectory;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+  _fsDownloadFile;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+  _fsUploadFile;
+  late final Pointer<Utf8> Function(Pointer<Void>) _fsDownloadCancel;
   late final Pointer<Utf8> Function(Pointer<Void>) _firmwareType;
   late final Pointer<Utf8> Function(Pointer<Void>) _firmwareVersion;
   late final Pointer<Utf8> Function(Pointer<Void>) _systemDiagnostics;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _commandArm;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _commandDisarm;
+  late final Pointer<Utf8> Function(Pointer<Void>, int, int) _commandSetMode;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _commandSetModeByName;
+  late final Pointer<Utf8> Function(Pointer<Void>) _commandRtl;
+  late final Pointer<Utf8> Function(Pointer<Void>, double) _commandTakeoff;
+  late final Pointer<Utf8> Function(Pointer<Void>) _commandLand;
+  late final Pointer<Utf8> Function(Pointer<Void>) _commandEmergencyStop;
+  late final Pointer<Utf8> Function(
+    Pointer<Void>,
+    double,
+    double,
+    double,
+    double,
+    double,
+  )
+  _commandGuidedPoint;
+  late final Pointer<Utf8> Function(Pointer<Void>) _flightAvailableModes;
+  late final Pointer<Utf8> Function(Pointer<Void>) _flightModeStatus;
+  late final Pointer<Utf8> Function(Pointer<Void>) _preflightCheck;
   late final void Function(
     Pointer<Void>,
     Pointer<NativeFunction<MgCoreEventNative>>,
@@ -176,6 +355,12 @@ final class MgCoreFfiApi {
   }
 
   String listPorts(Pointer<Void> core) => _readString(_listPorts(core));
+  String vehicleList(Pointer<Void> core) => _readString(_vehicleList(core));
+  String vehicleSelect(Pointer<Void> core, int vehicleId) =>
+      _readString(_vehicleSelect(core, vehicleId));
+  String vehicleClose(Pointer<Void> core, int vehicleId) =>
+      _readString(_vehicleClose(core, vehicleId));
+  int vehicleGetActive(Pointer<Void> core) => _vehicleGetActive(core);
 
   String connectSerial(Pointer<Void> core, String port, int baudRate) {
     final nativePort = port.toNativeUtf8();
@@ -310,10 +495,110 @@ final class MgCoreFfiApi {
     return _callWithString(_missionUpload, core, itemsJson);
   }
 
+  String missionClear(Pointer<Void> core) => _readString(_missionClear(core));
+
+  String missionSetCurrent(Pointer<Void> core, int sequence) =>
+      _readString(_missionSetCurrent(core, sequence));
+
+  String missionStart(Pointer<Void> core) => _readString(_missionStart(core));
+
   String missionPlan(Pointer<Void> core) => _readString(_missionPlan(core));
 
   String missionProgress(Pointer<Void> core) =>
       _readString(_missionProgress(core));
+
+  String surveyGenerate(Pointer<Void> core, String configJson) =>
+      _callWithString(_surveyGenerate, core, configJson);
+
+  String surveyGenerateCorridor(Pointer<Void> core, String configJson) =>
+      _callWithString(_surveyGenerateCorridor, core, configJson);
+
+  String geofenceGetConfig(Pointer<Void> core) =>
+      _readString(_geofenceGetConfig(core));
+  String geofenceSetConfig(Pointer<Void> core, String json) =>
+      _callWithString(_geofenceSetConfig, core, json);
+  String geofenceAddPoint(
+    Pointer<Void> core,
+    double lat,
+    double lon,
+    double alt,
+  ) => _readString(_geofenceAddPoint(core, lat, lon, alt));
+  String geofenceRemovePoint(Pointer<Void> core, int index) =>
+      _readString(_geofenceRemovePoint(core, index));
+  String geofenceGetPoints(Pointer<Void> core) =>
+      _readString(_geofenceGetPoints(core));
+  String geofenceValidate(Pointer<Void> core) =>
+      _readString(_geofenceValidate(core));
+  String geofenceExportJson(Pointer<Void> core) =>
+      _readString(_geofenceExportJson(core));
+  String geofenceImportJson(Pointer<Void> core, String json) =>
+      _callWithString(_geofenceImportJson, core, json);
+  String geofenceExportKml(Pointer<Void> core, String name) =>
+      _callWithString(_geofenceExportKml, core, name);
+  String fenceDownload(Pointer<Void> core) => _readString(_fenceDownload(core));
+  String fenceGetPlan(Pointer<Void> core) => _readString(_fenceGetPlan(core));
+  String fenceClear(Pointer<Void> core) => _readString(_fenceClear(core));
+  String fenceEnable(Pointer<Void> core, int enabled) =>
+      _readString(_fenceEnable(core, enabled));
+  String rallyDownload(Pointer<Void> core) => _readString(_rallyDownload(core));
+  String rallyGetPlan(Pointer<Void> core) => _readString(_rallyGetPlan(core));
+  String rallyClear(Pointer<Void> core) => _readString(_rallyClear(core));
+
+  String logRequestList(Pointer<Void> core) =>
+      _readString(_logRequestList(core));
+
+  String logGetEntries(Pointer<Void> core) => _readString(_logGetEntries(core));
+
+  String logDownload(Pointer<Void> core, int logId, String filepath) {
+    final nativePath = filepath.toNativeUtf8();
+    try {
+      return _readString(_logDownload(core, logId, nativePath));
+    } finally {
+      malloc.free(nativePath);
+    }
+  }
+
+  String logDownloadCancel(Pointer<Void> core) =>
+      _readString(_logDownloadCancel(core));
+
+  String logDownloadStatus(Pointer<Void> core) =>
+      _readString(_logDownloadStatus(core));
+
+  String fsListDirectory(Pointer<Void> core, String path) =>
+      _callWithString(_fsListDirectory, core, path);
+
+  String fsDownloadFile(
+    Pointer<Void> core,
+    String remotePath,
+    String localPath,
+  ) {
+    final nativeRemotePath = remotePath.toNativeUtf8();
+    final nativeLocalPath = localPath.toNativeUtf8();
+    try {
+      return _readString(
+        _fsDownloadFile(core, nativeRemotePath, nativeLocalPath),
+      );
+    } finally {
+      malloc.free(nativeRemotePath);
+      malloc.free(nativeLocalPath);
+    }
+  }
+
+  String fsDownloadCancel(Pointer<Void> core) =>
+      _readString(_fsDownloadCancel(core));
+
+  String fsUploadFile(Pointer<Void> core, String localPath, String remotePath) {
+    final nativeLocalPath = localPath.toNativeUtf8();
+    final nativeRemotePath = remotePath.toNativeUtf8();
+    try {
+      return _readString(
+        _fsUploadFile(core, nativeLocalPath, nativeRemotePath),
+      );
+    } finally {
+      malloc.free(nativeLocalPath);
+      malloc.free(nativeRemotePath);
+    }
+  }
 
   String firmwareType(Pointer<Void> core) {
     return _readString(_firmwareType(core));
@@ -326,6 +611,35 @@ final class MgCoreFfiApi {
   String systemDiagnostics(Pointer<Void> core) {
     return _readString(_systemDiagnostics(core));
   }
+
+  String commandArm(Pointer<Void> core, bool force) =>
+      _readString(_commandArm(core, force ? 1 : 0));
+  String commandDisarm(Pointer<Void> core, bool force) =>
+      _readString(_commandDisarm(core, force ? 1 : 0));
+  String commandSetMode(Pointer<Void> core, int baseMode, int customMode) =>
+      _readString(_commandSetMode(core, baseMode, customMode));
+  String commandSetModeByName(Pointer<Void> core, String mode) =>
+      _callWithString(_commandSetModeByName, core, mode);
+  String commandRtl(Pointer<Void> core) => _readString(_commandRtl(core));
+  String commandTakeoff(Pointer<Void> core, double altitude) =>
+      _readString(_commandTakeoff(core, altitude));
+  String commandLand(Pointer<Void> core) => _readString(_commandLand(core));
+  String commandEmergencyStop(Pointer<Void> core) =>
+      _readString(_commandEmergencyStop(core));
+  String commandGuidedPoint(
+    Pointer<Void> core,
+    double lat,
+    double lon,
+    double alt,
+    double yaw,
+    double speed,
+  ) => _readString(_commandGuidedPoint(core, lat, lon, alt, yaw, speed));
+  String flightAvailableModes(Pointer<Void> core) =>
+      _readString(_flightAvailableModes(core));
+  String flightModeStatus(Pointer<Void> core) =>
+      _readString(_flightModeStatus(core));
+  String preflightCheck(Pointer<Void> core) =>
+      _readString(_preflightCheck(core));
 
   void setEventCallback(
     Pointer<Void> core,
@@ -353,6 +667,14 @@ final class MgCoreFfiApi {
     return _library.lookupFunction<
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+    >(symbol);
+  }
+
+  Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+  _twoStringArgumentFunction(String symbol) {
+    return _library.lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
     >(symbol);
   }
 

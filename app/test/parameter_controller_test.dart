@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs/application/connection_models.dart';
 import 'package:mgcs/application/connection_session_backend.dart';
@@ -121,6 +123,38 @@ void main() {
     expect(backend.commitCalls, 1);
     expect(backend.singleWrites, isEmpty);
   });
+
+  test(
+    'discards results that complete after the parameter session changes',
+    () async {
+      final backend = _DelayedParameterBackend();
+      var epoch = 1;
+      final controller = ParameterController(
+        backend: backend,
+        isSessionReady: () => true,
+        sessionEpoch: () => epoch,
+      );
+      addTearDown(controller.dispose);
+
+      final refresh = controller.refresh();
+      await backend.loadStarted.future;
+      epoch = 2;
+      controller.syncSession();
+      backend.release.complete(const [
+        FlightControllerParameter(
+          name: 'STALE_PARAM',
+          value: 1,
+          mavlinkType: 9,
+          index: 0,
+          count: 1,
+        ),
+      ]);
+      await refresh;
+
+      expect(controller.parameters, isEmpty);
+      expect(controller.stagedChanges, isEmpty);
+    },
+  );
 }
 
 class _ParameterBackend
@@ -208,6 +242,17 @@ class _ParameterBackend
   @override
   Future<List<ParameterDescriptor>> loadParameterDescriptors() async =>
       const [];
+}
+
+class _DelayedParameterBackend extends _ParameterBackend {
+  final loadStarted = Completer<void>();
+  final release = Completer<List<FlightControllerParameter>>();
+
+  @override
+  Future<List<FlightControllerParameter>> loadParameters() {
+    if (!loadStarted.isCompleted) loadStarted.complete();
+    return release.future;
+  }
 }
 
 final class _ChangeSetParameterBackend extends _ParameterBackend

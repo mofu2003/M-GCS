@@ -54,6 +54,7 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
             o.begin_object();
             o.field("value", opt.value);
             o.field("label", opt.label);
+            if (!opt.english_label.empty()) o.field("english_label", opt.english_label);
             if (!opt.description.empty()) o.field("description", opt.description);
             o.end_object();
             opts.append_json(o.str());
@@ -66,8 +67,15 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
         jb.field("mavlink_type", static_cast<int>(val->type));
         jb.field("valid", true);
         if (!desc.options.empty()) {
-            std::string label = db.enum_label(profile, param_name, static_cast<int>(val->value));
-            if (!label.empty()) jb.field("display_value", label);
+            const auto value = static_cast<int>(val->value);
+            for (const auto& option : desc.options) {
+                if (option.value != value) continue;
+                if (!option.label.empty()) jb.field("display_value", option.label);
+                if (!option.english_label.empty()) {
+                    jb.field("display_value_en", option.english_label);
+                }
+                break;
+            }
         }
     } else {
         jb.field("valid", false);

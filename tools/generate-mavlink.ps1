@@ -11,12 +11,12 @@ $OutputDir = if ($env:MAVLINK_OUTPUT_DIR) {
 } else {
     Join-Path $Root "third_party\mavlink\include\mavlink\v2.0"
 }
-$CommonHeader = Join-Path $OutputDir "common\mavlink.h"
+$RequiredHeader = Join-Path $OutputDir "ardupilotmega\mavlink.h"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $Mavgen = Join-Path $VenvDir "Scripts\mavgen.py"
 
-if (Test-Path $CommonHeader) {
-    exit 0
+if (Test-Path $RequiredHeader) {
+    return
 }
 
 Write-Host "[mgcs] Generating MAVLink C headers with pymavlink 2.4.49"

@@ -8,15 +8,23 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../application/connection_controller.dart';
+import '../../application/connection_models.dart';
 import '../../application/calibration_models.dart';
 import '../../application/connection_session_backend.dart';
 import '../../application/parameter_controller.dart';
 import '../../application/parameter_models.dart';
+import '../../application/safety_models.dart';
 import '../../application/polling_task.dart';
 import '../../ui/skins/mac_glass/mac_glass_menu.dart';
 import '../../ui/skins/mac_glass/mac_glass_navigation_dock.dart';
+import '../../ui/skins/mac_glass/mac_glass_surface.dart';
 import '../../ui/skins/mac_glass/mac_glass_tokens.dart';
+import '../../ui/skin/mg_skin.dart';
+import '../../ui/skins/mac_glass/mac_glass_skin.dart';
 import 'parameter_tree.dart';
+import '../../application/vehicle_file_models.dart';
+import '../../application/safety_controller.dart';
+import '../../l10n/mg_localizations.dart';
 
 part 'backstage_calibration.dart';
 part 'backstage_airframe.dart';
@@ -26,6 +34,7 @@ part 'backstage_remote_control.dart';
 part 'backstage_safety_settings.dart';
 part 'backstage_serial_ports.dart';
 part 'backstage_servo_output.dart';
+part 'backstage_flight_logs.dart';
 part 'backstage_shared.dart';
 
 final class BackstagePage extends StatefulWidget {
@@ -33,12 +42,14 @@ final class BackstagePage extends StatefulWidget {
     required this.connectionController,
     required this.parameterController,
     required this.onReturnToFrontstage,
+    this.skin = const MacGlassSkin(),
     super.key,
   });
 
   final ConnectionController connectionController;
   final ParameterController? parameterController;
   final VoidCallback onReturnToFrontstage;
+  final MgSkin skin;
 
   @override
   State<BackstagePage> createState() => _BackstagePageState();
@@ -114,7 +125,13 @@ final class _BackstagePageState extends State<BackstagePage> {
     final result = await controller.writeStaged();
     if (!mounted || !result.hasFailures) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${result.failed.length} 项参数写入失败，已保留草稿')),
+      SnackBar(
+        content: Text(
+          mgLocalizationsOf(
+            context,
+          ).parameterWriteFailures(result.failed.length),
+        ),
+      ),
     );
   }
 
@@ -139,16 +156,26 @@ final class _BackstagePageState extends State<BackstagePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '已读取 ${summary.parsed} 项：${summary.staged} 项待写入，'
-            '${summary.unchanged} 项未变化，${summary.unknown} 项未匹配',
+            mgLocalizationsOf(context).parameterFileReadSummary(
+              summary.parsed,
+              summary.staged,
+              summary.unchanged,
+              summary.unknown,
+            ),
           ),
         ),
       );
     } on Object catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('读取参数文件失败：$error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mgLocalizationsOf(
+              context,
+            ).parameterFileReadFailed(error.toString()),
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _fileDialogBusy = false);
     }
@@ -168,13 +195,25 @@ final class _BackstagePageState extends State<BackstagePage> {
       await File(path).writeAsString(content, encoding: utf8, flush: true);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已保存 ${controller.parameters.length} 项参数')),
+        SnackBar(
+          content: Text(
+            mgLocalizationsOf(
+              context,
+            ).parametersSaved(controller.parameters.length),
+          ),
+        ),
       );
     } on Object catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('保存参数文件失败：$error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mgLocalizationsOf(
+              context,
+            ).parameterFileSaveFailed(error.toString()),
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _fileDialogBusy = false);
     }
@@ -190,32 +229,30 @@ final class _BackstagePageState extends State<BackstagePage> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.parameterController;
-    return cupertino.CupertinoTheme(
-      data: cupertino.CupertinoThemeData(
-        brightness: Brightness.light,
-        primaryColor: Color(0xff007aff),
-        scaffoldBackgroundColor: Color(0xfff2f2f7),
-        barBackgroundColor: Color(0xfff7f7f8),
-        textTheme: cupertino.CupertinoTextThemeData(
-          textStyle: MacGlassFonts.platformTextStyle(MacGlassTypography.body),
-          actionTextStyle: MacGlassFonts.platformTextStyle(
-            MacGlassTypography.control,
-          ),
-          tabLabelTextStyle: MacGlassFonts.platformTextStyle(
-            MacGlassTypography.caption,
-          ),
-          navTitleTextStyle: MacGlassFonts.platformTextStyle(
-            MacGlassTypography.pageTitle,
-          ),
-        ),
-      ),
+    return Theme(
+      data: widget.skin.themeData,
       child: Scaffold(
         body: DecoratedBox(
           key: const ValueKey('mg-backstage-shell'),
-          decoration: const BoxDecoration(color: Color(0xffedf2f5)),
-          child: controller == null
-              ? _UnavailableBackstage(onReturn: widget.onReturnToFrontstage)
-              : ListenableBuilder(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                MacGlassTokens.canvasTop,
+                MacGlassTokens.canvasMiddle,
+                MacGlassTokens.canvasBottom,
+              ],
+            ),
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              IgnorePointer(child: _BackstageAtmosphere()),
+              if (controller == null)
+                _UnavailableBackstage(onReturn: widget.onReturnToFrontstage)
+              else
+                ListenableBuilder(
                   listenable: Listenable.merge([
                     controller,
                     widget.connectionController,
@@ -232,6 +269,15 @@ final class _BackstagePageState extends State<BackstagePage> {
                         // phone-sized, where a horizontal workspace cannot work.
                         compact: constraints.maxWidth < 720,
                         controller: controller,
+                        flightLogs:
+                            widget.connectionController.capabilities.flightLogs,
+                        vehicleFiles: widget
+                            .connectionController
+                            .capabilities
+                            .vehicleFiles,
+                        geofence:
+                            widget.connectionController.capabilities.geofence,
+                        rally: widget.connectionController.capabilities.rally,
                         airframe: widget
                             .connectionController
                             .snapshot
@@ -274,6 +320,8 @@ final class _BackstagePageState extends State<BackstagePage> {
                     );
                   },
                 ),
+            ],
+          ),
         ),
       ),
     );
@@ -286,6 +334,10 @@ final class _BackstageWorkspace extends StatelessWidget {
   const _BackstageWorkspace({
     required this.compact,
     required this.controller,
+    required this.flightLogs,
+    required this.vehicleFiles,
+    required this.geofence,
+    required this.rally,
     required this.airframe,
     required this.firmwareType,
     required this.visibleParameters,
@@ -308,6 +360,10 @@ final class _BackstageWorkspace extends StatelessWidget {
 
   final bool compact;
   final ParameterController controller;
+  final FlightLogSessionBackend? flightLogs;
+  final VehicleFileSessionBackend? vehicleFiles;
+  final GeofenceSessionBackend? geofence;
+  final RallySessionBackend? rally;
   final String? airframe;
   final String? firmwareType;
   final List<FlightControllerParameter> visibleParameters;
@@ -330,6 +386,7 @@ final class _BackstageWorkspace extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selected = selectedParameter;
+    final l10n = mgLocalizationsOf(context);
     final tree = _ParameterTree(
       parameters: controller.parameters,
       selectedPrefix: selectedPrefix,
@@ -361,28 +418,31 @@ final class _BackstageWorkspace extends StatelessWidget {
       onReviewWrite: onReviewWrite,
     );
     final sectionTitle = switch (section) {
-      MacGlassBackstageSection.parameters => '参数配置',
-      MacGlassBackstageSection.airframe => '机架类型',
-      MacGlassBackstageSection.servoOutputs => '舵机输出',
-      MacGlassBackstageSection.serialPorts => '串口配置',
-      MacGlassBackstageSection.remoteControl => '遥控配置',
-      MacGlassBackstageSection.pidTuning => 'PID 调参',
-      MacGlassBackstageSection.calibration => '传感器/外设配置',
-      MacGlassBackstageSection.safety => '安全设置',
+      MacGlassBackstageSection.parameters => l10n.parameters,
+      MacGlassBackstageSection.airframe => l10n.airframe,
+      MacGlassBackstageSection.servoOutputs => l10n.motorOutputs,
+      MacGlassBackstageSection.serialPorts => l10n.portConfiguration,
+      MacGlassBackstageSection.remoteControl => l10n.remoteControl,
+      MacGlassBackstageSection.pidTuning => l10n.pidTuning,
+      MacGlassBackstageSection.calibration => l10n.calibration,
+      MacGlassBackstageSection.safety => l10n.safetySettings,
+      MacGlassBackstageSection.flightLogs => l10n.flightLogs,
     };
     final serialPortCount = _serialPortNumbers(controller.parameters).length;
     final sectionSubtitle = switch (section) {
-      MacGlassBackstageSection.parameters =>
-        '${controller.parameters.length} 个飞控参数',
-      MacGlassBackstageSection.airframe =>
-        '按飞控类型配置 Copter 或 Plane/QuadPlane 机架',
-      MacGlassBackstageSection.servoOutputs => 'SERVO1-16 · 功能、反向和 PWM 范围',
-      MacGlassBackstageSection.serialPorts =>
-        '$serialPortCount 个可用串口 · 修改后立即写入飞控',
-      MacGlassBackstageSection.remoteControl => '飞行模式、通道功能与摇杆校准',
-      MacGlassBackstageSection.pidTuning => '根据当前机架自动显示控制器 · 修改后立即写入飞控',
-      MacGlassBackstageSection.calibration => 'IMU、罗盘、GPS 与空速计',
-      MacGlassBackstageSection.safety => '围栏、解锁检查与电量保护',
+      MacGlassBackstageSection.parameters => l10n.parametersDescription(
+        controller.parameters.length,
+      ),
+      MacGlassBackstageSection.airframe => l10n.airframeDescription,
+      MacGlassBackstageSection.servoOutputs => l10n.motorOutputsDescription,
+      MacGlassBackstageSection.serialPorts => l10n.portConfigurationDescription(
+        serialPortCount,
+      ),
+      MacGlassBackstageSection.remoteControl => l10n.remoteControlDescription,
+      MacGlassBackstageSection.pidTuning => l10n.pidTuningDescription,
+      MacGlassBackstageSection.calibration => l10n.calibrationDescription,
+      MacGlassBackstageSection.safety => l10n.safetySettingsDescription,
+      MacGlassBackstageSection.flightLogs => l10n.flightLogsDescription,
     };
     final sectionPage = switch (section) {
       MacGlassBackstageSection.parameters => list,
@@ -409,6 +469,11 @@ final class _BackstageWorkspace extends StatelessWidget {
       ),
       MacGlassBackstageSection.safety => _SafetySettingsPage(
         controller: controller,
+        geofence: geofence,
+        rally: rally,
+      ),
+      MacGlassBackstageSection.flightLogs => _FlightLogsPage(
+        backend: vehicleFiles,
       ),
     };
 

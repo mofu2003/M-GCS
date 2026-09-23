@@ -17,6 +17,7 @@
 11. [编码规范](ENCODING.md)：UTF-8、LF 和 Windows 终端设置。
 12. [ADR](adr/)：已经采纳的长期架构决策。
 13. [更新日志](../CHANGELOG.md)：版本发布内容与迁移说明。
+14. [0.0.4 发布说明](RELEASE_NOTES_0.0.4.md)：本版本功能、验证结果和已知限制。
 
 ## ADR
 

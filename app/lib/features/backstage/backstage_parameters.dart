@@ -256,24 +256,22 @@ class _TreeBranchRow extends StatelessWidget {
             ? MacGlassTokens.blue.withValues(alpha: 0.14)
             : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
-        child: SizedBox(
-          height: 36,
-          child: Row(
-            children: [
-              _TreeIndentGuides(depth: depth, height: 36),
-              SizedBox(
-                width: 30,
-                height: 30,
-                child: IconButton(
-                  key: ValueKey('mg-parameter-tree-toggle-${node.prefix}'),
-                  tooltip: expanded ? '收起 ${node.label}' : '展开 ${node.label}',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints.tightFor(
-                    width: 30,
-                    height: 30,
-                  ),
-                  onPressed: onToggle,
-                  icon: AnimatedRotation(
+        child: InkWell(
+          key: ValueKey('mg-parameter-tree-toggle-${node.prefix}'),
+          borderRadius: BorderRadius.circular(8),
+          onTap: () {
+            onSelected(node.prefix);
+            onToggle();
+          },
+          child: SizedBox(
+            height: 36,
+            child: Row(
+              children: [
+                _TreeIndentGuides(depth: depth, height: 36),
+                SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: AnimatedRotation(
                     turns: expanded ? 0.25 : 0,
                     duration: const Duration(milliseconds: 120),
                     child: Icon(
@@ -283,12 +281,7 @@ class _TreeBranchRow extends StatelessWidget {
                     ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: InkWell(
-                  key: ValueKey('mg-parameter-tree-select-${node.prefix}'),
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => onSelected(node.prefix),
+                Expanded(
                   child: Padding(
                     padding: const EdgeInsets.only(right: 10),
                     child: Row(
@@ -322,8 +315,8 @@ class _TreeBranchRow extends StatelessWidget {
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -457,6 +450,7 @@ class _ParameterList extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
             child: TextField(
               controller: searchController,
+              style: const TextStyle(color: MacGlassTokens.ink),
               decoration: const InputDecoration(
                 hintText: '查询参数、中文名称或描述',
                 prefixIcon: Icon(Icons.search_rounded),
@@ -861,6 +855,7 @@ class _ParameterValueEditor extends StatelessWidget {
       key: ValueKey('mg-parameter-editor-number-${parameter.name}-$value'),
       initialValue: _formatParameterNumber(value),
       enabled: enabled,
+      style: const TextStyle(color: MacGlassTokens.ink),
       keyboardType: const TextInputType.numberWithOptions(
         decimal: true,
         signed: true,
@@ -953,6 +948,7 @@ class _MacParameterPicker extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
+                              color: MacGlassTokens.ink,
                               fontSize: 12.5,
                               fontWeight: FontWeight.w600,
                             ),

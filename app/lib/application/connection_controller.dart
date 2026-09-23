@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 
 import 'connection_models.dart';
 import 'connection_session_backend.dart';
+import 'parameter_sync_operation.dart';
+import 'session_capabilities.dart';
 
 final class ConnectionController extends ChangeNotifier {
   ConnectionController({
@@ -12,7 +14,15 @@ final class ConnectionController extends ChangeNotifier {
     this.connectionRefreshInterval = const Duration(seconds: 1),
     this.parameterSyncStallTimeout = const Duration(seconds: 8),
     this.parameterSyncMaxRetries = 2,
-  }) {
+  }) : capabilities = SessionCapabilities(backend) {
+    _parameterSync = ParameterSyncOperation(
+      start: backend.startParameterSync,
+      loadSnapshot: backend.loadBootstrapSnapshot,
+      onSnapshot: _applyBootstrapSnapshot,
+      onChanged: notifyListeners,
+      stallTimeout: parameterSyncStallTimeout,
+      maxRetries: parameterSyncMaxRetries,
+    );
     if (backend case final FlightControllerMessageSource source) {
       _messageSubscription = source.messages.listen(_recordMessage);
     }
@@ -23,6 +33,7 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   final ConnectionSessionBackend backend;
+  final SessionCapabilities capabilities;
   final Duration telemetryPollInterval;
   final Duration connectionRefreshInterval;
   final Duration parameterSyncStallTimeout;
@@ -39,24 +50,19 @@ final class ConnectionController extends ChangeNotifier {
   bool _telemetryRefreshInProgress = false;
   bool _portRefreshInProgress = false;
   DateTime? _lastConnectionRefresh;
-  DateTime? _lastBootstrapRefresh;
-  ConnectionBootstrapState _bootstrapState = ConnectionBootstrapState.idle;
-  bool _parameterSyncStarted = false;
-  int _parameterSyncRetryCount = 0;
-  int? _lastParameterProgressReceived;
-  int? _lastParameterProgressTotal;
-  DateTime? _lastParameterProgressAt;
-  String? _bootstrapError;
+  late final ParameterSyncOperation _parameterSync;
   StreamSubscription<FlightControllerMessage>? _messageSubscription;
   final List<FlightControllerMessage> _messages = [];
+  int _sessionEpoch = 0;
 
   ConnectionStatus get status => _status;
   ConnectionRequest get request => _request;
   List<ConnectionSerialPort> get ports => _ports;
   ConnectionSessionSnapshot? get snapshot => _snapshot;
   String? get errorMessage => _errorMessage;
-  ConnectionBootstrapState get bootstrapState => _bootstrapState;
-  String? get bootstrapError => _bootstrapError;
+  ConnectionBootstrapState get bootstrapState => _parameterSync.state;
+  String? get bootstrapError => _parameterSync.error;
+  int get sessionEpoch => _sessionEpoch;
   List<FlightControllerMessage> get messages => List.unmodifiable(_messages);
   bool get isBusy =>
       _status == ConnectionStatus.connecting ||
@@ -149,18 +155,26 @@ final class ConnectionController extends ChangeNotifier {
   Future<void> connect() => _runSerialized(_connect);
 
   Future<void> _connect() async {
+    _advanceSessionEpoch();
     _setStatus(ConnectionStatus.connecting);
-    final result = await backend.connect(_request);
-    if (!result.success) {
-      _errorMessage = result.message;
+    try {
+      final result = await backend.connect(_request);
+      if (!result.success) {
+        _errorMessage = result.message;
+        _setStatus(ConnectionStatus.error);
+        return;
+      }
+      if (!await _refreshSession()) {
+        return;
+      }
+      _errorMessage = null;
+      _startTelemetryPolling();
+    } on Object catch (error) {
+      _snapshot = null;
+      _resetBootstrap();
+      _errorMessage = '连接失败：$error';
       _setStatus(ConnectionStatus.error);
-      return;
     }
-    if (!await _refreshSession()) {
-      return;
-    }
-    _errorMessage = null;
-    _startTelemetryPolling();
   }
 
   Future<void> refreshTelemetry() {
@@ -168,26 +182,38 @@ final class ConnectionController extends ChangeNotifier {
       if (_snapshot == null) {
         return;
       }
-      await _refreshTelemetrySnapshot();
+      try {
+        await _refreshTelemetrySnapshot();
+      } on Object catch (error) {
+        _reportTelemetryFailure(error);
+      }
     });
   }
 
   Future<void> disconnect() => _runSerialized(_disconnect);
 
   Future<void> _disconnect() async {
+    _advanceSessionEpoch();
     _telemetryTimer?.cancel();
     _telemetryTimer = null;
     _setStatus(ConnectionStatus.disconnecting);
-    final result = await backend.disconnect();
-    if (!result.success) {
-      _errorMessage = result.message;
+    try {
+      final result = await backend.disconnect();
+      if (!result.success) {
+        _errorMessage = result.message;
+        _setStatus(ConnectionStatus.error);
+        return;
+      }
+      _snapshot = null;
+      _errorMessage = null;
+      _resetBootstrap();
+      _setStatus(ConnectionStatus.idle);
+    } on Object catch (error) {
+      _snapshot = null;
+      _resetBootstrap();
+      _errorMessage = '断开连接失败：$error';
       _setStatus(ConnectionStatus.error);
-      return;
     }
-    _snapshot = null;
-    _errorMessage = null;
-    _resetBootstrap();
-    _setStatus(ConnectionStatus.idle);
   }
 
   Future<void> _runSerialized(Future<void> Function() operation) {
@@ -205,6 +231,10 @@ final class ConnectionController extends ChangeNotifier {
   void _setStatus(ConnectionStatus status) {
     _status = status;
     notifyListeners();
+  }
+
+  void _advanceSessionEpoch() {
+    _sessionEpoch++;
   }
 
   Future<bool> _refreshSession() async {
@@ -228,10 +258,19 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   Future<void> _finalizeDisconnectedSession() async {
+    _advanceSessionEpoch();
     _telemetryTimer?.cancel();
     _telemetryTimer = null;
     _setStatus(ConnectionStatus.disconnecting);
-    final result = await backend.disconnect();
+    late final ConnectionOperationResult result;
+    try {
+      result = await backend.disconnect();
+    } on Object catch (error) {
+      result = ConnectionOperationResult(
+        success: false,
+        message: error.toString(),
+      );
+    }
     _snapshot = null;
     _lastConnectionRefresh = null;
     _resetBootstrap();
@@ -271,13 +310,22 @@ final class ConnectionController extends ChangeNotifier {
 
     _telemetryRefreshInProgress = true;
     try {
-      await _refreshTelemetrySnapshot();
+      try {
+        await _refreshTelemetrySnapshot();
+      } on Object catch (error) {
+        _reportTelemetryFailure(error);
+        return;
+      }
       await _refreshBootstrapIfDue();
       final lastConnectionRefresh = _lastConnectionRefresh;
       if (lastConnectionRefresh == null ||
           DateTime.now().difference(lastConnectionRefresh) >=
               connectionRefreshInterval) {
-        await _refreshSession();
+        try {
+          await _refreshSession();
+        } on Object catch (error) {
+          _reportConnectionFailure(error);
+        }
       }
     } finally {
       _telemetryRefreshInProgress = false;
@@ -297,79 +345,38 @@ final class ConnectionController extends ChangeNotifier {
       bootstrap: previous.bootstrap,
       rawDiagnostics: previous.rawDiagnostics,
     );
+    if (_status == ConnectionStatus.connected) {
+      _errorMessage = null;
+    }
     notifyListeners();
   }
 
-  Future<void> _startParameterSyncIfNeeded() async {
-    if (_parameterSyncStarted) {
-      return;
-    }
-    _parameterSyncStarted = true;
-    _parameterSyncRetryCount = 0;
-    _bootstrapState = ConnectionBootstrapState.downloading;
-    _bootstrapError = null;
-    await _requestParameterSync();
+  void _reportTelemetryFailure(Object error) {
+    _errorMessage = '遥测刷新失败：$error';
+    notifyListeners();
   }
 
-  Future<void> _requestParameterSync() async {
-    _lastParameterProgressReceived = null;
-    _lastParameterProgressTotal = null;
-    _lastParameterProgressAt = DateTime.now();
-    final result = await backend.startParameterSync();
-    if (!result.success) {
-      _bootstrapState = ConnectionBootstrapState.failed;
-      _bootstrapError = result.message;
-      notifyListeners();
-      return;
-    }
-    await _refreshBootstrapSnapshot();
+  void _reportConnectionFailure(Object error) {
+    _telemetryTimer?.cancel();
+    _telemetryTimer = null;
+    _snapshot = null;
+    _resetBootstrap();
+    _errorMessage = '连接状态刷新失败：$error';
+    _setStatus(ConnectionStatus.error);
+  }
+
+  Future<void> _startParameterSyncIfNeeded() async {
+    await _parameterSync.startIfNeeded();
   }
 
   Future<void> _refreshBootstrapIfDue() async {
-    if (_bootstrapState == ConnectionBootstrapState.idle ||
-        _bootstrapState == ConnectionBootstrapState.failed) {
-      return;
-    }
-    final refreshInterval =
-        _bootstrapState == ConnectionBootstrapState.downloading
-        ? const Duration(milliseconds: 250)
-        : const Duration(seconds: 1);
-    final lastRefresh = _lastBootstrapRefresh;
-    if (lastRefresh != null &&
-        DateTime.now().difference(lastRefresh) < refreshInterval) {
-      return;
-    }
-    await _refreshBootstrapSnapshot();
+    await _parameterSync.refreshIfDue();
   }
 
-  Future<void> _refreshBootstrapSnapshot() async {
+  void _applyBootstrapSnapshot(ConnectionBootstrapSnapshot bootstrap) {
     final previous = _snapshot;
     if (previous == null) {
       return;
-    }
-    final bootstrap = await backend.loadBootstrapSnapshot();
-    final now = DateTime.now();
-    _lastBootstrapRefresh = now;
-    var retryAfterUpdate = false;
-    if (_bootstrapState == ConnectionBootstrapState.downloading) {
-      final progress = bootstrap.parameterProgress;
-      if (progress.isComplete) {
-        _bootstrapState = ConnectionBootstrapState.complete;
-        _bootstrapError = null;
-      } else {
-        final changed =
-            _lastParameterProgressReceived != progress.received ||
-            _lastParameterProgressTotal != progress.total;
-        if (changed) {
-          _lastParameterProgressReceived = progress.received;
-          _lastParameterProgressTotal = progress.total;
-          _lastParameterProgressAt = now;
-        } else if (_lastParameterProgressAt != null &&
-            now.difference(_lastParameterProgressAt!) >=
-                parameterSyncStallTimeout) {
-          retryAfterUpdate = true;
-        }
-      }
     }
     _snapshot = ConnectionSessionSnapshot(
       connection: previous.connection,
@@ -377,36 +384,9 @@ final class ConnectionController extends ChangeNotifier {
       bootstrap: bootstrap,
       rawDiagnostics: previous.rawDiagnostics,
     );
-    notifyListeners();
-    if (retryAfterUpdate) {
-      await _retryParameterSyncAfterStall();
-    }
   }
 
-  Future<void> _retryParameterSyncAfterStall() async {
-    if (_bootstrapState != ConnectionBootstrapState.downloading) return;
-    if (_parameterSyncRetryCount >= parameterSyncMaxRetries) {
-      _bootstrapState = ConnectionBootstrapState.failed;
-      _bootstrapError = '参数下载连续停滞，已重试 $parameterSyncMaxRetries 次';
-      notifyListeners();
-      return;
-    }
-    _parameterSyncRetryCount++;
-    _bootstrapError =
-        '参数下载停滞，正在重试 ($_parameterSyncRetryCount/$parameterSyncMaxRetries)';
-    await _requestParameterSync();
-  }
-
-  void _resetBootstrap() {
-    _bootstrapState = ConnectionBootstrapState.idle;
-    _parameterSyncStarted = false;
-    _parameterSyncRetryCount = 0;
-    _lastParameterProgressReceived = null;
-    _lastParameterProgressTotal = null;
-    _lastParameterProgressAt = null;
-    _lastBootstrapRefresh = null;
-    _bootstrapError = null;
-  }
+  void _resetBootstrap() => _parameterSync.reset();
 
   void _recordMessage(FlightControllerMessage message) {
     _messages.add(message);

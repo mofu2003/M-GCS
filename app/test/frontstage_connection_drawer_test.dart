@@ -4,9 +4,10 @@ import 'package:mgcs/application/connection_models.dart';
 import 'package:mgcs/features/frontstage/frontstage_models.dart';
 import 'package:mgcs/features/map/mg_map_catalog.dart';
 import 'package:mgcs/ui/skin/mg_skin_factory.dart';
+import 'package:mgcs/ui/shell/mg_frontstage_shell_contract.dart';
 
 void main() {
-  testWidgets('connection drawer shows four front-end transport pages', (
+  testWidgets('connection drawer shows three front-end transport pages', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = const Size(1200, 800);
@@ -41,23 +42,27 @@ void main() {
               ),
             );
             return skin.buildFrontstageShell(
-              model: liveModel,
-              onConnectPressed: () {},
-              onDisconnectPressed: () {},
-              onNavigationPressed: (_) {},
-              onConnectionTransportChanged: (transport) {
-                setState(() {
-                  selected.add(transport);
-                });
-              },
-              onSerialPortChanged: (port) {
-                selectedPort = port;
-              },
-              onBaudRateChanged: (baudRate) {
-                selectedBaudRate = baudRate;
-              },
-              mapStyle: MgMapStyle.standard,
-              onMapStyleChanged: (_) {},
+              model: MgFrontstageShellModel(
+                frontstage: liveModel,
+                mapStyle: MgMapStyle.standard,
+              ),
+              actions: MgFrontstageShellActions(
+                onConnect: () {},
+                onDisconnect: () {},
+                onNavigation: (_) {},
+                onTransportChanged: (transport) {
+                  setState(() {
+                    selected.add(transport);
+                  });
+                },
+                onSerialPortChanged: (port) {
+                  selectedPort = port;
+                },
+                onBaudRateChanged: (baudRate) {
+                  selectedBaudRate = baudRate;
+                },
+                onMapStyleChanged: (_) {},
+              ),
             );
           },
         ),
@@ -93,7 +98,7 @@ void main() {
     expect(find.text('串口连接'), findsOneWidget);
     expect(find.text('UDP'), findsOneWidget);
     expect(find.text('TCP'), findsOneWidget);
-    expect(find.text('蓝牙'), findsOneWidget);
+    expect(find.text('蓝牙'), findsNothing);
     expect(find.text('传输方式'), findsNothing);
     expect(find.text('飞控识别'), findsNothing);
     expect(find.text('未识别飞控'), findsNothing);
@@ -161,27 +166,6 @@ void main() {
       tester.getSize(find.byKey(const ValueKey('mg-connection-network-port'))),
       const Size(302, 48),
     );
-
-    await tester.tap(find.text('蓝牙'));
-    await tester.pumpAndSettle();
-    expect(find.text('蓝牙设备扫描'), findsOneWidget);
-    expect(
-      tester.getSize(find.byKey(const ValueKey('mg-bluetooth-device-1'))),
-      const Size(302, 48),
-    );
-    expect(
-      tester.getSize(find.byKey(const ValueKey('mg-bluetooth-device-2'))),
-      const Size(302, 48),
-    );
-    expect(find.text('暂未启用'), findsNothing);
-    expect(
-      tester.widget<OutlinedButton>(find.byType(OutlinedButton)).onPressed,
-      isNull,
-    );
-    expect(
-      tester.widget<FilledButton>(find.byType(FilledButton).last).onPressed,
-      isNull,
-    );
   });
 
   testWidgets('connection drawer is hidden outside connection navigation', (
@@ -200,13 +184,17 @@ void main() {
       MaterialApp(
         theme: skin.themeData,
         home: skin.buildFrontstageShell(
-          model: connected,
-          onConnectPressed: () {},
-          onDisconnectPressed: () {},
-          onNavigationPressed: (_) {},
-          onConnectionTransportChanged: (_) {},
-          mapStyle: MgMapStyle.standard,
-          onMapStyleChanged: (_) {},
+          model: MgFrontstageShellModel(
+            frontstage: connected,
+            mapStyle: MgMapStyle.standard,
+          ),
+          actions: MgFrontstageShellActions(
+            onConnect: () {},
+            onDisconnect: () {},
+            onNavigation: (_) {},
+            onTransportChanged: (_) {},
+            onMapStyleChanged: (_) {},
+          ),
         ),
       ),
     );
@@ -224,28 +212,33 @@ void main() {
       MaterialApp(
         theme: skin.themeData,
         home: skin.buildFrontstageShell(
-          model: FrontstageModel.demoDisconnected().copyWith(
-            connectionDrawerVisible: true,
-            connection: FrontstageModel.demoDisconnected().connection.copyWith(
-              portLabel: '/dev/cu.usbmodem101',
-              serialPorts: const [
-                ConnectionSerialPort(
-                  name: 'Cube USB',
-                  path: '/dev/cu.usbmodem101',
-                ),
-              ],
+          model: MgFrontstageShellModel(
+            frontstage: FrontstageModel.demoDisconnected().copyWith(
+              connectionDrawerVisible: true,
+              connection: FrontstageModel.demoDisconnected().connection
+                  .copyWith(
+                    portLabel: '/dev/cu.usbmodem101',
+                    serialPorts: const [
+                      ConnectionSerialPort(
+                        name: 'Cube USB',
+                        path: '/dev/cu.usbmodem101',
+                      ),
+                    ],
+                  ),
             ),
+            mapStyle: MgMapStyle.standard,
           ),
-          onConnectPressed: () {
-            calls++;
-          },
-          onDisconnectPressed: () {
-            calls++;
-          },
-          onNavigationPressed: (_) {},
-          onConnectionTransportChanged: (_) {},
-          mapStyle: MgMapStyle.standard,
-          onMapStyleChanged: (_) {},
+          actions: MgFrontstageShellActions(
+            onConnect: () {
+              calls++;
+            },
+            onDisconnect: () {
+              calls++;
+            },
+            onNavigation: (_) {},
+            onTransportChanged: (_) {},
+            onMapStyleChanged: (_) {},
+          ),
         ),
       ),
     );
@@ -267,21 +260,26 @@ void main() {
       MaterialApp(
         theme: skin.themeData,
         home: skin.buildFrontstageShell(
-          model: FrontstageModel.demoDisconnected().copyWith(
-            connectionDrawerVisible: true,
-            connection: FrontstageModel.demoDisconnected().connection.copyWith(
-              selectedTransport: FrontstageConnectionTransport.udp,
+          model: MgFrontstageShellModel(
+            frontstage: FrontstageModel.demoDisconnected().copyWith(
+              connectionDrawerVisible: true,
+              connection: FrontstageModel.demoDisconnected().connection
+                  .copyWith(
+                    selectedTransport: FrontstageConnectionTransport.udp,
+                  ),
             ),
+            mapStyle: MgMapStyle.standard,
           ),
-          onConnectPressed: () {},
-          onUdpConnectPressed: (value) {
-            endpoint = value;
-          },
-          onDisconnectPressed: () {},
-          onNavigationPressed: (_) {},
-          onConnectionTransportChanged: (_) {},
-          mapStyle: MgMapStyle.standard,
-          onMapStyleChanged: (_) {},
+          actions: MgFrontstageShellActions(
+            onConnect: () {},
+            onUdpConnect: (value) {
+              endpoint = value;
+            },
+            onDisconnect: () {},
+            onNavigation: (_) {},
+            onTransportChanged: (_) {},
+            onMapStyleChanged: (_) {},
+          ),
         ),
       ),
     );
@@ -302,21 +300,26 @@ void main() {
       MaterialApp(
         theme: skin.themeData,
         home: skin.buildFrontstageShell(
-          model: FrontstageModel.demoDisconnected().copyWith(
-            connectionDrawerVisible: true,
-            connection: FrontstageModel.demoDisconnected().connection.copyWith(
-              selectedTransport: FrontstageConnectionTransport.tcp,
+          model: MgFrontstageShellModel(
+            frontstage: FrontstageModel.demoDisconnected().copyWith(
+              connectionDrawerVisible: true,
+              connection: FrontstageModel.demoDisconnected().connection
+                  .copyWith(
+                    selectedTransport: FrontstageConnectionTransport.tcp,
+                  ),
             ),
+            mapStyle: MgMapStyle.standard,
           ),
-          onConnectPressed: () {},
-          onTcpConnectPressed: (value) {
-            endpoint = value;
-          },
-          onDisconnectPressed: () {},
-          onNavigationPressed: (_) {},
-          onConnectionTransportChanged: (_) {},
-          mapStyle: MgMapStyle.standard,
-          onMapStyleChanged: (_) {},
+          actions: MgFrontstageShellActions(
+            onConnect: () {},
+            onTcpConnect: (value) {
+              endpoint = value;
+            },
+            onDisconnect: () {},
+            onNavigation: (_) {},
+            onTransportChanged: (_) {},
+            onMapStyleChanged: (_) {},
+          ),
         ),
       ),
     );

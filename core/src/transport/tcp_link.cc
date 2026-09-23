@@ -196,7 +196,11 @@ void TcpLink::join_read_thread() {
 // ================================================================
 
 void TcpLink::close() {
-    if (!opened_.load()) return;
+#ifdef _WIN32
+    if (!opened_.load() && read_thread_ == nullptr && sock_ == MG_INVALID_SOCKET) return;
+#else
+    if (!opened_.load() && read_thread_ == 0 && sock_ == MG_INVALID_SOCKET) return;
+#endif
 
     stop_requested_.store(true);
     set_receive_callback(nullptr);
@@ -260,6 +264,7 @@ void* TcpLink::read_thread_proc(void* lpParam) {
             }
         } else if (received == 0) {
             MGC_LOG_INFO("[TcpLink] Remote closed connection");
+            self->opened_.store(false);
             break;
         } else {
             int err = mg::core::platform::socket_error();
@@ -270,9 +275,14 @@ void* TcpLink::read_thread_proc(void* lpParam) {
 #endif
             if (!self->stop_requested_.load()) {
                 MGC_LOG_ERROR("[TcpLink] Recv error: %d", err);
+                self->opened_.store(false);
             }
             break;
         }
+    }
+
+    if (!self->stop_requested_.load()) {
+        self->opened_.store(false);
     }
 
 #ifdef _WIN32

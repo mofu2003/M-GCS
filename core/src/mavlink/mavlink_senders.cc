@@ -738,16 +738,27 @@ bool MavlinkAdapter::log_download_start(uint8_t target_system, uint8_t target_co
     impl_->log_state.download_size = log_size;
     impl_->log_state.download_data.clear();
     impl_->log_state.download_data.reserve(log_size);
+    impl_->log_state.download_received.assign(log_size, 0);
+    impl_->log_state.download_received_bytes = 0;
+    impl_->log_state.download_last_data_at = std::chrono::steady_clock::now();
     impl_->log_state.download_filepath = filepath;
     impl_->log_state.download_target_sys = target_system;
     impl_->log_state.download_target_comp = target_component;
+    impl_->log_state.download_completed = false;
+    impl_->log_state.download_cancelled = false;
+    impl_->log_state.download_error.clear();
     
     // 请求第一个数据块
     mavlink_msg_log_request_data_pack(
         255, 0, &impl_->msg,
         target_system, target_component,
         log_id, 0, 90);  // 90 bytes per LOG_DATA message
-    return impl_->send_msg();
+    const bool sent = impl_->send_msg();
+    if (!sent) {
+        impl_->log_state.downloading = false;
+        impl_->log_state.download_error = "failed to request log data";
+    }
+    return sent;
 }
 
 // 取消日志下载
@@ -756,6 +767,7 @@ bool MavlinkAdapter::log_download_cancel() {
     if (!impl_->log_state.downloading) return false;
     
     impl_->log_state.downloading = false;
+    impl_->log_state.download_cancelled = true;
     impl_->log_state.download_data.clear();
     
     // 发送 LOG_REQUEST_END 停止下载
@@ -776,6 +788,41 @@ float MavlinkAdapter::log_download_progress() const {
 bool MavlinkAdapter::log_download_active() const {
     mg::core::platform::LockGuard lk(impl_->mtx);
     return impl_->log_state.downloading;
+}
+
+MavlinkAdapter::LogDownloadStatus MavlinkAdapter::log_download_status() {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    if (impl_->log_state.downloading &&
+        std::chrono::steady_clock::now() - impl_->log_state.download_last_data_at >=
+            std::chrono::milliseconds(500)) {
+        // 收包可能乱序，不能用“已收到字节数”作为起点；从文件头查找
+        // 第一个缺失区间，确保前面的丢包也能被重传。
+        uint32_t missing_ofs = 0;
+        while (missing_ofs < impl_->log_state.download_received.size() &&
+               impl_->log_state.download_received[missing_ofs]) {
+            ++missing_ofs;
+        }
+        mavlink_msg_log_request_data_pack(
+            255, 0, &impl_->msg,
+            impl_->log_state.download_target_sys,
+            impl_->log_state.download_target_comp,
+            impl_->log_state.download_id,
+            missing_ofs,
+            90);
+        if (impl_->send_msg()) {
+            impl_->log_state.download_last_data_at = std::chrono::steady_clock::now();
+        }
+    }
+    LogDownloadStatus status;
+    status.active = impl_->log_state.downloading;
+    status.completed = impl_->log_state.download_completed;
+    status.cancelled = impl_->log_state.download_cancelled;
+    status.id = impl_->log_state.download_id;
+    status.received_bytes = impl_->log_state.download_received_bytes;
+    status.total_bytes = impl_->log_state.download_size;
+    status.filepath = impl_->log_state.download_filepath;
+    status.error = impl_->log_state.download_error;
+    return status;
 }
 // 绕圈命令
 bool MavlinkAdapter::cmd_orbit(uint8_t target_sys, uint8_t target_comp,

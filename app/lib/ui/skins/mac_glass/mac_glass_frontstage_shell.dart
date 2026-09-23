@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import '../../../features/frontstage/frontstage_models.dart';
 import '../../../features/map/mg_map_catalog.dart';
 import '../../../features/map/mg_map_surface.dart';
+import '../../shell/mg_frontstage_shell_contract.dart';
 import 'mac_glass_attitude_panel.dart';
 import 'mac_glass_connection_drawer.dart';
 import 'mac_glass_map_style_switcher.dart';
@@ -17,33 +18,12 @@ import 'mac_glass_tokens.dart';
 final class MacGlassFrontstageShell extends StatefulWidget {
   const MacGlassFrontstageShell({
     required this.model,
-    required this.onConnectPressed,
-    this.onTcpConnectPressed,
-    this.onUdpConnectPressed,
-    required this.onDisconnectPressed,
-    required this.onNavigationPressed,
-    required this.onConnectionTransportChanged,
-    this.onSerialPortChanged,
-    this.onBaudRateChanged,
-    this.missionPanel,
-    required this.mapStyle,
-    required this.onMapStyleChanged,
+    required this.actions,
     super.key,
   });
 
-  final FrontstageModel model;
-  final VoidCallback onConnectPressed;
-  final ValueChanged<String>? onTcpConnectPressed;
-  final ValueChanged<String>? onUdpConnectPressed;
-  final VoidCallback onDisconnectPressed;
-  final ValueChanged<FrontstageNavigationItem> onNavigationPressed;
-  final ValueChanged<FrontstageConnectionTransport>
-  onConnectionTransportChanged;
-  final ValueChanged<String>? onSerialPortChanged;
-  final ValueChanged<int>? onBaudRateChanged;
-  final Widget? missionPanel;
-  final MgMapStyle mapStyle;
-  final ValueChanged<MgMapStyle> onMapStyleChanged;
+  final MgFrontstageShellModel model;
+  final MgFrontstageShellActions actions;
 
   @override
   State<MacGlassFrontstageShell> createState() =>
@@ -60,14 +40,15 @@ final class _MacGlassFrontstageShellState
   void initState() {
     super.initState();
     _mapController = MapController();
-    _mapSurface = _buildMapSurface(widget.mapStyle);
+    _mapSurface = _buildMapSurface(widget.model.mapStyle);
   }
 
   @override
   void didUpdateWidget(covariant MacGlassFrontstageShell oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.mapStyle != widget.mapStyle) {
-      _mapSurface = _buildMapSurface(widget.mapStyle);
+    if (oldWidget.model.mapStyle != widget.model.mapStyle ||
+        oldWidget.model.missionPoints != widget.model.missionPoints) {
+      _mapSurface = _buildMapSurface(widget.model.mapStyle);
     }
   }
 
@@ -89,7 +70,13 @@ final class _MacGlassFrontstageShellState
   Widget _buildMapSurface(MgMapStyle style) {
     return RepaintBoundary(
       key: const ValueKey('mg-map-repaint-boundary'),
-      child: MgMapSurface(style: style, controller: _mapController),
+      child: MgMapSurface(
+        style: style,
+        controller: _mapController,
+        missionPoints: widget.model.missionPoints,
+        onMapSecondaryTap: widget.actions.onMapSecondaryTap,
+        onMissionPointTap: widget.actions.onMissionPointTap,
+      ),
     );
   }
 
@@ -105,8 +92,8 @@ final class _MacGlassFrontstageShellState
             left: MacGlassTokens.pageInset,
             right: MacGlassTokens.pageInset,
             child: MacGlassStatusBar(
-              model: widget.model,
-              bootstrap: widget.model.bootstrap,
+              model: widget.model.frontstage,
+              bootstrap: widget.model.frontstage.bootstrap,
               outputPanelOpen: _outputPanelOpen,
               onOutputPressed: () {
                 setState(() {
@@ -116,19 +103,34 @@ final class _MacGlassFrontstageShellState
             ),
           ),
           Positioned(
-            top: 102,
+            top: MacGlassTokens.contentTop,
             left: MacGlassTokens.pageInset,
             bottom: MacGlassTokens.pageInset,
             width: MacGlassTokens.dockWidth,
             child: MacGlassNavigationDock(
-              connectionDrawerVisible: widget.model.connectionDrawerVisible,
-              missionPanelVisible: widget.model.missionPanelVisible,
-              dashboardVisible: widget.model.dashboardVisible,
-              onNavigationPressed: widget.onNavigationPressed,
+              connectionDrawerVisible:
+                  widget.model.frontstage.connectionDrawerVisible,
+              missionPanelVisible: widget.model.frontstage.missionPanelVisible,
+              dashboardVisible: widget.model.frontstage.dashboardVisible,
+              onNavigationPressed: widget.actions.onNavigation,
             ),
           ),
           Positioned(
-            top: 102,
+            top: MacGlassTokens.contentTop,
+            right: MacGlassTokens.contentRight,
+            width: 360,
+            child: _MacGlassOverlayTransition(
+              key: const ValueKey('mg-flight-control-transition'),
+              visible:
+                  widget.model.flightControlPanel != null &&
+                  widget.model.frontstage.connection.connected,
+              offset: const Offset(0.035, -0.018),
+              alignment: Alignment.topRight,
+              child: widget.model.flightControlPanel ?? const SizedBox.shrink(),
+            ),
+          ),
+          Positioned(
+            top: MacGlassTokens.contentTop,
             right: MacGlassTokens.pageInset,
             child: MacGlassMapToolbar(
               onZoomIn: () => _zoomBy(1),
@@ -140,76 +142,82 @@ final class _MacGlassFrontstageShellState
           ),
           Positioned(
             right: MacGlassTokens.pageInset,
-            bottom: 50,
+            bottom: MacGlassTokens.bottomControlInset,
             child: MacGlassMapStyleSwitcher(
-              value: widget.mapStyle,
-              onChanged: widget.onMapStyleChanged,
+              value: widget.model.mapStyle,
+              onChanged: widget.actions.onMapStyleChanged,
             ),
           ),
           Center(
             child: Padding(
               padding: const EdgeInsets.only(left: 84),
               child: MacGlassMissionEmptyState(
-                model: widget.model.missionEmptyState,
+                model: widget.model.frontstage.missionEmptyState,
               ),
             ),
           ),
           Positioned(
-            left: 106,
+            left: MacGlassTokens.contentLeft,
             bottom: MacGlassTokens.pageInset,
             width: 450,
             child: _MacGlassOverlayTransition(
               key: const ValueKey('mg-dashboard-transition'),
-              visible: widget.model.dashboardVisible,
+              visible: widget.model.frontstage.dashboardVisible,
               offset: const Offset(0, 0.045),
               alignment: Alignment.bottomLeft,
-              child: MacGlassAttitudePanel(model: widget.model.attitude),
-            ),
-          ),
-          Positioned(
-            top: 102,
-            left: 106,
-            bottom: MacGlassTokens.pageInset,
-            width: 720,
-            child: _MacGlassOverlayTransition(
-              key: const ValueKey('mg-mission-panel-transition'),
-              visible: widget.model.missionPanelVisible,
-              offset: const Offset(-0.035, 0.018),
-              alignment: Alignment.bottomLeft,
-              expand: true,
-              child: widget.missionPanel ?? const SizedBox.shrink(),
-            ),
-          ),
-          Positioned(
-            top: 102,
-            left: 106,
-            bottom: MacGlassTokens.pageInset + 216 + 12,
-            width: 330,
-            child: _MacGlassOverlayTransition(
-              key: const ValueKey('mg-connection-transition'),
-              visible: widget.model.connectionDrawerVisible,
-              offset: const Offset(-0.055, 0.018),
-              alignment: Alignment.bottomLeft,
-              expand: true,
-              child: MacGlassConnectionDrawer(
-                model: widget.model.connection,
-                onConnectPressed: widget.onConnectPressed,
-                onTcpConnectPressed: widget.onTcpConnectPressed,
-                onUdpConnectPressed: widget.onUdpConnectPressed,
-                onDisconnectPressed: widget.onDisconnectPressed,
-                onClose: () => widget.onNavigationPressed(
-                  FrontstageNavigationItem.connection,
-                ),
-                onTransportChanged: widget.onConnectionTransportChanged,
-                onSerialPortChanged: widget.onSerialPortChanged,
-                onBaudRateChanged: widget.onBaudRateChanged,
+              child: MacGlassAttitudePanel(
+                model: widget.model.frontstage.attitude,
               ),
             ),
           ),
           Positioned(
-            top: 96,
-            left: 106,
-            right: 82,
+            top: MacGlassTokens.contentTop,
+            left: MacGlassTokens.contentLeft,
+            bottom: MacGlassTokens.pageInset,
+            width: 720,
+            child: _MacGlassOverlayTransition(
+              key: const ValueKey('mg-mission-panel-transition'),
+              visible: widget.model.frontstage.missionPanelVisible,
+              offset: const Offset(-0.035, 0.018),
+              alignment: Alignment.bottomLeft,
+              expand: true,
+              child: widget.model.missionPanel ?? const SizedBox.shrink(),
+            ),
+          ),
+          Positioned(
+            top: MacGlassTokens.contentTop,
+            left: MacGlassTokens.contentLeft,
+            bottom:
+                MacGlassTokens.pageInset +
+                MacGlassTokens.dashboardHeight +
+                MacGlassTokens.overlayGap,
+            width: 330,
+            child: _MacGlassOverlayTransition(
+              key: const ValueKey('mg-connection-transition'),
+              visible: widget.model.frontstage.connectionDrawerVisible,
+              offset: const Offset(-0.055, 0.018),
+              alignment: Alignment.bottomLeft,
+              expand: true,
+              child: MacGlassConnectionDrawer(
+                model: widget.model.frontstage.connection,
+                onConnectPressed: widget.actions.onConnect,
+                onTcpConnectPressed: widget.actions.onTcpConnect,
+                onUdpConnectPressed: widget.actions.onUdpConnect,
+                onDisconnectPressed: widget.actions.onDisconnect,
+                onClose: () => widget.actions.onNavigation(
+                  FrontstageNavigationItem.connection,
+                ),
+                onTransportChanged: widget.actions.onTransportChanged,
+                onSerialPortChanged: widget.actions.onSerialPortChanged,
+                onBaudRateChanged: widget.actions.onBaudRateChanged,
+                fleetPanel: widget.model.fleetPanel,
+              ),
+            ),
+          ),
+          Positioned(
+            top: MacGlassTokens.contentTop - MacGlassTokens.overlayGap / 2,
+            left: MacGlassTokens.contentLeft,
+            right: MacGlassTokens.contentRight,
             child: Align(
               alignment: Alignment.topRight,
               child: ConstrainedBox(
@@ -220,9 +228,10 @@ final class _MacGlassFrontstageShellState
                   offset: const Offset(0.025, -0.035),
                   alignment: Alignment.topRight,
                   child: MacGlassOutputPanel(
-                    messages: widget.model.messages,
-                    connected: widget.model.connection.connected,
-                    disconnectMessage: widget.model.connection.errorMessage,
+                    messages: widget.model.frontstage.messages,
+                    connected: widget.model.frontstage.connection.connected,
+                    disconnectMessage:
+                        widget.model.frontstage.connection.errorMessage,
                     onClose: () {
                       setState(() {
                         _outputPanelOpen = false;

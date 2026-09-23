@@ -8,8 +8,19 @@ final class MacGlassTokens {
 
   static const Color ink = Color(0xff15161a);
   static const Color muted = Color(0xff6e6e73);
+  static const Color canvasTop = Color(0xffe7edf5);
+  static const Color canvasMiddle = Color(0xfff7f8fb);
+  static const Color canvasBottom = Color(0xffe9eef4);
   static const Color glass = Color(0x99ffffff);
   static const Color glassStrong = Color(0xb8ffffff);
+  static const Color surface = Color(0x8cffffff);
+  static const Color surfaceStrong = Color(0xb8ffffff);
+  static const Color surfaceSubtle = Color(0x66ffffff);
+  static const Color controlFill = Color(0x94ffffff);
+  static const Color controlBorder = Color(0x8fffffff);
+  static const Color controlBorderDisabled = Color(0x52ffffff);
+  static const Color surfaceBorder = Color(0xc7ffffff);
+  static const Color divider = Color(0x3d15161a);
   static const Color black = Color(0xff111215);
   static const Color green = Color(0xff38a58e);
   static const Color amber = Color(0xffeda640);
@@ -17,11 +28,18 @@ final class MacGlassTokens {
   static const Color blue = Color(0xff007aff);
 
   static const double topBarHeight = 72;
+  static const double contentTop = 102;
+  static const double contentLeft = 106;
+  static const double contentRight = 82;
+  static const double bottomControlInset = 50;
+  static const double dashboardHeight = 216;
+  static const double overlayGap = 12;
   static const double dockWidth = 72;
   static const double pageInset = 18;
   static const double radiusLarge = 28;
-  static const double radiusPanel = 8;
-  static const double radiusControl = 8;
+  static const double radiusPanel = 18;
+  static const double radiusCard = 18;
+  static const double radiusControl = 12;
   static ImageFilter get strongBlur => ImageFilter.blur(sigmaX: 30, sigmaY: 30);
 
   static BoxShadow floatingShadow() {
@@ -59,10 +77,7 @@ final class MacGlassFonts {
   }
 
   static TextStyle platformTextStyle(TextStyle style) {
-    return style.copyWith(
-      fontFamily: uiFamily,
-      fontFamilyFallback: uiFallback,
-    );
+    return style.copyWith(fontFamily: uiFamily, fontFamilyFallback: uiFallback);
   }
 }
 

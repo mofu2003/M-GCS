@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-
-import '../../features/frontstage/frontstage_models.dart';
-import '../../features/map/mg_map_catalog.dart';
+import '../shell/mg_frontstage_shell_contract.dart';
 import 'mg_skin_tokens.dart';
 
 abstract interface class MgSkin {
@@ -11,18 +9,7 @@ abstract interface class MgSkin {
   ThemeData get themeData;
 
   Widget buildFrontstageShell({
-    required FrontstageModel model,
-    required VoidCallback onConnectPressed,
-    ValueChanged<String>? onTcpConnectPressed,
-    ValueChanged<String>? onUdpConnectPressed,
-    required VoidCallback onDisconnectPressed,
-    required ValueChanged<FrontstageNavigationItem> onNavigationPressed,
-    required ValueChanged<FrontstageConnectionTransport>
-    onConnectionTransportChanged,
-    ValueChanged<String>? onSerialPortChanged,
-    ValueChanged<int>? onBaudRateChanged,
-    Widget? missionPanel,
-    required MgMapStyle mapStyle,
-    required ValueChanged<MgMapStyle> onMapStyleChanged,
+    required MgFrontstageShellModel model,
+    required MgFrontstageShellActions actions,
   });
 }

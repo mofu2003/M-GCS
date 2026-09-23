@@ -27,6 +27,20 @@ void main() {
     expect(backend.connected, isFalse);
   });
 
+  test('increments the session epoch for each connection lifecycle', () async {
+    final backend = _FakeBackend();
+    final controller = ConnectionController(backend: backend);
+    addTearDown(controller.dispose);
+
+    expect(controller.sessionEpoch, 0);
+    await controller.connect();
+    expect(controller.sessionEpoch, 1);
+    await controller.disconnect();
+    expect(controller.sessionEpoch, 2);
+    await controller.connect();
+    expect(controller.sessionEpoch, 3);
+  });
+
   test('connects through TCP and UDP endpoint requests', () async {
     final backend = _FakeBackend();
     final controller = ConnectionController(backend: backend);
@@ -46,6 +60,50 @@ void main() {
     await controller.connect();
     expect(backend.lastRequest?.transport, ConnectionTransport.udp);
     expect(backend.lastRequest?.endpoint, '0.0.0.0:14550');
+  });
+
+  test('converts a thrown connect error into an error state', () async {
+    final backend = _FakeBackend()..connectError = StateError('port busy');
+    final controller = ConnectionController(backend: backend);
+    addTearDown(controller.dispose);
+
+    await controller.connect();
+
+    expect(controller.status, ConnectionStatus.error);
+    expect(controller.errorMessage, contains('port busy'));
+    expect(controller.snapshot, isNull);
+  });
+
+  test('cleans up local state when disconnect throws', () async {
+    final backend = _FakeBackend();
+    final controller = ConnectionController(backend: backend);
+    addTearDown(controller.dispose);
+
+    await controller.connect();
+    backend.disconnectError = StateError('transport closed');
+    await controller.disconnect();
+
+    expect(controller.status, ConnectionStatus.error);
+    expect(controller.errorMessage, contains('transport closed'));
+    expect(controller.snapshot, isNull);
+    expect(controller.bootstrapState, ConnectionBootstrapState.idle);
+  });
+
+  test('keeps the session alive after a transient telemetry error', () async {
+    final backend = _FakeBackend();
+    final controller = ConnectionController(backend: backend);
+    addTearDown(controller.dispose);
+
+    await controller.connect();
+    backend.telemetryError = StateError('temporary read failure');
+    await controller.refreshTelemetry();
+
+    expect(controller.status, ConnectionStatus.connected);
+    expect(controller.errorMessage, contains('temporary read failure'));
+
+    backend.telemetryError = null;
+    await controller.refreshTelemetry();
+    expect(controller.errorMessage, isNull);
   });
 
   test('refreshes serial ports without clearing the selected port', () async {
@@ -275,6 +333,9 @@ final class _FakeBackend
   int sessionSnapshotCount = 0;
   int telemetrySnapshotCount = 0;
   int parameterSyncRequests = 0;
+  Object? connectError;
+  Object? disconnectError;
+  Object? telemetryError;
   List<ConnectionSerialPort> ports = const [
     ConnectionSerialPort(name: 'Test port', path: '/dev/tty.test'),
   ];
@@ -324,6 +385,10 @@ final class _FakeBackend
 
   @override
   Future<ConnectionOperationResult> connect(ConnectionRequest request) async {
+    final error = connectError;
+    if (error != null) {
+      throw error;
+    }
     connectCalls += 1;
     lastRequest = request;
     connected = true;
@@ -332,6 +397,10 @@ final class _FakeBackend
 
   @override
   Future<ConnectionOperationResult> disconnect() async {
+    final error = disconnectError;
+    if (error != null) {
+      throw error;
+    }
     disconnectCalls += 1;
     connected = false;
     if (!disconnectObserved.isCompleted) {
@@ -362,6 +431,10 @@ final class _FakeBackend
 
   @override
   Future<FlightDashboardData> loadTelemetrySnapshot() async {
+    final error = telemetryError;
+    if (error != null) {
+      throw error;
+    }
     telemetrySnapshotCount += 1;
     if (telemetrySnapshotCount > 1 && !nextTelemetryRefresh.isCompleted) {
       nextTelemetryRefresh.complete();

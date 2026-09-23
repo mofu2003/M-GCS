@@ -95,9 +95,8 @@ class _RemoteControlConfigPageState extends State<_RemoteControlConfigPage> {
   }
 
   Future<void> _pollInputs() async {
-    final backend = widget.controller.backend;
-    if (backend is! RemoteControlInputSessionBackend) return;
-    final remoteBackend = backend as RemoteControlInputSessionBackend;
+    final remoteBackend = widget.controller.capabilities.remoteControlInputs;
+    if (remoteBackend == null) return;
     try {
       final snapshot = await remoteBackend.loadRemoteControlInputs();
       if (!mounted) return;
@@ -506,31 +505,12 @@ class _RemoteControlConfigPageState extends State<_RemoteControlConfigPage> {
     );
     final elevonLeft = _servoFunctionOption(parameters, 'elevonleft');
     final elevonRight = _servoFunctionOption(parameters, 'elevonright');
-    final mappingContent = LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth >= 900) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(flex: 10, child: flightModes),
-              const SizedBox(width: 12),
-              Expanded(flex: 11, child: channelOptions),
-            ],
-          );
-        }
-        final groupHeight = (constraints.maxHeight * 0.82)
-            .clamp(420.0, 560.0)
-            .toDouble();
-        return SingleChildScrollView(
-          child: Column(
-            children: [
-              SizedBox(height: groupHeight, child: flightModes),
-              const SizedBox(height: 12),
-              SizedBox(height: groupHeight, child: channelOptions),
-            ],
-          ),
-        );
-      },
+    final mappingContent = SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [flightModes, const SizedBox(height: 12), channelOptions],
+      ),
     );
     if (elevonLeft == null || elevonRight == null) return mappingContent;
     return Column(
@@ -707,189 +687,133 @@ class _RemoteFlightModePanel extends StatelessWidget {
   final Future<bool> Function(String name, double value) onWrite;
 
   static const _ranges = [
-    '0-1230',
+    '≤1230',
     '1231-1360',
     '1361-1490',
     '1491-1620',
     '1621-1749',
-    '1750+',
+    '≥1750',
   ];
 
   int _value(String name) =>
       (staged[name]?.stagedValue ?? parameters[name]?.value ?? 0).round();
 
   @override
-  Widget build(BuildContext context) {
-    return _GlassPanel(
-      radius: 8,
+  Widget build(BuildContext context) => _GlassPanel(
+    radius: 12,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 14),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 13, 16, 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const _RemotePanelTitle('飞行模式通道'),
-                      const SizedBox(height: 2),
-                      Text(
-                        modeChannel > 0 ? 'RC$modeChannel' : '未启用',
-                        style: const TextStyle(
-                          color: MacGlassTokens.muted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+          Row(
+            children: [
+              const Expanded(child: _RemotePanelTitle('飞行模式')),
+              const Text('模式通道', style: MacGlassTypography.caption),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 128,
+                child: modeChannelName == null
+                    ? const _ServoUnavailableCell('未提供')
+                    : _MacParameterPicker(
+                        key: const ValueKey('mg-remote-flight-mode-channel'),
+                        value: modeChannel,
+                        options: modeChannelOptions,
+                        enabled: controller.canEdit,
+                        label: '',
+                        compact: true,
+                        inset: true,
+                        showValue: false,
+                        onChanged: (value) => unawaited(
+                          onWrite(modeChannelName!, value.toDouble()),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  width: 144,
-                  child: modeChannelName == null
-                      ? const _ServoUnavailableCell('飞控未提供通道参数')
-                      : _MacParameterPicker(
-                          key: const ValueKey('mg-remote-flight-mode-channel'),
-                          value: modeChannel,
-                          options: modeChannelOptions,
-                          enabled: controller.canEdit,
-                          label: '',
-                          compact: true,
-                          inset: true,
-                          showValue: false,
-                          onChanged: (value) => unawaited(
-                            onWrite(modeChannelName!, value.toDouble()),
-                          ),
-                        ),
-                ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            modeChannel > 0 ? '当前通道：RC$modeChannel' : '当前未启用模式通道',
+            style: MacGlassTypography.caption,
+          ),
+          const SizedBox(height: 12),
+          if (modePrefix == null)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(child: Text('飞控未提供六档飞行模式参数')),
+            )
+          else
+            ValueListenableBuilder<int>(
+              valueListenable: input,
+              builder: (context, pwm, child) {
+                final activeSlot = _flightModeSlot(pwm);
+                return _RemoteCardGrid(
+                  children: [
+                    for (var index = 0; index < 6; index++)
+                      _buildModeCard(index, activeSlot),
+                  ],
+                );
+              },
             ),
-          ),
-          Divider(height: 1, color: MacGlassTokens.ink.withValues(alpha: 0.08)),
-          Expanded(
-            child: modePrefix == null
-                ? const Center(child: Text('飞控未提供六档飞行模式参数'))
-                : ValueListenableBuilder<int>(
-                    valueListenable: input,
-                    builder: (context, pwm, child) {
-                      final activeSlot = _flightModeSlot(pwm);
-                      return ListView.separated(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 8,
-                        ),
-                        itemCount: 6,
-                        separatorBuilder: (context, index) => Divider(
-                          height: 1,
-                          indent: 12,
-                          endIndent: 12,
-                          color: MacGlassTokens.ink.withValues(alpha: 0.055),
-                        ),
-                        itemBuilder: (context, index) {
-                          final name = '$modePrefix${index + 1}';
-                          final descriptor =
-                              controller.descriptorFor(name) ??
-                              controller.descriptorFor('${modePrefix}1');
-                          final options = _distinctParameterOptions(descriptor);
-                          final active = activeSlot == index;
-                          return Container(
-                            key: ValueKey('mg-remote-flight-mode-${index + 1}'),
-                            constraints: const BoxConstraints(minHeight: 56),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: active
-                                  ? MacGlassTokens.blue.withValues(alpha: 0.12)
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(
-                                MacGlassTokens.radiusControl,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                SizedBox(
-                                  width: 102,
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          AnimatedContainer(
-                                            duration: const Duration(
-                                              milliseconds: 140,
-                                            ),
-                                            width: 6,
-                                            height: 6,
-                                            decoration: BoxDecoration(
-                                              color: active
-                                                  ? MacGlassTokens.blue
-                                                  : Colors.transparent,
-                                              shape: BoxShape.circle,
-                                            ),
-                                          ),
-                                          SizedBox(width: active ? 6 : 0),
-                                          Text(
-                                            '模式${index + 1}',
-                                            style: TextStyle(
-                                              color: active
-                                                  ? MacGlassTokens.blue
-                                                  : MacGlassTokens.ink,
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        _ranges[index],
-                                        style: const TextStyle(
-                                          color: MacGlassTokens.muted,
-                                          fontSize: 10.5,
-                                          fontFeatures: [
-                                            FontFeature.tabularFigures(),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child:
-                                      parameters.containsKey(name) &&
-                                          options.isNotEmpty
-                                      ? _MacParameterPicker(
-                                          key: ValueKey(
-                                            'mg-remote-flight-mode-picker-${index + 1}',
-                                          ),
-                                          value: _value(name),
-                                          options: options,
-                                          enabled: controller.canEdit,
-                                          label: '',
-                                          compact: true,
-                                          inset: true,
-                                          showValue: false,
-                                          onChanged: (value) => unawaited(
-                                            onWrite(name, value.toDouble()),
-                                          ),
-                                        )
-                                      : const _ServoUnavailableCell('无飞行模式元数据'),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      );
-                    },
+        ],
+      ),
+    ),
+  );
+
+  Widget _buildModeCard(int index, int activeSlot) {
+    final name = '$modePrefix${index + 1}';
+    final descriptor =
+        controller.descriptorFor(name) ??
+        controller.descriptorFor('${modePrefix}1');
+    final options = _distinctParameterOptions(descriptor);
+    final active = activeSlot == index;
+    return Container(
+      key: ValueKey('mg-remote-flight-mode-${index + 1}'),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
+      decoration: BoxDecoration(
+        color: active
+            ? MacGlassTokens.blue.withValues(alpha: 0.13)
+            : Colors.white.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: active
+              ? MacGlassTokens.blue.withValues(alpha: 0.45)
+              : Colors.white.withValues(alpha: 0.74),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '模式 ${index + 1}',
+                  style: TextStyle(
+                    color: active ? MacGlassTokens.blue : MacGlassTokens.ink,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
                   ),
+                ),
+              ),
+              Text(_ranges[index], style: MacGlassTypography.caption),
+            ],
           ),
+          const SizedBox(height: 9),
+          parameters.containsKey(name) && options.isNotEmpty
+              ? _MacParameterPicker(
+                  key: ValueKey('mg-remote-flight-mode-picker-${index + 1}'),
+                  value: _value(name),
+                  options: options,
+                  enabled: controller.canEdit,
+                  label: '',
+                  compact: true,
+                  inset: true,
+                  showValue: false,
+                  onChanged: (value) =>
+                      unawaited(onWrite(name, value.toDouble())),
+                )
+              : const _ServoUnavailableCell('无飞行模式元数据'),
         ],
       ),
     );
@@ -923,151 +847,126 @@ class _RemoteAuxOptionsPanel extends StatelessWidget {
       : staged[name]?.stagedValue ?? parameters[name]?.value;
 
   @override
-  Widget build(BuildContext context) {
-    return _GlassPanel(
-      radius: 8,
+  Widget build(BuildContext context) => _GlassPanel(
+    radius: 12,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 14),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 13, 16, 12),
-            child: Row(
-              children: [
-                Expanded(child: _RemotePanelTitle('其他通道开关选项')),
-                Text(
-                  'RC5-16',
-                  style: TextStyle(
-                    color: MacGlassTokens.muted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
+          Row(
+            children: [
+              const Expanded(child: _RemotePanelTitle('RC 通道功能')),
+              Text('RC5–RC16', style: MacGlassTypography.caption),
+            ],
           ),
-          Divider(height: 1, color: MacGlassTokens.ink.withValues(alpha: 0.08)),
-          Expanded(
-            child: ListView.separated(
-              key: const ValueKey('mg-remote-aux-channel-list'),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-              itemCount: 12,
-              separatorBuilder: (context, index) => Divider(
-                height: 1,
-                indent: 12,
-                endIndent: 12,
-                color: MacGlassTokens.ink.withValues(alpha: 0.055),
-              ),
-              itemBuilder: (context, index) {
-                final channel = index + 5;
-                final optionName = _name(channel, 'OPTION');
-                final trimName = _name(channel, 'TRIM');
-                final value = (_value(optionName) ?? 0).round();
-                final options = _distinctParameterOptions(
-                  optionName == null
-                      ? null
-                      : controller.descriptorFor(optionName),
-                );
-                final trim = (_value(trimName) ?? 1500).round();
-                return ValueListenableBuilder<int>(
-                  valueListenable: inputs[channel - 1],
-                  builder: (context, pwm, child) {
-                    final active = value != 0 && pwm > trim;
-                    return Container(
-                      key: ValueKey('mg-remote-aux-channel-$channel'),
-                      constraints: const BoxConstraints(minHeight: 56),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: active
-                            ? MacGlassTokens.blue.withValues(alpha: 0.12)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(
-                          MacGlassTokens.radiusControl,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 82,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    AnimatedContainer(
-                                      duration: const Duration(
-                                        milliseconds: 140,
-                                      ),
-                                      width: 6,
-                                      height: 6,
-                                      decoration: BoxDecoration(
-                                        color: active
-                                            ? MacGlassTokens.blue
-                                            : Colors.transparent,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    SizedBox(width: active ? 6 : 0),
-                                    Text(
-                                      '通道$channel',
-                                      style: TextStyle(
-                                        color: active
-                                            ? MacGlassTokens.blue
-                                            : MacGlassTokens.ink,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  pwm > 0 ? '$pwm PWM' : '--',
-                                  style: const TextStyle(
-                                    color: MacGlassTokens.muted,
-                                    fontSize: 10.5,
-                                    fontFeatures: [
-                                      FontFeature.tabularFigures(),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: optionName != null && options.isNotEmpty
-                                ? _MacParameterPicker(
-                                    key: ValueKey(
-                                      'mg-remote-aux-channel-$channel-option',
-                                    ),
-                                    value: value,
-                                    options: options,
-                                    enabled: controller.canEdit,
-                                    label: '',
-                                    compact: true,
-                                    inset: true,
-                                    showValue: false,
-                                    onChanged: (updated) => unawaited(
-                                      onWrite(optionName, updated.toDouble()),
-                                    ),
-                                  )
-                                : const _ServoUnavailableCell('无通道功能元数据'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
+          const SizedBox(height: 3),
+          const Text(
+            '为辅助通道选择飞控功能，当前输入状态会高亮显示。',
+            style: MacGlassTypography.caption,
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            key: const ValueKey('mg-remote-aux-channel-list'),
+            child: _RemoteCardGrid(
+              children: [
+                for (var channel = 5; channel <= 16; channel++)
+                  _buildAuxCard(channel),
+              ],
             ),
           ),
         ],
       ),
+    ),
+  );
+
+  Widget _buildAuxCard(int channel) {
+    final optionName = _name(channel, 'OPTION');
+    final trimName = _name(channel, 'TRIM');
+    final value = (_value(optionName) ?? 0).round();
+    final options = _distinctParameterOptions(
+      optionName == null ? null : controller.descriptorFor(optionName),
+    );
+    final trim = (_value(trimName) ?? 1500).round();
+    return ValueListenableBuilder<int>(
+      valueListenable: inputs[channel - 1],
+      builder: (context, pwm, child) {
+        final active = value != 0 && pwm > trim;
+        return Container(
+          key: ValueKey('mg-remote-aux-channel-$channel'),
+          padding: const EdgeInsets.fromLTRB(11, 9, 11, 10),
+          decoration: BoxDecoration(
+            color: active
+                ? MacGlassTokens.blue.withValues(alpha: 0.13)
+                : Colors.white.withValues(alpha: 0.38),
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(
+              color: active
+                  ? MacGlassTokens.blue.withValues(alpha: 0.42)
+                  : Colors.white.withValues(alpha: 0.72),
+            ),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 48,
+                child: Text(
+                  'RC$channel',
+                  style: TextStyle(
+                    color: active ? MacGlassTokens.blue : MacGlassTokens.ink,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: optionName != null && options.isNotEmpty
+                    ? _MacParameterPicker(
+                        key: ValueKey('mg-remote-aux-channel-$channel-option'),
+                        value: value,
+                        options: options,
+                        enabled: controller.canEdit,
+                        label: '',
+                        compact: true,
+                        inset: true,
+                        showValue: false,
+                        onChanged: (updated) =>
+                            unawaited(onWrite(optionName, updated.toDouble())),
+                      )
+                    : const _ServoUnavailableCell('无元数据'),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
+}
+
+class _RemoteCardGrid extends StatelessWidget {
+  const _RemoteCardGrid({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns = constraints.maxWidth >= 900
+          ? 3
+          : constraints.maxWidth >= 600
+          ? 2
+          : 1;
+      const gap = 12.0;
+      final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+      return Wrap(
+        spacing: gap,
+        runSpacing: gap,
+        children: [
+          for (final child in children) SizedBox(width: width, child: child),
+        ],
+      );
+    },
+  );
 }
 
 class _RemotePanelTitle extends StatelessWidget {

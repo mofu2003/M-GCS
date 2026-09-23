@@ -43,6 +43,7 @@ static std::string param_desc_json(const mg::core::config::ParamDescriptor& desc
             o.begin_object();
             o.field("value", opt.value);
             o.field("label", opt.label);
+            if (!opt.english_label.empty()) o.field("english_label", opt.english_label);
             if (!opt.description.empty()) o.field("description", opt.description);
             o.end_object();
             opts.append_json(o.str());
@@ -92,8 +93,15 @@ static std::string config_read_group_json(mg_core_t* core,
             p.field("type", static_cast<int>(val->type));
             p.field("valid", true);
             if (!desc.options.empty()) {
-                std::string label = db.enum_label(profile, pname, static_cast<int>(val->value));
-                if (!label.empty()) p.field("display_value", label);
+                const auto value = static_cast<int>(val->value);
+                for (const auto& option : desc.options) {
+                    if (option.value != value) continue;
+                    if (!option.label.empty()) p.field("display_value", option.label);
+                    if (!option.english_label.empty()) {
+                        p.field("display_value_en", option.english_label);
+                    }
+                    break;
+                }
             }
         } else {
             p.field("valid", false);
