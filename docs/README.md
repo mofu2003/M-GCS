@@ -20,6 +20,7 @@
 - [ADR 0002：复用官方 MAVLink](adr/0002-official-mavlink-reuse.md)
 - [ADR 0003：本地 FFI 桥接](adr/0003-ffi-bridge.md)
 - [ADR 0005：Mission CAD 由后端领域模型负责](adr/0005-mission-cad-domain-boundary.md)
+- [ADR 0006：波形显示管线——采集保真、显示可读](adr/0006-waveform-display-pipeline.md)
 
 ## 维护规则
 

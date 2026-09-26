@@ -17,6 +17,9 @@ const int _kAccelChannel = 1;
 const int _kGyroChannel = 4;
 const int _kMagChannel = 7;
 
+/// 数字读数里"均值"那一路的统计窗口（毫秒）。曲线不受它影响。
+const double _kReadoutMeanWindowMs = 1000;
+
 const List<Color> _kAccelColors = [
   Color(0xFFFF375F),
   Color(0xFF30D158),
@@ -198,6 +201,10 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
                         child: _SignalCard(
                           group: group,
                           values: view.latestValues(group.channel),
+                          means: view.recentMean(
+                            group.channel,
+                            _kReadoutMeanWindowMs,
+                          ),
                           chart: _charts[group.channel],
                           sensorName: _sensorName(instances, selected),
                         ),
@@ -311,12 +318,21 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
 }
 
 /// 把原始极值向外取整到 1/2/5 阶梯，得到一个稳定的纵轴量程。
-_AxisRange _fitRange(double minValue, double maxValue) {
+///
+/// [headroom] 会先把极值向外放宽这么多比例再取整。放宽值参与量程计算但不改数据，
+/// 作用是对"随后的小幅增长"留出余量，避免量程被一点点推着连续变化。
+_AxisRange _fitRange(double minValue, double maxValue, {double headroom = 0}) {
   if (!minValue.isFinite || !maxValue.isFinite) {
     return const _AxisRange(min: -1, max: 1, step: 0.5, decimals: 1);
   }
   var span = maxValue - minValue;
   if (span < 1e-3) span = 1;
+  if (headroom > 0) {
+    final padding = span * headroom;
+    minValue -= padding;
+    maxValue += padding;
+    span = maxValue - minValue;
+  }
   final step = _niceStep(span / 4);
   final min = (minValue / step).floorToDouble() * step;
   final max = (maxValue / step).ceilToDouble() * step;
@@ -344,16 +360,29 @@ double _niceStep(double raw) {
   return factor * magnitude;
 }
 
-/// 纵轴量程跟踪：数据变大立刻跟随，数据变小要稳定一段时间才收缩，
-/// 这样曲线不会因为每帧重算量程而上下跳。
+/// 纵轴量程跟踪。
+///
+/// 工业趋势图的量程必须能"稳住"：量程每变一次，整条曲线连刻度都会跟着缩放一次，
+/// 操作员就没法对同一段曲线做跨时间比较，看起来也像数据在乱跳。所以策略是：
+///
+/// - 数据真的超出当前量程时立刻扩量程，绝不裁掉数据（ADR 0006 的硬要求）；
+/// - 扩量程时按比例预留余量，随后的小幅波动不会再触发一次量程变化；
+/// - 收缩要同时满足"新量程明显更小"和"已经稳定足够久"，避免量程来回跳。
 class _RangeTracker {
-  static const double _shrinkDelayMs = 3000;
+  /// 扩量程时预留的余量比例。
+  static const double _headroom = 0.1;
+
+  /// 新量程小于当前量程这个比例时，才算"明显更小"，可以考虑收缩。
+  static const double _shrinkRatio = 0.4;
+
+  /// 收缩前需要保持稳定的时长。
+  static const double _shrinkDelayMs = 15000;
 
   _AxisRange? _range;
   double _steadySinceMs = 0;
 
   _AxisRange update(double minValue, double maxValue, double nowMs) {
-    final fit = _fitRange(minValue, maxValue);
+    final fit = _fitRange(minValue, maxValue, headroom: _headroom);
     final current = _range;
     final outOfRange =
         current == null ||
@@ -365,7 +394,7 @@ class _RangeTracker {
       return fit;
     }
     final comfortablyInside =
-        (fit.max - fit.min) < (current.max - current.min) * 0.6;
+        (fit.max - fit.min) < (current.max - current.min) * _shrinkRatio;
     if (!comfortablyInside) {
       _steadySinceMs = nowMs;
       return current;
@@ -415,6 +444,32 @@ class _WaveformView {
     for (var axis = 0; axis < _SignalGroup.axes.length; axis++)
       length == 0 ? double.nan : valueAt(length - 1, firstChannel + axis),
   ];
+
+  /// 最近 [windowMs] 毫秒内每个通道的平均值。
+  ///
+  /// 只用于数字读数：瞬时值每次取数都会跳到 10Hz 采样里的另一个点，操作员读不稳，
+  /// 所以额外给一个带明确窗口标注的均值。曲线仍然画原始点，不走这个均值。
+  List<double> recentMean(int firstChannel, double windowMs) {
+    final means = List<double>.filled(_SignalGroup.axes.length, double.nan);
+    if (length == 0) return means;
+
+    final cutoff = timeAt(length - 1) - windowMs;
+    final sums = List<double>.filled(_SignalGroup.axes.length, 0);
+    final counts = List<int>.filled(_SignalGroup.axes.length, 0);
+    for (var point = length - 1; point >= 0; point--) {
+      if (timeAt(point) < cutoff) break;
+      for (var axis = 0; axis < counts.length; axis++) {
+        final value = valueAt(point, firstChannel + axis);
+        if (!value.isFinite) continue;
+        sums[axis] += value;
+        counts[axis]++;
+      }
+    }
+    for (var axis = 0; axis < counts.length; axis++) {
+      if (counts[axis] > 0) means[axis] = sums[axis] / counts[axis];
+    }
+    return means;
+  }
 }
 
 /// 页面标题由工作区顶栏提供，这里只放实例选择器和数据状态。
@@ -526,12 +581,18 @@ class _SignalCard extends StatelessWidget {
   const _SignalCard({
     required this.group,
     required this.values,
+    required this.means,
     required this.chart,
     required this.sensorName,
   });
 
   final _SignalGroup group;
+
+  /// 各轴最新一帧的瞬时值，曲线用的也是这些原始点。
   final List<double> values;
+
+  /// 各轴最近一段窗口的均值，只用于数字读数。
+  final List<double> means;
   final LineChartData? chart;
 
   /// 当前实例的传感器型号，未知时是空串。
@@ -574,6 +635,7 @@ class _SignalCard extends StatelessWidget {
                     child: _CurrentValueTile(
                       label: _SignalGroup.axes[axis],
                       value: values[axis],
+                      mean: means[axis],
                       color: group.colors[axis],
                     ),
                   ),
@@ -643,37 +705,79 @@ class _CurrentValueTile extends StatelessWidget {
   const _CurrentValueTile({
     required this.label,
     required this.value,
+    required this.mean,
     required this.color,
   });
 
   final String label;
+
+  /// 最新一帧的瞬时值。
   final double value;
+
+  /// 最近一秒的均值，读数用；曲线不使用它。
+  final double mean;
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-    decoration: BoxDecoration(
-      color: MacosTheme.brightnessOf(
-        context,
-      ).resolve(const Color(0xFFFFFFFF), const Color(0xFF303136)),
-      border: Border(left: BorderSide(color: color, width: 4)),
-      borderRadius: BorderRadius.circular(9),
-    ),
-    child: Row(
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            value.isFinite ? value.toStringAsFixed(2) : '—',
-            textAlign: TextAlign.right,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
+  Widget build(BuildContext context) {
+    final brightness = MacosTheme.brightnessOf(context);
+    final subdued = brightness == Brightness.dark
+        ? Colors.white60
+        : Colors.black45;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: brightness.resolve(
+          const Color(0xFFFFFFFF),
+          const Color(0xFF303136),
         ),
-      ],
-    ),
-  );
+        border: Border(left: BorderSide(color: color, width: 4)),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _format(value),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  // 等宽数字：位数变化时读数不会左右抖动。
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Text('1s 均值', style: TextStyle(fontSize: 10, color: subdued)),
+              const Spacer(),
+              Text(
+                _format(mean),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: subdued,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _format(double number) =>
+      number.isFinite ? number.toStringAsFixed(2) : '—';
 }
