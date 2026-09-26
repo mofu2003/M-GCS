@@ -8,6 +8,8 @@ extern "C" {
 #endif
 
 MGCORE_API char* mg_vehicle_get_summary(mg_core_t* core);
+/// Returns connection and top-bar telemetry for one session without selecting it.
+MGCORE_API char* mg_vehicle_get_session_status(mg_core_t* core, int vehicle_id);
 MGCORE_API char* mg_vehicle_get_battery(mg_core_t* core);
 MGCORE_API char* mg_vehicle_get_global_position(mg_core_t* core);
 MGCORE_API char* mg_vehicle_get_attitude(mg_core_t* core);

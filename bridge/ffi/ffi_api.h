@@ -4,7 +4,9 @@
  * Consumers may include this single header, or bind by domain using the
  * smaller ffi_api_*.h headers. All functions use C-compatible types only.
  *
- * Lifetime: mg_create() -> mg_destroy()
+ * Lifetime: mg_create() -> mg_destroy(). Preferred connection lifecycle is
+ * mg_connection_open(uri) -> session ID -> mg_connection_get_session_state()
+ * / mg_connection_close(session ID), independent of active focus.
  * Strings: every returned char* must be released with mg_free_string().
  * Routing: mg_vehicle_open() creates an independent session without changing
  * focus. Legacy command/query functions operate on the vehicle selected via

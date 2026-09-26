@@ -193,6 +193,97 @@ int main() {
         mg_destroy(core);
     }
 
+    // 6b. Session-oriented connection API validation and focus independence.
+    fprintf(stderr, "[Group] Session connection API\n");
+    {
+        mg_core_t* core = mg_create();
+        CHECK(mg_connection_open(nullptr, "serial:///dev/null") == MG_ERROR_NULL_CORE,
+              "connection_open rejects null core with explicit error");
+        CHECK(mg_connection_open(core, nullptr) == MG_ERROR_INVALID_PARAM,
+              "connection_open rejects null endpoint URI");
+        CHECK(mg_connection_open(core, "unknown://endpoint") == MG_ERROR_INVALID_PARAM,
+              "connection_open rejects unsupported endpoint schemes");
+        CHECK(mg_connection_open(core, "/dev/tty.test") == MG_ERROR_INVALID_PARAM,
+              "canonical connection_open requires an explicit URI scheme");
+        CHECK(mg_connection_open(core, "tcp://127.0.0.1:not-a-port") == MG_ERROR_INVALID_PARAM,
+              "connection_open rejects malformed TCP port before opening a session");
+        CHECK(mg_connection_open(core, "serial:///dev/tty.test?baud=-1") == MG_ERROR_INVALID_PARAM,
+              "connection_open rejects malformed serial baud before opening a session");
+        CHECK(mg_get_last_error() == MG_ERROR_INVALID_PARAM,
+              "connection_open preserves the exact validation error code");
+        CHECK(core->vehicles.vehicle_count() == 0,
+              "invalid endpoints do not create a connection session");
+        CHECK(mg_vehicle_get_active(core) == -1,
+              "invalid session open attempts do not change active focus");
+
+        char* state = mg_connection_get_session_state(core, 999);
+        CHECK(json_has(state, "\"success\":false"),
+              "session_state rejects an unknown session");
+        CHECK(json_has(state, "session not found"),
+              "unknown session state includes a useful error");
+        mg_free_string(state);
+
+        char* close = mg_connection_close(core, 999);
+        CHECK(json_has(close, "\"success\":false"),
+              "session_close rejects an unknown session");
+        CHECK(json_has(close, "session not found"),
+              "unknown session close includes a useful error");
+        mg_free_string(close);
+        CHECK(mg_vehicle_get_active(core) == -1,
+              "session state/close operations do not require or change focus");
+
+        char* telemetry = mg_vehicle_get_session_status(core, 999);
+        CHECK(json_has(telemetry, "SESSION_NOT_FOUND"),
+              "session telemetry rejects an unknown session");
+        mg_free_string(telemetry);
+
+        auto session_vehicle =
+            std::make_shared<mg::core::vehicle::Vehicle>(42);
+        core->vehicles.add_for_test(session_vehicle);
+        state = mg_connection_get_session_state(core, 42);
+        CHECK(json_has(state, "\"success\":true") &&
+                  json_has(state, "\"session_id\":42"),
+              "session_state reports the requested session");
+        CHECK(json_has(state, "\"active_focus\":false"),
+              "session_state does not require active focus");
+        mg_free_string(state);
+
+        auto& session_cache = session_vehicle->cache();
+        {
+            mg::core::platform::LockGuard lk(session_cache.mtx);
+            session_cache.gps.data.fix_type = 3;
+            session_cache.gps.data.satellites_visible = 14;
+            session_cache.vfr_hud.data.heading = 271;
+            session_cache.battery.data.battery_remaining = 82;
+            session_cache.battery.data.voltage_v = 15.7f;
+            session_cache.freshness.mark_updated(mg::bridge::TelemetryType::kGps);
+            session_cache.freshness.mark_updated(mg::bridge::TelemetryType::kVfrHud);
+            session_cache.freshness.mark_updated(mg::bridge::TelemetryType::kBattery);
+        }
+        telemetry = mg_vehicle_get_session_status(core, 42);
+        CHECK(json_has(telemetry, "\"success\":true") &&
+                  json_has(telemetry, "\"session_id\":42"),
+              "session telemetry identifies the requested connection");
+        CHECK(json_has(telemetry, "\"gps_satellites\":14"),
+              "session telemetry returns fresh GPS satellite count");
+        CHECK(json_has(telemetry, "\"heading_deg\":271"),
+              "session telemetry returns fresh heading");
+        CHECK(json_has(telemetry, "\"battery_remaining_pct\":82") &&
+                  json_has(telemetry, "\"battery_voltage_v\":15.7"),
+              "session telemetry returns fresh battery values");
+        CHECK(mg_vehicle_get_active(core) == -1,
+              "session telemetry does not select or require active focus");
+        mg_free_string(telemetry);
+
+        close = mg_connection_close(core, 42);
+        CHECK(json_has(close, "\"success\":true"),
+              "session_close closes the requested session");
+        mg_free_string(close);
+        CHECK(mg_vehicle_get_active(core) == -1,
+              "closing an unfocused session leaves active focus unchanged");
+        mg_destroy(core);
+    }
+
     // 7. Free string safety
     fprintf(stderr, "[Group] Free string safety\n");
     {

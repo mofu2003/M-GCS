@@ -1,0 +1,1291 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:ffi';
+import 'dart:io';
+
+import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
+
+final class SerialPortInfo {
+  const SerialPortInfo({
+    required this.path,
+    required this.description,
+    required this.likelyFlightController,
+  });
+
+  final String path;
+  final String description;
+  final bool likelyFlightController;
+}
+
+final class ParameterOption {
+  const ParameterOption({required this.value, required this.label});
+
+  final double value;
+  final String label;
+}
+
+final class VehicleParameter {
+  const VehicleParameter({
+    required this.name,
+    required this.value,
+    required this.mavlinkType,
+    this.index,
+    this.count,
+    this.displayName,
+    this.description,
+    this.group,
+    this.valueType,
+    this.unit,
+    this.minimum,
+    this.maximum,
+    this.increment,
+    this.requiresReboot = false,
+    this.readOnly = false,
+    this.options = const [],
+    this.valid = true,
+  });
+
+  final String name;
+  final double value;
+  final int mavlinkType;
+  final int? index;
+  final int? count;
+  final String? displayName;
+  final String? description;
+  final String? group;
+  final String? valueType;
+  final String? unit;
+  final double? minimum;
+  final double? maximum;
+  final double? increment;
+  final bool requiresReboot;
+  final bool readOnly;
+  final List<ParameterOption> options;
+  final bool valid;
+
+  VehicleParameter copyWith({
+    double? value,
+    String? displayName,
+    String? description,
+    String? group,
+    String? valueType,
+    String? unit,
+    double? minimum,
+    double? maximum,
+    double? increment,
+    bool? requiresReboot,
+    bool? readOnly,
+    List<ParameterOption>? options,
+    bool? valid,
+  }) => VehicleParameter(
+    name: name,
+    value: value ?? this.value,
+    mavlinkType: mavlinkType,
+    index: index,
+    count: count,
+    displayName: displayName ?? this.displayName,
+    description: description ?? this.description,
+    group: group ?? this.group,
+    valueType: valueType ?? this.valueType,
+    unit: unit ?? this.unit,
+    minimum: minimum ?? this.minimum,
+    maximum: maximum ?? this.maximum,
+    increment: increment ?? this.increment,
+    requiresReboot: requiresReboot ?? this.requiresReboot,
+    readOnly: readOnly ?? this.readOnly,
+    options: options ?? this.options,
+    valid: valid ?? this.valid,
+  );
+
+  factory VehicleParameter.fromTelemetry(Map<String, Object?> json) =>
+      VehicleParameter(
+        name: json['name'] as String? ?? '',
+        value: (json['value'] as num?)?.toDouble() ?? double.nan,
+        mavlinkType: json['type'] as int? ?? 0,
+        index: json['index'] as int?,
+        count: json['count'] as int?,
+      );
+
+  VehicleParameter withDescriptor(Map<String, Object?> json) {
+    final optionData = json['options'] as List<Object?>? ?? const [];
+    final parsedOptions = optionData
+        .whereType<Map<String, Object?>>()
+        .where((option) => option['value'] is num)
+        .map(
+          (option) => ParameterOption(
+            value: (option['value'] as num).toDouble(),
+            label:
+                option['label'] as String? ??
+                option['english_label'] as String? ??
+                '${option['value']}',
+          ),
+        )
+        .toList(growable: false);
+    return copyWith(
+      displayName: json['display_name'] as String?,
+      description: json['description'] as String?,
+      group: json['group'] as String?,
+      valueType: json['type'] as String?,
+      unit: json['unit'] as String?,
+      minimum: (json['min'] as num?)?.toDouble(),
+      maximum: (json['max'] as num?)?.toDouble(),
+      increment: (json['increment'] as num?)?.toDouble(),
+      requiresReboot: json['requires_reboot'] as bool? ?? false,
+      readOnly: json['read_only'] as bool? ?? false,
+      options: parsedOptions,
+      valid: json['valid'] as bool? ?? valid,
+    );
+  }
+}
+
+enum SerialConnectionPhase { disconnected, waitingForHeartbeat, connected }
+
+enum ConnectionTransport { serial, udp, tcp }
+
+/// Selects the tuning UI surface for the detected ArduPilot vehicle profile.
+enum VehicleControlProfile { unknown, copter, fixedWing, planeVtol }
+
+final class ConnectionController extends ChangeNotifier {
+  ConnectionController() {
+    _initialize();
+  }
+
+  late final DynamicLibrary _library;
+  late final Pointer<Void> _core;
+  late final Pointer<Void> Function() _create;
+  late final void Function(Pointer<Void>) _destroy;
+  late final Pointer<Utf8> Function(Pointer<Void>) _listPorts;
+  late final int Function(Pointer<Void>, Pointer<Utf8>) _open;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _getSessionState;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _getSessionStatus;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getFirmwareType;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getVehicleFirmware;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getFirmwareVersion;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getSensorHealth;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getTelemetryFreshness;
+  late final Pointer<Utf8> Function(Pointer<Void>) _requestFirmwareVersion;
+  late final Pointer<Utf8> Function(Pointer<Void>) _requestAllParameters;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getAllParameters;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getParameterProgress;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _getParameterByName = _library
+      .lookup<
+        NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+      >('mg_params_get_by_name')
+      .asFunction();
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _readParameterDescriptor;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, double)
+  _writeParameter;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getServoOutputs;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _close;
+  late final void Function(Pointer<Utf8>) _freeString;
+
+  final List<SerialPortInfo> ports = [];
+  final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
+  final ValueNotifier<int> parameterChanges = ValueNotifier(0);
+  final ValueNotifier<int> telemetryChanges = ValueNotifier(0);
+  final ValueNotifier<int> profileChanges = ValueNotifier(0);
+  final ValueNotifier<int> connectionChanges = ValueNotifier(0);
+
+  String? selectedPort;
+  int baudRate = 115200;
+  ConnectionTransport transport = ConnectionTransport.serial;
+  String udpHost = '0.0.0.0';
+  String udpPortText = '14550';
+  String tcpHost = '127.0.0.1';
+  String tcpPortText = '5760';
+  int? sessionId;
+  SerialConnectionPhase phase = SerialConnectionPhase.disconnected;
+  String? message;
+  String? telemetryError;
+  int? satellitesVisible;
+  int? gpsFixType;
+  double? headingDegrees;
+  int? batteryRemainingPercent;
+  double? batteryVoltage;
+  Map<String, Object?>? firmwareInfo;
+  Map<String, Object?>? vehicleIdentity;
+  Map<String, Object?>? firmwareVersionInfo;
+  Map<String, Object?>? sensorHealth;
+  final Map<String, VehicleParameter> parameters = {};
+  final Map<String, Future<void>> _parameterWriteJobs = {};
+  final Map<String, String> _parameterWriteErrors = {};
+  final Set<String> _parameterMetadataLoaded = {};
+  final Map<String, int> _parameterMetadataAttempts = {};
+  final Set<String> _pendingParameterMetadata = {};
+  int parameterReceived = 0;
+  int parameterTotal = 0;
+  bool parametersLoaded = false;
+  bool parametersLoading = false;
+  String? parameterError;
+  List<int> servoOutputs = const [];
+  bool servoOutputsValid = false;
+  final Map<String, String> serialHardwareMappings = {};
+  bool serialHardwareMappingLoading = false;
+  String? serialHardwareMappingError;
+  bool _serialHardwareMappingRequested = false;
+  String? initializationError;
+  Timer? _stateTimer;
+  Timer? _telemetryTimer;
+  int _lastSystemStatusPollMs = 0;
+  bool _busy = false;
+  bool _disposed = false;
+  bool _firmwareVersionRequested = false;
+  bool _parameterRequestStarted = false;
+  bool _loadingParameterMetadata = false;
+  VehicleControlProfile? _lastPublishedControlProfile;
+
+  bool get busy => _busy;
+  bool get isConnected => phase == SerialConnectionPhase.connected;
+  bool get hasSession => sessionId != null;
+  bool get hasParameters => parametersLoaded && parameters.isNotEmpty;
+  VehicleControlProfile get controlProfile {
+    final firmware = firmwareInfo?['firmware']?.toString().toLowerCase();
+    final vehicle = firmwareInfo?['vehicle_type']?.toString().toLowerCase();
+    if (firmware != 'ardupilot') return VehicleControlProfile.unknown;
+    if (vehicle == 'copter') return VehicleControlProfile.copter;
+    if (vehicle == 'vtol') return VehicleControlProfile.planeVtol;
+    if (vehicle == 'fixedwing' || vehicle == 'plane') {
+      final qEnable = parameters['Q_ENABLE']?.value ?? 0;
+      final tailsitter = parameters['Q_TAILSIT_ENABLE']?.value ?? 0;
+      final tilt = parameters['Q_TILT_ENABLE']?.value ?? 0;
+      return qEnable != 0 || tailsitter != 0 || tilt != 0
+          ? VehicleControlProfile.planeVtol
+          : VehicleControlProfile.fixedWing;
+    }
+    return VehicleControlProfile.unknown;
+  }
+
+  int get pendingParameterWriteCount => _parameterWriteJobs.length;
+  bool get hasParameterWritesInProgress => _parameterWriteJobs.isNotEmpty;
+  bool isParameterWriting(String name) => _parameterWriteJobs.containsKey(name);
+  String? get parameterWriteError =>
+      _parameterWriteErrors.isEmpty ? null : _parameterWriteErrors.values.last;
+
+  void _notifyParameterChanges() {
+    if (!_disposed) parameterChanges.value++;
+  }
+
+  void _notifyTelemetryChanges() {
+    if (!_disposed) telemetryChanges.value++;
+  }
+
+  void _notifyProfileChanges() {
+    final profile = controlProfile;
+    if (_disposed || profile == _lastPublishedControlProfile) return;
+    _lastPublishedControlProfile = profile;
+    profileChanges.value++;
+  }
+
+  void _notifyConnectionChanges() {
+    if (!_disposed) connectionChanges.value++;
+  }
+
+  bool _isProfileParameter(String name) =>
+      name == 'Q_ENABLE' ||
+      name == 'Q_TAILSIT_ENABLE' ||
+      name == 'Q_TILT_ENABLE';
+
+  void _recordParameterWriteError(String name, String message) {
+    _parameterWriteErrors.remove(name);
+    _parameterWriteErrors[name] = message;
+  }
+
+  List<String> get serialParameterPorts {
+    final prefixes = <String>{};
+    final pattern = RegExp(
+      r'^(SERIAL\d+|SER_TEL\d+|SER_GPS\d+)_(?:PROTOCOL|PROT|BAUD)$',
+    );
+    for (final name in parameters.keys) {
+      final match = pattern.firstMatch(name);
+      if (match != null) prefixes.add(match.group(1)!);
+    }
+    return prefixes.toList()..sort(_compareSerialParameterPorts);
+  }
+
+  int _compareSerialParameterPorts(String left, String right) {
+    int rank(String value) => value.startsWith('SERIAL')
+        ? 0
+        : value.startsWith('SER_TEL')
+        ? 1
+        : 2;
+    final rankComparison = rank(left).compareTo(rank(right));
+    if (rankComparison != 0) return rankComparison;
+    final leftIndex =
+        int.tryParse(RegExp(r'\d+$').stringMatch(left) ?? '') ?? 0;
+    final rightIndex =
+        int.tryParse(RegExp(r'\d+$').stringMatch(right) ?? '') ?? 0;
+    return leftIndex.compareTo(rightIndex);
+  }
+
+  bool get canConnect {
+    if (_busy || hasSession || initializationError != null) return false;
+    if (transport == ConnectionTransport.serial) return selectedPort != null;
+    final host = transport == ConnectionTransport.udp ? udpHost : tcpHost;
+    final portText = transport == ConnectionTransport.udp
+        ? udpPortText
+        : tcpPortText;
+    final port = int.tryParse(portText.trim());
+    return host.trim().isNotEmpty &&
+        !host.contains(RegExp(r'\s')) &&
+        !host.contains(':') &&
+        port != null &&
+        port > 0 &&
+        port <= 65535;
+  }
+
+  String get selectedTransportLabel => switch (transport) {
+    ConnectionTransport.serial => '串口',
+    ConnectionTransport.udp => 'UDP',
+    ConnectionTransport.tcp => 'TCP',
+  };
+
+  void selectTransport(ConnectionTransport value) {
+    if (hasSession || _busy || transport == value) return;
+    transport = value;
+    message = null;
+    _notifyConnectionChanges();
+    notifyListeners();
+    if (value == ConnectionTransport.serial && ports.isEmpty) {
+      unawaited(refreshPorts());
+    }
+  }
+
+  void updateNetworkEndpoint({required String host, required String port}) {
+    if (hasSession) return;
+    if (transport == ConnectionTransport.udp) {
+      udpHost = host;
+      udpPortText = port;
+    } else if (transport == ConnectionTransport.tcp) {
+      tcpHost = host;
+      tcpPortText = port;
+    }
+    _notifyConnectionChanges();
+    notifyListeners();
+  }
+
+  void requestParameters({bool force = false}) {
+    if (!isConnected || initializationError != null) return;
+    if (_parameterRequestStarted && !force) return;
+    parameters.clear();
+    _parameterMetadataLoaded.clear();
+    _parameterMetadataAttempts.clear();
+    parameterReceived = 0;
+    parameterTotal = 0;
+    parametersLoaded = false;
+    parametersLoading = true;
+    parameterError = null;
+    _parameterWriteErrors.clear();
+    _parameterRequestStarted = false;
+    try {
+      final result =
+          _readJson(_requestAllParameters(_core)) as Map<String, Object?>;
+      if (result['success'] != true) {
+        final error = result['error'];
+        throw StateError(
+          error is Map<String, Object?>
+              ? error['message'] as String? ?? '无法请求飞控参数'
+              : '无法请求飞控参数',
+        );
+      }
+      _parameterRequestStarted = true;
+    } on Object catch (error) {
+      parametersLoading = false;
+      parameterError = error.toString().replaceFirst('Bad state: ', '');
+    }
+    _notifyParameterChanges();
+    notifyListeners();
+  }
+
+  Future<void> refreshSerialHardwareMappings({bool force = false}) async {
+    if (!isConnected || serialHardwareMappingLoading) return;
+    if (_serialHardwareMappingRequested && !force) return;
+    _serialHardwareMappingRequested = true;
+    serialHardwareMappingLoading = true;
+    serialHardwareMappingError = null;
+    _notifyParameterChanges();
+    notifyListeners();
+    await Future<void>.delayed(Duration.zero);
+    try {
+      final result =
+          _readJson(_getSerialUartNames(_core)) as Map<String, Object?>;
+      final items = result['items'] as List<Object?>? ?? const [];
+      serialHardwareMappings
+        ..clear()
+        ..addEntries(
+          items
+              .whereType<Map<String, Object?>>()
+              .where((item) {
+                return item['serial_index'] is int && item['name'] is String;
+              })
+              .map((item) {
+                final serial = 'SERIAL${item['serial_index']}';
+                return MapEntry(serial, item['name'] as String);
+              }),
+        );
+      if (result['success'] != true) {
+        serialHardwareMappingError = result['error'] as String?;
+      }
+    } on Object catch (error) {
+      serialHardwareMappings.clear();
+      serialHardwareMappingError = error.toString();
+    } finally {
+      serialHardwareMappingLoading = false;
+      _notifyParameterChanges();
+      notifyListeners();
+    }
+  }
+
+  void loadParameterMetadata(Iterable<String> names) {
+    _pendingParameterMetadata.addAll(names);
+    if (parametersLoaded && !_loadingParameterMetadata) {
+      unawaited(_loadParameterMetadataInBatches());
+    }
+  }
+
+  Future<void> _loadParameterMetadataInBatches() async {
+    if (_loadingParameterMetadata || !parametersLoaded) return;
+    _loadingParameterMetadata = true;
+    try {
+      while (_pendingParameterMetadata.isNotEmpty && !_disposed) {
+        final names = _pendingParameterMetadata.take(8).toList();
+        var changed = false;
+        for (final name in names) {
+          _pendingParameterMetadata.remove(name);
+          final parameter = parameters[name];
+          if (parameter == null || _parameterMetadataLoaded.contains(name)) {
+            continue;
+          }
+          try {
+            final nativeName = name.toNativeUtf8();
+            late final Map<String, Object?> descriptor;
+            try {
+              descriptor =
+                  _readJson(_readParameterDescriptor(_core, nativeName))
+                      as Map<String, Object?>;
+            } finally {
+              malloc.free(nativeName);
+            }
+            parameters[name] = parameter.withDescriptor(descriptor);
+            _parameterMetadataLoaded.add(name);
+            _parameterMetadataAttempts.remove(name);
+            changed = true;
+          } on Object {
+            // 读取失败时保留原始值并稍后重试；否则枚举参数会永久退化成
+            // 只显示数字的输入框。重试上限用于避免后端持续失败时空转。
+            final attempts = (_parameterMetadataAttempts[name] ?? 0) + 1;
+            _parameterMetadataAttempts[name] = attempts;
+            if (attempts < 3) {
+              _pendingParameterMetadata.add(name);
+            }
+          }
+        }
+        if (changed) {
+          _notifyParameterChanges();
+        }
+        if (_pendingParameterMetadata.isNotEmpty) {
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+      }
+    } finally {
+      _loadingParameterMetadata = false;
+    }
+  }
+
+  VehicleParameter? parameter(String name) => parameters[name];
+
+  Future<bool> setParameter(String name, double value) async {
+    final parameter = parameters[name];
+    if (!isConnected || sessionId == null) {
+      _recordParameterWriteError(name, '未连接飞控，参数未写入');
+      _notifyParameterChanges();
+      notifyListeners();
+      return false;
+    }
+    // Capture the target at request time. If this write queues behind another
+    // same-name write, it must never drift onto a newly connected vehicle.
+    final requestedSessionId = sessionId!;
+    if (parameter == null || parameter.readOnly || !value.isFinite) {
+      _recordParameterWriteError(
+        name,
+        parameter == null
+            ? '飞控未提供参数 $name'
+            : parameter.readOnly
+            ? '参数 $name 为只读项'
+            : '参数值必须是有效数值',
+      );
+      _notifyParameterChanges();
+      notifyListeners();
+      return false;
+    }
+
+    final previous = _parameterWriteJobs[name];
+    final completion = Completer<void>();
+    final job = completion.future;
+    _parameterWriteJobs[name] = job;
+    _parameterWriteErrors.remove(name);
+    _notifyParameterChanges();
+    notifyListeners();
+
+    try {
+      if (previous != null) await previous;
+      if (_disposed) return false;
+      _ensureWriteSession(requestedSessionId, name);
+      _parameterWriteErrors.remove(name);
+      _notifyParameterChanges();
+      notifyListeners();
+
+      // A value queued behind an in-flight write may already be current by
+      // the time its turn arrives.
+      final latest = parameters[name];
+      if (latest == null || latest.readOnly) {
+        throw StateError('参数会话已变化，未能写入 $name');
+      }
+      if (latest.value == value) return true;
+
+      for (var attempt = 0; attempt < 3; attempt++) {
+        _ensureWriteSession(requestedSessionId, name);
+        final nativeName = name.toNativeUtf8();
+        try {
+          final result =
+              _readJson(_writeParameter(_core, nativeName, value))
+                  as Map<String, Object?>;
+          if (result['success'] != true) {
+            final error = result['error'];
+            throw StateError(
+              error is Map<String, Object?>
+                  ? error['message'] as String? ?? '参数写入失败'
+                  : error as String? ?? '参数写入失败',
+            );
+          }
+        } finally {
+          malloc.free(nativeName);
+        }
+
+        final acknowledgementTimer = Stopwatch()..start();
+        while (acknowledgementTimer.elapsed < const Duration(seconds: 1)) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+          _ensureWriteSession(requestedSessionId, name);
+          final acknowledgedValue = _readParameterValue(name);
+          if (acknowledgedValue != null &&
+              _parameterValuesMatch(
+                value,
+                acknowledgedValue,
+                latest.mavlinkType,
+              )) {
+            parameters[name] = latest.copyWith(value: acknowledgedValue);
+            _parameterWriteErrors.remove(name);
+            if (_isProfileParameter(name)) _notifyProfileChanges();
+            _notifyParameterChanges();
+            notifyListeners();
+            return true;
+          }
+        }
+      }
+
+      _ensureWriteSession(requestedSessionId, name);
+      final actualValue = _readParameterValue(name);
+      if (actualValue != null) {
+        parameters[name] = latest.copyWith(value: actualValue);
+      }
+      throw StateError(
+        actualValue == null
+            ? '飞控未确认参数 $name 的新值，请检查连接后重试'
+            : '飞控未接受参数 $name 的新值，当前值为 '
+                  '${actualValue == actualValue.roundToDouble() ? actualValue.toInt() : actualValue}',
+      );
+    } on Object catch (error) {
+      _recordParameterWriteError(
+        name,
+        error.toString().replaceFirst('Bad state: ', ''),
+      );
+      _notifyParameterChanges();
+      notifyListeners();
+    } finally {
+      if (identical(_parameterWriteJobs[name], job)) {
+        _parameterWriteJobs.remove(name);
+      }
+      completion.complete();
+      _notifyParameterChanges();
+      notifyListeners();
+    }
+    return !_parameterWriteErrors.containsKey(name);
+  }
+
+  void _ensureWriteSession(int expectedSessionId, String name) {
+    if (_disposed || !isConnected || sessionId != expectedSessionId) {
+      throw StateError('连接已断开或切换，参数 $name 未能确认写入');
+    }
+  }
+
+  double? _readParameterValue(String name) {
+    final nativeName = name.toNativeUtf8();
+    try {
+      final result =
+          _readJson(_getParameterByName(_core, nativeName))
+              as Map<String, Object?>;
+      if (result['found'] != true) return null;
+      return (result['value'] as num?)?.toDouble();
+    } finally {
+      malloc.free(nativeName);
+    }
+  }
+
+  bool _parameterValuesMatch(double expected, double actual, int mavlinkType) {
+    if (!expected.isFinite || !actual.isFinite) return false;
+    if (mavlinkType >= 1 && mavlinkType <= 8) return expected == actual;
+    final tolerance = (expected.abs() * 1e-6).clamp(1e-6, 1e-3);
+    return (expected - actual).abs() <= tolerance;
+  }
+
+  void _initialize() {
+    try {
+      if (!Platform.isMacOS) {
+        throw UnsupportedError('当前串口连接外壳仅配置了 macOS 后端库。');
+      }
+      final executable = File(Platform.resolvedExecutable);
+      final libraryFile = File(
+        '${executable.parent.parent.path}/Frameworks/libmgcore.dylib',
+      );
+      if (!libraryFile.existsSync()) {
+        throw FileSystemException('找不到已打包的 mgcore.dylib', libraryFile.path);
+      }
+      _library = DynamicLibrary.open(libraryFile.path);
+      _create = _library
+          .lookup<NativeFunction<Pointer<Void> Function()>>('mg_create')
+          .asFunction();
+      _destroy = _library
+          .lookup<NativeFunction<Void Function(Pointer<Void>)>>('mg_destroy')
+          .asFunction();
+      _freeString = _library
+          .lookup<NativeFunction<Void Function(Pointer<Utf8>)>>(
+            'mg_free_string',
+          )
+          .asFunction();
+      _listPorts = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_connection_list_ports',
+          )
+          .asFunction();
+      _open = _library
+          .lookup<NativeFunction<Int32 Function(Pointer<Void>, Pointer<Utf8>)>>(
+            'mg_connection_open',
+          )
+          .asFunction();
+      _getSessionState = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
+            'mg_connection_get_session_state',
+          )
+          .asFunction();
+      _getSessionStatus = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
+            'mg_vehicle_get_session_status',
+          )
+          .asFunction();
+      _getFirmwareType = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_firmware_get_type',
+          )
+          .asFunction();
+      _getVehicleFirmware = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_vehicle_get_firmware',
+          )
+          .asFunction();
+      _getFirmwareVersion = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_vehicle_get_firmware_version',
+          )
+          .asFunction();
+      _getSensorHealth = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_sensors_get_health',
+          )
+          .asFunction();
+      _getTelemetryFreshness = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_telemetry_get_freshness',
+          )
+          .asFunction();
+      _requestFirmwareVersion = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_vehicle_request_firmware_version',
+          )
+          .asFunction();
+      _close = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
+            'mg_connection_close',
+          )
+          .asFunction();
+      _requestAllParameters = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_params_request_all',
+          )
+          .asFunction();
+      _getAllParameters = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_params_get_all',
+          )
+          .asFunction();
+      _getParameterProgress = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_params_get_progress',
+          )
+          .asFunction();
+      _readParameterDescriptor = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+          >('mg_config_read_param')
+          .asFunction();
+      _writeParameter = _library
+          .lookup<
+            NativeFunction<
+              Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Float)
+            >
+          >('mg_config_write_param')
+          .asFunction<
+            Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, double)
+          >();
+      _getServoOutputs = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_servo_get_outputs',
+          )
+          .asFunction();
+      _getSerialUartNames = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_serial_get_uart_names',
+          )
+          .asFunction();
+      _selectVehicle = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
+            'mg_vehicle_select',
+          )
+          .asFunction();
+      _core = _create();
+      unawaited(refreshPorts());
+    } on Object catch (error) {
+      initializationError = '串口连接后端初始化失败：$error';
+      notifyListeners();
+    }
+  }
+
+  Future<void> refreshPorts() async {
+    if (initializationError != null || _busy || hasSession) return;
+    _busy = true;
+    message = null;
+    _notifyConnectionChanges();
+    notifyListeners();
+    try {
+      final result = _readJson(_listPorts(_core));
+      ports
+        ..clear()
+        ..addAll(
+          (result as List<Object?>)
+              .whereType<Map<String, Object?>>()
+              .map(
+                (item) => SerialPortInfo(
+                  path: item['port_name'] as String? ?? '',
+                  description: item['description'] as String? ?? '',
+                  likelyFlightController:
+                      item['is_likely_fc'] as bool? ?? false,
+                ),
+              )
+              .where((port) => port.path.isNotEmpty),
+        );
+      if (selectedPort == null ||
+          !ports.any((port) => port.path == selectedPort)) {
+        selectedPort = ports.isEmpty
+            ? null
+            : ports
+                  .firstWhere(
+                    (port) => port.likelyFlightController,
+                    orElse: () => ports.first,
+                  )
+                  .path;
+      }
+      if (ports.isEmpty) message = '未发现串口设备，请检查飞控连接后刷新。';
+    } on Object catch (error) {
+      message = '读取串口列表失败：$error';
+    } finally {
+      _busy = false;
+      _notifyConnectionChanges();
+      notifyListeners();
+    }
+  }
+
+  void selectPort(String? path) {
+    if (hasSession || path == null) return;
+    selectedPort = path;
+    _notifyConnectionChanges();
+    notifyListeners();
+  }
+
+  void selectBaudRate(int? value) {
+    if (hasSession || value == null) return;
+    baudRate = value;
+    _notifyConnectionChanges();
+    notifyListeners();
+  }
+
+  Future<void> connect() async {
+    if (!canConnect) return;
+    final transportAtConnect = transport;
+    final serialPort = selectedPort;
+    final host = transportAtConnect == ConnectionTransport.udp
+        ? udpHost.trim()
+        : tcpHost.trim();
+    final portText = transportAtConnect == ConnectionTransport.udp
+        ? udpPortText.trim()
+        : tcpPortText.trim();
+    final uri = switch (transportAtConnect) {
+      ConnectionTransport.serial => 'serial://$serialPort?baud=$baudRate',
+      ConnectionTransport.udp => 'udp://$host:$portText',
+      ConnectionTransport.tcp => 'tcp://$host:$portText',
+    };
+    final transportLabel = switch (transportAtConnect) {
+      ConnectionTransport.serial => '串口',
+      ConnectionTransport.udp => 'UDP',
+      ConnectionTransport.tcp => 'TCP',
+    };
+    _busy = true;
+    message = transportAtConnect == ConnectionTransport.serial
+        ? '正在打开串口并等待飞控心跳…'
+        : '正在打开 $transportLabel 链路并等待飞控心跳…';
+    _notifyConnectionChanges();
+    notifyListeners();
+    int? openedSessionId;
+    try {
+      final nativeUri = uri.toNativeUtf8();
+      late final int result;
+      try {
+        result = _open(_core, nativeUri);
+      } finally {
+        malloc.free(nativeUri);
+      }
+      if (result < 0) {
+        throw StateError(_openFailureMessage(result, uri));
+      }
+      openedSessionId = result;
+      final selection =
+          _readJson(_selectVehicle(_core, result)) as Map<String, Object?>;
+      if (selection['success'] != true) {
+        final error = selection['error'];
+        throw StateError(
+          error is Map<String, Object?>
+              ? error['message'] as String? ?? '无法选择当前飞控'
+              : '无法选择当前飞控',
+        );
+      }
+      sessionId = result;
+      _firmwareVersionRequested = false;
+      _parameterRequestStarted = false;
+      parametersLoaded = false;
+      parametersLoading = false;
+      parameterReceived = 0;
+      parameterTotal = 0;
+      parameterError = null;
+      parameters.clear();
+      _parameterMetadataLoaded.clear();
+      _parameterMetadataAttempts.clear();
+      phase = SerialConnectionPhase.waitingForHeartbeat;
+      message = '$selectedTransportLabel 链路已打开，正在等待飞控心跳…';
+      _notifyConnectionChanges();
+      _lastSystemStatusPollMs = 0;
+      _stateTimer?.cancel();
+      _stateTimer = Timer.periodic(
+        const Duration(milliseconds: 750),
+        (_) => unawaited(_pollSession()),
+      );
+      _telemetryTimer?.cancel();
+      _telemetryTimer = Timer.periodic(
+        const Duration(milliseconds: 250),
+        (_) => _pollTelemetry(result),
+      );
+      // The connected session and its timers now own the opened backend handle.
+      openedSessionId = null;
+      _notifyParameterChanges();
+      await _pollSession();
+    } on Object catch (error) {
+      message = error.toString().replaceFirst('Bad state: ', '');
+      final openedId = openedSessionId;
+      if (openedId != null) {
+        try {
+          final response = _close(_core, openedId);
+          if (response != nullptr) _freeString(response);
+        } on Object {
+          // Keep the original connect error; backend disposal is best effort.
+        }
+      }
+      if (sessionId == openedId) sessionId = null;
+      phase = SerialConnectionPhase.disconnected;
+      _firmwareVersionRequested = false;
+      _parameterRequestStarted = false;
+      _stateTimer?.cancel();
+      _telemetryTimer?.cancel();
+      _notifyConnectionChanges();
+    } finally {
+      _busy = false;
+      _notifyConnectionChanges();
+      notifyListeners();
+    }
+  }
+
+  Future<void> _pollSession() async {
+    final id = sessionId;
+    if (id == null || _disposed) return;
+    final previousPhase = phase;
+    final previousMessage = message;
+    try {
+      final state =
+          _readJson(_getSessionState(_core, id)) as Map<String, Object?>;
+      if (state['success'] != true) {
+        _stateTimer?.cancel();
+        _telemetryTimer?.cancel();
+        sessionId = null;
+        phase = SerialConnectionPhase.disconnected;
+        message = previousPhase == SerialConnectionPhase.waitingForHeartbeat
+            ? '未收到飞控心跳，连接已关闭。请检查所选设备、波特率或数据链路。'
+            : '飞控连接已关闭，请检查线缆或数据链路。';
+        _firmwareVersionRequested = false;
+        _parameterRequestStarted = false;
+        _clearTelemetry();
+      } else if (state['heartbeat_alive'] == true) {
+        phase = SerialConnectionPhase.connected;
+        message = '飞控已连接';
+        if (!_firmwareVersionRequested) {
+          _firmwareVersionRequested = true;
+          try {
+            _readJson(_requestFirmwareVersion(_core));
+          } on Object {
+            // Firmware identification remains available from HEARTBEAT.
+          }
+        }
+      } else {
+        phase = SerialConnectionPhase.waitingForHeartbeat;
+        message = '$selectedTransportLabel 链路已打开，等待飞控心跳…';
+      }
+      if (sessionId != null) {
+        if (phase == SerialConnectionPhase.connected &&
+            !_parameterRequestStarted &&
+            !parametersLoading &&
+            parameterError == null) {
+          requestParameters();
+        }
+        _pollParameterDownload();
+      }
+      if (phase != previousPhase || message != previousMessage) {
+        _notifyConnectionChanges();
+        notifyListeners();
+      }
+    } on Object catch (error) {
+      message = '读取连接状态失败：$error';
+      if (message != previousMessage) notifyListeners();
+    }
+  }
+
+  Future<void> disconnect() async {
+    final id = sessionId;
+    if (id == null || _busy) return;
+    _busy = true;
+    _notifyConnectionChanges();
+    notifyListeners();
+    try {
+      final result = _readJson(_close(_core, id)) as Map<String, Object?>;
+      if (result['success'] != true) {
+        throw StateError(result['error'] as String? ?? '断开连接失败');
+      }
+      message = '已断开飞控连接';
+      sessionId = null;
+      phase = SerialConnectionPhase.disconnected;
+      _firmwareVersionRequested = false;
+      _parameterRequestStarted = false;
+      _stateTimer?.cancel();
+      _telemetryTimer?.cancel();
+      _clearTelemetry();
+    } on Object catch (error) {
+      message = error.toString().replaceFirst('Bad state: ', '');
+    } finally {
+      _busy = false;
+      _notifyConnectionChanges();
+      notifyListeners();
+    }
+  }
+
+  Object? _readJson(Pointer<Utf8> pointer) {
+    if (pointer == nullptr) throw StateError('后端返回空结果');
+    try {
+      return jsonDecode(pointer.toDartString());
+    } finally {
+      _freeString(pointer);
+    }
+  }
+
+  void _pollTelemetry(int id) {
+    if (!isConnected || sessionId != id || _disposed) return;
+    final previousError = telemetryError;
+    final previousSatellites = satellitesVisible;
+    final previousFix = gpsFixType;
+    final previousHeading = headingDegrees;
+    final previousBatteryPercent = batteryRemainingPercent;
+    final previousBatteryVoltage = batteryVoltage;
+    try {
+      final envelope =
+          _readJson(_getSessionStatus(_core, id)) as Map<String, Object?>;
+      if (envelope['success'] != true) {
+        final error = envelope['error'];
+        telemetryError = error is Map<String, Object?>
+            ? error['message'] as String?
+            : '读取飞控遥测失败';
+        _clearTelemetryValues();
+        if (previousError != telemetryError ||
+            previousSatellites != satellitesVisible ||
+            previousFix != gpsFixType ||
+            previousHeading != headingDegrees ||
+            previousBatteryPercent != batteryRemainingPercent ||
+            previousBatteryVoltage != batteryVoltage) {
+          _notifyTelemetryChanges();
+          notifyListeners();
+        }
+        return;
+      }
+
+      final data = envelope['data'] as Map<String, Object?>?;
+      if (data == null || data['session_id'] != id) {
+        telemetryError = '飞控遥测会话不匹配';
+        _clearTelemetryValues();
+        _notifyTelemetryChanges();
+        notifyListeners();
+        return;
+      }
+
+      telemetryError = null;
+      final satelliteValue = data['gps_satellites'] as int?;
+      satellitesVisible = satelliteValue != null && satelliteValue >= 0
+          ? satelliteValue
+          : null;
+      final fixValue = data['gps_fix_type'] as int?;
+      gpsFixType = fixValue != null && fixValue >= 0 ? fixValue : null;
+      headingDegrees = (data['heading_deg'] as num?)?.toDouble();
+      batteryRemainingPercent = data['battery_remaining_pct'] as int?;
+      batteryVoltage = (data['battery_voltage_v'] as num?)?.toDouble();
+      var changed =
+          previousError != telemetryError ||
+          previousSatellites != satellitesVisible ||
+          previousFix != gpsFixType ||
+          previousHeading != headingDegrees ||
+          previousBatteryPercent != batteryRemainingPercent ||
+          previousBatteryVoltage != batteryVoltage;
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastSystemStatusPollMs >= 2000) {
+        _lastSystemStatusPollMs = now;
+        final profileChanged = _pollSystemStatus();
+        if (profileChanged) _notifyProfileChanges();
+        changed = profileChanged || changed;
+      }
+      changed = _pollServoOutputs() || changed;
+      if (changed) {
+        _notifyTelemetryChanges();
+        notifyListeners();
+      }
+    } on Object catch (error) {
+      telemetryError = '读取飞控遥测失败：$error';
+      _clearTelemetryValues();
+      _notifyTelemetryChanges();
+      notifyListeners();
+    }
+  }
+
+  void _pollParameterDownload() {
+    if (!_parameterRequestStarted || parametersLoaded || sessionId == null) {
+      return;
+    }
+    try {
+      final previousReceived = parameterReceived;
+      final previousTotal = parameterTotal;
+      final previousLoading = parametersLoading;
+      final progress =
+          _readJson(_getParameterProgress(_core)) as Map<String, Object?>;
+      parameterReceived = progress['received'] as int? ?? 0;
+      parameterTotal = progress['total'] as int? ?? 0;
+      parametersLoading =
+          parameterTotal == 0 || parameterReceived < parameterTotal;
+      if (parameterTotal <= 0 || parameterReceived < parameterTotal) {
+        if (previousReceived != parameterReceived ||
+            previousTotal != parameterTotal ||
+            previousLoading != parametersLoading) {
+          _notifyParameterChanges();
+        }
+        return;
+      }
+
+      final rawParameters = _readJson(_getAllParameters(_core));
+      if (rawParameters is! List<Object?>) {
+        throw const FormatException('飞控参数列表格式无效');
+      }
+      parameters
+        ..clear()
+        ..addEntries(
+          rawParameters
+              .whereType<Map<String, Object?>>()
+              .map((json) {
+                final parameter = VehicleParameter.fromTelemetry(json);
+                return MapEntry(parameter.name, parameter);
+              })
+              .where((entry) => entry.key.isNotEmpty),
+        );
+      parametersLoaded = true;
+      parametersLoading = false;
+      parameterError = null;
+      _parameterMetadataLoaded.clear();
+      _parameterMetadataAttempts.clear();
+      loadParameterMetadata(_pendingParameterMetadata.toList());
+      _notifyProfileChanges();
+      _notifyParameterChanges();
+    } on Object catch (error) {
+      parameterError = '读取飞控参数失败：${error.toString()}';
+      parametersLoading = false;
+      _notifyParameterChanges();
+    }
+  }
+
+  bool _pollServoOutputs() {
+    final oldValid = servoOutputsValid;
+    final oldValues = servoOutputs;
+    try {
+      final result = _readJson(_getServoOutputs(_core)) as Map<String, Object?>;
+      servoOutputsValid = result['valid'] == true;
+      final values = result['servos'] as List<Object?>? ?? const [];
+      servoOutputs = values
+          .map((value) => value is num ? value.toInt() : 0)
+          .toList(growable: false);
+    } on Object {
+      servoOutputsValid = false;
+      servoOutputs = const [];
+    }
+    return oldValid != servoOutputsValid ||
+        !_sameIntList(oldValues, servoOutputs);
+  }
+
+  bool _pollSystemStatus() {
+    final oldFirmware = jsonEncode(firmwareInfo);
+    final oldIdentity = jsonEncode(vehicleIdentity);
+    final oldVersion = jsonEncode(firmwareVersionInfo);
+    final oldSensors = jsonEncode(sensorHealth);
+    try {
+      final firmwareEnvelope =
+          _readJson(_getFirmwareType(_core)) as Map<String, Object?>;
+      firmwareInfo = firmwareEnvelope['success'] == true
+          ? firmwareEnvelope['data'] as Map<String, Object?>?
+          : null;
+
+      vehicleIdentity =
+          _readJson(_getVehicleFirmware(_core)) as Map<String, Object?>;
+
+      final versionEnvelope =
+          _readJson(_getFirmwareVersion(_core)) as Map<String, Object?>;
+      firmwareVersionInfo = versionEnvelope['success'] == true
+          ? versionEnvelope['data'] as Map<String, Object?>?
+          : null;
+
+      final freshness =
+          _readJson(_getTelemetryFreshness(_core)) as Map<String, Object?>;
+      final groups = freshness['groups'] as Map<String, Object?>?;
+      if (groups?['sys_status_fresh'] == true) {
+        sensorHealth =
+            _readJson(_getSensorHealth(_core)) as Map<String, Object?>;
+      } else {
+        sensorHealth = null;
+      }
+    } on Object {
+      firmwareInfo = null;
+      vehicleIdentity = null;
+      firmwareVersionInfo = null;
+      sensorHealth = null;
+    }
+    return oldFirmware != jsonEncode(firmwareInfo) ||
+        oldIdentity != jsonEncode(vehicleIdentity) ||
+        oldVersion != jsonEncode(firmwareVersionInfo) ||
+        oldSensors != jsonEncode(sensorHealth);
+  }
+
+  bool _sameIntList(List<int> left, List<int> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
+  }
+
+  void _clearTelemetry() {
+    telemetryError = null;
+    _clearTelemetryValues();
+    parameters.clear();
+    _parameterMetadataLoaded.clear();
+    _parameterMetadataAttempts.clear();
+    _pendingParameterMetadata.clear();
+    parameterReceived = 0;
+    parameterTotal = 0;
+    parametersLoaded = false;
+    parametersLoading = false;
+    parameterError = null;
+    _parameterWriteErrors.clear();
+    _parameterRequestStarted = false;
+    servoOutputs = const [];
+    servoOutputsValid = false;
+    serialHardwareMappings.clear();
+    serialHardwareMappingLoading = false;
+    serialHardwareMappingError = null;
+    _serialHardwareMappingRequested = false;
+    _notifyParameterChanges();
+    _notifyTelemetryChanges();
+    _notifyProfileChanges();
+  }
+
+  void _clearTelemetryValues() {
+    satellitesVisible = null;
+    gpsFixType = null;
+    headingDegrees = null;
+    batteryRemainingPercent = null;
+    batteryVoltage = null;
+    firmwareInfo = null;
+    vehicleIdentity = null;
+    firmwareVersionInfo = null;
+    sensorHealth = null;
+    servoOutputs = const [];
+    servoOutputsValid = false;
+  }
+
+  String _openFailureMessage(int code, String endpoint) => switch (code) {
+    -1 => '连接失败：后端核心尚未初始化。',
+    -3 => '无法打开链路 $endpoint。请检查设备、网络地址和端口是否可用。',
+    -4 => '连接参数无效，请检查端口、地址和波特率。',
+    -5 => '当前连接状态不允许执行此操作。',
+    -7 => '连接资源正忙，请稍后重试。',
+    -14 => '连接会话不存在或已关闭。',
+    _ => '连接失败（后端错误码 $code）。',
+  };
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _stateTimer?.cancel();
+    _telemetryTimer?.cancel();
+    if (initializationError == null) {
+      if (sessionId != null) {
+        final response = _close(_core, sessionId!);
+        if (response != nullptr) _freeString(response);
+      }
+      _destroy(_core);
+    }
+    parameterChanges.dispose();
+    telemetryChanges.dispose();
+    profileChanges.dispose();
+    connectionChanges.dispose();
+    super.dispose();
+  }
+}

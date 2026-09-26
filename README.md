@@ -21,7 +21,7 @@ M-GCS/
 \- .github/workflows/     CI（后端构建与测试）
 ```
 
-本分支**不包含** Flutter 应用。完整前端版本在 `main` 分支和 `v0.0.5` 标签中。
+本分支不包含旧的完整 Flutter 应用；当前只保留 `flutter_shell/` 中的精简 macOS 外壳（顶部飞行状态栏与高德地图），不包含原前端页面和业务工作流。完整前端版本在 `main` 分支和 `v0.0.5` 标签中。
 
 ## 前端如何接入
 
@@ -34,7 +34,7 @@ bridge/ffi/ffi_api.h
 该头文件聚合了各领域接口：
 
 - `ffi_api_core.h`：生命周期、错误码、事件回调。
-- `ffi_api_connection.h`：多机打开/关闭/选择、设备发现、连接状态。
+- `ffi_api_connection.h`：连接会话的打开/状态/关闭、设备发现；另保留旧焦点选择接口供兼容调用。
 - `ffi_api_telemetry.h`：遥测、健康、传感器、RC 和 servo 快照。
 - `ffi_api_params.h`：参数下载、读取、写入和参数变更集。
 - `ffi_api_mission.h`：任务上传下载、围栏、Rally 和测绘。
@@ -42,6 +42,17 @@ bridge/ffi/ffi_api.h
 - `ffi_api_configuration.h`：参数元数据、机架和配置页面数据。
 - `ffi_api_firmware.h`：固件类型、能力和版本。
 - `ffi_api_geofence.h`、`ffi_api_logging.h`、`ffi_api_payload.h`、`ffi_api_environment.h`：围栏、日志、载荷和环境能力。
+
+连接流程使用 session ID，而不要求前端先管理 active vehicle：
+
+```text
+mg_connection_open("serial:///dev/tty...?..." 或 "udp://0.0.0.0:14550")
+    -> session_id
+mg_connection_get_session_state(session_id)
+mg_connection_close(session_id)
+```
+
+`mg_connection_open()` 只建立会话、不改变 UI 焦点；连接状态查询和断开均按 session ID 操作。旧 `mg_connection_connect*()` 仍作为单机兼容包装保留，内部会选中其创建的会话。
 
 契约约定：
 

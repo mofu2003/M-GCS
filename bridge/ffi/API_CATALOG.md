@@ -22,7 +22,8 @@ and a migration note have been published.
 | Area | Preferred API |
 | --- | --- |
 | Lifecycle | `mg_create`, `mg_destroy`, `mg_free_string` |
-| Connection | `mg_vehicle_open`, `mg_vehicle_close`, `mg_vehicle_select`, `mg_connection_get_diagnostics` |
+| Connection | `mg_connection_open`, `mg_connection_get_session_state`, `mg_connection_close`, `mg_vehicle_select`, `mg_connection_get_diagnostics` |
+| Session telemetry | `mg_vehicle_get_session_status` |
 | Dashboard | `mg_telemetry_get_dashboard_snapshot`, `mg_system_get_diagnostics` |
 | Long operations | `mg_operations_get_snapshot`, `mg_operations_cancel` |
 | Parameters | `mg_params_request_all`, `mg_params_get_progress`, `mg_params_get_all`, `mg_params_get_by_name`, `mg_params_set`, `mg_params_prepare_change_set`, `mg_params_commit_change_set` |
@@ -48,13 +49,24 @@ specialized public surfaces that are not yet wired into every client workflow.
 | `mg_fence_get`, `mg_fence_set` | `mg_geofence_get_config`, `mg_geofence_set_config`. |
 | `mg_mission_request` | `mg_mission_download`. |
 
-`mg_vehicle_open` creates a vehicle session without changing active/UI focus.
-`mg_vehicle_select` is an explicit focus operation for compatibility APIs.
+`mg_connection_open` accepts one explicit URI (`serial://`, `tcp://`, or
+`udp://`) and returns a session/vehicle ID without changing active/UI focus.
+Use `mg_connection_get_session_state` and `mg_connection_close` with that ID to
+inspect and close exactly that session. These operations do not depend on
+selection.
+
+`mg_vehicle_get_session_status` reads GPS fix/satellite count, heading, battery
+voltage/remaining percentage, and link heartbeat for one session without
+changing active/UI focus. Telemetry fields are nullable when the backend cache
+has no fresh sample; clients should display unavailable values instead of
+reusing stale readings.
+
+`mg_vehicle_open` and `mg_vehicle_close` are compatibility aliases;
+`mg_vehicle_open` additionally accepts a bare serial device path.
 `mg_connection_connect`, `mg_connection_disconnect`, and TCP/UDP convenience
-helpers remain supported compatibility APIs for a single active vehicle; they
-select the session they create. New multi-vehicle clients should keep the
-returned vehicle ID and select explicitly before using legacy active-vehicle
-queries or commands.
+helpers remain legacy single-active-session wrappers. The connect wrappers
+select the session they create so existing active-vehicle commands continue to
+work. New code should use the session-oriented `mg_connection_*` lifecycle.
 
 ## Adding or Retiring APIs
 

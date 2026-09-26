@@ -87,7 +87,7 @@ Vehicle* MultiVehicleManager::open_vehicle(const mg::core::transport::LinkConfig
     return raw;
 }
 
-void MultiVehicleManager::close_vehicle(int vehicle_id) {
+bool MultiVehicleManager::close_vehicle(int vehicle_id) {
     std::shared_ptr<Vehicle> vehicle_to_close;
     VehicleRemovedCallback removed_cb;
     ActiveVehicleChangedCallback changed_cb;
@@ -125,12 +125,21 @@ void MultiVehicleManager::close_vehicle(int vehicle_id) {
 
     if (removed_cb) removed_cb(vehicle_id);
     if (focus_cleared && changed_cb) changed_cb(nullptr);
+    return vehicle_to_close != nullptr;
 }
 
 Vehicle* MultiVehicleManager::get_vehicle(int vehicle_id) const {
     mg::core::platform::LockGuard lk(mtx_);
     for (auto& v : vehicles_) {
         if (v->vehicle_id() == vehicle_id) return v.get();
+    }
+    return nullptr;
+}
+
+std::shared_ptr<Vehicle> MultiVehicleManager::get_vehicle_shared(int vehicle_id) const {
+    mg::core::platform::LockGuard lk(mtx_);
+    for (const auto& vehicle : vehicles_) {
+        if (vehicle->vehicle_id() == vehicle_id) return vehicle;
     }
     return nullptr;
 }

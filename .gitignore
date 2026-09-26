@@ -9,6 +9,8 @@ build_desktop_tests/
 build_docker/
 build_smoke_win/
 build_release_*/
+build_connection_check/
+build_vehicle_focus_check/
 .venv/
 .tools/
 third_party/mavlink/include/
