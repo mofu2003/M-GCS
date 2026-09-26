@@ -23,6 +23,7 @@
 #include "core/firmware/firmware_adapter.h"
 #include "core/settings/flight_logging_service.h"
 #include "core/telemetry/telemetry_ring_buffer.h"
+#include "core/telemetry/waveform_buffer.h"
 #include "core/geofence/geofence_manager.h"
 #include "core/flight/flight_mode_manager.h"
 #include "core/mission/mission_types.h"
@@ -169,6 +170,10 @@ inline mg::core::sensor::SensorIdDecoder& get_active_sensor_decoder(mg_core_t* c
 }
 inline mg::core::telemetry::TelemetryRingBuffer& get_active_ring_buffer(mg_core_t* core) {
     return get_active_vehicle(core)->ring_buffer();
+}
+inline mg::core::telemetry::WaveformBuffer* get_active_waveform(mg_core_t* core) {
+    auto* vehicle = get_active_vehicle(core);
+    return vehicle ? &vehicle->waveform() : nullptr;
 }
 
 inline mg::core::mission::MissionPlan ffi_present_mission_plan(mg_core_t* core,

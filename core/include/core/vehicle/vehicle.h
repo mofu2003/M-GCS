@@ -10,6 +10,7 @@
 #include "core/settings/flight_logging_service.h"
 #include "core/settings/mavlink_log_writer.h"
 #include "core/telemetry/telemetry_ring_buffer.h"
+#include "core/telemetry/waveform_buffer.h"
 #include "core/transport/connection_manager.h"
 #include "core/transport/link_config.h"
 #include "core/video/video_receiver.h"
@@ -96,6 +97,7 @@ public:
     mg::core::settings::FlightLoggingService& flight_log() { return flight_log_; }
     mg::core::sensor::SensorIdDecoder& sensor_decoder() { return sensor_decoder_; }
     mg::core::telemetry::TelemetryRingBuffer& ring_buffer() { return ring_buffer_; }
+    mg::core::telemetry::WaveformBuffer& waveform() { return waveform_; }
 
     void init_subsystems();
     void load_sensor_decoder(const std::string& json_path);
@@ -123,6 +125,7 @@ private:
     mg::core::sensor::SensorIdDecoder sensor_decoder_;
     std::shared_ptr<std::atomic<bool>> alive_flag_{std::make_shared<std::atomic<bool>>(true)};
     mg::core::telemetry::TelemetryRingBuffer ring_buffer_;
+    mg::core::telemetry::WaveformBuffer waveform_;
     std::atomic<uint32_t> flight_time_s_{0};
     std::atomic<int64_t> last_armed_timestamp_ms_{0};
     std::atomic<bool> needs_reidentify_{false};

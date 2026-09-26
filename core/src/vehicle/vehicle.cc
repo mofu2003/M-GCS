@@ -9,6 +9,20 @@
 namespace mg::core::vehicle {
 
 namespace {
+/// 单调时钟毫秒，波形缓冲只关心相对时间。
+uint64_t steady_now_ms() {
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
+
+constexpr double kRadToDeg = 57.29577951308232;
+constexpr double kMradPerSecToDegPerSec = kRadToDeg / 1000.0;
+/// SCALED_IMU 的加速度是毫重力，磁力计是毫高斯。
+constexpr double kMilliGToMetersPerSec2 = 9.80665 / 1000.0;
+constexpr double kMilliGaussToGauss = 1.0 / 1000.0;
+
 void configure_vehicle_telemetry_streams(Vehicle& vehicle) {
     auto* mav = vehicle.mavlink();
     if (!mav || vehicle.system_id() == 0) return;
@@ -70,6 +84,7 @@ bool Vehicle::connect(const std::string& endpoint) {
         info_.serial_baud = baud;
     }
     state_.store(VehicleState::Connecting);
+    waveform_.clear();
 
     bool ok = false;
     if (scheme == "tcp") {
@@ -115,6 +130,7 @@ bool Vehicle::connect(const std::string& endpoint) {
 void Vehicle::disconnect() {
     state_.store(VehicleState::Disconnecting);
     conn_.disconnect();
+    waveform_.clear();
     info_.system_id = 0;
     info_.component_id = 0;
     info_.firmware_type.clear();
@@ -308,8 +324,19 @@ void Vehicle::wire_telemetry_callbacks() {
         }
     });
 
-    mav->on_imu([weak](const mg::core::mavlink::ImuInfo&) {
+    mav->on_imu([weak](const mg::core::mavlink::ImuInfo& info) {
         auto self = weak.lock(); if (!self) return;
+        // SCALED_IMU 一次带回加速度、角速度和磁力，刚好凑成同一帧。
+        self->waveform_.set_accel(static_cast<float>(info.xacc * kMilliGToMetersPerSec2),
+                                  static_cast<float>(info.yacc * kMilliGToMetersPerSec2),
+                                  static_cast<float>(info.zacc * kMilliGToMetersPerSec2));
+        self->waveform_.set_gyro(static_cast<float>(info.xgyro * kMradPerSecToDegPerSec),
+                                 static_cast<float>(info.ygyro * kMradPerSecToDegPerSec),
+                                 static_cast<float>(info.zgyro * kMradPerSecToDegPerSec));
+        self->waveform_.set_mag(static_cast<float>(info.xmag * kMilliGaussToGauss),
+                                static_cast<float>(info.ymag * kMilliGaussToGauss),
+                                static_cast<float>(info.zmag * kMilliGaussToGauss));
+        self->waveform_.commit(steady_now_ms());
         self->cache_.update(mg::bridge::TelemetryType::kImu, self->conn_.get_mavlink());
     });
     mav->on_pressure([weak](const mg::core::mavlink::PressureInfo&) {

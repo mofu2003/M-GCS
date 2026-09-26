@@ -7,7 +7,7 @@
 1. [项目结构](PROJECT_LAYOUT.md)：目录职责和生成物边界。
 2. [开发指南](DEVELOPMENT.md)：构建、测试和硬件验证命令。
 3. [架构说明](ARCHITECTURE.md)：Core、FFI、固件能力和诊断契约。
-4. [开发约束](CONSTRAINTS.md)：安全、FFI、商业授权和仓库规则。
+4. [开发约束](CONSTRAINTS.md)：安全、FFI、性能、商业授权和仓库规则。
 5. [故障排查](TROUBLESHOOTING.md)：当前可复用的排障路径。
 6. [编码规范](ENCODING.md)：UTF-8、LF 和 Windows 终端设置。
 7. [ADR](adr/)：已经采纳的长期架构决策。

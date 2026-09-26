@@ -10,6 +10,8 @@
 #include "core/settings/flight_log_writer.h"
 #include "core/config/param_file_io.h"
 
+#include <algorithm>
+
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 
@@ -71,6 +73,35 @@ MGCORE_API char* mg_telemetry_get_series_names(mg_core_t* core) {
 MGCORE_API char* mg_telemetry_clear(mg_core_t* core) {
     CHECK_CORE(core);
     get_active_ring_buffer(core).clear();
+    return ok();
+}
+
+// ================================================================
+// Real-time Waveform FFI
+//
+// 波形数据量比普通遥测大得多，走 JSON 的话前端每帧都要解析上千个数。
+// 这里直接写调用方提供的 float 缓冲区，零拷贝、零分配。
+// ================================================================
+
+MGCORE_API int mg_waveform_poll(mg_core_t* core, float* out_points, int out_max_points,
+                                int target_points, int window_ms) {
+    if (!core || !out_points || out_max_points <= 0) return 0;
+
+    auto* waveform = get_active_waveform(core);
+    if (!waveform) return 0;
+
+    const size_t capacity = static_cast<size_t>(out_max_points);
+    const size_t target = (target_points > 0)
+                              ? std::min(capacity, static_cast<size_t>(target_points))
+                              : capacity;
+    const uint64_t window = window_ms > 0 ? static_cast<uint64_t>(window_ms) : 0;
+    return static_cast<int>(waveform->copy_points(out_points, target, window));
+}
+
+MGCORE_API char* mg_waveform_clear(mg_core_t* core) {
+    CHECK_CORE(core);
+    auto* waveform = get_active_waveform(core);
+    if (waveform) waveform->clear();
     return ok();
 }
 

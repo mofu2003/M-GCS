@@ -25,6 +25,7 @@ and a migration note have been published.
 | Connection | `mg_connection_open`, `mg_connection_get_session_state`, `mg_connection_close`, `mg_vehicle_select`, `mg_connection_get_diagnostics` |
 | Session telemetry | `mg_vehicle_get_session_status` |
 | Dashboard | `mg_telemetry_get_dashboard_snapshot`, `mg_system_get_diagnostics` |
+| Sensor waveform | `mg_waveform_poll`, `mg_waveform_clear` |
 | Long operations | `mg_operations_get_snapshot`, `mg_operations_cancel` |
 | Parameters | `mg_params_request_all`, `mg_params_get_progress`, `mg_params_get_all`, `mg_params_get_by_name`, `mg_params_set`, `mg_params_prepare_change_set`, `mg_params_commit_change_set` |
 | Parameter metadata/files | `mg_config_get_groups`, `mg_config_get_group_descriptor`, `mg_param_file_export`, `mg_param_file_import` |
@@ -33,9 +34,27 @@ and a migration note have been published.
 | Logging | `mg_log_request_list`, `mg_log_get_entries`, `mg_log_record_*` |
 
 Existing first-party bindings deliberately cover connection, dashboard,
-parameters, servo/RC telemetry, serial mapping, and calibration. Mission,
+parameters, servo/RC telemetry, serial mapping, calibration, and the
+real-time waveform buffer. Mission,
 flight command, geofence, payload, logging, SITL, and firmware APIs are
 specialized public surfaces that are not yet wired into every client workflow.
+
+`mg_waveform_poll` is the one entry point that writes into caller-owned memory
+instead of returning JSON: flight-controller waveforms are large and would
+otherwise be re-parsed on every UI frame. The caller allocates
+`out_max_points * 10` floats and receives the number of points written, with
+`window_ms` selecting how much history to return (`<= 0` means the whole
+buffer). Point layout is
+`[relative_ms, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, mag_x, mag_y, mag_z]`;
+all nine axes of one point come from the same IMU sample, so the client never
+has to time-align them. When the selected
+window holds more frames than `target_points`, values are decimated with a
+per-bucket min/max envelope so spikes survive, and the buckets are aligned to
+an absolute time grid so an existing point never moves sideways when new data
+arrives. Accelerometer is m/s², gyro rates are degrees per second, and
+magnetometer is gauss.
+`mg_waveform_clear` drops the buffered history (also done automatically when a
+session connects or disconnects).
 
 ## Compatibility Entries
 

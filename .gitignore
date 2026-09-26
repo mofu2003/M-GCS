@@ -11,6 +11,7 @@ build_smoke_win/
 build_release_*/
 build_connection_check/
 build_vehicle_focus_check/
+build_waveform_check/
 .venv/
 .tools/
 third_party/mavlink/include/

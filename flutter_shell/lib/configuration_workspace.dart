@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import 'connection/connection_controller.dart';
+import 'realtime_waveform.dart';
 import 'widgets/aligned_field_row.dart';
 import 'widgets/adaptive_popup_button.dart';
 import 'widgets/mac_panel.dart';
@@ -30,20 +31,25 @@ class _MacTabSurface extends StatefulWidget {
     super.key,
     required this.labels,
     required this.children,
+    this.controller,
   });
 
   final List<String> labels;
   final List<Widget> children;
+
+  /// 外部控制器。需要知道当前选中哪一页时传入，
+  /// 不传则由本组件自己创建（默认行为）。
+  final MacosTabController? controller;
 
   @override
   State<_MacTabSurface> createState() => _MacTabSurfaceState();
 }
 
 class _MacTabSurfaceState extends State<_MacTabSurface> {
-  late final MacosTabController _tabs = MacosTabController(
-    initialIndex: 0,
-    length: widget.labels.length,
-  );
+  late final MacosTabController _tabs =
+      widget.controller ??
+      MacosTabController(initialIndex: 0, length: widget.labels.length);
+  late final bool _ownsTabs = widget.controller == null;
 
   @override
   void initState() {
@@ -58,7 +64,7 @@ class _MacTabSurfaceState extends State<_MacTabSurface> {
   @override
   void dispose() {
     _tabs.removeListener(_handleTabChanged);
-    _tabs.dispose();
+    if (_ownsTabs) _tabs.dispose();
     super.dispose();
   }
 
@@ -227,7 +233,7 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
       controller: widget.connectionController,
     ),
     'system' => _SystemStatusPage(controller: widget.connectionController),
-    'calibration' => const _CalibrationPage(),
+    'calibration' => _CalibrationPage(controller: widget.connectionController),
     _ => _AllParametersPage(
       scrollController: scrollController,
       controller: widget.connectionController,
@@ -244,32 +250,56 @@ class _ConfigPageInfo {
 }
 
 class _CalibrationPage extends StatefulWidget {
-  const _CalibrationPage();
+  const _CalibrationPage({required this.controller});
+
+  final ConnectionController controller;
 
   @override
   State<_CalibrationPage> createState() => _CalibrationPageState();
 }
 
 class _CalibrationPageState extends State<_CalibrationPage> {
-  late final MacosTabController _controller = MacosTabController(
+  /// 加速度校准 / 磁力计校准 / 空速计校准 / 遥控器校准 / 传感器波形
+  static const int _pageCount = 5;
+  static const int _waveformPageIndex = _pageCount - 1;
+
+  late final MacosTabController _tabs = MacosTabController(
     initialIndex: 0,
-    length: 4,
+    length: _pageCount,
   );
 
   @override
+  void initState() {
+    super.initState();
+    _tabs.addListener(_handleTabChanged);
+  }
+
+  void _handleTabChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
-    _controller.dispose();
+    _tabs.removeListener(_handleTabChanged);
+    _tabs.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => const _MacTabSurface(
-    labels: ['加速度校准', '磁力计校准', '空速计校准', '遥控器校准'],
+  Widget build(BuildContext context) => _MacTabSurface(
+    controller: _tabs,
+    labels: const ['加速度校准', '磁力计校准', '空速计校准', '遥控器校准', '传感器波形'],
     children: [
-      SizedBox.expand(),
-      SizedBox.expand(),
-      SizedBox.expand(),
-      SizedBox.expand(),
+      const SizedBox.expand(),
+      const SizedBox.expand(),
+      const SizedBox.expand(),
+      const SizedBox.expand(),
+      // IndexedStack 会把所有子页都挂在树上，所以用 active 显式控制取数，
+      // 只有真的切到这一页才向后端要数据。
+      SensorWaveformPanel(
+        controller: widget.controller,
+        active: _tabs.index == _waveformPageIndex,
+      ),
     ],
   );
 }

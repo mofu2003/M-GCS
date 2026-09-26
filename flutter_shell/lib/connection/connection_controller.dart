@@ -163,6 +163,9 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>) _getVehicleFirmware;
   late final Pointer<Utf8> Function(Pointer<Void>) _getFirmwareVersion;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSensorHealth;
+  late final int Function(Pointer<Void>, Pointer<Float>, int, int, int)
+  _readWaveform;
+  late final Pointer<Utf8> Function(Pointer<Void>, int, int) _setStreamInterval;
   late final Pointer<Utf8> Function(Pointer<Void>) _getTelemetryFreshness;
   late final Pointer<Utf8> Function(Pointer<Void>) _requestFirmwareVersion;
   late final Pointer<Utf8> Function(Pointer<Void>) _requestAllParameters;
@@ -186,10 +189,38 @@ final class ConnectionController extends ChangeNotifier {
 
   final List<SerialPortInfo> ports = [];
   final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
+
+  /// 波形缓冲区上限。10s 窗口 @10Hz 约 100 帧，正常就是逐帧原始点，
+  /// 抽稀只在采样率异常高时才兜底。点数直接决定每帧的绘制和分配开销，
+  /// 这个值不要为了"看起来更细"随意调大。
+  static const int _waveformMaxPoints = 200;
+
+  /// 每个采样点：相对毫秒 + 加速度 3 轴 + 角速度 3 轴 + 磁力 3 轴。
+  static const int _waveformFloatsPerPoint = 10;
+
+  /// 波形界面可选的刷新率（Hz）。默认取最低档：
+  /// 传感器校准看的是趋势，不需要每秒刷十几次。
+  static const List<int> _waveformRateOptions = [1, 2, 5, 10];
+  static const int _waveformDefaultRateHz = 1;
+
+  /// 波形页面默认显示的时间窗口（毫秒）。
+  static const int _waveformDefaultWindowMs = 10000;
+
+  /// 波形页面可见时请求的采样间隔（10Hz）。按显示需要取数，
+  /// 把串口带宽和缓冲写入量压到常规链路水平。
+  static const int _waveformStreamIntervalUs = 100000;
+  static const int _waveformIdleStreamIntervalUs = 500000;
+
+  /// 常规遥测轮询间隔。顶栏数据是给人看的，2Hz 足够。
+  static const Duration _telemetryPollInterval = Duration(milliseconds: 500);
+
+  /// 舵机输出（电机输出页面用）单独限流，避免每次遥测轮询都解析一遍。
+  static const Duration _servoPollInterval = Duration(milliseconds: 1000);
   final ValueNotifier<int> parameterChanges = ValueNotifier(0);
   final ValueNotifier<int> telemetryChanges = ValueNotifier(0);
   final ValueNotifier<int> profileChanges = ValueNotifier(0);
   final ValueNotifier<int> connectionChanges = ValueNotifier(0);
+  final ValueNotifier<int> waveformChanges = ValueNotifier(0);
 
   String? selectedPort;
   int baudRate = 115200;
@@ -211,6 +242,19 @@ final class ConnectionController extends ChangeNotifier {
   Map<String, Object?>? vehicleIdentity;
   Map<String, Object?>? firmwareVersionInfo;
   Map<String, Object?>? sensorHealth;
+
+  /// 波形采样点，由后端环形缓冲直接写入：每点 10 个 float
+  /// （相对毫秒 + accel XYZ + gyro XYZ + mag XYZ）。
+  /// 这个是复用的缓冲区，不是每次轮询新建的列表。
+  late final Float32List waveformPoints;
+  int waveformPointCount = 0;
+
+  /// 波形页面显示的时间窗口（毫秒）。
+  int waveformWindowMs = _waveformDefaultWindowMs;
+
+  /// 波形界面刷新率（Hz），可在传感器波形页面调整。
+  int waveformRateHz = _waveformDefaultRateHz;
+  static List<int> get waveformRateOptions => _waveformRateOptions;
   final Map<String, VehicleParameter> parameters = {};
   final Map<String, Future<void>> _parameterWriteJobs = {};
   final Map<String, String> _parameterWriteErrors = {};
@@ -231,7 +275,11 @@ final class ConnectionController extends ChangeNotifier {
   String? initializationError;
   Timer? _stateTimer;
   Timer? _telemetryTimer;
+  Timer? _waveformTimer;
+  bool _waveformActive = false;
+  late final Pointer<Float> _waveformBuffer;
   int _lastSystemStatusPollMs = 0;
+  int _lastServoPollMs = 0;
   bool _busy = false;
   bool _disposed = false;
   bool _firmwareVersionRequested = false;
@@ -283,6 +331,10 @@ final class ConnectionController extends ChangeNotifier {
 
   void _notifyConnectionChanges() {
     if (!_disposed) connectionChanges.value++;
+  }
+
+  void _notifyWaveformChanges() {
+    if (!_disposed) waveformChanges.value++;
   }
 
   bool _isProfileParameter(String name) =>
@@ -706,6 +758,18 @@ final class ConnectionController extends ChangeNotifier {
             'mg_sensors_get_health',
           )
           .asFunction();
+      _readWaveform = _library
+          .lookup<
+            NativeFunction<
+              Int32 Function(Pointer<Void>, Pointer<Float>, Int32, Int32, Int32)
+            >
+          >('mg_waveform_poll')
+          .asFunction();
+      _setStreamInterval = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32, Int32)>
+          >('mg_stream_set_interval')
+          .asFunction();
       _getTelemetryFreshness = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
             'mg_telemetry_get_freshness',
@@ -766,6 +830,12 @@ final class ConnectionController extends ChangeNotifier {
           )
           .asFunction();
       _core = _create();
+      _waveformBuffer = calloc<Float>(
+        _waveformMaxPoints * _waveformFloatsPerPoint,
+      );
+      waveformPoints = Float32List(
+        _waveformMaxPoints * _waveformFloatsPerPoint,
+      );
       unawaited(refreshPorts());
     } on Object catch (error) {
       initializationError = '串口连接后端初始化失败：$error';
@@ -902,9 +972,10 @@ final class ConnectionController extends ChangeNotifier {
       );
       _telemetryTimer?.cancel();
       _telemetryTimer = Timer.periodic(
-        const Duration(milliseconds: 250),
+        _telemetryPollInterval,
         (_) => _pollTelemetry(result),
       );
+      _restartWaveformTimer();
       // The connected session and its timers now own the opened backend handle.
       openedSessionId = null;
       _notifyParameterChanges();
@@ -926,6 +997,8 @@ final class ConnectionController extends ChangeNotifier {
       _parameterRequestStarted = false;
       _stateTimer?.cancel();
       _telemetryTimer?.cancel();
+      _waveformTimer?.cancel();
+      _waveformTimer = null;
       _notifyConnectionChanges();
     } finally {
       _busy = false;
@@ -945,6 +1018,7 @@ final class ConnectionController extends ChangeNotifier {
       if (state['success'] != true) {
         _stateTimer?.cancel();
         _telemetryTimer?.cancel();
+        _waveformTimer?.cancel();
         sessionId = null;
         phase = SerialConnectionPhase.disconnected;
         message = previousPhase == SerialConnectionPhase.waitingForHeartbeat
@@ -956,6 +1030,11 @@ final class ConnectionController extends ChangeNotifier {
       } else if (state['heartbeat_alive'] == true) {
         phase = SerialConnectionPhase.connected;
         message = '飞控已连接';
+        if (previousPhase != SerialConnectionPhase.connected &&
+            _waveformActive) {
+          _applyWaveformStreamRate();
+          _scheduleWaveformStreamRateRetry();
+        }
         if (!_firmwareVersionRequested) {
           _firmwareVersionRequested = true;
           try {
@@ -1005,6 +1084,7 @@ final class ConnectionController extends ChangeNotifier {
       _parameterRequestStarted = false;
       _stateTimer?.cancel();
       _telemetryTimer?.cancel();
+      _waveformTimer?.cancel();
       _clearTelemetry();
     } on Object catch (error) {
       message = error.toString().replaceFirst('Bad state: ', '');
@@ -1087,7 +1167,10 @@ final class ConnectionController extends ChangeNotifier {
         if (profileChanged) _notifyProfileChanges();
         changed = profileChanged || changed;
       }
-      changed = _pollServoOutputs() || changed;
+      if (now - _lastServoPollMs >= _servoPollInterval.inMilliseconds) {
+        _lastServoPollMs = now;
+        changed = _pollServoOutputs() || changed;
+      }
       if (changed) {
         _notifyTelemetryChanges();
         notifyListeners();
@@ -1097,6 +1180,90 @@ final class ConnectionController extends ChangeNotifier {
       _clearTelemetryValues();
       _notifyTelemetryChanges();
       notifyListeners();
+    }
+  }
+
+  /// 波形只在页面可见时轮询，不可见就完全停掉，省掉无谓的取数和重绘。
+  void setWaveformActive(bool active) {
+    if (_waveformActive == active) return;
+    _waveformActive = active;
+    _restartWaveformTimer();
+    _applyWaveformStreamRate();
+  }
+
+  /// 调整波形刷新率。刷新率只影响界面取数频率，不影响链路采样率。
+  void setWaveformRateHz(int rateHz) {
+    if (rateHz <= 0 || rateHz == waveformRateHz) return;
+    waveformRateHz = rateHz;
+    _restartWaveformTimer();
+  }
+
+  Duration get _waveformPollInterval =>
+      Duration(milliseconds: (1000 / waveformRateHz).round());
+
+  /// 波形页面可见时把 SCALED_IMU 提到 10Hz，离开时恢复常规速率。
+  /// 复用通用的 mg_stream_set_interval，不新增后端专用接口。
+  void _applyWaveformStreamRate() {
+    if (initializationError != null || !isConnected) return;
+    // 26 = SCALED_IMU，这一条消息同时带回加速度、角速度和磁力。
+    const scaledImuMessageId = 26;
+    final intervalUs = _waveformActive
+        ? _waveformStreamIntervalUs
+        : _waveformIdleStreamIntervalUs;
+    try {
+      final response = _setStreamInterval(
+        _core,
+        scaledImuMessageId,
+        intervalUs,
+      );
+      if (response != nullptr) _freeString(response);
+    } on Object {
+      // 速率只是画质优化，失败不影响波形页面本身。
+    }
+  }
+
+  /// 后端识别到固件时会重新下发常规流速率，识别完成后再补一次高速率。
+  void _scheduleWaveformStreamRateRetry() {
+    Timer(const Duration(milliseconds: 1500), () {
+      if (!_disposed && _waveformActive) _applyWaveformStreamRate();
+    });
+  }
+
+  void _restartWaveformTimer() {
+    _waveformTimer?.cancel();
+    _waveformTimer = null;
+    if (!_waveformActive || _disposed || initializationError != null) return;
+    _waveformTimer = Timer.periodic(_waveformPollInterval, (_) {
+      final id = sessionId;
+      if (id != null) _pollWaveform(id);
+    });
+  }
+
+  void _pollWaveform(int id) {
+    if (!isConnected || sessionId != id || _disposed) return;
+    try {
+      final count = _readWaveform(
+        _core,
+        _waveformBuffer,
+        _waveformMaxPoints,
+        _waveformMaxPoints,
+        waveformWindowMs,
+      );
+      if (count <= 0) {
+        if (waveformPointCount == 0) return;
+        waveformPointCount = 0;
+      } else {
+        final view = _waveformBuffer.asTypedList(
+          count * _waveformFloatsPerPoint,
+        );
+        waveformPoints.setRange(0, view.length, view);
+        waveformPointCount = count;
+      }
+      _notifyWaveformChanges();
+    } on Object {
+      if (waveformPointCount == 0) return;
+      waveformPointCount = 0;
+      _notifyWaveformChanges();
     }
   }
 
@@ -1256,6 +1423,7 @@ final class ConnectionController extends ChangeNotifier {
     vehicleIdentity = null;
     firmwareVersionInfo = null;
     sensorHealth = null;
+    waveformPointCount = 0;
     servoOutputs = const [];
     servoOutputsValid = false;
   }
@@ -1275,17 +1443,20 @@ final class ConnectionController extends ChangeNotifier {
     _disposed = true;
     _stateTimer?.cancel();
     _telemetryTimer?.cancel();
+    _waveformTimer?.cancel();
     if (initializationError == null) {
       if (sessionId != null) {
         final response = _close(_core, sessionId!);
         if (response != nullptr) _freeString(response);
       }
+      calloc.free(_waveformBuffer);
       _destroy(_core);
     }
     parameterChanges.dispose();
     telemetryChanges.dispose();
     profileChanges.dispose();
     connectionChanges.dispose();
+    waveformChanges.dispose();
     super.dispose();
   }
 }

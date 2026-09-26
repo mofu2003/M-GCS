@@ -139,6 +139,7 @@ set(MGCORE_SOURCES
     core/src/settings/mavlink_log_writer.cc
     # Telemetry
     core/src/telemetry/telemetry_ring_buffer.cc
+    core/src/telemetry/waveform_buffer.cc
     core/src/telemetry/adsb_tracker.cc
     # Geofence
     core/src/geofence/geofence_manager.cc
@@ -349,6 +350,7 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_sensor_decode_offline.cc
         core/tests/test_firmware_adapter.cc
         core/tests/test_telemetry_ring_buffer.cc
+        core/tests/test_waveform_buffer.cc
         core/tests/test_ffi_contract.cc
         core/tests/test_ffi_comprehensive.cc
         core/tests/test_bridge_architecture_guards.cc

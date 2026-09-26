@@ -36,6 +36,17 @@ MGCORE_API char* mg_telemetry_get_stats(mg_core_t* core, const char* name);
 MGCORE_API char* mg_telemetry_get_series_names(mg_core_t* core);
 MGCORE_API char* mg_telemetry_clear(mg_core_t* core);
 
+/// 传感器波形历史：把采样点写入 out_points，返回实际写入的点数。
+/// 每个点占 10 个 float：
+/// [相对毫秒, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, mag_x, mag_y, mag_z]，
+/// 单位依次是 m/s²、°/s、高斯（G）；
+/// out_max_points 是调用方缓冲区能容纳的点数上限，target_points 是期望点数
+/// （<= 0 表示按缓冲区上限），超过时后端按 min/max 分桶抽稀；
+/// window_ms 只取最新的这么多毫秒（<= 0 表示整个缓冲）。
+MGCORE_API int mg_waveform_poll(mg_core_t* core, float* out_points, int out_max_points,
+                                int target_points, int window_ms);
+MGCORE_API char* mg_waveform_clear(mg_core_t* core);
+
 MGCORE_API char* mg_sensors_get_health(mg_core_t* core);
 MGCORE_API char* mg_sensors_get_statustext(mg_core_t* core);
 MGCORE_API char* mg_health_get_all(mg_core_t* core);
