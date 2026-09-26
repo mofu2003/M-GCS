@@ -84,6 +84,7 @@ inline std::string vfr_hud_json(const mg::core::mavlink::VfrHudInfo& v) {
 inline std::string imu_json(const mg::core::mavlink::ImuInfo& imu) {
     JsonBuilder jb;
     jb.begin_object();
+    jb.field("instance", (int)imu.instance);
     jb.field("xacc",  (int)imu.xacc);
     jb.field("yacc",  (int)imu.yacc);
     jb.field("zacc",  (int)imu.zacc);
@@ -280,6 +281,7 @@ inline std::string battery_json(const mg::core::mavlink::BatteryInfo& b) {
 inline std::string highres_imu_json(const mg::core::mavlink::HighresImuInfo& imu) {
     JsonBuilder jb;
     jb.begin_object();
+    jb.field("instance",     (int)imu.instance);
     jb.field("xacc",         imu.xacc);
     jb.field("yacc",         imu.yacc);
     jb.field("zacc",         imu.zacc);

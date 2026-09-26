@@ -351,6 +351,7 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_firmware_adapter.cc
         core/tests/test_telemetry_ring_buffer.cc
         core/tests/test_waveform_buffer.cc
+        core/tests/test_waveform_instances.cc
         core/tests/test_ffi_contract.cc
         core/tests/test_ffi_comprehensive.cc
         core/tests/test_bridge_architecture_guards.cc

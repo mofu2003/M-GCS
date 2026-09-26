@@ -59,6 +59,16 @@ Vehicle::~Vehicle() {
     MGC_LOG_INFO("[Vehicle %d] Destroyed", id_);
 }
 
+void Vehicle::clear_waveforms() {
+    // 断连/重连后旧数据没有意义，所有实例一起清空，
+    // 活跃时间也归零，前端会退回"只有 IMU1"的初始状态。
+    for (size_t instance = 0; instance < kMaxImuInstances; instance++) {
+        waveforms_[instance].clear();
+        instance_activity_[instance].imu_last_ms.store(0);
+        instance_activity_[instance].mag_last_ms.store(0);
+    }
+}
+
 bool Vehicle::connect(const std::string& endpoint) {
     auto pos = endpoint.find("://");
     std::string scheme = (pos != std::string::npos) ? endpoint.substr(0, pos) : "serial";
@@ -84,7 +94,7 @@ bool Vehicle::connect(const std::string& endpoint) {
         info_.serial_baud = baud;
     }
     state_.store(VehicleState::Connecting);
-    waveform_.clear();
+    clear_waveforms();
 
     bool ok = false;
     if (scheme == "tcp") {
@@ -130,7 +140,7 @@ bool Vehicle::connect(const std::string& endpoint) {
 void Vehicle::disconnect() {
     state_.store(VehicleState::Disconnecting);
     conn_.disconnect();
-    waveform_.clear();
+    clear_waveforms();
     info_.system_id = 0;
     info_.component_id = 0;
     info_.firmware_type.clear();
@@ -326,18 +336,30 @@ void Vehicle::wire_telemetry_callbacks() {
 
     mav->on_imu([weak](const mg::core::mavlink::ImuInfo& info) {
         auto self = weak.lock(); if (!self) return;
-        // SCALED_IMU 一次带回加速度、角速度和磁力，刚好凑成同一帧。
-        self->waveform_.set_accel(static_cast<float>(info.xacc * kMilliGToMetersPerSec2),
-                                  static_cast<float>(info.yacc * kMilliGToMetersPerSec2),
-                                  static_cast<float>(info.zacc * kMilliGToMetersPerSec2));
-        self->waveform_.set_gyro(static_cast<float>(info.xgyro * kMradPerSecToDegPerSec),
-                                 static_cast<float>(info.ygyro * kMradPerSecToDegPerSec),
-                                 static_cast<float>(info.zgyro * kMradPerSecToDegPerSec));
-        self->waveform_.set_mag(static_cast<float>(info.xmag * kMilliGaussToGauss),
-                                static_cast<float>(info.ymag * kMilliGaussToGauss),
-                                static_cast<float>(info.zmag * kMilliGaussToGauss));
-        self->waveform_.commit(steady_now_ms());
-        self->cache_.update(mg::bridge::TelemetryType::kImu, self->conn_.get_mavlink());
+        // SCALED_IMU/2/3 一次带回加速度、角速度和磁力，刚好凑成同一帧；
+        // 每个 IMU 实例写进自己的缓冲，前端按实例号取数。
+        auto* buffer = self->waveform(info.instance);
+        if (!buffer) return;
+        const uint64_t now_ms = steady_now_ms();
+        buffer->set_accel(static_cast<float>(info.xacc * kMilliGToMetersPerSec2),
+                          static_cast<float>(info.yacc * kMilliGToMetersPerSec2),
+                          static_cast<float>(info.zacc * kMilliGToMetersPerSec2));
+        buffer->set_gyro(static_cast<float>(info.xgyro * kMradPerSecToDegPerSec),
+                         static_cast<float>(info.ygyro * kMradPerSecToDegPerSec),
+                         static_cast<float>(info.zgyro * kMradPerSecToDegPerSec));
+        buffer->set_mag(static_cast<float>(info.xmag * kMilliGaussToGauss),
+                        static_cast<float>(info.ymag * kMilliGaussToGauss),
+                        static_cast<float>(info.zmag * kMilliGaussToGauss));
+        buffer->commit(now_ms);
+        self->instance_activity_[info.instance].imu_last_ms.store(now_ms);
+        // 没有对应罗盘实例时这组值是 0，用非零读数区分"有磁力计"。
+        if (info.xmag != 0 || info.ymag != 0 || info.zmag != 0) {
+            self->instance_activity_[info.instance].mag_last_ms.store(now_ms);
+        }
+        // 主 IMU 才刷新遥测缓存，其余实例只走波形缓冲。
+        if (info.instance == 0) {
+            self->cache_.update(mg::bridge::TelemetryType::kImu, self->conn_.get_mavlink());
+        }
     });
     mav->on_pressure([weak](const mg::core::mavlink::PressureInfo&) {
         auto self = weak.lock(); if (!self) return;

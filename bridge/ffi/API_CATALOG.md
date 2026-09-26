@@ -25,7 +25,7 @@ and a migration note have been published.
 | Connection | `mg_connection_open`, `mg_connection_get_session_state`, `mg_connection_close`, `mg_vehicle_select`, `mg_connection_get_diagnostics` |
 | Session telemetry | `mg_vehicle_get_session_status` |
 | Dashboard | `mg_telemetry_get_dashboard_snapshot`, `mg_system_get_diagnostics` |
-| Sensor waveform | `mg_waveform_poll`, `mg_waveform_clear` |
+| Sensor waveform | `mg_waveform_poll`, `mg_waveform_clear`, `mg_waveform_get_instances` |
 | Long operations | `mg_operations_get_snapshot`, `mg_operations_cancel` |
 | Parameters | `mg_params_request_all`, `mg_params_get_progress`, `mg_params_get_all`, `mg_params_get_by_name`, `mg_params_set`, `mg_params_prepare_change_set`, `mg_params_commit_change_set` |
 | Parameter metadata/files | `mg_config_get_groups`, `mg_config_get_group_descriptor`, `mg_param_file_export`, `mg_param_file_import` |
@@ -44,7 +44,8 @@ instead of returning JSON: flight-controller waveforms are large and would
 otherwise be re-parsed on every UI frame. The caller allocates
 `out_max_points * 10` floats and receives the number of points written, with
 `window_ms` selecting how much history to return (`<= 0` means the whole
-buffer). Point layout is
+buffer) and `instance` selecting which IMU's buffer to read (0 is IMU1).
+Point layout is
 `[relative_ms, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, mag_x, mag_y, mag_z]`;
 all nine axes of one point come from the same IMU sample, so the client never
 has to time-align them. When the selected
@@ -53,6 +54,13 @@ per-bucket min/max envelope so spikes survive, and the buckets are aligned to
 an absolute time grid so an existing point never moves sideways when new data
 arrives. Accelerometer is m/s², gyro rates are degrees per second, and
 magnetometer is gauss.
+`mg_waveform_get_instances` reports which instances the link is actually
+carrying, so a client can build one selector per detected IMU and compass:
+`{"imu":[{"index","active","age_ms","name"}],"mag":[…]}`. Detection follows
+received data rather than firmware parameters — `SCALED_IMU`, `SCALED_IMU2`
+and `SCALED_IMU3` are the three per-instance messages, and an instance counts
+as a magnetometer source once it reports a non-zero field vector. Index 0 is
+always listed so the client has a default before any data arrives.
 `mg_waveform_clear` drops the buffered history (also done automatically when a
 session connects or disconnects).
 

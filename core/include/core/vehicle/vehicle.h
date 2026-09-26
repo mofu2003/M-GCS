@@ -16,6 +16,7 @@
 #include "core/video/video_receiver.h"
 #include "telemetry_cache.h"
 
+#include <array>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -97,7 +98,37 @@ public:
     mg::core::settings::FlightLoggingService& flight_log() { return flight_log_; }
     mg::core::sensor::SensorIdDecoder& sensor_decoder() { return sensor_decoder_; }
     mg::core::telemetry::TelemetryRingBuffer& ring_buffer() { return ring_buffer_; }
-    mg::core::telemetry::WaveformBuffer& waveform() { return waveform_; }
+
+    /// 支持的 IMU 实例数上限：对应 IMU1/IMU2/IMU3。
+    static constexpr size_t kMaxImuInstances = 3;
+
+    /// 某个 IMU 实例的最近活跃时间。前端据此决定显示几个实例，
+    /// 所以只记录"最近确实收到过数据"，不猜测固件配置。
+    struct SensorInstanceActivity {
+        /// 最近一帧 IMU（加速度计/陀螺仪）的单调时钟毫秒，0 表示从未收到。
+        std::atomic<uint64_t> imu_last_ms{0};
+        /// 最近一次有效磁力计读数的单调时钟毫秒，0 表示从未收到。
+        /// SCALED_IMU 在没有对应罗盘实例时磁力计三轴固定是 0，
+        /// 所以用"是否出现过非零读数"判断该实例有没有磁力计。
+        std::atomic<uint64_t> mag_last_ms{0};
+    };
+
+    /// 取某个 IMU 实例的波形缓冲，instance 超范围返回 nullptr。
+    mg::core::telemetry::WaveformBuffer* waveform(size_t instance) {
+        return instance < kMaxImuInstances ? &waveforms_[instance] : nullptr;
+    }
+
+    /// 某个 IMU 实例的最近活跃时间，instance 超范围返回 0。
+    uint64_t imu_last_seen_ms(size_t instance) const {
+        return instance < kMaxImuInstances ? instance_activity_[instance].imu_last_ms.load()
+                                           : 0;
+    }
+
+    /// 某个 IMU 实例的最近磁力计活跃时间，instance 超范围返回 0。
+    uint64_t mag_last_seen_ms(size_t instance) const {
+        return instance < kMaxImuInstances ? instance_activity_[instance].mag_last_ms.load()
+                                           : 0;
+    }
 
     void init_subsystems();
     void load_sensor_decoder(const std::string& json_path);
@@ -105,6 +136,8 @@ public:
 private:
     void fire_event(int event_type, const std::string& json);
     void update_and_fire(mg::bridge::TelemetryType type, int event_id);
+    /// 清空所有 IMU 实例的波形缓冲与活跃时间。
+    void clear_waveforms();
 
     int id_;
     VehicleInfo info_;
@@ -125,7 +158,9 @@ private:
     mg::core::sensor::SensorIdDecoder sensor_decoder_;
     std::shared_ptr<std::atomic<bool>> alive_flag_{std::make_shared<std::atomic<bool>>(true)};
     mg::core::telemetry::TelemetryRingBuffer ring_buffer_;
-    mg::core::telemetry::WaveformBuffer waveform_;
+    /// 每个 IMU 实例一份独立缓冲，互不共用容量。
+    std::array<mg::core::telemetry::WaveformBuffer, kMaxImuInstances> waveforms_;
+    std::array<SensorInstanceActivity, kMaxImuInstances> instance_activity_;
     std::atomic<uint32_t> flight_time_s_{0};
     std::atomic<int64_t> last_armed_timestamp_ms_{0};
     std::atomic<bool> needs_reidentify_{false};

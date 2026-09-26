@@ -406,12 +406,15 @@ struct MavlinkAdapter::Impl {
         if (tel.gps_cb) deferred_cbs.push_back([cb = tel.gps_cb, info]() { cb(info); });
     }
 
-    // 处理缩放 IMU 数据
-    void handle_scaled_imu(const mavlink_message_t& m) {
+    // 处理缩放 IMU 数据。SCALED_IMU/2/3（26/116/129）三个消息的字段顺序、
+    // 类型和长度完全相同，只有消息 ID 不同，所以共用同一个解码函数，
+    // 用 instance 参数区分是第几个 IMU。
+    void handle_scaled_imu(const mavlink_message_t& m, uint8_t instance) {
         mavlink_scaled_imu_t imu;
         mavlink_msg_scaled_imu_decode(&m, &imu);
         ImuInfo info{};
         info.system_id = m.sysid;
+        info.instance = instance;
         info.xacc = imu.xacc;
         info.yacc = imu.yacc;
         info.zacc = imu.zacc;
@@ -422,7 +425,9 @@ struct MavlinkAdapter::Impl {
         info.ymag = imu.ymag;
         info.zmag = imu.zmag;
         info.temperature = imu.temperature;
-        tel.imu = info;
+        // latest_imu() 语义是"主 IMU"，只让 IMU1 覆盖缓存；
+        // 其余实例只通过回调下发，由调用方按 instance 分派。
+        if (instance == 0) tel.imu = info;
         if (tel.imu_cb) deferred_cbs.push_back([cb = tel.imu_cb, info]() { cb(info); });
     }
 
@@ -760,6 +765,7 @@ struct MavlinkAdapter::Impl {
         mavlink_msg_highres_imu_decode(&m, &hi);
         HighresImuInfo info{};
         info.system_id = m.sysid;
+        info.instance = hi.id;
         info.xacc = hi.xacc;
         info.yacc = hi.yacc;
         info.zacc = hi.zacc;
@@ -774,7 +780,8 @@ struct MavlinkAdapter::Impl {
         info.pressure_alt = hi.pressure_alt;
         info.temperature = hi.temperature;
         info.fields_updated = hi.fields_updated;
-        tel.highres_imu = info;
+        // 同 SCALED_IMU：latest_highres_imu() 只代表主 IMU。
+        if (info.instance == 0) tel.highres_imu = info;
         if (tel.highres_imu_cb) deferred_cbs.push_back([cb = tel.highres_imu_cb, info]() { cb(info); });
     }
 
@@ -1310,7 +1317,9 @@ struct MavlinkAdapter::Impl {
             case MAVLINK_MSG_ID_HEARTBEAT:           handle_heartbeat(m); break;
             case MAVLINK_MSG_ID_SYS_STATUS:          handle_sys_status(m); break;
             case MAVLINK_MSG_ID_GPS_RAW_INT:         handle_gps(m); break;
-            case MAVLINK_MSG_ID_SCALED_IMU:          handle_scaled_imu(m); break;
+            case MAVLINK_MSG_ID_SCALED_IMU:          handle_scaled_imu(m, 0); break;
+            case MAVLINK_MSG_ID_SCALED_IMU2:         handle_scaled_imu(m, 1); break;
+            case MAVLINK_MSG_ID_SCALED_IMU3:         handle_scaled_imu(m, 2); break;
             case MAVLINK_MSG_ID_SCALED_PRESSURE:     handle_scaled_pressure(m); break;
             case MAVLINK_MSG_ID_ATTITUDE:            handle_attitude(m); break;
             case MAVLINK_MSG_ID_VFR_HUD:             handle_vfr_hud(m); break;

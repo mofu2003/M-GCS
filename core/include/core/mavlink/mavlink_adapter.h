@@ -64,9 +64,11 @@ struct GpsInfo {
     uint8_t satellites_visible = 0;
 };
 
-/// 缩放 IMU 数据（msg id 26）— 加速度计、陀螺仪、磁力计
+/// 缩放 IMU 数据（msg id 26 / 116 / 129）— 加速度计、陀螺仪、磁力计
 struct ImuInfo {
     uint8_t system_id = 0;
+    /// IMU 实例号，0 对应 IMU1。SCALED_IMU/2/3 分别是 0/1/2。
+    uint8_t instance = 0;
     // Accelerometer (mG)
     int16_t xacc = 0;
     int16_t yacc = 0;
@@ -261,6 +263,8 @@ struct BatteryInfo {
 /// 高分辨率 IMU 数据（msg id 105）
 struct HighresImuInfo {
     uint8_t system_id = 0;
+    /// IMU 实例号，来自报文的 id 字段（0 对应 IMU1）。
+    uint8_t instance = 0;
     float xacc = 0.0f;          // m/s^2
     float yacc = 0.0f;
     float zacc = 0.0f;
@@ -849,4 +853,3 @@ private:
 };
 
 } // namespace mg::core::mavlink
-

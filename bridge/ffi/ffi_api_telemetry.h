@@ -42,10 +42,20 @@ MGCORE_API char* mg_telemetry_clear(mg_core_t* core);
 /// 单位依次是 m/s²、°/s、高斯（G）；
 /// out_max_points 是调用方缓冲区能容纳的点数上限，target_points 是期望点数
 /// （<= 0 表示按缓冲区上限），超过时后端按 min/max 分桶抽稀；
-/// window_ms 只取最新的这么多毫秒（<= 0 表示整个缓冲）。
+/// window_ms 只取最新的这么多毫秒（<= 0 表示整个缓冲）；
+/// instance 是 IMU 实例号（0 表示 IMU1），取值来自 mg_waveform_get_instances。
 MGCORE_API int mg_waveform_poll(mg_core_t* core, float* out_points, int out_max_points,
-                                int target_points, int window_ms);
+                                int target_points, int window_ms, int instance);
 MGCORE_API char* mg_waveform_clear(mg_core_t* core);
+
+/// 已识别到的传感器实例清单。返回 JSON：
+/// {"imu":[{"index":0,"active":true,"age_ms":42,"name":"BMI088"}],
+///  "mag":[{"index":0,"active":true,"age_ms":42,"name":"IST8310"}]}
+/// index 是实例号（0 表示 IMU1 / 磁力计 1），直接作为 mg_waveform_poll 的
+/// instance 参数；active 表示最近若干秒内确实收到过该实例的数据；
+/// name 是解码出的传感器型号，参数未下载时可能是空串。
+/// index 0 始终出现在列表里，其余实例只在收到数据时出现。
+MGCORE_API char* mg_waveform_get_instances(mg_core_t* core);
 
 MGCORE_API char* mg_sensors_get_health(mg_core_t* core);
 MGCORE_API char* mg_sensors_get_statustext(mg_core_t* core);

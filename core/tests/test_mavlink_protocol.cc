@@ -278,6 +278,56 @@ static void test_home_position_decode() {
     CHECK("home alt=50000mm", hp.has_value() && hp->altitude == 50000);
 }
 
+/// SCALED_IMU/2/3 是三条独立消息，分别代表 IMU1/2/3。
+/// 适配器要把实例号传下去，同时保持 latest_imu() 只代表主 IMU。
+static void test_scaled_imu_instances() {
+    fprintf(stderr, "\n[Group] SCALED_IMU 1..3 instance mapping\n");
+    TestFixture f;
+    std::vector<uint8_t> instances;
+    std::vector<int16_t> accel_x;
+    f.adapter.on_imu([&](const mg::core::mavlink::ImuInfo& info) {
+        instances.push_back(info.instance);
+        accel_x.push_back(info.xacc);
+    });
+
+    mavlink_message_t msg;
+    {
+        mavlink_scaled_imu_t imu = {};
+        imu.time_boot_ms = 1000;
+        imu.xacc = 100;
+        imu.xmag = 250;
+        mavlink_msg_scaled_imu_encode(1, 1, &msg, &imu);
+    }
+    f.inject(msg);
+    {
+        mavlink_scaled_imu2_t imu = {};
+        imu.time_boot_ms = 1000;
+        imu.xacc = 200;
+        mavlink_msg_scaled_imu2_encode(1, 1, &msg, &imu);
+    }
+    f.inject(msg);
+    {
+        mavlink_scaled_imu3_t imu = {};
+        imu.time_boot_ms = 1000;
+        imu.xacc = 300;
+        mavlink_msg_scaled_imu3_encode(1, 1, &msg, &imu);
+    }
+    f.inject(msg);
+
+    CHECK("three IMU frames delivered", instances.size() == 3);
+    CHECK("SCALED_IMU -> instance 0", instances.size() == 3 && instances[0] == 0);
+    CHECK("SCALED_IMU2 -> instance 1", instances.size() == 3 && instances[1] == 1);
+    CHECK("SCALED_IMU3 -> instance 2", instances.size() == 3 && instances[2] == 2);
+    CHECK("instance payloads stay attributed to their message",
+          accel_x.size() == 3 && accel_x[0] == 100 && accel_x[1] == 200 && accel_x[2] == 300);
+
+    auto primary = f.adapter.latest_imu();
+    CHECK("latest_imu() still reports the primary IMU",
+          primary.has_value() && primary->instance == 0 && primary->xacc == 100);
+    CHECK("latest_imu() keeps the primary magnetometer reading",
+          primary.has_value() && primary->xmag == 250);
+}
+
 static void test_pressure_decode() {
     fprintf(stderr, "\n[Group] SCALED_PRESSURE decode\n");
     TestFixture f;
@@ -477,6 +527,7 @@ int main() {
     test_statustext_decode();
     test_global_position_decode();
     test_home_position_decode();
+    test_scaled_imu_instances();
     test_pressure_decode();
     test_sys_status_decode();
     test_battery_status_decode();

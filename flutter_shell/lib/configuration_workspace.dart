@@ -185,11 +185,35 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
               overflow: TextOverflow.ellipsis,
             ),
             actions: [
-              ToolBarIconButton(
-                label: '返回前台地图',
-                icon: const MacosIcon(CupertinoIcons.map, size: 17),
-                showLabel: true,
-                onPressed: widget.onReturnToMap,
+              // 外观和 ToolBarIconButton 一致，但它的热区被组件写死在
+              // 约 44×38 以内，点起来很别扭。这里换成可自定尺寸的
+              // MacosIconButton，把整块 108×44 都变成可点击区域。
+              CustomToolbarItem(
+                tooltipMessage: '返回前台地图',
+                inToolbarBuilder: (context) => MacosIconButton(
+                  icon: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const MacosIcon(CupertinoIcons.map, size: 17),
+                      const SizedBox(height: 4),
+                      Text(
+                        '返回前台地图',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: MacosColors.systemGrayColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                  boxConstraints: const BoxConstraints(
+                    minWidth: 108,
+                    minHeight: 42,
+                    maxWidth: 140,
+                    maxHeight: 44,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  onPressed: widget.onReturnToMap,
+                ),
               ),
             ],
           ),
@@ -259,9 +283,8 @@ class _CalibrationPage extends StatefulWidget {
 }
 
 class _CalibrationPageState extends State<_CalibrationPage> {
-  /// 加速度校准 / 磁力计校准 / 空速计校准 / 遥控器校准 / 传感器波形
-  static const int _pageCount = 5;
-  static const int _waveformPageIndex = _pageCount - 1;
+  /// 加速度校准 / 磁力计校准 / 空速计校准 / 遥控器校准
+  static const int _pageCount = 4;
 
   late final MacosTabController _tabs = MacosTabController(
     initialIndex: 0,
@@ -272,15 +295,26 @@ class _CalibrationPageState extends State<_CalibrationPage> {
   void initState() {
     super.initState();
     _tabs.addListener(_handleTabChanged);
+    _syncWaveformPolling();
   }
 
   void _handleTabChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    _syncWaveformPolling();
+    setState(() {});
+  }
+
+  /// 前两页显示波形，只有停在这两页时才向后端取数。
+  /// 两个面板同时挂在树上，所以取数开关必须由页面统一决定，
+  /// 不能让面板各自调用，否则会互相覆盖。
+  void _syncWaveformPolling() {
+    widget.controller.setWaveformActive(_tabs.index <= 1);
   }
 
   @override
   void dispose() {
     _tabs.removeListener(_handleTabChanged);
+    widget.controller.setWaveformActive(false);
     _tabs.dispose();
     super.dispose();
   }
@@ -288,18 +322,20 @@ class _CalibrationPageState extends State<_CalibrationPage> {
   @override
   Widget build(BuildContext context) => _MacTabSurface(
     controller: _tabs,
-    labels: const ['加速度校准', '磁力计校准', '空速计校准', '遥控器校准', '传感器波形'],
+    labels: const ['加速度校准', '磁力计校准', '空速计校准', '遥控器校准'],
     children: [
-      const SizedBox.expand(),
-      const SizedBox.expand(),
-      const SizedBox.expand(),
-      const SizedBox.expand(),
-      // IndexedStack 会把所有子页都挂在树上，所以用 active 显式控制取数，
-      // 只有真的切到这一页才向后端要数据。
       SensorWaveformPanel(
         controller: widget.controller,
-        active: _tabs.index == _waveformPageIndex,
+        groups: const [SensorWaveformGroup.accel, SensorWaveformGroup.gyro],
+        instanceKind: WaveformInstanceKind.imu,
       ),
+      SensorWaveformPanel(
+        controller: widget.controller,
+        groups: const [SensorWaveformGroup.mag],
+        instanceKind: WaveformInstanceKind.mag,
+      ),
+      const SizedBox.expand(),
+      const SizedBox.expand(),
     ],
   );
 }

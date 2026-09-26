@@ -18,6 +18,40 @@ final class SerialPortInfo {
   final bool likelyFlightController;
 }
 
+/// 波形选择器里的两类实例：IMU（加速度计/陀螺仪）和磁力计。
+enum WaveformInstanceKind { imu, mag }
+
+/// 后端识别到的一个传感器实例。
+final class WaveformInstance {
+  const WaveformInstance({
+    required this.index,
+    required this.active,
+    required this.name,
+  });
+
+  /// 实例号，0 对应 IMU1 / 磁力计 1，直接作为取数时的 instance 参数。
+  final int index;
+
+  /// 最近是否真的收到过这个实例的数据。
+  final bool active;
+
+  /// 解码出的传感器型号，参数未下发时是空串。
+  final String name;
+
+  /// 选择器上的显示名，例如 `IMU 1`。
+  String label(String prefix) => '$prefix ${index + 1}';
+
+  @override
+  bool operator ==(Object other) =>
+      other is WaveformInstance &&
+      other.index == index &&
+      other.active == active &&
+      other.name == name;
+
+  @override
+  int get hashCode => Object.hash(index, active, name);
+}
+
 final class ParameterOption {
   const ParameterOption({required this.value, required this.label});
 
@@ -163,8 +197,9 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>) _getVehicleFirmware;
   late final Pointer<Utf8> Function(Pointer<Void>) _getFirmwareVersion;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSensorHealth;
-  late final int Function(Pointer<Void>, Pointer<Float>, int, int, int)
+  late final int Function(Pointer<Void>, Pointer<Float>, int, int, int, int)
   _readWaveform;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getWaveformInstances;
   late final Pointer<Utf8> Function(Pointer<Void>, int, int) _setStreamInterval;
   late final Pointer<Utf8> Function(Pointer<Void>) _getTelemetryFreshness;
   late final Pointer<Utf8> Function(Pointer<Void>) _requestFirmwareVersion;
@@ -190,26 +225,28 @@ final class ConnectionController extends ChangeNotifier {
   final List<SerialPortInfo> ports = [];
   final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
 
-  /// 波形缓冲区上限。10s 窗口 @10Hz 约 100 帧，正常就是逐帧原始点，
-  /// 抽稀只在采样率异常高时才兜底。点数直接决定每帧的绘制和分配开销，
-  /// 这个值不要为了"看起来更细"随意调大。
-  static const int _waveformMaxPoints = 200;
+  /// 波形缓冲区上限。50s 窗口 @10Hz 约 500 帧，取 600 留余量，
+  /// 正常就是逐帧原始点，抽稀只在采样率异常高时才兜底。
+  /// 点数直接决定每帧的绘制和分配开销，这个值不要为了"看起来更细"随意调大。
+  static const int _waveformMaxPoints = 600;
 
   /// 每个采样点：相对毫秒 + 加速度 3 轴 + 角速度 3 轴 + 磁力 3 轴。
   static const int _waveformFloatsPerPoint = 10;
 
-  /// 波形界面可选的刷新率（Hz）。默认取最低档：
-  /// 传感器校准看的是趋势，不需要每秒刷十几次。
-  static const List<int> _waveformRateOptions = [1, 2, 5, 10];
-  static const int _waveformDefaultRateHz = 1;
-
   /// 波形页面默认显示的时间窗口（毫秒）。
-  static const int _waveformDefaultWindowMs = 10000;
+  static const int _waveformDefaultWindowMs = 50000;
 
-  /// 波形页面可见时请求的采样间隔（10Hz）。按显示需要取数，
-  /// 把串口带宽和缓冲写入量压到常规链路水平。
+  /// 波形页面取数间隔。传感器校准看的是趋势，1Hz 足够；
+  /// 后端仍按 10Hz 采样，所以窗口里的曲线细节不会丢。
+  static const Duration _waveformPollInterval = Duration(seconds: 1);
+
+  /// 波形页面可见时请求的采样间隔（10Hz）。SCALED_IMU/2/3 各请求一次，
+  /// 按显示需要取数，把串口带宽和缓冲写入量压到常规链路水平。
   static const int _waveformStreamIntervalUs = 100000;
   static const int _waveformIdleStreamIntervalUs = 500000;
+
+  /// 波形页面按采样间隔请求的消息 ID：SCALED_IMU / SCALED_IMU2 / SCALED_IMU3。
+  static const List<int> _waveformMessageIds = [26, 116, 129];
 
   /// 常规遥测轮询间隔。顶栏数据是给人看的，2Hz 足够。
   static const Duration _telemetryPollInterval = Duration(milliseconds: 500);
@@ -245,16 +282,32 @@ final class ConnectionController extends ChangeNotifier {
 
   /// 波形采样点，由后端环形缓冲直接写入：每点 10 个 float
   /// （相对毫秒 + accel XYZ + gyro XYZ + mag XYZ）。
-  /// 这个是复用的缓冲区，不是每次轮询新建的列表。
-  late final Float32List waveformPoints;
-  int waveformPointCount = 0;
+  /// IMU 和磁力计各自一份，因为两个面板会选不同的实例；
+  /// 这些都是复用的缓冲区，不是每次轮询新建的列表。
+  late final Float32List waveformImuPoints;
+  int waveformImuPointCount = 0;
+  late final Float32List waveformMagPoints;
+  int waveformMagPointCount = 0;
 
   /// 波形页面显示的时间窗口（毫秒）。
   int waveformWindowMs = _waveformDefaultWindowMs;
 
-  /// 波形界面刷新率（Hz），可在传感器波形页面调整。
-  int waveformRateHz = _waveformDefaultRateHz;
-  static List<int> get waveformRateOptions => _waveformRateOptions;
+  /// 后端识别到的实例清单，以及当前选中的实例号。
+  List<WaveformInstance> waveformImuInstances = const [
+    _waveformDefaultInstance,
+  ];
+  List<WaveformInstance> waveformMagInstances = const [
+    _waveformDefaultInstance,
+  ];
+  int waveformImuInstance = 0;
+  int waveformMagInstance = 0;
+
+  /// 后端还没上报任何实例时的占位：只有 IMU1 / 磁力计 1，且未激活。
+  static const WaveformInstance _waveformDefaultInstance = WaveformInstance(
+    index: 0,
+    active: false,
+    name: '',
+  );
   final Map<String, VehicleParameter> parameters = {};
   final Map<String, Future<void>> _parameterWriteJobs = {};
   final Map<String, String> _parameterWriteErrors = {};
@@ -761,9 +814,21 @@ final class ConnectionController extends ChangeNotifier {
       _readWaveform = _library
           .lookup<
             NativeFunction<
-              Int32 Function(Pointer<Void>, Pointer<Float>, Int32, Int32, Int32)
+              Int32 Function(
+                Pointer<Void>,
+                Pointer<Float>,
+                Int32,
+                Int32,
+                Int32,
+                Int32,
+              )
             >
           >('mg_waveform_poll')
+          .asFunction();
+      _getWaveformInstances = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_waveform_get_instances',
+          )
           .asFunction();
       _setStreamInterval = _library
           .lookup<
@@ -833,7 +898,10 @@ final class ConnectionController extends ChangeNotifier {
       _waveformBuffer = calloc<Float>(
         _waveformMaxPoints * _waveformFloatsPerPoint,
       );
-      waveformPoints = Float32List(
+      waveformImuPoints = Float32List(
+        _waveformMaxPoints * _waveformFloatsPerPoint,
+      );
+      waveformMagPoints = Float32List(
         _waveformMaxPoints * _waveformFloatsPerPoint,
       );
       unawaited(refreshPorts());
@@ -1191,34 +1259,63 @@ final class ConnectionController extends ChangeNotifier {
     _applyWaveformStreamRate();
   }
 
-  /// 调整波形刷新率。刷新率只影响界面取数频率，不影响链路采样率。
-  void setWaveformRateHz(int rateHz) {
-    if (rateHz <= 0 || rateHz == waveformRateHz) return;
-    waveformRateHz = rateHz;
-    _restartWaveformTimer();
+  /// 选择波形页面显示的实例。取数定时器共用，所以换实例只是换取样区间，
+  /// 立刻补一次取数，不用等下一个周期。
+  void setWaveformInstance(WaveformInstanceKind kind, int index) {
+    if (index < 0) return;
+    if (kind == WaveformInstanceKind.mag) {
+      if (index == waveformMagInstance) return;
+      waveformMagInstance = index;
+      waveformMagPointCount = 0;
+    } else {
+      if (index == waveformImuInstance) return;
+      waveformImuInstance = index;
+      waveformImuPointCount = 0;
+    }
+    final id = sessionId;
+    if (_waveformActive && id != null && isConnected) {
+      _pollWaveform(id);
+    } else {
+      _notifyWaveformChanges();
+    }
   }
 
-  Duration get _waveformPollInterval =>
-      Duration(milliseconds: (1000 / waveformRateHz).round());
+  /// 某一类实例的清单，按实例号升序。
+  List<WaveformInstance> waveformInstances(WaveformInstanceKind kind) =>
+      kind == WaveformInstanceKind.mag
+      ? waveformMagInstances
+      : waveformImuInstances;
 
-  /// 波形页面可见时把 SCALED_IMU 提到 10Hz，离开时恢复常规速率。
+  /// 当前选中的实例号。
+  int waveformInstanceIndex(WaveformInstanceKind kind) =>
+      kind == WaveformInstanceKind.mag
+      ? waveformMagInstance
+      : waveformImuInstance;
+
+  /// 某一类实例最近一次取数写入的点，画图时直接读这里。
+  Float32List waveformPoints(WaveformInstanceKind kind) =>
+      kind == WaveformInstanceKind.mag ? waveformMagPoints : waveformImuPoints;
+
+  /// 某一类实例最近一次取数的点数。
+  int waveformPointCount(WaveformInstanceKind kind) =>
+      kind == WaveformInstanceKind.mag
+      ? waveformMagPointCount
+      : waveformImuPointCount;
+
+  /// 波形页面可见时把 SCALED_IMU/2/3 都提到 10Hz，离开时恢复常规速率。
   /// 复用通用的 mg_stream_set_interval，不新增后端专用接口。
   void _applyWaveformStreamRate() {
     if (initializationError != null || !isConnected) return;
-    // 26 = SCALED_IMU，这一条消息同时带回加速度、角速度和磁力。
-    const scaledImuMessageId = 26;
     final intervalUs = _waveformActive
         ? _waveformStreamIntervalUs
         : _waveformIdleStreamIntervalUs;
-    try {
-      final response = _setStreamInterval(
-        _core,
-        scaledImuMessageId,
-        intervalUs,
-      );
-      if (response != nullptr) _freeString(response);
-    } on Object {
-      // 速率只是画质优化，失败不影响波形页面本身。
+    for (final messageId in _waveformMessageIds) {
+      try {
+        final response = _setStreamInterval(_core, messageId, intervalUs);
+        if (response != nullptr) _freeString(response);
+      } on Object {
+        // 速率只是画质优化，失败不影响波形页面本身。
+      }
     }
   }
 
@@ -1241,31 +1338,92 @@ final class ConnectionController extends ChangeNotifier {
 
   void _pollWaveform(int id) {
     if (!isConnected || sessionId != id || _disposed) return;
+    _readWaveformKind(WaveformInstanceKind.imu);
+    _readWaveformKind(WaveformInstanceKind.mag);
+    // 实例数量随"最近有没有收到数据"变化，和取数同一个周期刷新，
+    // 只有真的变了才通知界面，避免选择器每秒闪一下。
+    _refreshWaveformInstances();
+    _notifyWaveformChanges();
+  }
+
+  /// 取一类实例的波形。任何一个实例取不到数据都只是把点数清零，
+  /// 不影响另一类实例的显示。
+  void _readWaveformKind(WaveformInstanceKind kind) {
+    final instance = waveformInstanceIndex(kind);
+    var count = 0;
     try {
-      final count = _readWaveform(
+      final written = _readWaveform(
         _core,
         _waveformBuffer,
         _waveformMaxPoints,
         _waveformMaxPoints,
         waveformWindowMs,
+        instance,
       );
-      if (count <= 0) {
-        if (waveformPointCount == 0) return;
-        waveformPointCount = 0;
-      } else {
+      if (written > 0) {
         final view = _waveformBuffer.asTypedList(
-          count * _waveformFloatsPerPoint,
+          written * _waveformFloatsPerPoint,
         );
-        waveformPoints.setRange(0, view.length, view);
-        waveformPointCount = count;
+        waveformPoints(kind).setRange(0, view.length, view);
+        count = written;
       }
-      _notifyWaveformChanges();
     } on Object {
-      if (waveformPointCount == 0) return;
-      waveformPointCount = 0;
-      _notifyWaveformChanges();
+      count = 0;
+    }
+
+    if (kind == WaveformInstanceKind.mag) {
+      waveformMagPointCount = count;
+    } else {
+      waveformImuPointCount = count;
     }
   }
+
+  /// 刷新后端识别到的实例清单，并把选中实例收敛到仍然存在的实例上。
+  void _refreshWaveformInstances() {
+    try {
+      final payload =
+          _readJson(_getWaveformInstances(_core)) as Map<String, Object?>;
+      final imu = _parseWaveformInstances(payload['imu']);
+      final mag = _parseWaveformInstances(payload['mag']);
+      if (listEquals(imu, waveformImuInstances) &&
+          listEquals(mag, waveformMagInstances)) {
+        return;
+      }
+      waveformImuInstances = imu;
+      waveformMagInstances = mag;
+      waveformImuInstance = _clampInstance(waveformImuInstance, imu);
+      waveformMagInstance = _clampInstance(waveformMagInstance, mag);
+    } on Object {
+      // 实例清单只是选择器数据，取不到就保持上一次的结果。
+    }
+  }
+
+  static List<WaveformInstance> _parseWaveformInstances(Object? raw) {
+    final entries = raw as List<Object?>? ?? const [];
+    final instances = <WaveformInstance>[];
+    for (final entry in entries) {
+      if (entry is! Map<String, Object?>) continue;
+      final index = entry['index'] as int?;
+      if (index == null || index < 0) continue;
+      instances.add(
+        WaveformInstance(
+          index: index,
+          active: entry['active'] == true,
+          name: entry['name'] as String? ?? '',
+        ),
+      );
+    }
+    if (instances.isEmpty) {
+      return const [_waveformDefaultInstance];
+    }
+    return instances;
+  }
+
+  /// 选中的实例消失时退回列表里的第一个，保证选择器始终指向有效实例。
+  static int _clampInstance(int current, List<WaveformInstance> instances) =>
+      instances.any((instance) => instance.index == current)
+      ? current
+      : instances.first.index;
 
   void _pollParameterDownload() {
     if (!_parameterRequestStarted || parametersLoaded || sessionId == null) {
@@ -1423,7 +1581,12 @@ final class ConnectionController extends ChangeNotifier {
     vehicleIdentity = null;
     firmwareVersionInfo = null;
     sensorHealth = null;
-    waveformPointCount = 0;
+    waveformImuPointCount = 0;
+    waveformMagPointCount = 0;
+    waveformImuInstances = const [_waveformDefaultInstance];
+    waveformMagInstances = const [_waveformDefaultInstance];
+    waveformImuInstance = 0;
+    waveformMagInstance = 0;
     servoOutputs = const [];
     servoOutputsValid = false;
   }

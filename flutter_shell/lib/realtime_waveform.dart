@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import 'connection/connection_controller.dart';
-import 'widgets/adaptive_popup_button.dart';
 import 'widgets/mac_panel.dart';
 
 /// 后端波形缓冲的点布局：相对毫秒 + 9 个轴。
@@ -36,6 +35,9 @@ const List<Color> _kMagColors = [
   Color(0xFF5E5CE6),
 ];
 
+/// 面板里可以显示哪几组传感器。
+enum SensorWaveformGroup { accel, gyro, mag }
+
 /// 一个传感器通道组。
 class _SignalGroup {
   const _SignalGroup({
@@ -53,42 +55,48 @@ class _SignalGroup {
   static const List<String> axes = ['X', 'Y', 'Z'];
 }
 
-const List<_SignalGroup> _kGroups = [
-  _SignalGroup(
+const Map<SensorWaveformGroup, _SignalGroup> _kGroupConfig = {
+  SensorWaveformGroup.accel: _SignalGroup(
     title: '加速度计',
     unit: 'm/s²',
     channel: _kAccelChannel,
     colors: _kAccelColors,
   ),
-  _SignalGroup(
+  SensorWaveformGroup.gyro: _SignalGroup(
     title: '陀螺仪',
     unit: '°/s',
     channel: _kGyroChannel,
     colors: _kGyroColors,
   ),
-  _SignalGroup(
+  SensorWaveformGroup.mag: _SignalGroup(
     title: '磁力计',
     unit: 'G',
     channel: _kMagChannel,
     colors: _kMagColors,
   ),
-];
+};
 
 /// 传感器波形面板：加速度计、陀螺仪、磁力计三条九轴实时曲线。
 ///
 /// 采样和抽稀都在后端完成，这里只把后端环形缓冲里的点画出来，
 /// 面板本身没有采样定时器，也不攒任何历史数据。
 ///
-/// [active] 由所在标签页控制：只有当前可见时才向后端取数。
+/// [instanceKind] 决定面板跟着哪一类实例走：加速度计/陀螺仪用 IMU 实例，
+/// 磁力计用磁力计实例，两者的数量由后端按实际收到的报文识别。
+///
+/// 取数开关由外层页面控制（[ConnectionController.setWaveformActive]），
+/// 因为同一个页面里可能同时挂着多个面板，由面板各自开关会互相覆盖。
 class SensorWaveformPanel extends StatefulWidget {
   const SensorWaveformPanel({
     super.key,
     required this.controller,
-    this.active = true,
+    required this.groups,
+    required this.instanceKind,
   });
 
   final ConnectionController controller;
-  final bool active;
+  final List<SensorWaveformGroup> groups;
+  final WaveformInstanceKind instanceKind;
 
   @override
   State<SensorWaveformPanel> createState() => _SensorWaveformPanelState();
@@ -96,37 +104,31 @@ class SensorWaveformPanel extends StatefulWidget {
 
 class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
   final Stopwatch _clock = Stopwatch()..start();
-  final Map<int, _RangeTracker> _ranges = {
-    for (final group in _kGroups) group.channel: _RangeTracker(),
-  };
+  final Map<int, _RangeTracker> _ranges = {};
   final Map<int, LineChartData?> _charts = {};
   int _cachedRevision = -1;
+  int _cachedInstance = -1;
   Brightness? _cachedBrightness;
 
-  @override
-  void initState() {
-    super.initState();
-    if (widget.active) widget.controller.setWaveformActive(true);
-  }
+  List<_SignalGroup> get _groups => [
+    for (final group in widget.groups) _kGroupConfig[group]!,
+  ];
+
+  _RangeTracker _trackerFor(int channel) =>
+      _ranges.putIfAbsent(channel, _RangeTracker.new);
 
   @override
   void didUpdateWidget(covariant SensorWaveformPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller != widget.controller) {
-      oldWidget.controller.setWaveformActive(false);
+    // 数据源或通道组变了就丢掉旧图，避免沿用上一组传感器的量程。
+    if (oldWidget.controller != widget.controller ||
+        oldWidget.groups != widget.groups ||
+        oldWidget.instanceKind != widget.instanceKind) {
+      _ranges.clear();
+      _charts.clear();
       _cachedRevision = -1;
-      if (widget.active) widget.controller.setWaveformActive(true);
-      return;
+      _cachedInstance = -1;
     }
-    if (oldWidget.active != widget.active) {
-      widget.controller.setWaveformActive(widget.active);
-    }
-  }
-
-  @override
-  void dispose() {
-    widget.controller.setWaveformActive(false);
-    super.dispose();
   }
 
   @override
@@ -134,7 +136,17 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
     animation: widget.controller.waveformChanges,
     builder: (context, _) {
       final controller = widget.controller;
-      final view = _WaveformView(controller);
+      final groups = _groups;
+      final instances = controller.waveformInstances(widget.instanceKind);
+      final selected = controller.waveformInstanceIndex(widget.instanceKind);
+      // 换了实例就整体重来：量程和曲线都属于上一个传感器，不能沿用。
+      if (_cachedInstance != selected) {
+        _cachedInstance = selected;
+        _ranges.clear();
+        _charts.clear();
+        _cachedRevision = -1;
+      }
+      final view = _WaveformView(controller, widget.instanceKind);
       final brightness = MacosTheme.brightnessOf(context);
       // 图表只在有新数据时重建，普通重建直接复用缓存。
       if (_cachedRevision != controller.waveformChanges.value ||
@@ -142,14 +154,14 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
         _cachedRevision = controller.waveformChanges.value;
         _cachedBrightness = brightness;
         final nowMs = _clock.elapsedMilliseconds.toDouble();
-        for (final group in _kGroups) {
+        for (final group in groups) {
           _charts[group.channel] = view.isEmpty
               ? null
               : _buildChart(
                   view,
                   brightness,
                   group,
-                  _ranges[group.channel]!,
+                  _trackerFor(group.channel),
                   nowMs,
                 );
         }
@@ -160,26 +172,34 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _PanelHeader(controller: controller),
+            _PanelHeader(
+              controller: controller,
+              kind: widget.instanceKind,
+              instances: instances,
+              selected: selected,
+            ),
             const SizedBox(height: 10),
             LayoutBuilder(
               builder: (context, constraints) {
-                final columns = constraints.maxWidth >= 1180
+                final maxColumns = constraints.maxWidth >= 1180
                     ? 3
                     : (constraints.maxWidth >= 780 ? 2 : 1);
+                // 只有一组时铺满整行，不必留出多余的空位。
+                final columns = math.min(maxColumns, groups.length);
                 final width =
                     (constraints.maxWidth - (columns - 1) * 12) / columns;
                 return Wrap(
                   spacing: 12,
                   runSpacing: 12,
                   children: [
-                    for (final group in _kGroups)
+                    for (final group in groups)
                       SizedBox(
                         width: width,
                         child: _SignalCard(
                           group: group,
                           values: view.latestValues(group.channel),
                           chart: _charts[group.channel],
+                          sensorName: _sensorName(instances, selected),
                         ),
                       ),
                   ],
@@ -227,8 +247,6 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
 
     final range = tracker.update(minValue, maxValue, nowMs);
     final spanMs = math.max(1.0, view.spanMs);
-    final xInterval = _niceTimeStep(spanMs / 4);
-    final labelDigits = xInterval < 1000 ? 1 : 0;
     return LineChartData(
       minX: 0,
       maxX: spanMs,
@@ -270,27 +288,8 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
           ),
         ),
         bottomTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 22,
-            interval: xInterval,
-            getTitlesWidget: (value, meta) {
-              // 横轴是相对时间：0 表示现在，负值表示距现在多少秒。
-              final seconds = (value - spanMs) / 1000;
-              final label = seconds.abs() < xInterval / 2000
-                  ? '0s'
-                  : '${seconds.toStringAsFixed(labelDigits)}s';
-              return SideTitleWidget(
-                meta: meta,
-                space: 6,
-                fitInside: SideTitleFitInsideData.fromTitleMeta(
-                  meta,
-                  distanceFromEdge: 4,
-                ),
-                child: Text(label, style: _axisLabelStyle(brightness)),
-              );
-            },
-          ),
+          // 只保留时间窗口，不画横轴刻度标签。
+          sideTitles: SideTitles(showTitles: false, reservedSize: 0),
         ),
       ),
       lineTouchData: const LineTouchData(enabled: false),
@@ -301,6 +300,14 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
     fontSize: 10,
     color: brightness == Brightness.dark ? Colors.white70 : Colors.black54,
   );
+
+  /// 当前选中实例的传感器型号，后端还没解出型号时返回空串。
+  static String _sensorName(List<WaveformInstance> instances, int selected) {
+    for (final instance in instances) {
+      if (instance.index == selected) return instance.name;
+    }
+    return '';
+  }
 }
 
 /// 把原始极值向外取整到 1/2/5 阶梯，得到一个稳定的纵轴量程。
@@ -335,28 +342,6 @@ double _niceStep(double raw) {
       ? 5.0
       : 10.0;
   return factor * magnitude;
-}
-
-/// 时间轴刻度按秒取整，保证标签是整齐的秒数。
-double _niceTimeStep(double raw) {
-  const candidates = <double>[
-    100,
-    200,
-    500,
-    1000,
-    2000,
-    5000,
-    10000,
-    15000,
-    30000,
-    60000,
-    120000,
-    300000,
-  ];
-  for (final candidate in candidates) {
-    if (raw <= candidate) return candidate;
-  }
-  return candidates.last;
 }
 
 /// 纵轴量程跟踪：数据变大立刻跟随，数据变小要稳定一段时间才收缩，
@@ -410,9 +395,9 @@ class _AxisRange {
 
 /// 后端波形缓冲的只读视图，面板不再拷贝一份数据。
 class _WaveformView {
-  _WaveformView(ConnectionController controller)
-    : _data = controller.waveformPoints,
-      length = controller.waveformPointCount;
+  _WaveformView(ConnectionController controller, WaveformInstanceKind kind)
+    : _data = controller.waveformPoints(kind),
+      length = controller.waveformPointCount(kind);
 
   final Float32List _data;
   final int length;
@@ -432,28 +417,35 @@ class _WaveformView {
   ];
 }
 
-/// 页面标题由工作区顶栏提供，这里只放刷新率和数据状态。
+/// 页面标题由工作区顶栏提供，这里只放实例选择器和数据状态。
 class _PanelHeader extends StatelessWidget {
-  const _PanelHeader({required this.controller});
+  const _PanelHeader({
+    required this.controller,
+    required this.kind,
+    required this.instances,
+    required this.selected,
+  });
 
   final ConnectionController controller;
+  final WaveformInstanceKind kind;
+  final List<WaveformInstance> instances;
+  final int selected;
 
   @override
   Widget build(BuildContext context) {
-    final typography = MacosTheme.of(context).typography;
+    final prefix = kind == WaveformInstanceKind.mag ? '磁力计' : 'IMU';
     return Row(
       children: [
-        Text('刷新率', style: typography.caption1),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 96,
-          child: AdaptivePopupButton<int>(
-            value: controller.waveformRateHz,
-            options: ConnectionController.waveformRateOptions,
-            labelOf: (rate) => '$rate Hz',
-            onChanged: controller.setWaveformRateHz,
+        // 只有一个实例时没有可选项，不摆一个点了也没反应的分段控件。
+        if (instances.length > 1)
+          _InstanceSelector(
+            labels: [for (final instance in instances) instance.label(prefix)],
+            selected: instances.indexWhere(
+              (instance) => instance.index == selected,
+            ),
+            onChanged: (position) =>
+                controller.setWaveformInstance(kind, instances[position].index),
           ),
-        ),
         const Spacer(),
         Label(
           icon: MacosIcon(
@@ -469,16 +461,81 @@ class _PanelHeader extends StatelessWidget {
   }
 }
 
+/// 实例选择器。用 macos_ui 的分段控件，和校准页顶部标签保持同一种外观。
+class _InstanceSelector extends StatefulWidget {
+  const _InstanceSelector({
+    required this.labels,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final List<String> labels;
+
+  /// 当前选中项在 [labels] 里的下标。
+  final int selected;
+  final ValueChanged<int> onChanged;
+
+  @override
+  State<_InstanceSelector> createState() => _InstanceSelectorState();
+}
+
+class _InstanceSelectorState extends State<_InstanceSelector> {
+  late MacosTabController _tabs = _createController();
+
+  MacosTabController _createController() {
+    final controller = MacosTabController(
+      initialIndex: widget.selected < 0 ? 0 : widget.selected,
+      length: widget.labels.length,
+    );
+    controller.addListener(_handleChanged);
+    return controller;
+  }
+
+  void _handleChanged() => widget.onChanged(_tabs.index);
+
+  @override
+  void didUpdateWidget(covariant _InstanceSelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // MacosTabController.length 是 final，实例数量变了只能换一个控制器。
+    if (oldWidget.labels.length != widget.labels.length) {
+      _tabs.removeListener(_handleChanged);
+      _tabs.dispose();
+      _tabs = _createController();
+      return;
+    }
+    if (widget.selected >= 0 && _tabs.index != widget.selected) {
+      _tabs.index = widget.selected;
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabs.removeListener(_handleChanged);
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => MacosSegmentedControl(
+    controller: _tabs,
+    tabs: [for (final label in widget.labels) MacosTab(label: label)],
+  );
+}
+
 class _SignalCard extends StatelessWidget {
   const _SignalCard({
     required this.group,
     required this.values,
     required this.chart,
+    required this.sensorName,
   });
 
   final _SignalGroup group;
   final List<double> values;
   final LineChartData? chart;
+
+  /// 当前实例的传感器型号，未知时是空串。
+  final String sensorName;
 
   @override
   Widget build(BuildContext context) {
@@ -492,7 +549,11 @@ class _SignalCard extends StatelessWidget {
           Row(
             children: [
               Text(group.title, style: theme.typography.title3),
-              const SizedBox(width: 8),
+              if (sensorName.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                _SensorBadge(name: sensorName),
+              ],
+              const Spacer(),
               Label(
                 text: Text(
                   group.unit,
@@ -543,6 +604,36 @@ class _SignalCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 传感器型号胶囊，放在卡片标题右侧，只做标识不做交互。
+class _SensorBadge extends StatelessWidget {
+  const _SensorBadge({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final typography = MacosTheme.of(context).typography;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: MacosColors.systemBlueColor.withValues(
+          alpha: MacosTheme.brightnessOf(context) == Brightness.dark
+              ? 0.30
+              : 0.14,
+        ),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        name,
+        style: typography.caption1.copyWith(
+          color: MacosColors.systemBlueColor,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

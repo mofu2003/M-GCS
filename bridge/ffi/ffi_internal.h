@@ -171,9 +171,10 @@ inline mg::core::sensor::SensorIdDecoder& get_active_sensor_decoder(mg_core_t* c
 inline mg::core::telemetry::TelemetryRingBuffer& get_active_ring_buffer(mg_core_t* core) {
     return get_active_vehicle(core)->ring_buffer();
 }
-inline mg::core::telemetry::WaveformBuffer* get_active_waveform(mg_core_t* core) {
+inline mg::core::telemetry::WaveformBuffer* get_active_waveform(mg_core_t* core,
+                                                                size_t instance) {
     auto* vehicle = get_active_vehicle(core);
-    return vehicle ? &vehicle->waveform() : nullptr;
+    return vehicle ? vehicle->waveform(instance) : nullptr;
 }
 
 inline mg::core::mission::MissionPlan ffi_present_mission_plan(mg_core_t* core,
