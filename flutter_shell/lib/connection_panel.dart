@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import 'connection/connection_controller.dart';
+import 'theme/mg_colors.dart';
 import 'widgets/aligned_field_row.dart';
 import 'widgets/adaptive_popup_button.dart';
 import 'widgets/mac_panel.dart';
@@ -92,7 +93,6 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MacosTheme.brightnessOf(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         // Use the actual space remaining beside the map controls, not the
@@ -112,6 +112,7 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
           ]),
           builder: (context, _) {
             final theme = MacosTheme.of(context);
+            final colors = MgColors.of(context);
             // 参数下载期间多留一行高度；高度受父级可用空间约束。
             final loadingParameters =
                 widget.controller.isConnected &&
@@ -123,15 +124,12 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
               width: panelWidth,
               height: math.min(requestedHeight, maxHeight),
               decoration: BoxDecoration(
-                color: brightness.resolve(
-                  const Color(0xFFF7F7F9),
-                  const Color(0xFF26272B),
-                ),
+                color: colors.surfaceMuted,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: theme.dividerColor),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.24),
+                    color: colors.shadow,
                     blurRadius: 24,
                     offset: const Offset(0, 8),
                   ),
@@ -211,8 +209,8 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
                               overflow: TextOverflow.ellipsis,
                               style: theme.typography.caption1.copyWith(
                                 color: widget.controller.isConnected
-                                    ? MacosColors.systemGreenColor
-                                    : MacosColors.secondaryLabelColor,
+                                    ? colors.success
+                                    : colors.textSecondary,
                               ),
                             ),
                           ],
@@ -437,7 +435,7 @@ class _ConnectionFormError extends StatelessWidget {
         error,
         style: MacosTheme.of(
           context,
-        ).typography.caption1.copyWith(color: MacosColors.systemRedColor),
+        ).typography.caption1.copyWith(color: MgColors.of(context).danger),
       ),
     );
   }
@@ -466,16 +464,11 @@ class _ConnectionStateLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = MgColors.of(context);
     final (label, color) = switch (controller.phase) {
-      SerialConnectionPhase.connected => ('已连接', MacosColors.systemGreenColor),
-      SerialConnectionPhase.waitingForHeartbeat => (
-        '等待心跳',
-        MacosColors.systemOrangeColor,
-      ),
-      SerialConnectionPhase.disconnected => (
-        '未连接',
-        MacosColors.secondaryLabelColor,
-      ),
+      SerialConnectionPhase.connected => ('已连接', colors.success),
+      SerialConnectionPhase.waitingForHeartbeat => ('等待心跳', colors.warning),
+      SerialConnectionPhase.disconnected => ('未连接', colors.textSecondary),
     };
     return Text(
       label,
@@ -497,14 +490,12 @@ class MissionPlanningFloatingPanel extends StatelessWidget {
     height: 520,
     child: Container(
       decoration: BoxDecoration(
-        color: MacosTheme.brightnessOf(
-          context,
-        ).resolve(const Color(0xFFF7F7F9), const Color(0xFF26272B)),
+        color: MgColors.of(context).surfaceMuted,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: MacosTheme.of(context).dividerColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.24),
+            color: MgColors.of(context).shadow,
             blurRadius: 24,
             offset: const Offset(0, 8),
           ),

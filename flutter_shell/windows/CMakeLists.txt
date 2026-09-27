@@ -52,6 +52,40 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+# Build and stage the shared C++ backend beside the Windows executable. The
+# Flutter shell can then use the same FFI contract on Windows as on macOS.
+set(MGCORE_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+set(MGCORE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/mgcore_backend")
+add_custom_target(mgcore_backend ALL
+  COMMAND ${CMAKE_COMMAND} -S "${MGCORE_ROOT_DIR}" -B "${MGCORE_BUILD_DIR}"
+    -DMGCORE_BUILD_SHARED=ON
+    -DMGCORE_BUILD_TESTS=OFF
+  COMMAND ${CMAKE_COMMAND} --build "${MGCORE_BUILD_DIR}"
+    --target mgcore
+    --config $<CONFIG>
+    --parallel
+  VERBATIM
+)
+add_dependencies(${BINARY_NAME} mgcore_backend)
+add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/build/mgcore.dll"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/mgcore.dll"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/transport/USBBoardInfo.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/USBBoardInfo.json"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/sensor/SensorDeviceInfo.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/SensorDeviceInfo.json"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/config/ParameterDescriptors.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/ParameterDescriptors.json"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/config/ParameterTranslations.zh-CN.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/ParameterTranslations.zh-CN.json"
+  VERBATIM
+)
+
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.

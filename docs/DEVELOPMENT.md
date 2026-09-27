@@ -99,6 +99,25 @@ cmake -S . -B build -DMGCORE_BUILD_SHARED=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --target mgcore
 ```
 
+### Flutter 跨平台串口运行时
+
+`flutter_shell` 的 Dart FFI 层按平台加载后端共享库：
+
+- macOS：应用包 `Contents/Frameworks/libmgcore.dylib`。
+- Windows：可执行文件旁的 `mgcore.dll`。
+- Linux：可执行文件旁的 `libmgcore.so`，同时兼容系统动态库搜索路径。
+- Android：由 APK 的 JNI `libmgcore.so` 加载；Android 工程声明 USB Host 能力。
+
+Windows 和 Linux 的串口发现、打开和读写由 MgCore 原生实现负责。Windows 使用
+SetupDi 枚举 `COM*` 并用 Win32 `CreateFile`/`ReadFile`，Linux 使用 `/dev/ttyUSB*`、
+`/dev/ttyACM*` 和 termios。
+
+Android 的 USB 串口和桌面串口不是同一套系统接口。Android 需要通过 USB Host
+权限和设备驱动（CDC ACM、FTDI、CH34 等）取得设备，再把端点读写桥接给 MgCore；
+当前工程已接通 Android Flutter 工程、JNI 库加载入口和 USB Host manifest 能力，
+但尚未包含通用 USB-serial 驱动桥接，因此 Android 真机串口连接仍需单独适配并在
+真实设备上验收，不能把 `/dev/tty*` 枚举当作完整 Android 支持。
+
 ### macOS 工具链注意
 
 macOS 完整构建要求系统选择完整 Xcode，而不是 Command Line Tools：

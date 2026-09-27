@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import '../connection/connection_controller.dart';
+import '../theme/mg_colors.dart';
 import '../connection_panel.dart';
 
 enum MapStyle { standard, terrain, amap, amapSatellite, amapSatelliteHybrid }
@@ -209,10 +210,10 @@ class _AMapMapViewState extends State<AMapMapView> {
     showMacosAlertDialog<void>(
       context: context,
       builder: (dialogContext) => MacosAlertDialog(
-        appIcon: const Icon(
+        appIcon: Icon(
           Icons.copyright_outlined,
           size: 64,
-          color: MacosColors.systemBlueColor,
+          color: MgColors.of(context).accent,
         ),
         title: Text(source.label),
         message: Text(
@@ -248,16 +249,14 @@ class _MapControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) => DecoratedBox(
     decoration: BoxDecoration(
-      color: MacosTheme.brightnessOf(
-        context,
-      ).resolve(const Color(0xF5FFFFFF), const Color(0xF52A2B2E)),
+      color: MgColors.of(context).mapControlSurface,
       borderRadius: BorderRadius.circular(9),
       border: Border.all(color: MacosTheme.of(context).dividerColor),
-      boxShadow: const [
+      boxShadow: [
         BoxShadow(
-          color: Color(0x22000000),
+          color: MgColors.of(context).shadow,
           blurRadius: 10,
-          offset: Offset(0, 3),
+          offset: const Offset(0, 3),
         ),
       ],
     ),
@@ -318,26 +317,16 @@ class _MapIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MacosTheme.brightnessOf(context);
+    final colors = MgColors.of(context);
     return MacosTooltip(
       message: tooltip,
       child: MacosIconButton(
-        icon: Icon(
-          icon,
-          size: 18,
-          color: brightness.resolve(
-            const Color(0xFF3B3B3B),
-            const Color(0xFFE5E5E5),
-          ),
-        ),
+        icon: Icon(icon, size: 18, color: colors.mapControlIcon),
         semanticLabel: tooltip,
         boxConstraints: const BoxConstraints.tightFor(width: 38, height: 38),
         padding: EdgeInsets.zero,
         backgroundColor: Colors.transparent,
-        hoverColor: brightness.resolve(
-          const Color(0x11000000),
-          const Color(0x22FFFFFF),
-        ),
+        hoverColor: colors.mapControlHover,
         onPressed: onPressed,
       ),
     );

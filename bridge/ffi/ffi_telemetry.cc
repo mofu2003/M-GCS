@@ -152,7 +152,15 @@ std::string instances_json(mg_core_t* core, mg::core::vehicle::Vehicle* vehicle,
                                               : vehicle->imu_last_seen_ms(index);
         const bool active = seen_ms != 0 && now_ms >= seen_ms &&
                             (now_ms - seen_ms) <= kInstanceActiveWindowMs;
-        if (!active && index != 0) continue;
+        // 磁力计实例不能只靠最近是否收到波形来判断：有些飞控只在
+        // 罗盘校准/低速率遥测时上报 MAG 字段。COMPASS_DEV_ID* 非零
+        // 已经足够证明该实例存在，因此即使暂时没有波形也要列出来。
+        const bool configured = magnetometer &&
+                                ffi_get_param(
+                                    core,
+                                    instance_device_param(kCompassDeviceParams,
+                                                          static_cast<int>(index))) != 0;
+        if (!active && !configured && index != 0) continue;
 
         mg::bridge::JsonBuilder item;
         item.begin_object();

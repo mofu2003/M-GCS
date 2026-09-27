@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Connected the Flutter FFI loader to Windows `mgcore.dll`, Linux `libmgcore.so`,
+  and Android `libmgcore.so` loading paths.
+- Added Windows and Linux Flutter build steps that build and stage MgCore and its
+  runtime JSON resources beside the desktop executable.
+- Added the Android Flutter project and USB Host capability declaration. Android
+  still requires a native USB-serial driver bridge before real USB flight-controller
+  connections can be validated.
+- Expanded the magnetometer calibration surface with per-instance discovery,
+  compass mounting state, orientation controls, enable toggles, and field-strength
+  summaries.
+
 ## 0.0.6 - 2026-09-27
 
 ### Added

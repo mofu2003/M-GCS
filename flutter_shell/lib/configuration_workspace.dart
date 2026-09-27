@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:macos_ui/macos_ui.dart';
 
 import 'connection/connection_controller.dart';
 import 'realtime_waveform.dart';
+import 'theme/mg_colors.dart';
 import 'widgets/aligned_field_row.dart';
 import 'widgets/adaptive_popup_button.dart';
 import 'widgets/mac_panel.dart';
@@ -325,21 +327,263 @@ class _CalibrationPageState extends State<_CalibrationPage> {
     labels: const ['加速度校准', '磁力计校准', '空速计校准', '遥控器校准'],
     children: [
       _AccelerometerCalibrationView(controller: widget.controller),
-      // 磁力计页的内容容器比加速度计页更容易贴到顶部，
-      // 补齐这段顶部间距后，实例标签下方的分隔线与加速度计页对齐。
-      Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: SensorWaveformPanel(
-          controller: widget.controller,
-          groups: const [SensorWaveformGroup.mag],
-          instanceKind: WaveformInstanceKind.mag,
-        ),
-      ),
+      _MagnetometerCalibrationView(controller: widget.controller),
       const SizedBox.expand(),
       const SizedBox.expand(),
     ],
   );
 }
+
+class _MagnetometerCalibrationView extends StatelessWidget {
+  const _MagnetometerCalibrationView({required this.controller});
+
+  final ConnectionController controller;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: Listenable.merge([
+      controller.waveformChanges,
+      controller.parameterChanges,
+      controller.calibrationChanges,
+    ]),
+    builder: (context, _) => Column(
+      children: [
+        Flexible(
+          child: SensorWaveformPanel(
+            controller: controller,
+            groups: const [SensorWaveformGroup.mag],
+            instanceKind: WaveformInstanceKind.mag,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: kWaveformContentInset,
+          ),
+          child: Column(
+            children: [
+              _MagnetometerOptionsCard(controller: controller),
+              const SizedBox(height: 8),
+              _MagnetometerCalibrationCard(controller: controller),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _MagnetometerOptionsCard extends StatelessWidget {
+  const _MagnetometerOptionsCard({required this.controller});
+
+  final ConnectionController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final orientation = controller.parameter('COMPASS_ORIENT');
+    final autoRotation = _paramValue(controller, 'COMPASS_AUTO_ROT') != 0;
+    return MacPanel(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: _MagnetometerToggle(
+              label: '自动磁偏角',
+              value: _paramValue(controller, 'COMPASS_AUTODEC') != 0,
+              onChanged: controller.isConnected
+                  ? (value) => controller.setParameter(
+                      'COMPASS_AUTODEC',
+                      value ? 1 : 0,
+                    )
+                  : null,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _MagnetometerToggle(
+              label: '自动检测安装方向',
+              value: autoRotation,
+              onChanged: controller.isConnected
+                  ? (value) => controller.setParameter(
+                      'COMPASS_AUTO_ROT',
+                      value ? 1 : 0,
+                    )
+                  : null,
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 260,
+            child: AdaptivePopupButton<int>(
+              value: orientation?.value.round() ?? 0,
+              options: _orientationOptionsFor(orientation),
+              labelOf: (value) => _orientationLabelFor(orientation, value),
+              onChanged: autoRotation || !controller.isConnected
+                  ? null
+                  : (value) => controller.setParameter(
+                      'COMPASS_ORIENT',
+                      value.toDouble(),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MagnetometerToggle extends StatelessWidget {
+  const _MagnetometerToggle({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 42,
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    decoration: BoxDecoration(
+      color: context.mgColors.valueTile,
+      borderRadius: BorderRadius.circular(9),
+    ),
+    child: Row(
+      children: [
+        Expanded(child: Text(label)),
+        MacosSwitch(
+          value: value,
+          size: ControlSize.small,
+          onChanged: onChanged,
+        ),
+      ],
+    ),
+  );
+}
+
+String _orientationLabelFor(VehicleParameter? parameter, int value) {
+  for (final option in parameter?.options ?? const <ParameterOption>[]) {
+    if (option.value.round() == value) return option.label;
+  }
+  return value == 0 ? 'None' : '$value';
+}
+
+List<int> _orientationOptionsFor(VehicleParameter? parameter) {
+  final options =
+      parameter?.options.map((option) => option.value.round()).toList() ??
+      const <int>[];
+  if (options.contains(0)) return options;
+  return [0, ...options];
+}
+
+class _MagnetometerCalibrationCard extends StatelessWidget {
+  const _MagnetometerCalibrationCard({required this.controller});
+
+  final ConnectionController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = controller.calibrationStatus;
+    final calibrating =
+        status.active && status.type == CalibrationType.magnetometer;
+    final instances = controller.waveformMagInstances;
+    return MacPanel(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Row(
+        children: [
+          Text('容差等级', style: MacosTheme.of(context).typography.callout),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 140,
+            child: AdaptivePopupButton<String>(
+              value: '默认',
+              options: const ['默认', '严格', '宽松'],
+              labelOf: (value) => value,
+              onChanged: null,
+            ),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Wrap(
+              spacing: 18,
+              runSpacing: 4,
+              children: [
+                for (final instance in instances)
+                  _MagneticFieldStrength(
+                    controller: controller,
+                    instance: instance,
+                  ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          PushButton(
+            controlSize: ControlSize.large,
+            onPressed: controller.isConnected && !status.active
+                ? () =>
+                      controller.startCalibration(CalibrationType.magnetometer)
+                : null,
+            child: const Text('开始校准'),
+          ),
+          const SizedBox(width: 8),
+          PushButton(
+            controlSize: ControlSize.large,
+            secondary: true,
+            onPressed: calibrating
+                ? () => controller.cancelCalibration()
+                : null,
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MagneticFieldStrength extends StatelessWidget {
+  const _MagneticFieldStrength({
+    required this.controller,
+    required this.instance,
+  });
+
+  final ConnectionController controller;
+  final WaveformInstance instance;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = controller.waveformMagLatest(instance.index);
+    final finite = values.every((value) => value.isFinite);
+    final magnitude = finite
+        ? math.sqrt(
+                values[0] * values[0] +
+                    values[1] * values[1] +
+                    values[2] * values[2],
+              ) *
+              1000
+        : double.nan;
+    return Text.rich(
+      TextSpan(
+        text: '磁力计${instance.index + 1} 磁场强度：',
+        style: MacosTheme.of(context).typography.callout,
+        children: [
+          TextSpan(
+            text: magnitude.isFinite ? magnitude.round().toString() : '—',
+            style: TextStyle(
+              color: context.mgColors.success,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+double _paramValue(ConnectionController controller, String name) =>
+    controller.parameter(name)?.value ?? 0;
 
 class _AccelerometerCalibrationView extends StatelessWidget {
   const _AccelerometerCalibrationView({required this.controller});
@@ -349,35 +593,41 @@ class _AccelerometerCalibrationView extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      Expanded(
+      // 用 loose 约束让波形区贴合自身内容高度：之前用 Expanded 会把它撑满，
+      // 内容不足时图表下方会空出一大片，把校准卡片推得很远。
+      Flexible(
         child: SensorWaveformPanel(
           controller: controller,
           groups: const [SensorWaveformGroup.accel, SensorWaveformGroup.gyro],
           instanceKind: WaveformInstanceKind.imu,
         ),
       ),
-      const SizedBox(height: 4),
-      SizedBox(
-        height: 224,
-        child: AnimatedBuilder(
-          animation: controller.calibrationChanges,
-          builder: (context, _) => Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: _AccelerometerCalibrationCard(
-                  controller: controller,
-                  mode: AccelerometerCalibrationMode.sixFace,
+      const SizedBox(height: 8),
+      // 左右内边距和卡片间距与上面的波形卡片保持一致，两行卡片左右边界对齐。
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: kWaveformContentInset),
+        child: SizedBox(
+          height: 224,
+          child: AnimatedBuilder(
+            animation: controller.calibrationChanges,
+            builder: (context, _) => Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _AccelerometerCalibrationCard(
+                    controller: controller,
+                    mode: AccelerometerCalibrationMode.sixFace,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _AccelerometerCalibrationCard(
-                  controller: controller,
-                  mode: AccelerometerCalibrationMode.level,
+                const SizedBox(width: kWaveformCardGap),
+                Expanded(
+                  child: _AccelerometerCalibrationCard(
+                    controller: controller,
+                    mode: AccelerometerCalibrationMode.level,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -571,23 +821,18 @@ class _CalibrationAircraft extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MacosTheme.brightnessOf(context);
+    // 统一走色板：边框和文字取强调色，底色取其淡化的同色。
+    //
+    // 不用 MacosTheme.primaryColor：它跟随窗口焦点变化，窗口不是主窗口时
+    // 会退化成灰色，图框一失焦就变色。
+    final colors = context.mgColors;
     final label = orientation?.label ?? '等待开始';
     return Container(
       width: 142,
       height: 128,
       decoration: BoxDecoration(
-        color: brightness.resolve(
-          const Color(0xFFE8F3ED),
-          const Color(0xFF20372B),
-        ),
-        border: Border.all(
-          color: brightness.resolve(
-            const Color(0xFF20C76A),
-            const Color(0xFF36D77C),
-          ),
-          width: 2,
-        ),
+        color: colors.accentSurface,
+        border: Border.all(color: colors.accent, width: 2),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Center(
@@ -595,10 +840,7 @@ class _CalibrationAircraft extends StatelessWidget {
           label,
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: brightness.resolve(
-              const Color(0xFF16A85A),
-              const Color(0xFF6BE69C),
-            ),
+            color: colors.accent,
             fontSize: 17,
             fontWeight: FontWeight.w700,
           ),
@@ -922,15 +1164,11 @@ class _PidAxisCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
-    final brightness = MacosTheme.brightnessOf(context);
     const terms = ['P', 'I', 'D', 'FF'];
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: brightness.resolve(
-          const Color(0xFFFFFFFF),
-          const Color(0xFF26272B),
-        ),
+        color: context.mgColors.surface,
         border: Border.all(color: theme.dividerColor),
         borderRadius: BorderRadius.circular(10),
       ),
@@ -1017,15 +1255,11 @@ class _PidGainTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
-    final brightness = MacosTheme.brightnessOf(context);
     final parameter = controller.parameters[field.parameterName];
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: brightness.resolve(
-          const Color(0xFFFFFFFF),
-          const Color(0xFF26272B),
-        ),
+        color: context.mgColors.surface,
         border: Border.all(color: theme.dividerColor),
         borderRadius: BorderRadius.circular(8),
       ),
@@ -1117,7 +1351,6 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
     ]),
     builder: (context, _) {
       final theme = MacosTheme.of(context);
-      final brightness = MacosTheme.brightnessOf(context);
       // 参数未读完时所有输出通道都是空值，先给出加载进度而不是空表格。
       if (!widget.controller.parametersLoaded) {
         return _ParameterLoadingState(
@@ -1139,10 +1372,7 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
             ],
             DecoratedBox(
               decoration: BoxDecoration(
-                color: brightness.resolve(
-                  const Color(0xFFFFFFFF),
-                  const Color(0xFF252629),
-                ),
+                color: context.mgColors.surface,
                 border: Border.all(color: theme.dividerColor),
                 borderRadius: BorderRadius.circular(10),
               ),
@@ -1165,10 +1395,7 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
                       children: [
                         TableRow(
                           decoration: BoxDecoration(
-                            color: brightness.resolve(
-                              const Color(0xFFF0F6FC),
-                              const Color(0xFF2A3542),
-                            ),
+                            color: context.mgColors.accentSurface,
                           ),
                           children: [
                             for (final header in _headers)
@@ -1545,11 +1772,7 @@ class _ValueWellState extends State<_ValueWell> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MacosTheme.brightnessOf(context);
-    final textColor = brightness.resolve(
-      const Color(0xFF1D1D1F),
-      const Color(0xFFF5F5F7),
-    );
+    final textColor = context.mgColors.textPrimary;
     return MacosTextField(
       controller: _textController,
       focusNode: _focusNode,
@@ -1565,12 +1788,7 @@ class _ValueWellState extends State<_ValueWell> {
       ),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color:
-            widget.fillColor ??
-            brightness.resolve(
-              const Color(0xFFF5F5F7),
-              const Color(0xFF303136),
-            ),
+        color: widget.fillColor ?? context.mgColors.well,
         borderRadius: BorderRadius.circular(7),
         border: Border.all(color: MacosTheme.of(context).dividerColor),
       ),
@@ -1817,13 +2035,9 @@ class _FlightModeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
-    final brightness = MacosTheme.brightnessOf(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: brightness.resolve(
-          const Color(0xFFF7F7F9),
-          const Color(0xFF26272B),
-        ),
+        color: context.mgColors.surfaceMuted,
         border: Border.all(color: theme.dividerColor),
         borderRadius: BorderRadius.circular(12),
       ),
@@ -1869,10 +2083,7 @@ class _AuxChannelCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => DecoratedBox(
     decoration: BoxDecoration(
-      color: brightness.resolve(
-        const Color(0xFFF7F7F9),
-        const Color(0xFF26272B),
-      ),
+      color: context.mgColors.surfaceMuted,
       border: Border.all(color: dividerColor),
       borderRadius: BorderRadius.circular(10),
     ),
@@ -2022,15 +2233,11 @@ class _ParameterSummaryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
-    final brightness = MacosTheme.brightnessOf(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: brightness.resolve(
-          const Color(0xFFFFFFFF),
-          const Color(0xFF252629),
-        ),
+        color: context.mgColors.surface,
         border: Border.all(color: theme.dividerColor),
         borderRadius: BorderRadius.circular(8),
       ),
@@ -2216,7 +2423,6 @@ class _SerialParameterCardState extends State<_SerialParameterCard> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final theme = MacosTheme.of(context);
-    final brightness = MacosTheme.brightnessOf(context);
     final serial = widget.serialPrefix;
     final extraParameters = controller.parameters.values
         .where(
@@ -2234,15 +2440,12 @@ class _SerialParameterCardState extends State<_SerialParameterCard> {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: brightness.resolve(
-          const Color(0xFFF7F7F9),
-          const Color(0xFF26272B),
-        ),
+        color: context.mgColors.surfaceMuted,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: widget.dividerColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
+            color: context.mgColors.shadow,
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -2585,7 +2788,6 @@ class _SystemStatusPage extends StatelessWidget {
     animation: controller.telemetryChanges,
     builder: (context, _) {
       final theme = MacosTheme.of(context);
-      final brightness = MacosTheme.brightnessOf(context);
       final connected = controller.isConnected;
       final firmware = controller.firmwareInfo;
       final identity = controller.vehicleIdentity;
@@ -2621,10 +2823,7 @@ class _SystemStatusPage extends StatelessWidget {
                   ? rawSystemId
                   : null,
               firmwareVersion: versionLabel,
-              background: brightness.resolve(
-                const Color(0xFFF7F7F9),
-                const Color(0xFF26272B),
-              ),
+              background: context.mgColors.surfaceMuted,
               borderColor: theme.dividerColor,
             ),
             const SizedBox(height: 22),
@@ -2637,10 +2836,7 @@ class _SystemStatusPage extends StatelessWidget {
               _SensorDataPendingCard(
                 connected: connected,
                 borderColor: theme.dividerColor,
-                background: brightness.resolve(
-                  const Color(0xFFFFFFFF),
-                  const Color(0xFF252629),
-                ),
+                background: context.mgColors.surface,
               )
             else
               LayoutBuilder(
@@ -2664,10 +2860,7 @@ class _SystemStatusPage extends StatelessWidget {
                             icon: _sensorLabels[item['key']]!.$2,
                             status: item['status'] as String? ?? 'unknown',
                             borderColor: theme.dividerColor,
-                            background: brightness.resolve(
-                              const Color(0xFFFFFFFF),
-                              const Color(0xFF252629),
-                            ),
+                            background: context.mgColors.surface,
                           ),
                         ),
                     ],
@@ -2697,10 +2890,7 @@ class _SystemStatusPage extends StatelessWidget {
                             : '卫星数：${controller.satellitesVisible}',
                         fresh: controller.gpsFixType != null,
                         borderColor: theme.dividerColor,
-                        background: brightness.resolve(
-                          const Color(0xFFFFFFFF),
-                          const Color(0xFF252629),
-                        ),
+                        background: context.mgColors.surface,
                       ),
                     ),
                     SizedBox(
@@ -2718,10 +2908,7 @@ class _SystemStatusPage extends StatelessWidget {
                             controller.batteryRemainingPercent != null ||
                             controller.batteryVoltage != null,
                         borderColor: theme.dividerColor,
-                        background: brightness.resolve(
-                          const Color(0xFFFFFFFF),
-                          const Color(0xFF252629),
-                        ),
+                        background: context.mgColors.surface,
                       ),
                     ),
                     SizedBox(
@@ -2735,10 +2922,7 @@ class _SystemStatusPage extends StatelessWidget {
                         detail: '来自飞控航向遥测',
                         fresh: controller.headingDegrees != null,
                         borderColor: theme.dividerColor,
-                        background: brightness.resolve(
-                          const Color(0xFFFFFFFF),
-                          const Color(0xFF252629),
-                        ),
+                        background: context.mgColors.surface,
                       ),
                     ),
                   ],
@@ -3117,6 +3301,4 @@ class _TelemetryStatusCard extends StatelessWidget {
   );
 }
 
-Color _adaptiveLabelColor(BuildContext context) => MacosTheme.brightnessOf(
-  context,
-).resolve(const Color(0xFF1D1D1F), const Color(0xFFF5F5F7));
+Color _adaptiveLabelColor(BuildContext context) => context.mgColors.textPrimary;

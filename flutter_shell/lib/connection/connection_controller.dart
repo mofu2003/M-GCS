@@ -341,6 +341,7 @@ final class ConnectionController extends ChangeNotifier {
   int waveformImuPointCount = 0;
   late final Float32List waveformMagPoints;
   int waveformMagPointCount = 0;
+  final Map<int, List<double>> waveformMagLatestByInstance = {};
 
   /// 波形页面显示的时间窗口（毫秒）。
   int waveformWindowMs = _waveformDefaultWindowMs;
@@ -464,6 +465,34 @@ final class ConnectionController extends ChangeNotifier {
       final result = _readJson(_calibrationStart(_core, 1, nativeMode));
       if (result is! Map<String, Object?> || result['success'] != true) {
         throw StateError(_nativeError(result, '启动加速度计校准失败'));
+      }
+      _startCalibrationPolling();
+      await _pollCalibrationStatus();
+    } on Object catch (error) {
+      calibrationError = _friendlyError(error);
+      _notifyCalibrationChanges();
+      notifyListeners();
+    }
+  }
+
+  Future<void> startCalibration(CalibrationType type) async {
+    if (type == CalibrationType.accelerometer) {
+      return startAccelerometerCalibration(
+        AccelerometerCalibrationMode.sixFace,
+      );
+    }
+    if (!isConnected || calibrationStatus.active) return;
+    calibrationError = null;
+    try {
+      final nativeType = switch (type) {
+        CalibrationType.gyroscope => 0,
+        CalibrationType.accelerometer => 1,
+        CalibrationType.magnetometer => 2,
+        CalibrationType.barometer => 3,
+      };
+      final result = _readJson(_calibrationStart(_core, nativeType, 1));
+      if (result is! Map<String, Object?> || result['success'] != true) {
+        throw StateError(_nativeError(result, '启动校准失败'));
       }
       _startCalibrationPolling();
       await _pollCalibrationStatus();
@@ -925,17 +954,7 @@ final class ConnectionController extends ChangeNotifier {
 
   void _initialize() {
     try {
-      if (!Platform.isMacOS) {
-        throw UnsupportedError('当前串口连接外壳仅配置了 macOS 后端库。');
-      }
-      final executable = File(Platform.resolvedExecutable);
-      final libraryFile = File(
-        '${executable.parent.parent.path}/Frameworks/libmgcore.dylib',
-      );
-      if (!libraryFile.existsSync()) {
-        throw FileSystemException('找不到已打包的 mgcore.dylib', libraryFile.path);
-      }
-      _library = DynamicLibrary.open(libraryFile.path);
+      _library = _openPlatformLibrary();
       _create = _library
           .lookup<NativeFunction<Pointer<Void> Function()>>('mg_create')
           .asFunction();
@@ -1105,6 +1124,44 @@ final class ConnectionController extends ChangeNotifier {
       initializationError = '串口连接后端初始化失败：$error';
       notifyListeners();
     }
+  }
+
+  /// 打开当前平台对应的 MgCore FFI 共享库。
+  ///
+  /// 桌面平台的构建脚本会把共享库放到可执行文件旁边；macOS 仍使用
+  /// app bundle 的 Frameworks 目录。Android 由系统 linker 按 JNI 库名查找，
+  /// 但真正的 USB Host 串口发现仍需要 Android 原生层提供设备路径和权限。
+  DynamicLibrary _openPlatformLibrary() {
+    if (Platform.isAndroid) {
+      return DynamicLibrary.open('libmgcore.so');
+    }
+
+    final executable = File(Platform.resolvedExecutable);
+    final candidates = <String>[];
+    if (Platform.isMacOS) {
+      candidates.add(
+        '${executable.parent.parent.path}/Frameworks/libmgcore.dylib',
+      );
+    } else if (Platform.isWindows) {
+      candidates.add('${executable.parent.path}/mgcore.dll');
+    } else if (Platform.isLinux) {
+      candidates.add('${executable.parent.path}/libmgcore.so');
+      candidates.add('${executable.parent.path}/lib/libmgcore.so');
+    }
+
+    for (final path in candidates) {
+      final file = File(path);
+      if (file.existsSync()) return DynamicLibrary.open(file.path);
+    }
+
+    // Linux distributions may resolve a library installed in the process
+    // search path even when it is not beside the executable.
+    if (Platform.isLinux) return DynamicLibrary.open('libmgcore.so');
+
+    final expected = candidates.isEmpty
+        ? '当前平台的 mgcore 共享库'
+        : candidates.join(' 或 ');
+    throw FileSystemException('找不到 $expected');
   }
 
   Future<void> refreshPorts() async {
@@ -1494,6 +1551,10 @@ final class ConnectionController extends ChangeNotifier {
   Float32List waveformPoints(WaveformInstanceKind kind) =>
       kind == WaveformInstanceKind.mag ? waveformMagPoints : waveformImuPoints;
 
+  List<double> waveformMagLatest(int index) =>
+      waveformMagLatestByInstance[index] ??
+      const [double.nan, double.nan, double.nan];
+
   /// 某一类实例最近一次取数的点数。
   int waveformPointCount(WaveformInstanceKind kind) =>
       kind == WaveformInstanceKind.mag
@@ -1564,6 +1625,14 @@ final class ConnectionController extends ChangeNotifier {
         );
         waveformPoints(kind).setRange(0, view.length, view);
         count = written;
+        if (kind == WaveformInstanceKind.mag) {
+          final base = (written - 1) * _waveformFloatsPerPoint + 7;
+          waveformMagLatestByInstance[instance] = [
+            _waveformBuffer[base].toDouble(),
+            _waveformBuffer[base + 1].toDouble(),
+            _waveformBuffer[base + 2].toDouble(),
+          ];
+        }
       }
     } on Object {
       count = 0;
@@ -1784,6 +1853,7 @@ final class ConnectionController extends ChangeNotifier {
     sensorHealth = null;
     waveformImuPointCount = 0;
     waveformMagPointCount = 0;
+    waveformMagLatestByInstance.clear();
     waveformImuInstances = const [_waveformDefaultInstance];
     waveformMagInstances = const [_waveformDefaultInstance];
     waveformImuInstance = 0;

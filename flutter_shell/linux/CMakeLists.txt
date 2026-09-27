@@ -57,6 +57,42 @@ pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+# Build and stage the shared C++ backend beside the Linux executable. This is
+# intentionally kept outside the Flutter runner so the FFI library follows the
+# same CMake source and platform implementation as the backend tests.
+set(MGCORE_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+set(MGCORE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/mgcore_backend")
+add_custom_target(mgcore_backend ALL
+  COMMAND ${CMAKE_COMMAND} -S "${MGCORE_ROOT_DIR}" -B "${MGCORE_BUILD_DIR}"
+    -DMGCORE_BUILD_SHARED=ON
+    -DMGCORE_BUILD_TESTS=OFF
+    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+  COMMAND ${CMAKE_COMMAND} --build "${MGCORE_BUILD_DIR}"
+    --target mgcore
+    --config ${CMAKE_BUILD_TYPE}
+    --parallel
+  VERBATIM
+)
+add_dependencies(${BINARY_NAME} mgcore_backend)
+add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/build/libmgcore.so"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/libmgcore.so"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/transport/USBBoardInfo.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/USBBoardInfo.json"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/sensor/SensorDeviceInfo.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/SensorDeviceInfo.json"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/config/ParameterDescriptors.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/ParameterDescriptors.json"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/config/ParameterTranslations.zh-CN.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/ParameterTranslations.zh-CN.json"
+  VERBATIM
+)
+
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
@@ -92,6 +128,17 @@ set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+
+install(FILES "${MGCORE_ROOT_DIR}/build/libmgcore.so"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+install(FILES
+  "${MGCORE_ROOT_DIR}/core/src/transport/USBBoardInfo.json"
+  "${MGCORE_ROOT_DIR}/core/src/sensor/SensorDeviceInfo.json"
+  "${MGCORE_ROOT_DIR}/core/src/config/ParameterDescriptors.json"
+  "${MGCORE_ROOT_DIR}/core/src/config/ParameterTranslations.zh-CN.json"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"

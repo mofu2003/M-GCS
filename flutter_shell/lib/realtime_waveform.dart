@@ -3,10 +3,10 @@ import 'dart:typed_data';
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import 'connection/connection_controller.dart';
+import 'theme/mg_colors.dart';
 import 'widgets/mac_panel.dart';
 
 /// 后端波形缓冲的点布局：相对毫秒 + 9 个轴。
@@ -19,6 +19,22 @@ const int _kMagChannel = 7;
 
 /// 信号卡片的内容内边距。实例选择器要按同样的缩进，才能和波形图左端对齐。
 const double _kCardPadding = 14;
+
+/// 面板头部固定高度。
+///
+/// 头部可能只放状态标签（磁力计页），也可能放实例选择器（IMU 页）。
+/// 两者的实际高度不同，会让面板内容整体上下浮动、标签卡下沿对不齐，
+/// 所以这里固定行高：取值需 >= 分段控件高度（23）。
+const double _kPanelHeaderHeight = 24;
+
+/// 波形内容区左右内边距。
+///
+/// 需要和波形卡片左右边界对齐的页面（例如校准页的卡片行）复用这个值，
+/// 不要各写一套，否则两侧边界会对不齐。
+const double kWaveformContentInset = 12;
+
+/// 同一行相邻卡片之间的水平间距，含义同 [kWaveformContentInset]。
+const double kWaveformCardGap = 12;
 
 const List<Color> _kAccelColors = [
   Color(0xFFFF375F),
@@ -151,6 +167,7 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
       }
       final view = _WaveformView(controller, widget.instanceKind);
       final brightness = MacosTheme.brightnessOf(context);
+      final colors = MgColors.of(context);
       // 图表只在有新数据时重建，普通重建直接复用缓存。
       if (_cachedRevision != controller.waveformChanges.value ||
           _cachedBrightness != brightness) {
@@ -162,7 +179,7 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
               ? null
               : _buildChart(
                   view,
-                  brightness,
+                  colors,
                   group,
                   _trackerFor(group.channel),
                   nowMs,
@@ -171,7 +188,14 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
       }
 
       return SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+        // 底部不留内边距：波形区下面紧接的内容（校准卡片）自己控制两者间距，
+        // 否则面板内边距和页面间距会叠加成一大段空白。
+        padding: const EdgeInsets.fromLTRB(
+          kWaveformContentInset,
+          12,
+          kWaveformContentInset,
+          0,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -190,9 +214,10 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
                 // 只有一组时铺满整行，不必留出多余的空位。
                 final columns = math.min(maxColumns, groups.length);
                 final width =
-                    (constraints.maxWidth - (columns - 1) * 12) / columns;
+                    (constraints.maxWidth - (columns - 1) * kWaveformCardGap) /
+                    columns;
                 return Wrap(
-                  spacing: 12,
+                  spacing: kWaveformCardGap,
                   runSpacing: 12,
                   children: [
                     for (final group in groups)
@@ -203,6 +228,10 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
                           values: view.latestValues(group.channel),
                           chart: _charts[group.channel],
                           sensorName: _sensorName(instances, selected),
+                          sensorMounting:
+                              widget.instanceKind == WaveformInstanceKind.mag
+                              ? _magnetometerMounting(controller, selected)
+                              : '',
                         ),
                       ),
                   ],
@@ -217,7 +246,7 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
 
   LineChartData _buildChart(
     _WaveformView view,
-    Brightness brightness,
+    MgColors colors,
     _SignalGroup group,
     _RangeTracker tracker,
     double nowMs,
@@ -260,12 +289,8 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
         show: true,
         drawVerticalLine: false,
         horizontalInterval: range.step,
-        getDrawingHorizontalLine: (value) => FlLine(
-          color: brightness == Brightness.dark
-              ? Colors.white.withValues(alpha: 0.08)
-              : Colors.black.withValues(alpha: 0.08),
-          strokeWidth: 1,
-        ),
+        getDrawingHorizontalLine: (value) =>
+            FlLine(color: colors.hairline, strokeWidth: 1),
       ),
       borderData: FlBorderData(show: false),
       titlesData: FlTitlesData(
@@ -285,7 +310,7 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
               ),
               child: Text(
                 value.toStringAsFixed(range.decimals),
-                style: _axisLabelStyle(brightness),
+                style: _axisLabelStyle(colors),
               ),
             ),
           ),
@@ -299,10 +324,8 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
     );
   }
 
-  TextStyle _axisLabelStyle(Brightness brightness) => TextStyle(
-    fontSize: 10,
-    color: brightness == Brightness.dark ? Colors.white70 : Colors.black54,
-  );
+  TextStyle _axisLabelStyle(MgColors colors) =>
+      TextStyle(fontSize: 10, color: colors.textTertiary);
 
   /// 当前选中实例的传感器型号，后端还没解出型号时返回空串。
   static String _sensorName(List<WaveformInstance> instances, int selected) {
@@ -310,6 +333,22 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
       if (instance.index == selected) return instance.name;
     }
     return '';
+  }
+
+  static String _magnetometerMounting(
+    ConnectionController controller,
+    int selected,
+  ) {
+    final suffix = selected == 0 ? '' : '${selected + 1}';
+    final value = controller
+        .parameter('COMPASS_EXTERNAL$suffix')
+        ?.value
+        .round();
+    return switch (value) {
+      1 => '外置',
+      2 => '内置',
+      _ => '',
+    };
   }
 }
 
@@ -459,37 +498,40 @@ class _PanelHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final prefix = kind == WaveformInstanceKind.mag ? '磁力计' : 'IMU';
-    return Row(
-      children: [
-        // 只有一个实例时没有可选项，不摆一个点了也没反应的分段控件。
-        // 左边补上卡片的内边距，让选择器最左端和波形图最左端落在同一条竖线上。
-        if (instances.length > 1)
-          Padding(
-            padding: const EdgeInsets.only(left: _kCardPadding),
-            child: _InstanceSelector(
-              labels: [
-                for (final instance in instances) instance.label(prefix),
-              ],
-              selected: instances.indexWhere(
-                (instance) => instance.index == selected,
-              ),
-              onChanged: (position) => controller.setWaveformInstance(
-                kind,
-                instances[position].index,
+    return SizedBox(
+      height: _kPanelHeaderHeight,
+      child: Row(
+        children: [
+          // 只有一个实例时没有可选项，不摆一个点了也没反应的分段控件。
+          // 左边补上卡片的内边距，让选择器最左端和波形图最左端落在同一条竖线上。
+          if (instances.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(left: _kCardPadding),
+              child: _InstanceSelector(
+                labels: [
+                  for (final instance in instances) instance.label(prefix),
+                ],
+                selected: instances.indexWhere(
+                  (instance) => instance.index == selected,
+                ),
+                onChanged: (position) => controller.setWaveformInstance(
+                  kind,
+                  instances[position].index,
+                ),
               ),
             ),
+          const Spacer(),
+          Label(
+            icon: MacosIcon(
+              controller.isConnected
+                  ? CupertinoIcons.dot_radiowaves_left_right
+                  : CupertinoIcons.pause,
+              size: 14,
+            ),
+            text: Text(controller.isConnected ? '实时数据' : '等待连接'),
           ),
-        const Spacer(),
-        Label(
-          icon: MacosIcon(
-            controller.isConnected
-                ? CupertinoIcons.dot_radiowaves_left_right
-                : CupertinoIcons.pause,
-            size: 14,
-          ),
-          text: Text(controller.isConnected ? '实时数据' : '等待连接'),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -561,6 +603,7 @@ class _SignalCard extends StatelessWidget {
     required this.values,
     required this.chart,
     required this.sensorName,
+    required this.sensorMounting,
   });
 
   final _SignalGroup group;
@@ -571,11 +614,12 @@ class _SignalCard extends StatelessWidget {
 
   /// 当前实例的传感器型号，未知时是空串。
   final String sensorName;
+  final String sensorMounting;
 
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
-    final brightness = MacosTheme.brightnessOf(context);
+    final colors = MgColors.of(context);
     return MacPanel(
       padding: const EdgeInsets.fromLTRB(_kCardPadding, 12, _kCardPadding, 14),
       child: Column(
@@ -588,12 +632,13 @@ class _SignalCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 _SensorBadge(name: sensorName),
               ],
+              if (sensorMounting.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                _SensorBadge(name: sensorMounting),
+              ],
               const Spacer(),
               Label(
-                text: Text(
-                  group.unit,
-                  style: const TextStyle(color: MacosColors.systemBlueColor),
-                ),
+                text: Text(group.unit, style: TextStyle(color: colors.accent)),
               ),
             ],
           ),
@@ -620,10 +665,7 @@ class _SignalCard extends StatelessWidget {
             height: 170,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: brightness.resolve(
-                  const Color(0xFFFDFDFD),
-                  const Color(0xFF202124),
-                ),
+                color: colors.chartSurface,
                 border: Border.all(color: theme.dividerColor),
                 borderRadius: BorderRadius.circular(10),
               ),
@@ -653,20 +695,17 @@ class _SensorBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final typography = MacosTheme.of(context).typography;
+    final colors = MgColors.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: MacosColors.systemBlueColor.withValues(
-          alpha: MacosTheme.brightnessOf(context) == Brightness.dark
-              ? 0.30
-              : 0.14,
-        ),
+        color: colors.accentSurface,
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         name,
         style: typography.caption1.copyWith(
-          color: MacosColors.systemBlueColor,
+          color: colors.accent,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -689,14 +728,11 @@ class _CurrentValueTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = MacosTheme.brightnessOf(context);
+    final colors = MgColors.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: brightness.resolve(
-          const Color(0xFFFFFFFF),
-          const Color(0xFF303136),
-        ),
+        color: colors.valueTile,
         border: Border(left: BorderSide(color: color, width: 4)),
         borderRadius: BorderRadius.circular(9),
       ),
