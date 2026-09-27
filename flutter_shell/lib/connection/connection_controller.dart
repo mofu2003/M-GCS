@@ -21,6 +21,51 @@ final class SerialPortInfo {
 /// 波形选择器里的两类实例：IMU（加速度计/陀螺仪）和磁力计。
 enum WaveformInstanceKind { imu, mag }
 
+enum CalibrationType { gyroscope, accelerometer, magnetometer, barometer }
+
+enum AccelerometerCalibrationMode { sixFace, level, simple }
+
+final class CalibrationStatus {
+  const CalibrationStatus({
+    this.active = false,
+    this.type = CalibrationType.gyroscope,
+    this.stage = 'idle',
+    this.progress = 0,
+    this.currentStep = 0,
+    this.totalSteps = 0,
+    this.message = '',
+    this.failureReason = '',
+    this.accelerometerMode = '',
+  });
+
+  final bool active;
+  final CalibrationType type;
+  final String stage;
+  final int progress;
+  final int currentStep;
+  final int totalSteps;
+  final String message;
+  final String failureReason;
+  final String accelerometerMode;
+
+  bool get isAccelerometer => type == CalibrationType.accelerometer;
+  bool get isWaitingOrientation => stage == 'waiting_orientation';
+  bool get isSuccess => stage == 'success';
+  bool get isFailed => stage == 'failed' || stage == 'cancelled';
+
+  Map<String, Object?> toJson() => {
+    'active': active,
+    'type': type.name,
+    'stage': stage,
+    'progress': progress,
+    'currentStep': currentStep,
+    'totalSteps': totalSteps,
+    'message': message,
+    'failureReason': failureReason,
+    'accelerometerMode': accelerometerMode,
+  };
+}
+
 /// 后端识别到的一个传感器实例。
 final class WaveformInstance {
   const WaveformInstance({
@@ -216,6 +261,11 @@ final class ConnectionController extends ChangeNotifier {
   _readParameterDescriptor;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, double)
   _writeParameter;
+  late final Pointer<Utf8> Function(Pointer<Void>, int, int) _calibrationStart;
+  late final Pointer<Utf8> Function(Pointer<Void>) _calibrationCancel;
+  late final Pointer<Utf8> Function(Pointer<Void>) _calibrationGetStatus;
+  late final Pointer<Utf8> Function(Pointer<Void>, int)
+  _calibrationAccelConfirm;
   late final Pointer<Utf8> Function(Pointer<Void>) _getServoOutputs;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
@@ -258,6 +308,7 @@ final class ConnectionController extends ChangeNotifier {
   final ValueNotifier<int> profileChanges = ValueNotifier(0);
   final ValueNotifier<int> connectionChanges = ValueNotifier(0);
   final ValueNotifier<int> waveformChanges = ValueNotifier(0);
+  final ValueNotifier<int> calibrationChanges = ValueNotifier(0);
 
   String? selectedPort;
   int baudRate = 115200;
@@ -268,6 +319,8 @@ final class ConnectionController extends ChangeNotifier {
   String tcpPortText = '5760';
   int? sessionId;
   SerialConnectionPhase phase = SerialConnectionPhase.disconnected;
+  CalibrationStatus calibrationStatus = const CalibrationStatus();
+  String? calibrationError;
   String? message;
   String? telemetryError;
   int? satellitesVisible;
@@ -329,6 +382,7 @@ final class ConnectionController extends ChangeNotifier {
   Timer? _stateTimer;
   Timer? _telemetryTimer;
   Timer? _waveformTimer;
+  Timer? _calibrationTimer;
   bool _waveformActive = false;
   late final Pointer<Float> _waveformBuffer;
   int _lastSystemStatusPollMs = 0;
@@ -389,6 +443,128 @@ final class ConnectionController extends ChangeNotifier {
   void _notifyWaveformChanges() {
     if (!_disposed) waveformChanges.value++;
   }
+
+  void _notifyCalibrationChanges() {
+    if (!_disposed) calibrationChanges.value++;
+  }
+
+  bool get isCalibrationActive => calibrationStatus.active;
+
+  Future<void> startAccelerometerCalibration(
+    AccelerometerCalibrationMode mode,
+  ) async {
+    if (!isConnected || calibrationStatus.active) return;
+    calibrationError = null;
+    final nativeMode = switch (mode) {
+      AccelerometerCalibrationMode.sixFace => 1,
+      AccelerometerCalibrationMode.level => 2,
+      AccelerometerCalibrationMode.simple => 4,
+    };
+    try {
+      final result = _readJson(_calibrationStart(_core, 1, nativeMode));
+      if (result is! Map<String, Object?> || result['success'] != true) {
+        throw StateError(_nativeError(result, '启动加速度计校准失败'));
+      }
+      _startCalibrationPolling();
+      await _pollCalibrationStatus();
+    } on Object catch (error) {
+      calibrationError = _friendlyError(error);
+      _notifyCalibrationChanges();
+      notifyListeners();
+    }
+  }
+
+  Future<void> confirmAccelerometerPosition(int position) async {
+    if (!isConnected || !calibrationStatus.active) return;
+    try {
+      final result = _readJson(_calibrationAccelConfirm(_core, position));
+      if (result is! Map<String, Object?> || result['success'] != true) {
+        throw StateError(_nativeError(result, '确认姿态失败'));
+      }
+      await _pollCalibrationStatus();
+    } on Object catch (error) {
+      calibrationError = _friendlyError(error);
+      _notifyCalibrationChanges();
+      notifyListeners();
+    }
+  }
+
+  Future<void> cancelCalibration() async {
+    if (!calibrationStatus.active) return;
+    try {
+      final result = _readJson(_calibrationCancel(_core));
+      if (result is! Map<String, Object?> || result['success'] != true) {
+        throw StateError(_nativeError(result, '取消校准失败'));
+      }
+      await _pollCalibrationStatus();
+    } on Object catch (error) {
+      calibrationError = _friendlyError(error);
+      _notifyCalibrationChanges();
+      notifyListeners();
+    }
+  }
+
+  void _startCalibrationPolling() {
+    _calibrationTimer?.cancel();
+    _calibrationTimer = Timer.periodic(
+      const Duration(milliseconds: 250),
+      (_) => unawaited(_pollCalibrationStatus()),
+    );
+  }
+
+  Future<void> _pollCalibrationStatus() async {
+    if (_disposed || sessionId == null) return;
+    try {
+      final raw = _readJson(_calibrationGetStatus(_core));
+      if (raw is! Map<String, Object?>) throw const FormatException('校准状态格式无效');
+      final next = CalibrationStatus(
+        active: raw['active'] == true,
+        type: _calibrationType(raw['type']?.toString()),
+        stage: raw['stage']?.toString() ?? 'idle',
+        progress: (raw['progress'] as num?)?.toInt() ?? 0,
+        currentStep: (raw['current_step'] as num?)?.toInt() ?? 0,
+        totalSteps: (raw['total_steps'] as num?)?.toInt() ?? 0,
+        message: raw['message']?.toString() ?? '',
+        failureReason: raw['failure_reason']?.toString() ?? '',
+        accelerometerMode: raw['accelerometer_mode']?.toString() ?? '',
+      );
+      final changed =
+          jsonEncode(next.toJson()) != jsonEncode(calibrationStatus.toJson());
+      calibrationStatus = next;
+      if (!next.active) _calibrationTimer?.cancel();
+      if (changed) {
+        calibrationError = null;
+        _notifyCalibrationChanges();
+        notifyListeners();
+      }
+    } on Object catch (error) {
+      calibrationError = _friendlyError(error);
+      _notifyCalibrationChanges();
+      notifyListeners();
+    }
+  }
+
+  CalibrationType _calibrationType(String? value) => switch (value) {
+    'accelerometer' => CalibrationType.accelerometer,
+    'magnetometer' => CalibrationType.magnetometer,
+    'barometer' => CalibrationType.barometer,
+    _ => CalibrationType.gyroscope,
+  };
+
+  String _nativeError(Object? result, String fallback) {
+    if (result is Map<String, Object?>) {
+      final error = result['error'];
+      if (error is String && error.isNotEmpty) return error;
+      if (error is Map<String, Object?>) {
+        final message = error['message'];
+        if (message is String && message.isNotEmpty) return message;
+      }
+    }
+    return fallback;
+  }
+
+  String _friendlyError(Object error) =>
+      error.toString().replaceFirst('Bad state: ', '');
 
   bool _isProfileParameter(String name) =>
       name == 'Q_ENABLE' ||
@@ -879,6 +1055,26 @@ final class ConnectionController extends ChangeNotifier {
           .asFunction<
             Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, double)
           >();
+      _calibrationStart = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32, Int32)>
+          >('mg_calibration_start')
+          .asFunction();
+      _calibrationCancel = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_calibration_cancel',
+          )
+          .asFunction();
+      _calibrationGetStatus = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_calibration_get_status',
+          )
+          .asFunction();
+      _calibrationAccelConfirm = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
+            'mg_calibration_accel_confirm',
+          )
+          .asFunction();
       _getServoOutputs = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
             'mg_servo_get_outputs',
@@ -1087,6 +1283,7 @@ final class ConnectionController extends ChangeNotifier {
         _stateTimer?.cancel();
         _telemetryTimer?.cancel();
         _waveformTimer?.cancel();
+        _calibrationTimer?.cancel();
         sessionId = null;
         phase = SerialConnectionPhase.disconnected;
         message = previousPhase == SerialConnectionPhase.waitingForHeartbeat
@@ -1153,6 +1350,7 @@ final class ConnectionController extends ChangeNotifier {
       _stateTimer?.cancel();
       _telemetryTimer?.cancel();
       _waveformTimer?.cancel();
+      _calibrationTimer?.cancel();
       _clearTelemetry();
     } on Object catch (error) {
       message = error.toString().replaceFirst('Bad state: ', '');
@@ -1560,6 +1758,9 @@ final class ConnectionController extends ChangeNotifier {
     parameterError = null;
     _parameterWriteErrors.clear();
     _parameterRequestStarted = false;
+    _calibrationTimer?.cancel();
+    calibrationStatus = const CalibrationStatus();
+    calibrationError = null;
     servoOutputs = const [];
     servoOutputsValid = false;
     serialHardwareMappings.clear();
@@ -1607,6 +1808,7 @@ final class ConnectionController extends ChangeNotifier {
     _stateTimer?.cancel();
     _telemetryTimer?.cancel();
     _waveformTimer?.cancel();
+    _calibrationTimer?.cancel();
     if (initializationError == null) {
       if (sessionId != null) {
         final response = _close(_core, sessionId!);
@@ -1620,6 +1822,7 @@ final class ConnectionController extends ChangeNotifier {
     profileChanges.dispose();
     connectionChanges.dispose();
     waveformChanges.dispose();
+    calibrationChanges.dispose();
     super.dispose();
   }
 }

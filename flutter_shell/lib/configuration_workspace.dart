@@ -324,20 +324,288 @@ class _CalibrationPageState extends State<_CalibrationPage> {
     controller: _tabs,
     labels: const ['加速度校准', '磁力计校准', '空速计校准', '遥控器校准'],
     children: [
-      SensorWaveformPanel(
-        controller: widget.controller,
-        groups: const [SensorWaveformGroup.accel, SensorWaveformGroup.gyro],
-        instanceKind: WaveformInstanceKind.imu,
-      ),
-      SensorWaveformPanel(
-        controller: widget.controller,
-        groups: const [SensorWaveformGroup.mag],
-        instanceKind: WaveformInstanceKind.mag,
+      _AccelerometerCalibrationView(controller: widget.controller),
+      // 磁力计页的内容容器比加速度计页更容易贴到顶部，
+      // 补齐这段顶部间距后，实例标签下方的分隔线与加速度计页对齐。
+      Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: SensorWaveformPanel(
+          controller: widget.controller,
+          groups: const [SensorWaveformGroup.mag],
+          instanceKind: WaveformInstanceKind.mag,
+        ),
       ),
       const SizedBox.expand(),
       const SizedBox.expand(),
     ],
   );
+}
+
+class _AccelerometerCalibrationView extends StatelessWidget {
+  const _AccelerometerCalibrationView({required this.controller});
+
+  final ConnectionController controller;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Expanded(
+        child: SensorWaveformPanel(
+          controller: controller,
+          groups: const [SensorWaveformGroup.accel, SensorWaveformGroup.gyro],
+          instanceKind: WaveformInstanceKind.imu,
+        ),
+      ),
+      const SizedBox(height: 4),
+      SizedBox(
+        height: 224,
+        child: AnimatedBuilder(
+          animation: controller.calibrationChanges,
+          builder: (context, _) => Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _AccelerometerCalibrationCard(
+                  controller: controller,
+                  mode: AccelerometerCalibrationMode.sixFace,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _AccelerometerCalibrationCard(
+                  controller: controller,
+                  mode: AccelerometerCalibrationMode.level,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+class _AccelerometerCalibrationCard extends StatelessWidget {
+  const _AccelerometerCalibrationCard({
+    required this.controller,
+    required this.mode,
+  });
+
+  final ConnectionController controller;
+  final AccelerometerCalibrationMode mode;
+
+  bool get isSixFace => mode == AccelerometerCalibrationMode.sixFace;
+
+  bool get isThisCalibrationActive {
+    final status = controller.calibrationStatus;
+    return status.active &&
+        status.isAccelerometer &&
+        (isSixFace
+            ? status.accelerometerMode == 'six_face'
+            : status.accelerometerMode == 'level');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = MacosTheme.of(context);
+    final status = controller.calibrationStatus;
+    final activeOtherCalibration = status.active && !isThisCalibrationActive;
+    final canStart =
+        controller.isConnected &&
+        !status.active &&
+        controller.calibrationError == null;
+    final step = isSixFace ? status.currentStep.clamp(1, 6) : 1;
+    final orientation = isSixFace ? _AccelOrientation.fromStep(step) : null;
+    final busy = isThisCalibrationActive;
+    final waiting = busy && status.isWaitingOrientation;
+    final title = isSixFace ? '六面校准' : '水平校准';
+    final subtitle = isSixFace ? '按飞控提示依次摆放，摆好后确认当前姿态' : '将飞机放在平整水平面上，保持静止后开始';
+    final message = controller.calibrationError ?? (busy ? status.message : '');
+
+    return MacPanel(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 150,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _CalibrationAircraft(orientation: orientation),
+                const SizedBox(height: 6),
+                Text(
+                  orientation?.label ?? '水平放置',
+                  style: theme.typography.caption1.copyWith(
+                    color: MacosColors.systemBlueColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  children: [
+                    Text(title, style: theme.typography.title3),
+                    const Spacer(),
+                    if (busy && isSixFace)
+                      Text(
+                        '第 $step/6 面',
+                        style: theme.typography.caption1.copyWith(
+                          color: MacosColors.systemBlueColor,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(subtitle, style: theme.typography.caption1),
+                const SizedBox(height: 12),
+                if (busy) ...[
+                  LinearProgressIndicator(
+                    value: status.progress.clamp(0, 100) / 100,
+                    minHeight: 5,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    message.isEmpty
+                        ? (isSixFace ? '请按图示摆放并保持静止' : '飞控正在执行水平校准')
+                        : message,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.typography.caption1,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      if (isSixFace)
+                        Expanded(
+                          child: PushButton(
+                            controlSize: ControlSize.large,
+                            secondary: !waiting,
+                            onPressed: waiting
+                                ? () => controller.confirmAccelerometerPosition(
+                                    step,
+                                  )
+                                : null,
+                            child: Text(waiting ? '确认当前姿态' : '等待飞控提示'),
+                          ),
+                        )
+                      else
+                        Expanded(
+                          child: Text(
+                            '保持静止，等待飞控完成…',
+                            style: theme.typography.caption1,
+                          ),
+                        ),
+                      const SizedBox(width: 8),
+                      PushButton(
+                        controlSize: ControlSize.large,
+                        secondary: true,
+                        onPressed: () => controller.cancelCalibration(),
+                        child: const Text('取消'),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  Text(
+                    activeOtherCalibration
+                        ? '另一项加速度计校准正在进行'
+                        : controller.isConnected
+                        ? '开始后请严格按照图示摆放飞机'
+                        : '连接飞控后才能开始校准',
+                    style: theme.typography.caption1,
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: PushButton(
+                      controlSize: ControlSize.large,
+                      onPressed: canStart
+                          ? () => controller.startAccelerometerCalibration(mode)
+                          : null,
+                      child: Text(isSixFace ? '开始六面校准' : '开始水平校准'),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _AccelOrientation {
+  level('水平放置'),
+  left('左侧朝下'),
+  right('右侧朝下'),
+  noseDown('机头朝下'),
+  noseUp('机头朝上'),
+  inverted('倒放');
+
+  const _AccelOrientation(this.label);
+
+  final String label;
+
+  static _AccelOrientation fromStep(int step) => switch (step) {
+    2 => left,
+    3 => right,
+    4 => noseDown,
+    5 => noseUp,
+    6 => inverted,
+    _ => level,
+  };
+}
+
+class _CalibrationAircraft extends StatelessWidget {
+  const _CalibrationAircraft({required this.orientation});
+
+  final _AccelOrientation? orientation;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = MacosTheme.brightnessOf(context);
+    final label = orientation?.label ?? '等待开始';
+    return Container(
+      width: 142,
+      height: 128,
+      decoration: BoxDecoration(
+        color: brightness.resolve(
+          const Color(0xFFE8F3ED),
+          const Color(0xFF20372B),
+        ),
+        border: Border.all(
+          color: brightness.resolve(
+            const Color(0xFF20C76A),
+            const Color(0xFF36D77C),
+          ),
+          width: 2,
+        ),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Center(
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: brightness.resolve(
+              const Color(0xFF16A85A),
+              const Color(0xFF6BE69C),
+            ),
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// PID 调参页面外壳：按固件决定显示哪些调参标签页。

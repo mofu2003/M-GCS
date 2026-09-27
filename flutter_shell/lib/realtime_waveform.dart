@@ -17,8 +17,8 @@ const int _kAccelChannel = 1;
 const int _kGyroChannel = 4;
 const int _kMagChannel = 7;
 
-/// 数字读数里"均值"那一路的统计窗口（毫秒）。曲线不受它影响。
-const double _kReadoutMeanWindowMs = 1000;
+/// 信号卡片的内容内边距。实例选择器要按同样的缩进，才能和波形图左端对齐。
+const double _kCardPadding = 14;
 
 const List<Color> _kAccelColors = [
   Color(0xFFFF375F),
@@ -201,10 +201,6 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
                         child: _SignalCard(
                           group: group,
                           values: view.latestValues(group.channel),
-                          means: view.recentMean(
-                            group.channel,
-                            _kReadoutMeanWindowMs,
-                          ),
                           chart: _charts[group.channel],
                           sensorName: _sensorName(instances, selected),
                         ),
@@ -444,32 +440,6 @@ class _WaveformView {
     for (var axis = 0; axis < _SignalGroup.axes.length; axis++)
       length == 0 ? double.nan : valueAt(length - 1, firstChannel + axis),
   ];
-
-  /// 最近 [windowMs] 毫秒内每个通道的平均值。
-  ///
-  /// 只用于数字读数：瞬时值每次取数都会跳到 10Hz 采样里的另一个点，操作员读不稳，
-  /// 所以额外给一个带明确窗口标注的均值。曲线仍然画原始点，不走这个均值。
-  List<double> recentMean(int firstChannel, double windowMs) {
-    final means = List<double>.filled(_SignalGroup.axes.length, double.nan);
-    if (length == 0) return means;
-
-    final cutoff = timeAt(length - 1) - windowMs;
-    final sums = List<double>.filled(_SignalGroup.axes.length, 0);
-    final counts = List<int>.filled(_SignalGroup.axes.length, 0);
-    for (var point = length - 1; point >= 0; point--) {
-      if (timeAt(point) < cutoff) break;
-      for (var axis = 0; axis < counts.length; axis++) {
-        final value = valueAt(point, firstChannel + axis);
-        if (!value.isFinite) continue;
-        sums[axis] += value;
-        counts[axis]++;
-      }
-    }
-    for (var axis = 0; axis < counts.length; axis++) {
-      if (counts[axis] > 0) means[axis] = sums[axis] / counts[axis];
-    }
-    return means;
-  }
 }
 
 /// 页面标题由工作区顶栏提供，这里只放实例选择器和数据状态。
@@ -492,14 +462,22 @@ class _PanelHeader extends StatelessWidget {
     return Row(
       children: [
         // 只有一个实例时没有可选项，不摆一个点了也没反应的分段控件。
+        // 左边补上卡片的内边距，让选择器最左端和波形图最左端落在同一条竖线上。
         if (instances.length > 1)
-          _InstanceSelector(
-            labels: [for (final instance in instances) instance.label(prefix)],
-            selected: instances.indexWhere(
-              (instance) => instance.index == selected,
+          Padding(
+            padding: const EdgeInsets.only(left: _kCardPadding),
+            child: _InstanceSelector(
+              labels: [
+                for (final instance in instances) instance.label(prefix),
+              ],
+              selected: instances.indexWhere(
+                (instance) => instance.index == selected,
+              ),
+              onChanged: (position) => controller.setWaveformInstance(
+                kind,
+                instances[position].index,
+              ),
             ),
-            onChanged: (position) =>
-                controller.setWaveformInstance(kind, instances[position].index),
           ),
         const Spacer(),
         Label(
@@ -581,7 +559,6 @@ class _SignalCard extends StatelessWidget {
   const _SignalCard({
     required this.group,
     required this.values,
-    required this.means,
     required this.chart,
     required this.sensorName,
   });
@@ -590,9 +567,6 @@ class _SignalCard extends StatelessWidget {
 
   /// 各轴最新一帧的瞬时值，曲线用的也是这些原始点。
   final List<double> values;
-
-  /// 各轴最近一段窗口的均值，只用于数字读数。
-  final List<double> means;
   final LineChartData? chart;
 
   /// 当前实例的传感器型号，未知时是空串。
@@ -603,7 +577,7 @@ class _SignalCard extends StatelessWidget {
     final theme = MacosTheme.of(context);
     final brightness = MacosTheme.brightnessOf(context);
     return MacPanel(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      padding: const EdgeInsets.fromLTRB(_kCardPadding, 12, _kCardPadding, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -635,7 +609,6 @@ class _SignalCard extends StatelessWidget {
                     child: _CurrentValueTile(
                       label: _SignalGroup.axes[axis],
                       value: values[axis],
-                      mean: means[axis],
                       color: group.colors[axis],
                     ),
                   ),
@@ -705,7 +678,6 @@ class _CurrentValueTile extends StatelessWidget {
   const _CurrentValueTile({
     required this.label,
     required this.value,
-    required this.mean,
     required this.color,
   });
 
@@ -713,17 +685,11 @@ class _CurrentValueTile extends StatelessWidget {
 
   /// 最新一帧的瞬时值。
   final double value;
-
-  /// 最近一秒的均值，读数用；曲线不使用它。
-  final double mean;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
     final brightness = MacosTheme.brightnessOf(context);
-    final subdued = brightness == Brightness.dark
-        ? Colors.white60
-        : Colors.black45;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
@@ -752,23 +718,6 @@ class _CurrentValueTile extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     fontFeatures: [FontFeature.tabularFigures()],
                   ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Row(
-            children: [
-              Text('1s 均值', style: TextStyle(fontSize: 10, color: subdued)),
-              const Spacer(),
-              Text(
-                _format(mean),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: subdued,
-                  fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
             ],

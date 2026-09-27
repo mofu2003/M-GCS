@@ -178,7 +178,11 @@ void Vehicle::init_subsystems() {
 void Vehicle::load_sensor_decoder(const std::string& json_path) {
     if (!json_path.empty()) {
         sensor_decoder_ = mg::core::sensor::SensorIdDecoder(json_path);
-        MGC_LOG_INFO("[Vehicle %d] Sensor decoder loaded from %s", id_, json_path.c_str());
+        if (sensor_decoder_.is_loaded()) {
+            MGC_LOG_INFO("[Vehicle %d] Sensor decoder loaded from %s", id_, json_path.c_str());
+        } else {
+            MGC_LOG_WARN("[Vehicle %d] Sensor decoder failed to load %s", id_, json_path.c_str());
+        }
     }
 }
 

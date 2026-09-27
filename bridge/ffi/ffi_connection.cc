@@ -20,7 +20,8 @@ MGCORE_API mg_core_t* mg_create(void) {
     auto* core = new mg_core_t();
     core->fallback_vehicle = std::make_shared<mg::core::vehicle::Vehicle>(0);
 
-    const std::string db_path = mg::core::platform::find_data_file("SensorDeviceInfo.json");
+    const std::string db_path =
+        mg::core::platform::find_bundled_data_file("SensorDeviceInfo.json");
     if (!db_path.empty()) {
         core->fallback_vehicle->load_sensor_decoder(db_path);
     }

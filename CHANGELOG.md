@@ -1,8 +1,29 @@
 # Changelog
 
+## 0.0.6 - 2026-09-27
+
+### Added
+
+- Added the minimal macOS Flutter shell for connection setup, telemetry, sensor waveforms and calibration workflows.
+- Added IMU and magnetometer instance selectors with per-instance waveform buffers and sensor model labels.
+- Added accelerometer calibration controls for six-face and level calibration, including step status, orientation placeholder, confirmation and cancellation.
+
+### Changed
+
+- Removed the `1s` mean readout from waveform value cards so the cards show only the latest sample.
+- Aligned waveform instance selectors and chart content, and tightened the spacing between the waveform area and calibration cards.
+- Added macOS bundle-resource lookup for `SensorDeviceInfo.json`, enabling sensor model decoding from packaged apps.
+- Synchronized MgCore and Flutter shell version metadata to `0.0.6` (build `6`).
+
+### Verification
+
+- Flutter static analysis: passed.
+- macOS debug build: passed.
+- Native sensor and calibration tests: 3/3 passed.
+
 ## Backend branch - 2026-09-23
 
-`New-main` is the backend and interface branch. It is created from `v0.0.5` and keeps only the C++ core, the C FFI contract, backend tests, build tooling and backend documentation.
+`New-main` was created from `v0.0.5` as the backend and interface branch. Its current shell and backend changes are released together in `main` as `v0.0.6`.
 
 ### Removed on this branch
 
@@ -17,8 +38,6 @@
 - The Docker image and compose file only provision the backend toolchain.
 - `README.md` and the maintained docs describe the backend contract instead of the Flutter client.
 - `mg_vehicle_open()` now creates a session without changing active focus; `mg_vehicle_select()` is the explicit focus operation, while legacy single-connection helpers retain their compatibility behavior.
-
-The full product, including the Flutter frontend, remains on `main` and at tag `v0.0.5`.
 
 ## 0.0.5 - 2026-09-23
 

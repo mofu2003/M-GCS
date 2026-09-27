@@ -98,7 +98,7 @@ int open_vehicle_session(mg_core_t* core, const char* endpoint_uri) {
 
     if (core->fallback_vehicle && core->fallback_vehicle->sensor_decoder().is_loaded()) {
         const auto db_path =
-            mg::core::platform::find_data_file("SensorDeviceInfo.json");
+            mg::core::platform::find_bundled_data_file("SensorDeviceInfo.json");
         if (!db_path.empty()) vehicle->load_sensor_decoder(db_path);
     }
     return vehicle->vehicle_id();
