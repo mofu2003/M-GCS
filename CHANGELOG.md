@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.0.7 - 2026-09-28
 
 ### Changed
 
@@ -14,6 +14,16 @@
 - Expanded the magnetometer calibration surface with per-instance discovery,
   compass mounting state, orientation controls, enable toggles, and field-strength
   summaries.
+- Added a Flutter-rendered configuration workspace shell with responsive sidebar,
+  search, navigation, toolbar, and explicit light/dark backgrounds; the page
+  keeps its existing visual language without depending on macOS-only window
+  plugins for these elements.
+
+### Verification
+
+- Cross-platform workspace widget tests: 3 passed.
+- Flutter static analysis: passed.
+- macOS debug build: passed.
 
 ## 0.0.6 - 2026-09-27
 

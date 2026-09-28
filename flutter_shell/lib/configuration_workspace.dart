@@ -10,6 +10,7 @@ import 'realtime_waveform.dart';
 import 'theme/mg_colors.dart';
 import 'widgets/aligned_field_row.dart';
 import 'widgets/adaptive_popup_button.dart';
+import 'widgets/app_workspace_shell.dart';
 import 'widgets/mac_panel.dart';
 import 'widgets/parameter_load_progress.dart';
 
@@ -145,89 +146,18 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
       final selectedIndex = pages.indexWhere(
         (page) => page.id == selectedPageId,
       );
-      return MacosWindow(
-        sidebar: Sidebar(
-          minWidth: 190,
-          maxWidth: 270,
-          startWidth: 220,
-          top: const Padding(
-            padding: EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: MacosSearchField(placeholder: '搜索配置'),
-          ),
-          builder: (context, scrollController) => SidebarItems(
-            scrollController: scrollController,
-            currentIndex: selectedIndex,
-            onChanged: (index) =>
-                setState(() => _selectedPageId = pages[index].id),
-            items: [
-              for (final page in pages)
-                SidebarItem(
-                  leading: MacosIcon(page.icon),
-                  label: Text(
-                    page.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    // 固定行高：中英混排时字体回退会改变段落高度，进而在
-                    // 仅重绘（不改布局）的帧上触发 Flutter 的 TextPainter 断言。
-                    strutStyle: const StrutStyle(
-                      fontSize: 11,
-                      height: 1.3,
-                      forceStrutHeight: true,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        child: MacosScaffold(
-          toolBar: ToolBar(
-            title: Text(
-              pages[selectedIndex].label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            actions: [
-              // 外观和 ToolBarIconButton 一致，但它的热区被组件写死在
-              // 约 44×38 以内，点起来很别扭。这里换成可自定尺寸的
-              // MacosIconButton，把整块 108×44 都变成可点击区域。
-              CustomToolbarItem(
-                tooltipMessage: '返回前台地图',
-                inToolbarBuilder: (context) => MacosIconButton(
-                  icon: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const MacosIcon(CupertinoIcons.map, size: 17),
-                      const SizedBox(height: 4),
-                      Text(
-                        '返回前台地图',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: MacosColors.systemGrayColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                  boxConstraints: const BoxConstraints(
-                    minWidth: 108,
-                    minHeight: 42,
-                    maxWidth: 140,
-                    maxHeight: 44,
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  onPressed: widget.onReturnToMap,
-                ),
-              ),
-            ],
-          ),
-          children: [
-            ContentArea(
-              builder: (context, scrollController) => _buildSelectedPage(
-                context,
-                scrollController,
-                pageId: selectedPageId,
-              ),
-            ),
-          ],
+      return AppWorkspaceShell(
+        items: [
+          for (final page in pages)
+            AppWorkspaceItem(id: page.id, label: page.label, icon: page.icon),
+        ],
+        selectedId: pages[selectedIndex].id,
+        onSelected: (id) => setState(() => _selectedPageId = id),
+        onReturnToMap: widget.onReturnToMap,
+        contentBuilder: (context, scrollController) => _buildSelectedPage(
+          context,
+          scrollController,
+          pageId: selectedPageId,
         ),
       );
     },

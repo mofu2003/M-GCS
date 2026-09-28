@@ -1,5 +1,4 @@
 import 'package:flutter/cupertino.dart';
-import 'package:macos_ui/macos_ui.dart';
 
 /// 应用语义色板。
 ///
@@ -8,7 +7,7 @@ import 'package:macos_ui/macos_ui.dart';
 /// 两条约定：
 ///
 /// 1. 调用处不要再写裸色值，也不要再写 `brightness.resolve(浅色, 深色)`；
-/// 2. 不要直接使用 `MacosColors.*` 这类 [CupertinoDynamicColor]。它未被解析时
+/// 2. 不要直接使用未解析的 [CupertinoDynamicColor]。它未被解析时
 ///    `value` / `toARGB32()` 取的是浅色分支（Flutter 内部用 `_effectiveColor`），
 ///    直接交给画笔在深色模式下不会变色，必须经色板解析。
 @immutable
@@ -17,7 +16,7 @@ class MgColors {
 
   /// 取当前上下文的色板快照。
   static MgColors of(BuildContext context) =>
-      MgColors._(MacosTheme.brightnessOf(context));
+      MgColors._(MediaQuery.platformBrightnessOf(context));
 
   /// 当前明暗模式。
   final Brightness brightness;
@@ -63,6 +62,12 @@ class MgColors {
   Color get panel => _pick(const Color(0xFFE6E9EA), const Color(0xFF2B2E33));
   Color get panelBorder =>
       _pick(const Color(0xFFE1E2E4), const Color(0xFF3E4045));
+
+  /// 配置工作区底色、侧栏与标题栏；跨平台外壳必须显式绘制底色。
+  Color get workspace =>
+      _pick(const Color(0xFFF6F6F6), const Color(0xFF28282A));
+  Color get sidebar => _pick(const Color(0xFFE3E3E3), const Color(0xFF303136));
+  Color get toolbar => _pick(const Color(0xFFFFFFFF), const Color(0xFF28282A));
 
   // ── 文字与线条 ────────────────────────────────────────────────────
 
