@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.0.7 - 2026-09-28
+## 0.0.8 - 2026-09-28
 
 ### Changed
 
@@ -18,6 +18,8 @@
   search, navigation, toolbar, and explicit light/dark backgrounds; the page
   keeps its existing visual language without depending on macOS-only window
   plugins for these elements.
+- Added shared typography and metrics tokens, animated numeric readouts, and a
+  PWM range bar with minimum/midpoint/maximum markers for the motor output page.
 
 ### Verification
 

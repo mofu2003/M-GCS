@@ -7,6 +7,7 @@ import 'package:macos_ui/macos_ui.dart';
 import 'connection/connection_controller.dart';
 import 'configuration_workspace.dart';
 import 'map/amap_map_view.dart';
+import 'theme/mg_typography.dart';
 
 Future<void> main() async {
   if (!kIsWeb && Platform.isMacOS) {
@@ -19,10 +20,16 @@ class MgcsApp extends StatelessWidget {
   const MgcsApp({super.key});
 
   @override
-  Widget build(BuildContext context) => const MacosApp(
+  Widget build(BuildContext context) => MacosApp(
     title: 'M-GCS',
     debugShowCheckedModeBanner: false,
     themeMode: ThemeMode.system,
+    theme: MacosThemeData.light().copyWith(
+      typography: MgTypography.macos(Brightness.light),
+    ),
+    darkTheme: MacosThemeData.dark().copyWith(
+      typography: MgTypography.macos(Brightness.dark),
+    ),
     home: MapPage(),
   );
 }

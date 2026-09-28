@@ -7,6 +7,8 @@ import 'package:macos_ui/macos_ui.dart';
 
 import 'connection/connection_controller.dart';
 import 'theme/mg_colors.dart';
+import 'theme/mg_typography.dart';
+import 'widgets/mg_animated_number.dart';
 import 'widgets/mac_panel.dart';
 
 /// 后端波形缓冲的点布局：相对毫秒 + 9 个轴。
@@ -324,8 +326,9 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
     );
   }
 
-  TextStyle _axisLabelStyle(MgColors colors) =>
-      TextStyle(fontSize: 10, color: colors.textTertiary);
+  TextStyle _axisLabelStyle(MgColors colors) => MgTypography.sans(
+    MgTypography.caption.copyWith(color: colors.textTertiary),
+  );
 
   /// 当前选中实例的传感器型号，后端还没解出型号时返回空串。
   static String _sensorName(List<WaveformInstance> instances, int selected) {
@@ -638,7 +641,12 @@ class _SignalCard extends StatelessWidget {
               ],
               const Spacer(),
               Label(
-                text: Text(group.unit, style: TextStyle(color: colors.accent)),
+                text: Text(
+                  group.unit,
+                  style: MgTypography.sans(
+                    MgTypography.captionStrong.copyWith(color: colors.accent),
+                  ),
+                ),
               ),
             ],
           ),
@@ -741,19 +749,14 @@ class _CurrentValueTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text(label, style: MgTypography.bodyStrong),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  _format(value),
+                child: MgAnimatedNumber(
+                  value: value,
+                  style: MgTypography.dataLarge,
+                  fractionDigits: 2,
                   textAlign: TextAlign.right,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  // 等宽数字：位数变化时读数不会左右抖动。
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
                 ),
               ),
             ],
@@ -762,7 +765,4 @@ class _CurrentValueTile extends StatelessWidget {
       ),
     );
   }
-
-  static String _format(double number) =>
-      number.isFinite ? number.toStringAsFixed(2) : '—';
 }

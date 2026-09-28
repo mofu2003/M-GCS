@@ -8,10 +8,13 @@ import 'package:macos_ui/macos_ui.dart';
 import 'connection/connection_controller.dart';
 import 'realtime_waveform.dart';
 import 'theme/mg_colors.dart';
+import 'theme/mg_typography.dart';
 import 'widgets/aligned_field_row.dart';
 import 'widgets/adaptive_popup_button.dart';
 import 'widgets/app_workspace_shell.dart';
 import 'widgets/mac_panel.dart';
+import 'widgets/mg_animated_number.dart';
+import 'widgets/mg_range_bar.dart';
 import 'widgets/parameter_load_progress.dart';
 
 /// 后台页面统一间距标准（标签页内层叠加 MacosTabView 自身的 12pt）。
@@ -501,9 +504,8 @@ class _MagneticFieldStrength extends StatelessWidget {
         children: [
           TextSpan(
             text: magnitude.isFinite ? magnitude.round().toString() : '—',
-            style: TextStyle(
-              color: context.mgColors.success,
-              fontWeight: FontWeight.w700,
+            style: MgTypography.sans(
+              MgTypography.bodyStrong.copyWith(color: context.mgColors.success),
             ),
           ),
         ],
@@ -769,10 +771,11 @@ class _CalibrationAircraft extends StatelessWidget {
         child: Text(
           label,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: colors.accent,
-            fontSize: 17,
-            fontWeight: FontWeight.w700,
+          style: MgTypography.sans(
+            MgTypography.title.copyWith(
+              color: colors.accent,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ),
@@ -1362,6 +1365,21 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
                                       ? widget.controller.servoOutputs[channel -
                                             1]
                                       : null,
+                                  minimum: _parameterNumeric(
+                                    widget.controller,
+                                    'SERVO${channel}_MIN',
+                                    fallback: 1100,
+                                  ),
+                                  midpoint: _parameterNumeric(
+                                    widget.controller,
+                                    'SERVO${channel}_TRIM',
+                                    fallback: 1500,
+                                  ),
+                                  maximum: _parameterNumeric(
+                                    widget.controller,
+                                    'SERVO${channel}_MAX',
+                                    fallback: 1900,
+                                  ),
                                 ),
                               ),
                               TableCell(
@@ -1473,10 +1491,8 @@ class _ChannelNumberCell extends StatelessWidget {
         ),
         child: Text(
           '$number',
-          style: const TextStyle(
-            color: MacosColors.systemBlueColor,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
+          style: MgTypography.sans(
+            MgTypography.captionStrong.copyWith(color: context.mgColors.accent),
           ),
         ),
       ),
@@ -1485,22 +1501,54 @@ class _ChannelNumberCell extends StatelessWidget {
 }
 
 class _LiveOutputCell extends StatelessWidget {
-  const _LiveOutputCell({required this.value});
+  const _LiveOutputCell({
+    required this.value,
+    required this.minimum,
+    required this.midpoint,
+    required this.maximum,
+  });
 
   final int? value;
+  final double minimum;
+  final double midpoint;
+  final double maximum;
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 48,
-    child: Center(
-      child: _ValueWell(
-        text: value?.toString() ?? '—',
-        enabled: false,
-        center: true,
+    height: MgMetrics.rowHeight,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            height: 18,
+            child: MgAnimatedNumber(
+              value: value?.toDouble() ?? double.nan,
+              style: MgTypography.data,
+              fractionDigits: 0,
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 3),
+          MgRangeBar(
+            value: value?.toDouble(),
+            minimum: minimum,
+            midpoint: midpoint,
+            maximum: maximum,
+            semanticLabel: 'PWM 当前值范围',
+          ),
+        ],
       ),
     ),
   );
 }
+
+double _parameterNumeric(
+  ConnectionController controller,
+  String name, {
+  required double fallback,
+}) => controller.parameter(name)?.value ?? fallback;
 
 class _ReverseCell extends StatelessWidget {
   const _ReverseCell({required this.parameter, required this.controller});
@@ -1709,8 +1757,12 @@ class _ValueWellState extends State<_ValueWell> {
       enabled: widget.enabled,
       readOnly: !widget.enabled,
       placeholder: widget.text,
-      placeholderStyle: TextStyle(color: textColor),
-      style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
+      placeholderStyle: MgTypography.sans(
+        MgTypography.body.copyWith(color: textColor),
+      ),
+      style: MgTypography.sans(
+        MgTypography.bodyStrong.copyWith(color: textColor),
+      ),
       textAlign: widget.center ? TextAlign.center : TextAlign.start,
       keyboardType: const TextInputType.numberWithOptions(
         decimal: true,
@@ -2052,9 +2104,8 @@ class _FlightModeBadge extends StatelessWidget {
     icon: const MacosIcon(CupertinoIcons.airplane, size: 14),
     text: Text(
       mode,
-      style: const TextStyle(
-        color: MacosColors.systemBlueColor,
-        fontWeight: FontWeight.w700,
+      style: MgTypography.sans(
+        MgTypography.bodyStrong.copyWith(color: context.mgColors.accent),
       ),
     ),
   );
@@ -2192,7 +2243,8 @@ class _ParameterSummaryRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: theme.typography.caption1.copyWith(
                     color: MacosColors.secondaryLabelColor,
-                    fontFamily: 'Menlo',
+                    fontFamily: MgFonts.mono,
+                    fontFamilyFallback: MgFonts.monoFallback,
                   ),
                 ),
               ],
@@ -2391,7 +2443,8 @@ class _SerialParameterCardState extends State<_SerialParameterCard> {
                 Text(
                   serial,
                   style: theme.typography.title3.copyWith(
-                    fontFamily: 'Menlo',
+                    fontFamily: MgFonts.mono,
+                    fontFamilyFallback: MgFonts.monoFallback,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -2402,9 +2455,10 @@ class _SerialParameterCardState extends State<_SerialParameterCard> {
                       hardwareName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: MacosColors.systemBlueColor,
-                        fontWeight: FontWeight.w600,
+                      style: MgTypography.sans(
+                        MgTypography.bodyStrong.copyWith(
+                          color: context.mgColors.accent,
+                        ),
                       ),
                     ),
                   ),
@@ -2597,7 +2651,11 @@ class _AllParametersPageState extends State<_AllParametersPage> {
                   _query = value;
                   _expandedGroups.clear();
                 }),
-                style: TextStyle(color: _adaptiveLabelColor(context)),
+                style: MgTypography.sans(
+                  MgTypography.body.copyWith(
+                    color: _adaptiveLabelColor(context),
+                  ),
+                ),
               ),
             );
           }

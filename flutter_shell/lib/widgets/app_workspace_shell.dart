@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../theme/mg_colors.dart';
+import '../theme/mg_typography.dart';
 
 /// A navigation entry in the cross-platform configuration workspace.
 class AppWorkspaceItem {
@@ -80,7 +81,9 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
             child: Row(
               children: [
                 SizedBox(
-                  width: compact ? 64 : 220,
+                  width: compact
+                      ? MgMetrics.sidebarCompactWidth
+                      : MgMetrics.sidebarWidth,
                   child: ColoredBox(
                     color: colors.sidebar,
                     child: Column(
@@ -96,17 +99,20 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
                           Padding(
                             padding: const EdgeInsets.fromLTRB(12, 0, 12, 18),
                             child: SizedBox(
-                              height: 34,
+                              height: MgMetrics.controlHeight,
                               child: TextField(
                                 controller: _search,
-                                style: TextStyle(
-                                  color: colors.textPrimary,
-                                  fontSize: 13,
+                                style: MgTypography.sans(
+                                  MgTypography.body.copyWith(
+                                    color: colors.textPrimary,
+                                  ),
                                 ),
                                 decoration: InputDecoration(
                                   hintText: '搜索配置',
-                                  hintStyle: TextStyle(
-                                    color: colors.textSecondary,
+                                  hintStyle: MgTypography.sans(
+                                    MgTypography.body.copyWith(
+                                      color: colors.textSecondary,
+                                    ),
                                   ),
                                   prefixIcon: Icon(
                                     Icons.search,
@@ -169,10 +175,10 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
                                 selected.label,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: colors.textPrimary,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w600,
+                                style: MgTypography.sans(
+                                  MgTypography.title.copyWith(
+                                    color: colors.textPrimary,
+                                  ),
                                 ),
                               ),
                             ),
@@ -196,9 +202,11 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
                                       color: colors.accent,
                                     ),
                                     const SizedBox(height: 2),
-                                    const Text(
+                                    Text(
                                       '返回前台地图',
-                                      style: TextStyle(fontSize: 11),
+                                      style: MgTypography.sans(
+                                        MgTypography.caption,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -257,14 +265,18 @@ class _SidebarEntry extends StatelessWidget {
               onTap: onPressed,
               borderRadius: BorderRadius.circular(7),
               child: SizedBox(
-                height: 36,
+                height: MgMetrics.navItemHeight,
                 child: Row(
                   mainAxisAlignment: compact
                       ? MainAxisAlignment.center
                       : MainAxisAlignment.start,
                   children: [
                     if (!compact) const SizedBox(width: 12),
-                    Icon(item.icon, size: 18, color: foreground),
+                    Icon(
+                      item.icon,
+                      size: MgMetrics.navIconSize,
+                      color: foreground,
+                    ),
                     if (!compact) ...[
                       const SizedBox(width: 12),
                       Expanded(
@@ -272,12 +284,13 @@ class _SidebarEntry extends StatelessWidget {
                           item.label,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: foreground,
-                            fontSize: 13,
-                            fontWeight: selected
-                                ? FontWeight.w600
-                                : FontWeight.w400,
+                          style: MgTypography.sans(
+                            MgTypography.body.copyWith(
+                              color: foreground,
+                              fontWeight: selected
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
                           ),
                         ),
                       ),

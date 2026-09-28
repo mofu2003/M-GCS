@@ -2,9 +2,9 @@ name: 构建与测试
 
 on:
   push:
-    branches: [ New-main ]
+    branches: [ main ]
   pull_request:
-    branches: [ New-main ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -36,3 +36,25 @@ jobs:
     - name: 运行离线与模拟测试
       working-directory: build
       run: ctest --output-on-failure -C ${{ matrix.build_type }} -L "offline|simulation" -LE "hardware|manual"
+
+  flutter-shell:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: flutter_shell
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: subosito/flutter-action@v2
+      with:
+        channel: stable
+
+    - name: 获取依赖
+      run: flutter pub get
+
+    - name: 静态分析
+      run: flutter analyze
+
+    - name: 运行外壳测试
+      run: flutter test
