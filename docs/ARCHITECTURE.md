@@ -106,9 +106,15 @@ ffi_api.h
 - `ffi_flight_mode_state.cc`、`ffi_flight_commands.cc`：飞行模式与飞行命令。
 - `ffi_payload_commands.cc`、`ffi_sitl_commands.cc`、`ffi_survey_commands.cc`、`ffi_terrain_commands.cc`：领域命令。
 - `ffi_sensor_decode.cc`、`sensor_*_json_serializers.h`：传感器解码和健康视图。
-- `mission_json_serializers.h`、`param_json_serializers.h`：领域 JSON 序列化。
-- `telemetry_freshness.h`、`telemetry_cache.h`：遥测新鲜度和缓存。
+- `mission_json_serializers.h`：任务领域 JSON 序列化。
 - `ffi_diagnostics.cc`：工业化诊断聚合层。
+
+遥测缓存与通用 JSON 序列化属于 core：`core/include/core/telemetry/` 下有
+`json_builder.h`、`json_serializers.h`、`param_json_serializers.h`、
+`sensor_health_json_serializers.h`、`telemetry_freshness.h` 和
+`telemetry_cache.h`。`bridge/ffi/` 里保留同名转发头，把符号用 `using`
+引入 `mg::bridge`，避免调用点大改；`test_bridge_architecture_guards.cc`
+会断言 core 库不再 include 任何 `bridge/` 路径。
 
 FFI 约束：
 

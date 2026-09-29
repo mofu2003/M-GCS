@@ -4,7 +4,7 @@
  * Tests: construction, update routing, JSON output, thread safety
  * All tests use mock data, no real hardware needed.
  */
-#include "telemetry_cache.h"
+#include "core/telemetry/telemetry_cache.h"
 #include "core/platform/platform_mutex.h"
 #include <cstdio>
 #include <cstring>
@@ -27,7 +27,7 @@ int main() {
     // 1. Construction
     fprintf(stderr, "[Group] Construction\n");
     {
-        mg::bridge::TelemetryCache cache;
+        mg::core::telemetry::TelemetryCache cache;
         (void)cache;
         CHECK(true, "TelemetryCache constructs without crash");
     }
@@ -35,7 +35,7 @@ int main() {
     // 2. Default JSON output
     fprintf(stderr, "[Group] Default JSON output\n");
     {
-        mg::bridge::TelemetryCache cache;
+        mg::core::telemetry::TelemetryCache cache;
 
         std::string hb_json = cache.heartbeat.to_json();
         CHECK(hb_json.find("type") != std::string::npos, "heartbeat JSON has 'type' field");
@@ -61,7 +61,7 @@ int main() {
     // 3. Direct data access
     fprintf(stderr, "[Group] Direct data access\n");
     {
-        mg::bridge::TelemetryCache cache;
+        mg::core::telemetry::TelemetryCache cache;
         CHECK(cache.gps.data.lat == 0.0f, "default GPS lat is 0");
 
         cache.gps.data.lat = 399042000;  // 39.9042 degrees * 1e7
@@ -71,7 +71,7 @@ int main() {
     // 4. Mutex lock/unlock cycle
     fprintf(stderr, "[Group] Mutex operations\n");
     {
-        mg::bridge::TelemetryCache cache;
+        mg::core::telemetry::TelemetryCache cache;
         {
             mg::core::platform::LockGuard lk(cache.mtx);
             float lat = cache.gps.data.lat;
@@ -82,7 +82,7 @@ int main() {
     // 5. Concurrent access stress test
     fprintf(stderr, "[Group] Thread safety stress test\n");
     {
-        mg::bridge::TelemetryCache cache;
+        mg::core::telemetry::TelemetryCache cache;
         std::atomic<int> error_count{0};
 
         auto writer = [&](int id) {
@@ -112,7 +112,7 @@ int main() {
     // 6. SysStatus health JSON
     fprintf(stderr, "[Group] SysStatus sensor health\n");
     {
-        mg::bridge::TelemetryCache cache;
+        mg::core::telemetry::TelemetryCache cache;
         cache.sys_status.autopilot_type = 3;
         cache.sys_status.data.onboard_control_sensors_present = 1 | 2 | 4 | 8 | 32 | 32768 | 65536 | 33554432;
         cache.sys_status.data.onboard_control_sensors_enabled = 1 | 2 | 4 | 8 | 32 | 32768 | 65536 | 33554432;
@@ -136,23 +136,23 @@ int main() {
     // 7. TelemetryType enum coverage
     fprintf(stderr, "[Group] TelemetryType enum\n");
     {
-        mg::bridge::TelemetryType types[] = {
-            mg::bridge::TelemetryType::kHeartbeat,
-            mg::bridge::TelemetryType::kSysStatus,
-            mg::bridge::TelemetryType::kGps,
-            mg::bridge::TelemetryType::kAttitude,
-            mg::bridge::TelemetryType::kVfrHud,
-            mg::bridge::TelemetryType::kImu,
-            mg::bridge::TelemetryType::kPressure,
-            mg::bridge::TelemetryType::kFirmwareVersion,
-            mg::bridge::TelemetryType::kRcChannels,
-            mg::bridge::TelemetryType::kServoOutput,
-            mg::bridge::TelemetryType::kStatustext,
-            mg::bridge::TelemetryType::kGlobalPosition,
-            mg::bridge::TelemetryType::kHomePosition,
-            mg::bridge::TelemetryType::kBattery,
-            mg::bridge::TelemetryType::kHighresImu,
-            mg::bridge::TelemetryType::kExtendedSysState,
+        mg::core::telemetry::TelemetryType types[] = {
+            mg::core::telemetry::TelemetryType::kHeartbeat,
+            mg::core::telemetry::TelemetryType::kSysStatus,
+            mg::core::telemetry::TelemetryType::kGps,
+            mg::core::telemetry::TelemetryType::kAttitude,
+            mg::core::telemetry::TelemetryType::kVfrHud,
+            mg::core::telemetry::TelemetryType::kImu,
+            mg::core::telemetry::TelemetryType::kPressure,
+            mg::core::telemetry::TelemetryType::kFirmwareVersion,
+            mg::core::telemetry::TelemetryType::kRcChannels,
+            mg::core::telemetry::TelemetryType::kServoOutput,
+            mg::core::telemetry::TelemetryType::kStatustext,
+            mg::core::telemetry::TelemetryType::kGlobalPosition,
+            mg::core::telemetry::TelemetryType::kHomePosition,
+            mg::core::telemetry::TelemetryType::kBattery,
+            mg::core::telemetry::TelemetryType::kHighresImu,
+            mg::core::telemetry::TelemetryType::kExtendedSysState,
         };
         CHECK(sizeof(types) / sizeof(types[0]) == 16, "16 telemetry types defined");
     }
@@ -160,7 +160,7 @@ int main() {
     // 8. Vehicle identity from ArduPilot boot STATUSTEXT
     fprintf(stderr, "[Group] Vehicle identity\n");
     {
-        mg::bridge::TelemetryCache cache;
+        mg::core::telemetry::TelemetryCache cache;
         cache.update_statustext("SULILGH7-P1-P2 0045001E 31305106 33343837", 6);
 
         CHECK(cache.snapshot_vehicle_name() == "SULILGH7-P1-P2", "boot STATUSTEXT extracts vehicle name");

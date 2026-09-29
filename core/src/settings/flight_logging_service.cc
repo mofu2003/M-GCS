@@ -2,7 +2,7 @@
  * flight_logging_service.cc - 飞行日志服务实现
  */
 #include "core/settings/flight_logging_service.h"
-#include "json_builder.h"
+#include "core/telemetry/json_builder.h"
 #include "core/platform/platform_mutex.h"
 #include "core/log/logging.h"
 
@@ -22,7 +22,7 @@ void FlightLoggingService::set_write_callback(WriteCallback cb) {
 }
 
 std::string FlightLoggingService::status_json() const {
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("active", active_.load());
     jb.field("events", static_cast<int64_t>(event_count_.load()));
@@ -77,7 +77,7 @@ bool FlightLoggingService::append_event(const std::string& source, int severity,
         std::ostringstream ts;
         ts << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S");
 
-        mg::bridge::JsonBuilder jb;
+        mg::core::telemetry::JsonBuilder jb;
         jb.begin_object();
         jb.field("timestamp", ts.str());
         jb.field("source", source);

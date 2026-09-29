@@ -14,7 +14,7 @@
 #include "core/transport/connection_manager.h"
 #include "core/transport/link_config.h"
 #include "core/video/video_receiver.h"
-#include "telemetry_cache.h"
+#include "core/telemetry/telemetry_cache.h"
 
 #include <array>
 #include <atomic>
@@ -86,7 +86,7 @@ public:
 
     mg::core::transport::ConnectionManager& conn() { return conn_; }
     mg::core::mavlink::MavlinkAdapter* mavlink() { return conn_.get_mavlink(); }
-    mg::bridge::TelemetryCache& cache() { return cache_; }
+    mg::core::telemetry::TelemetryCache& cache() { return cache_; }
     void set_usb_board_name(const std::string& name) { cache_.set_usb_board_name(name); }
 
     mg::core::calibration::CalibrationService& calibration() { return calibration_; }
@@ -135,7 +135,7 @@ public:
 
 private:
     void fire_event(int event_type, const std::string& json);
-    void update_and_fire(mg::bridge::TelemetryType type, int event_id);
+    void update_and_fire(mg::core::telemetry::TelemetryType type, int event_id);
     /// 清空所有 IMU 实例的波形缓冲与活跃时间。
     void clear_waveforms();
 
@@ -146,7 +146,7 @@ private:
     mg::core::platform::Mutex event_cb_mtx_;
     EventCallback event_cb_;
     mg::core::transport::ConnectionManager conn_;
-    mg::bridge::TelemetryCache cache_;
+    mg::core::telemetry::TelemetryCache cache_;
 
     mg::core::calibration::CalibrationService calibration_;
     mg::core::flight::FlightModeManager flight_modes_;

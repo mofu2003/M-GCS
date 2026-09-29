@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`ARCH-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`；`CI-001` 标记 `WONTFIX`）。
 - 当前分支：`main`。
 - 本地门禁由 `tools/preflight.sh --no-macos-build` 加单独一次 `flutter build macos --debug` 实跑得出。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -99,14 +99,20 @@ tools/preflight.sh
 
 ### ARCH-001：core 逆向依赖 bridge
 
-- 状态：`OPEN`
-- 实测：`core/include/core/vehicle/vehicle.h` 直接 include `bridge/ffi/telemetry_cache.h`。
-- 影响：违反 `core → third_party`、`bridge → core` 的单向依赖约束。
-- 原因：`mgcore` 把 `bridge/ffi` 加到了 PUBLIC include 路径。
-- 修复方式：把 `TelemetryCache` 下沉到 core，或为 Vehicle 定义 core 侧缓存接口，并收紧 CMake include 可见性。
-- 回归保护：给 `test_bridge_architecture_guards.cc` 增加 core→bridge 方向断言。
-- 现状：`TelemetryCache` 依赖 `json_serializers.h` / `telemetry_freshness.h` 等 bridge 私有头，
-  下沉需要连同这组序列化器一起迁移，属于独立重构；本轮不动，避免半个迁移让依赖更乱。
+- 状态：`RESOLVED`（2026-09-29）
+- 实测（修复前）：`core/include/core/vehicle/vehicle.h` 直接 include
+  `"telemetry_cache.h"`，而该文件位于 `bridge/ffi/`；根因是 `mgcore` 把
+  `bridge/ffi` 挂到了 PUBLIC include 路径，裸文件名 include 因此能命中。
+- 修复：把 `telemetry_cache.h` 连同它依赖的 `json_builder.h`、
+  `json_serializers.h`、`param_json_serializers.h`、
+  `sensor_health_json_serializers.h`、`telemetry_freshness.h` 一起下沉到
+  `core/include/core/telemetry/`，命名空间改为 `mg::core::telemetry`。
+  `bridge/ffi/` 保留同名转发头，用 `using` 把符号引入 `mg::bridge`，
+  因此 30 多个 FFI 调用点无需改动。
+- 回归保护：`test_bridge_architecture_guards.cc` 新增
+  `core does not depend on bridge` 组，遍历 `core/include` 与 `core/src`，
+  断言没有任何文件 include `bridge/` 路径，并校验 Vehicle 用的是 core 侧头文件。
+- 验证：后端 34/34 通过（含新增断言）；`mgcore` 与 `mgcore_static` 均编译通过。
 
 ### CAL-001：校准读回失败被判成成功
 
@@ -243,15 +249,15 @@ tools/preflight.sh
   新计入的 5 个符号是
   `mg_serial_get_uart_names`、`mg_log_request_list`、`mg_terrain_query`、
   `mg_flight_get_takeoff_altitude`、`mg_flight_get_loiter_radius`。
-- 验证：修复后脚本输出 281 / 48 / 179 / 101。叠加本轮 `TEST-001` / `TEST-002`
-  的新测试后，当前值为 **281 / 48 / 185 / 95**（以第 3 节与脚本实跑为准）。
+- 验证：修复后脚本输出 281 / 48 / 179 / 101。叠加本轮 `TEST-001` / `TEST-002` /
+  `TEST-003` 的新测试后，当前值为 **281 / 48 / 187 / 93**（以第 3 节与脚本实跑为准）。
 
 ### CI-001：远端 CI 运行状态未在本地审计确认
 
-- 状态：`UNVERIFIED`
+- 状态：`WONTFIX`（2026-09-29，用户明确指示不再跟踪）
 - 原因：本审计不访问远端。
 - 已知历史：v0.0.8 时 CI 因私有仓库计费被拦截，作业从未真正运行。
-- 完成标准：在 GitHub Actions 页面确认 4 个 job 实际执行，而不是只看 workflow 是否触发。
+- 说明：此项不再列为待办，也不影响本地门禁结论；若将来 CI 恢复且需要，再另开条目。
 
 ## 5. 已解决或已变化的事项
 
@@ -285,6 +291,7 @@ tools/preflight.sh
 | Flutter 桥接 | 新增任务模型、后端接口和 `missionPlanning` 控制器（尚未连 FFI，见 `MISSION-001`） |
 | 电机控件 | `mg_range_bar.dart` 删除，替换为 `mg_motor_output_bar.dart` |
 | 新增文档 | `COLLABORATION.md`、`MISSION_PLANNING.md`、`FONT_ALTERNATIVES_RESEARCH.md`、`MULTIVEHICLE_CONNECTION_RESEARCH.md`、ADR 0007 |
+| 依赖方向 | `telemetry_cache.h` 及 4 个序列化器下沉到 `core/include/core/telemetry/`，bridge 只留转发头；新增 core→bridge 方向断言（`ARCH-001`） |
 | Windows 串口 | 修复 ANSI/UTF-8 越界写、补齐 DCB/清理/部分写处理、加强读线程退出 |
 | Windows 飞控发现 | USB 遥测电台 `SiK Radio` 现在也会标记为飞控候选 |
 | Windows 打包 | Flutter Windows 构建显式继承生成器/架构，安装阶段校验 DLL 和数据文件 |
@@ -293,10 +300,8 @@ tools/preflight.sh
 ## 6. 建议顺序
 
 1. 把 `MISSION-001` 的后端任务规划真正接到 Flutter（先定边界，再绑 FFI）。
-2. 修正 `ARCH-001` 的 core→bridge 逆向依赖。
-3. 接入 `UI-001` / `UI-002` 聚合诊断和长任务取消。
-4. 启动 `DEPRECATION-001`，让兼容接口进入明确退役流程。
-5. 远端 CI 恢复后，以一次真实运行关闭 `CI-001`。
+2. 接入 `UI-001` / `UI-002` 聚合诊断和长任务取消。
+3. 启动 `DEPRECATION-001`，让兼容接口进入明确退役流程。
 
 ## 7. 维护规则
 
@@ -316,7 +321,7 @@ tools/preflight.sh
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`ARCH-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`；`CI-001` 转 `WONTFIX`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；本地门禁（含 macOS debug 构建）已实跑通过 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

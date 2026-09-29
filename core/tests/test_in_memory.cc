@@ -7,7 +7,7 @@
 #include "core/mavlink/mavlink_adapter.h"
 #include "core/platform/platform_mutex.h"
 #include "ffi_api.h"
-#include "json_builder.h"
+#include "core/telemetry/json_builder.h"
 #include "ardupilotmega/mavlink.h"
 #include <iostream>
 #include <cstring>

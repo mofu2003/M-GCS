@@ -212,14 +212,17 @@
 </div>
 
 <div class="note">
-  <b>实测发现一处分层泄漏（与既有记录不符）：</b>
-  <code>core/include/core/vehicle/vehicle.h</code> 第 17 行 <code>#include "telemetry_cache.h"</code>，
-  而该文件实际位于 <code>bridge/ffi/telemetry_cache.h</code>——因为根 <code>CMakeLists.txt</code> 把
-  <code>bridge/ffi</code> 挂到了 <code>mgcore</code> 的 PUBLIC include 路径上（第 226–229 行）。
-  即 <b><code>core/vehicle</code> 依赖了 <code>bridge/ffi</code></b>，方向被打破。
-  此前"core 对 bridge/ffi 引用为 0"的结论是用 <code>bridge/</code> 前缀做文本匹配得出的，
-  裸文件名 include 没被匹配到，所以漏检；<code>test_bridge_architecture_guards.cc</code> 只检查
-  bridge 层自身的文件规模与分组，不校验 core→bridge 方向，因此门禁也抓不到。
+  <b>分层泄漏（已修复）：</b>
+  曾经 <code>core/include/core/vehicle/vehicle.h</code> 第 17 行是
+  <code>#include "telemetry_cache.h"</code>，而该文件实际位于
+  <code>bridge/ffi/telemetry_cache.h</code>，于是
+  <b><code>core/vehicle</code> 依赖了 <code>bridge/ffi</code></b>，方向被打破。
+  原因是根 <code>CMakeLists.txt</code> 把 <code>bridge/ffi</code> 挂到了
+  <code>mgcore</code> 的 PUBLIC include 路径上；此前"core 对 bridge/ffi 引用为 0"
+  的结论是用 <code>bridge/</code> 前缀做文本匹配得出的，裸文件名 include 没被匹配到。
+  现已把 <code>telemetry_cache.h</code> 及其四个序列化器下沉到
+  <code>core/include/core/telemetry/</code>，<code>bridge/ffi/</code> 只留同名转发头，
+  并在 <code>test_bridge_architecture_guards.cc</code> 增加 core→bridge 方向断言。
 </div>
 </section>
 
@@ -402,8 +405,9 @@
       <div class="t">会话解析与序列化</div>
       <div class="m">
         <code>ffi_vehicle_session.*</code> · <code>ffi_internal.h</code>（<code>get_active_cache()</code>）<br>
-        <code>json_builder.h</code> · <code>telemetry_bindings.h</code> · <code>telemetry_freshness.h</code><br>
-        <code>*_json_serializers.h</code>（mission / param / sensor / health）
+        <code>telemetry_bindings.h</code> · <code>mission_json_serializers.h</code><br>
+        <code>json_builder.h</code> / <code>telemetry_freshness.h</code> 等已是转发头，
+        实体在 <code>core/include/core/telemetry/</code>
       </div>
     </div>
   </div>

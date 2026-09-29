@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -135,7 +136,10 @@ static void test_mission_management_stays_focused_on_mission_editing() {
 
 static void test_telemetry_cache_delegates_freshness_tracking() {
     fprintf(stderr, "\n[Group] telemetry cache locality\n");
-    const auto telemetry_cache = read_file(repo_root() / "bridge/ffi/telemetry_cache.h");
+    // 实体已下沉到 core；bridge 下只剩转发头，所以这里必须读 core 路径，
+    // 否则断言会在转发头上空转通过。
+    const auto telemetry_cache =
+        read_file(repo_root() / "core/include/core/telemetry/telemetry_cache.h");
 
     CHECK(telemetry_cache.find("std::map<TelemetryType, uint64_t> last_update_ms_") == std::string::npos,
           "TelemetryCache does not own raw freshness timestamp storage");
@@ -149,7 +153,8 @@ static void test_telemetry_cache_delegates_freshness_tracking() {
 
 static void test_json_serializers_stay_focused_on_telemetry_shapes() {
     fprintf(stderr, "\n[Group] JSON serializer locality\n");
-    const auto serializers = read_file(repo_root() / "bridge/ffi/json_serializers.h");
+    const auto serializers =
+        read_file(repo_root() / "core/include/core/telemetry/json_serializers.h");
 
     CHECK(serializers.find("core/mission/mission_types.h") == std::string::npos,
           "core telemetry serializers do not depend on mission domain types");
@@ -181,6 +186,47 @@ static void test_ffi_api_is_an_umbrella_not_a_grab_bag() {
           "ffi_api.h stays small as an umbrella header");
 }
 
+// ARCH-001：依赖方向必须是 flutter -> bridge -> core -> third_party。
+// core 里任何文件都不允许 include bridge/ 下的头文件。
+static void test_core_does_not_include_bridge_headers() {
+    fprintf(stderr, "\n[Group] core does not depend on bridge\n");
+    const auto root = repo_root();
+
+    std::vector<std::string> offenders;
+    // 只检查 core 库本体（include + src）。core/tests 按设计同时引用两侧，
+    // 不受依赖方向约束。
+    for (const auto* relative_dir : {"core/include", "core/src"}) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(
+                 root / relative_dir)) {
+            if (!entry.is_regular_file()) continue;
+            const auto path = entry.path();
+            const auto extension = path.extension().string();
+            if (extension != ".h" && extension != ".hpp" && extension != ".cc") {
+                continue;
+            }
+            const auto text = read_file(path);
+            if (text.find("#include \"bridge/") != std::string::npos ||
+                text.find("#include <bridge/") != std::string::npos) {
+                offenders.push_back(
+                    std::filesystem::relative(path, root).string());
+            }
+        }
+    }
+
+    for (const auto& offender : offenders) {
+        fprintf(stderr, "    core includes bridge header: %s\n",
+                offender.c_str());
+    }
+    CHECK(offenders.empty(),
+          "no core library file includes a bridge/ header");
+
+    // TelemetryCache 现在归属 core，Vehicle 直接引用 core 路径。
+    const auto vehicle = read_file(root / "core/include/core/vehicle/vehicle.h");
+    CHECK(vehicle.find("#include \"core/telemetry/telemetry_cache.h\"") !=
+              std::string::npos,
+          "Vehicle includes the core-owned telemetry cache");
+}
+
 int main() {
     fprintf(stderr, "=== Bridge Architecture Guard Tests ===\n");
     test_deep_bridge_modules_do_not_include_internal_grab_bag();
@@ -193,6 +239,7 @@ int main() {
     test_telemetry_cache_delegates_freshness_tracking();
     test_json_serializers_stay_focused_on_telemetry_shapes();
     test_ffi_api_is_an_umbrella_not_a_grab_bag();
+    test_core_does_not_include_bridge_headers();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }
