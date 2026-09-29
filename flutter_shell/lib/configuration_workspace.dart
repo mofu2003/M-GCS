@@ -1610,7 +1610,8 @@ class _ArmingChecksPageState extends State<_ArmingChecksPage> {
               _ParameterWriteStatus(controller: controller),
               const SizedBox(height: _headerGap),
             ],
-            // 和其它配置页同一观感：整块用带边框的面板框住，主开关与清单之间加分隔线。
+            // 和其它配置页同一观感：整块用带边框的面板框住，内部按行/列打分隔线，
+            // 行高取标准开关行高度，比表格行更紧凑。
             DecoratedBox(
               decoration: BoxDecoration(
                 color: context.mgColors.surface,
@@ -1618,21 +1619,24 @@ class _ArmingChecksPageState extends State<_ArmingChecksPage> {
                 borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
               ),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
+                padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _ArmingToggle(
-                      label: '全部',
-                      value: allEnabled,
-                      enabled: !busy,
-                      onChanged: (value) => unawaited(
-                        _write(
-                          controller,
-                          parameterName,
-                          inverted,
-                          checks,
-                          (_) => value,
+                    SizedBox(
+                      height: MgMetrics.controlHeight,
+                      child: _ArmingToggle(
+                        label: '全部',
+                        value: allEnabled,
+                        enabled: !busy,
+                        onChanged: (value) => unawaited(
+                          _write(
+                            controller,
+                            parameterName,
+                            inverted,
+                            checks,
+                            (_) => value,
+                          ),
                         ),
                       ),
                     ),
@@ -1641,7 +1645,6 @@ class _ArmingChecksPageState extends State<_ArmingChecksPage> {
                       thickness: 1,
                       color: context.mgColors.divider,
                     ),
-                    const SizedBox(height: 10),
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final columns = constraints.maxWidth >= 900
@@ -1649,33 +1652,76 @@ class _ArmingChecksPageState extends State<_ArmingChecksPage> {
                             : constraints.maxWidth >= 560
                             ? 2
                             : 1;
-                        final width =
-                            (constraints.maxWidth - (columns - 1) * _cardGap) /
-                            columns;
-                        return Wrap(
-                          spacing: _cardGap,
-                          runSpacing: _cardGap,
+                        // 按列切行，行间与列间都打分隔线，形成参数表观感。
+                        final rows = [
+                          for (
+                            var start = 0;
+                            start < checks.length;
+                            start += columns
+                          )
+                            checks.sublist(
+                              start,
+                              math.min(start + columns, checks.length),
+                            ),
+                        ];
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            for (final check in checks)
+                            for (var row = 0; row < rows.length; row++) ...[
+                              if (row > 0)
+                                Divider(
+                                  height: 1,
+                                  thickness: 1,
+                                  color: context.mgColors.divider,
+                                ),
                               SizedBox(
-                                width: width,
-                                child: _ArmingToggle(
-                                  label: check.label,
-                                  value: enabled(check),
-                                  enabled: !busy,
-                                  onChanged: (value) => unawaited(
-                                    _write(
-                                      controller,
-                                      parameterName,
-                                      inverted,
-                                      checks,
-                                      (item) => item.bit == check.bit
-                                          ? value
-                                          : enabled(item),
-                                    ),
-                                  ),
+                                height: MgMetrics.controlHeight,
+                                child: Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    for (
+                                      var column = 0;
+                                      column < columns;
+                                      column++
+                                    ) ...[
+                                      if (column > 0)
+                                        SizedBox(
+                                          width: 1,
+                                          child: ColoredBox(
+                                            color: context.mgColors.divider,
+                                          ),
+                                        ),
+                                      Expanded(
+                                        child: column < rows[row].length
+                                            ? _ArmingToggle(
+                                                label: rows[row][column].label,
+                                                value: enabled(
+                                                  rows[row][column],
+                                                ),
+                                                enabled: !busy,
+                                                onChanged: (value) => unawaited(
+                                                  _write(
+                                                    controller,
+                                                    parameterName,
+                                                    inverted,
+                                                    checks,
+                                                    (item) =>
+                                                        item.bit ==
+                                                            rows[row][column]
+                                                                .bit
+                                                        ? value
+                                                        : enabled(item),
+                                                  ),
+                                                ),
+                                              )
+                                            : const SizedBox.shrink(),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
+                            ],
                           ],
                         );
                       },
@@ -1705,8 +1751,8 @@ class _ArmingToggle extends StatelessWidget {
   final ValueChanged<bool> onChanged;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: MgMetrics.rowHeight,
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 8),
     child: Row(
       children: [
         Expanded(
@@ -1717,7 +1763,7 @@ class _ArmingToggle extends StatelessWidget {
             style: MacosTheme.of(context).typography.body,
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
         MacosSwitch(
           value: value,
           size: ControlSize.small,
