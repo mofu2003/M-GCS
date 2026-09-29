@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`HOME-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`HOME-002`、`MISSION-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
 - 当前分支：`main`。
 - 本地门禁由 `tools/preflight.sh --no-macos-build` 加单独一次 `flutter build macos --debug` 实跑得出。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -361,7 +361,23 @@ tools/preflight.sh
 - 验证：`test_sim_commands` 新增 `SET HOME ENCODING` 组：断言参数编码
   （param1=0、degE7 位置、高度米）、越界经纬度被拒且不发出命令（64/64 通过）。
 
+### MISSION-002：无法把飞控任务读进文档；_INT 帧导入后校验不过
+
+- 状态：`RESOLVED`（2026-09-29）
+- 实测（修复前）：任务文档只能自己编辑，没有“从飞控读取”的入口
+  （`mg_mission_download` 只产出 MissionPlan，文档层没有 plan→entity 的转换）；
+  另外文档校验只接受帧 0/2/3/10，而飞控回读普遍用 `_INT` 帧 5/6/11，
+  真机任务导进来会被自己的校验判 `entity.frame_unsupported`。
+- 修复：新增 `mg_mission_doc_import_from_vehicle`（对标 MP 的 Read / QGC 的
+  Download）：要求一次已完成下载，否则 `invalid_state`；只替换实体，
+  保留 metadata / defaults / home。新增 `normalize_mission_frame()`
+  把 5→0、6→3、11→10，`.waypoints` 导入和飞控导入共用。
+- 验证：`test_sim_mission_document` 新增导入用例：未下载时报 `code:-5`、
+  下载后导入成功、实体命名与类型保留、导入结果 `valid:true`（20/20 通过）。
+- 说明：这个 `_INT` 帧问题是写测试时才暴露出来的——正是“先写用例再信结论”的价值。
+
 ### DEAD-001：固件刷写是死代码，状态接口返回硬编码值
+
 
 
 - 状态：`OPEN`（低危，未修）
@@ -494,7 +510,7 @@ FFmpeg 的构建环境。两者都不影响当前默认构建。
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`HOME-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`HOME-002`、`MISSION-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；本地门禁（含 macOS debug 构建）已实跑通过 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

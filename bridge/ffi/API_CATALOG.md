@@ -34,7 +34,7 @@ and a migration note have been published.
 | Calibration | `mg_calibration_start`, `mg_calibration_cancel`, `mg_calibration_get_status`, `mg_calibration_accel_confirm`, `mg_calibration_start_airspeed`. `mg_calibration_start` 的 `type` 取 0=gyro、1=accel、2=compass、3=baro、4=radio（遥控器行程校准，MAV_CMD_PREFLIGHT_CALIBRATION param4=1）。`mg_calibration_get_status` 的返回里 `progress` 是所有罗盘的最大值，`compass_progress` 是分罗盘数组 `[{compass_id, completion_pct}]`，供界面按识别到的罗盘数量各画一条进度条 |
 | Flight commands | `mg_command_*`。注意 `mg_command_set_home` 会改变返航（RTL）基准，调用方必须先向用户确认；参数与 QGC 的 `doSetHome` 一致（`param1=0`、`param5/6` 用「度」、`param7` 米），越界经纬度会被本地拒绝 |
 | Logging | `mg_log_request_list`, `mg_log_get_entries`, `mg_log_record_*` |
-| Mission planning document | `mg_mission_doc_create`, `mg_mission_doc_apply`, `mg_mission_doc_validate`, `mg_mission_doc_compile`, `mg_mission_doc_upload`, `mg_mission_doc_verify` |
+| Mission planning document | `mg_mission_doc_create`, `mg_mission_doc_apply`, `mg_mission_doc_validate`, `mg_mission_doc_compile`, `mg_mission_doc_upload`, `mg_mission_doc_verify`, `mg_mission_doc_import_from_vehicle` |
 | Mission file interchange | `mg_mission_doc_export_format`, `mg_mission_doc_import_format`（当前支持 `"waypoints"`，即 Mission Planner / QGC 的 `QGC WPL 110` 文本） |
 | Mission command metadata | `mg_mission_get_command_catalog` |
 
@@ -117,6 +117,15 @@ vehicle mission after a completed full download. Calling verify after upload
 but before download returns `invalid_state`. It returns `matches` plus structured
 differences for item count, command, frame, position, altitude, parameters,
 `autocontinue`, and `mission_type`.
+
+`mg_mission_doc_import_from_vehicle` replaces the document's entities with the
+vehicle's current mission. It matches Mission Planner's *Read* and QGroundControl's
+*Download*: it requires a completed download (`invalid_state` otherwise), and the
+caller is responsible for confirming before local edits are overwritten. Imported
+items keep command, frame, parameters and position; parameterized survey intent
+cannot be recovered from the compiled mission. `_INT` coordinate frames (5/6/11)
+are normalised to 0/3/10 on import, because the document stores positions as
+degrees and compiles back to degE7 itself.
 
 Upload is start-only, for both `mg_mission_doc_upload` and the compatibility
 entry `mg_mission_upload`: a successful return means the transfer was started,

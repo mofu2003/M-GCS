@@ -82,6 +82,48 @@ int main() {
     CHECK(result && strstr(result, "\"revision\":5"), "update waypoint increments revision");
     if (result) mg_free_string(result);
 
+    // 从飞控读取任务：QGC 的 Download / MP 的 Read。读取前必须有完成的下载。
+    MockVehicleTestEnv fresh;
+    for (int i = 0; i < 15; ++i) fresh.tick(100);
+    result = mg_mission_doc_create(fresh.core, R"({"metadata":{"name":"Import"}})");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_import_from_vehicle(fresh.core);
+    CHECK(
+        result && strstr(result, "\"code\":-5"),
+        "import from vehicle requires a completed download");
+    if (result) mg_free_string(result);
+
+    std::vector<mavlink_mission_item_int_t> items(2);
+    memset(items.data(), 0, sizeof(mavlink_mission_item_int_t) * items.size());
+    for (int i = 0; i < 2; ++i) {
+        items[i].seq = static_cast<uint16_t>(i);
+        items[i].frame = MAV_FRAME_GLOBAL_RELATIVE_ALT_INT;
+        items[i].command = (i == 0) ? MAV_CMD_NAV_TAKEOFF : MAV_CMD_NAV_WAYPOINT;
+        items[i].autocontinue = 1;
+        items[i].x = 399042000 + i * 1000;
+        items[i].y = 1164074000 + i * 1000;
+        items[i].z = 30.0f + i * 20.0f;
+        items[i].mission_type = MAV_MISSION_TYPE_MISSION;
+    }
+    fresh.mock->set_mission(items);
+
+    result = mg_mission_download(fresh.core);
+    if (result) mg_free_string(result);
+    for (int i = 0; i < 80; ++i) fresh.tick(50);
+
+    result = mg_mission_doc_import_from_vehicle(fresh.core);
+    CHECK(
+        result && strstr(result, "\"success\":true"),
+        "import from vehicle succeeds after a download");
+    CHECK(result && strstr(result, "\"wp-1\""), "imported entities are named");
+    CHECK(result && strstr(result, "\"takeoff\""), "imported command keeps its entity type");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_validate(fresh.core);
+    CHECK(result && strstr(result, "\"valid\":true"), "imported document validates");
+    if (result) mg_free_string(result);
+
     result = mg_mission_doc_verify(env.core, 0.1);
     CHECK(result && strstr(result, "\"matches\":false"), "verify detects local document drift");
     CHECK(result && strstr(result, "\"difference_count\":1"), "verify reports altitude difference");

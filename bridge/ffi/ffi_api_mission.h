@@ -41,6 +41,10 @@ MGCORE_API char* mg_mission_doc_upload(
     mg_core_t* core,
     unsigned long long expected_revision);
 MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m);
+// 把飞控当前任务读进任务文档（替换实体列表，保留 metadata / defaults / home）。
+// 需要一次已完成的任务下载，否则返回 invalid_state：读取语义与 MP 的 Read、
+// QGC 的 Download 一致，调用方应在覆盖本地改动前自行确认。
+MGCORE_API char* mg_mission_doc_import_from_vehicle(mg_core_t* core);
 MGCORE_API char* mg_mission_get_command_catalog(mg_core_t* core);
 MGCORE_API char* mg_mission_doc_export(mg_core_t* core);
 MGCORE_API char* mg_mission_doc_import(mg_core_t* core, const char* json_document);

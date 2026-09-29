@@ -232,4 +232,23 @@ const char* mission_entity_type_name(const std::string& type);
 /// 该实体类型是否由 SurveyCalculator 在编译期展开（而不是 1 实体 1 任务项）。
 bool is_parameterized_survey_type(const std::string& type);
 
+/// 由 MAV_CMD 反推实体类型（waypoint / takeoff / land / rtl / loiter）。
+/// 导入外部任务（`.waypoints` 文件、飞控回读）时统一用它，避免两处映射不一致。
+const char* mission_entity_type_for_command(uint16_t command);
+
+/// 把 `_INT` 系列坐标帧归一成文档使用的普通帧。
+///
+/// 飞控回读的任务普遍用 `MAV_FRAME_GLOBAL_*_INT`（5/6/11），因为整数经纬度；
+/// 文档用 double 存位置、编译时再转 degE7，两者语义相同，所以 5→0、6→3、
+/// 11→10。不归一化的话，导入回来的任务会被自己的校验判成 frame_unsupported。
+uint8_t normalize_mission_frame(uint8_t frame);
+
+/// 用一份已编译的 MAVLink 任务替换文档的实体列表（home 与 metadata 保留）。
+/// 用于“从飞控读取任务”这类导入：任务项只带 command/frame/params/位置，
+/// 参数化测绘等意图无法还原，这是格式本身的限制。
+bool import_mission_plan_into_document(
+    const MissionPlan& plan,
+    MissionDocument& document,
+    std::string& error);
+
 } // namespace mg::core::mission::cad

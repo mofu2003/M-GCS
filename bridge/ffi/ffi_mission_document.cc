@@ -430,6 +430,51 @@ MGCORE_API char* mg_mission_doc_upload(
     return to_cstr(jb.str());
 }
 
+MGCORE_API char* mg_mission_doc_import_from_vehicle(mg_core_t* core) {
+    CHECK_CORE(core); CHECK_CONNECTED(core);
+
+    auto* mavlink = get_active_mavlink(core);
+    if (!mavlink) {
+        return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected");
+    }
+    const auto snapshot = mavlink->mission_get_plan_snapshot();
+    const auto provenance = snapshot.provenance;
+    if (provenance.last_completed_download_revision == 0 ||
+        provenance.last_completed_download_revision !=
+            provenance.plan_revision) {
+        mg_set_last_error(MG_ERROR_INVALID_STATE);
+        mg::bridge::JsonBuilder error;
+        error.begin_object();
+        error.field("success", false);
+        error.field(
+            "error",
+            "vehicle mission must be downloaded successfully before importing");
+        error.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
+        error.field(
+            "plan_revision",
+            static_cast<unsigned long long>(provenance.plan_revision));
+        error.end_object();
+        return to_cstr(error.str());
+    }
+
+    // 只替换实体，保留 metadata / defaults / home 与 revision 语义。
+    MissionDocument document = ensure_document(core)->snapshot();
+    std::string error;
+    if (!mg::core::mission::cad::import_mission_plan_into_document(
+            snapshot.plan,
+            document,
+            error)) {
+        return fail(MG_ERROR_INVALID_STATE, error.c_str());
+    }
+
+    auto service = std::make_shared<MissionDocumentService>(std::move(document));
+    {
+        mg::core::platform::LockGuard lock(core->mission_mtx);
+        core->mission_document = service;
+    }
+    return to_cstr(document_snapshot_json(service, true));
+}
+
 MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
     CHECK_CORE(core); CHECK_CONNECTED(core);
 

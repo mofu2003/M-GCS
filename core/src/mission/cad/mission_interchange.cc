@@ -24,10 +24,6 @@ namespace mg::core::mission::cad {
 namespace {
 
 constexpr int kHomeCommand = 16;      // MAV_CMD_NAV_WAYPOINT
-constexpr uint16_t kCommandLoiter = 17;
-constexpr uint16_t kCommandRtl = 20;
-constexpr uint16_t kCommandLand = 21;
-constexpr uint16_t kCommandTakeoff = 22;
 
 std::vector<std::string> split_fields(const std::string& line) {
     std::vector<std::string> fields;
@@ -71,16 +67,6 @@ std::string format_fixed(double value, int decimals) {
     char buffer[64];
     std::snprintf(buffer, sizeof(buffer), "%.*f", decimals, value);
     return std::string(buffer);
-}
-
-std::string entity_type_for_command(uint16_t command) {
-    switch (command) {
-        case kCommandRtl:     return "rtl";
-        case kCommandLand:    return "land";
-        case kCommandTakeoff: return "takeoff";
-        case kCommandLoiter:  return "loiter";
-        default:              return "waypoint";
-    }
 }
 
 } // namespace
@@ -218,9 +204,10 @@ bool import_waypoints_text(
 
         MissionEntity entity;
         entity.id = "waypoint-" + std::to_string(++entity_index);
-        entity.type = entity_type_for_command(static_cast<uint16_t>(command));
+        entity.type = mission_entity_type_for_command(static_cast<uint16_t>(command));
         entity.command = static_cast<uint16_t>(command);
-        entity.frame = static_cast<uint8_t>(frame);
+        // 文件里可能是 _INT 帧，归一化后文档校验才认。
+        entity.frame = normalize_mission_frame(static_cast<uint8_t>(frame));
         entity.autocontinue = static_cast<uint8_t>(autocontinue != 0 ? 1 : 0);
         entity.latitude = latitude;
         entity.longitude = longitude;

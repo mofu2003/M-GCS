@@ -1693,4 +1693,57 @@ bool is_parameterized_survey_type(const std::string& type) {
     return type == "survey_grid" || type == "corridor";
 }
 
+const char* mission_entity_type_for_command(uint16_t command) {
+    switch (command) {
+        case static_cast<uint16_t>(NavCommand::NavTakeoff):          return "takeoff";
+        case static_cast<uint16_t>(NavCommand::NavLand):             return "land";
+        case static_cast<uint16_t>(NavCommand::NavReturnToLaunch):   return "rtl";
+        case static_cast<uint16_t>(NavCommand::NavLoiterTurns):
+        case static_cast<uint16_t>(NavCommand::NavLoiterTime):
+        case static_cast<uint16_t>(NavCommand::NavLoiterUnlim):      return "loiter";
+        default:                                                     return "waypoint";
+    }
+}
+
+uint8_t normalize_mission_frame(uint8_t frame) {
+    switch (frame) {
+        case 5:  return 0;   // GLOBAL_INT -> GLOBAL
+        case 6:  return 3;   // GLOBAL_RELATIVE_ALT_INT -> GLOBAL_RELATIVE_ALT
+        case 11: return 10;  // GLOBAL_TERRAIN_ALT_INT -> GLOBAL_TERRAIN_ALT
+        default: return frame;
+    }
+}
+
+bool import_mission_plan_into_document(
+    const MissionPlan& plan,
+    MissionDocument& document,
+    std::string& error) {
+    error.clear();
+    if (plan.items.empty()) {
+        error = "vehicle returned an empty mission";
+        return false;
+    }
+
+    std::vector<MissionEntity> entities;
+    entities.reserve(plan.items.size());
+    int index = 0;
+    for (const MissionItem& item : plan.items) {
+        MissionEntity entity;
+        entity.id = "wp-" + std::to_string(++index);
+        entity.type = mission_entity_type_for_command(item.command);
+        entity.command = item.command;
+        entity.frame = normalize_mission_frame(item.frame);
+        entity.autocontinue = item.autocontinue;
+        entity.latitude = static_cast<double>(item.x) / 1e7;
+        entity.longitude = static_cast<double>(item.y) / 1e7;
+        entity.altitude_m = item.z;
+        entity.params = {item.param1, item.param2, item.param3, item.param4};
+        entity.order = static_cast<uint32_t>(entities.size());
+        entities.push_back(std::move(entity));
+    }
+
+    document.entities = std::move(entities);
+    return true;
+}
+
 } // namespace mg::core::mission::cad
