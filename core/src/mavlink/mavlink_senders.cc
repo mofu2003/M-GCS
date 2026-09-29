@@ -69,6 +69,19 @@ bool MavlinkAdapter::request_autopilot_version(uint8_t target_system,
     return impl_->send_msg();
 }
 
+// 请求 home 点：MAV_CMD_GET_HOME_POSITION，飞控会回一条 HOME_POSITION。
+// 与 Mission Planner 的 getHomePositionAsync 一致（它在此基础上做 3 次重试）。
+bool MavlinkAdapter::request_home_position(uint8_t target_system,
+                                            uint8_t target_component) {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    mavlink_msg_command_long_pack(
+        255, 0, &impl_->msg,
+        target_system, target_component,
+        MAV_CMD_GET_HOME_POSITION,
+        0, 0, 0, 0, 0, 0, 0, 0);
+    return impl_->send_msg();
+}
+
 // 请求完整参数列表（带超时重试状态初始化）
 bool MavlinkAdapter::request_param_list(uint8_t target_system,
                                          uint8_t target_component) {

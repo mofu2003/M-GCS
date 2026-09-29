@@ -432,6 +432,11 @@ public:
                              uint8_t stream_id, uint16_t rate_hz);
     // 请求飞控版本信息
     bool request_autopilot_version(uint8_t target_system, uint8_t target_component);
+    /// 请求飞控上报 home 点（MAV_CMD_GET_HOME_POSITION）。
+    ///
+    /// ArduPilot 只在首次上电和每次解锁时发一次 HOME_POSITION，之后不再流式发送，
+    /// 所以 GCS 连晚了就永远收不到。QGC 的注释与做法见其 APMFirmwarePlugin。
+    bool request_home_position(uint8_t target_system, uint8_t target_component);
     // 请求完整参数列表
     bool request_param_list(uint8_t target_system, uint8_t target_component);
 

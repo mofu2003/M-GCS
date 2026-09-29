@@ -325,6 +325,44 @@ void test_serial_get_uart_names() {
 
 }  // namespace
 
+// ArduPilot 只在首次上电与解锁时发一次 HOME_POSITION，GCS 必须主动要。
+// 这条用例钉住“连上并识别后自动请求 home”，以及 home 缓存能被正确读出。
+void test_home_position_is_requested_on_identify() {
+    fprintf(stderr, "\n[Group] home position request\n");
+    TestEnv env;
+    env.connect();
+
+    bool requested_home = false;
+    bool requested_stream = false;
+    for (const auto& cmd : env.mock->received_cmds) {
+        if (cmd.command == 410 /* MAV_CMD_GET_HOME_POSITION */) {
+            requested_home = true;
+        }
+        if (cmd.command == 511 /* MAV_CMD_SET_MESSAGE_INTERVAL */ &&
+            cmd.p1 == static_cast<float>(MAVLINK_MSG_ID_HOME_POSITION) &&
+            cmd.p2 == 1000000.0f) {
+            requested_stream = true;
+        }
+    }
+    CHECK(requested_home, "GCS asks for home position after identifying the vehicle");
+    CHECK(requested_stream, "GCS requests 1 Hz HOME_POSITION streaming");
+
+    // 没有 home 之前必须是 invalid，不能拿 0,0 当作有效 home 画到地图上。
+    char* empty = mg_vehicle_get_home_position(env.core);
+    CHECK(json_has(empty, "\"valid\":false"), "home is invalid before the FC reports one");
+    if (empty) mg_free_string(empty);
+
+    env.mock->send_home_position(39.9042, 116.4074, 42.5);
+    env.tick(50);
+
+    char* home = mg_vehicle_get_home_position(env.core);
+    CHECK(json_has(home, "\"valid\":true"), "home becomes valid after HOME_POSITION");
+    CHECK(json_has(home, "\"lat_deg\":39.90"), "home latitude decoded from degE7");
+    CHECK(json_has(home, "\"lon_deg\":116.40"), "home longitude decoded from degE7");
+    CHECK(json_has(home, "\"alt_m\":42.5"), "home altitude decoded from mm");
+    if (home) mg_free_string(home);
+}
+
 int main() {
     fprintf(stderr, "=== FFI UI path simulation tests ===\n");
     test_params_get_by_name();
@@ -334,6 +372,7 @@ int main() {
     test_config_param_write_path();
     test_flight_log_captures_statustext();
     test_waypoint_reached_event_is_emitted();
+    test_home_position_is_requested_on_identify();
     test_log_list_reports_real_entries();
     test_rc_calibrate_save_is_honest();
     test_mission_request_propagates_send_failure();

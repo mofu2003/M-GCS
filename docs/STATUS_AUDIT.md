@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
 - 当前分支：`main`。
 - 本地门禁由 `tools/preflight.sh --no-macos-build` 加单独一次 `flutter build macos --debug` 实跑得出。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -329,6 +329,25 @@ tools/preflight.sh
   导入后校验、缺表头/空行拒绝、格式名不合法拒绝。
 - 剩余：QGC `.plan`（JSON，含 geoFence / rallyPoints）与 Rally 文档尚未实现。
 
+### HOME-001：GCS 从不主动请求 home 点
+
+- 状态：`RESOLVED`（2026-09-29）
+- 实测（修复前）：core/bridge 里没有任何地方发 `MAV_CMD_GET_HOME_POSITION`(410)
+  或 `MAV_CMD_SET_MESSAGE_INTERVAL`(511) 请求 `HOME_POSITION`；只在收到该消息时
+  被动缓存。而 ArduPilot 只在首次上电和每次解锁时发一次（QGC 的
+  `APMFirmwarePlugin` 原话：*"only sends home position on first boot and then when
+  it arms. It does not stream the position."*），所以 GCS 连晚了就永远收不到，
+  地图上的 home 一直空着。
+- 修复：`MavlinkAdapter::request_home_position()` 新增（对齐 Mission Planner 的
+  `getHomePositionAsync`）；`Vehicle` 在识别出系统号后立即请求一次，并用
+  `SET_MESSAGE_INTERVAL` 把 `HOME_POSITION` 设为 1 Hz 持续上报（对齐 QGC 的做法），
+  覆盖旧固件不支持 `SET_MESSAGE_INTERVAL` 的情况。
+- 注意：请求放在“识别出 sysid 之后”，因为首次心跳里 `set_identity` 发生在
+  `record_heartbeat()`（即 Connected 状态切换）之后，在状态回调里发会猜 target。
+- 验证：`test_sim_ui_paths` 新增 `home position request` 组，断言连上并识别后
+  发出 410 与 511(HOME_POSITION, 1 Hz)，且 home 缓存从 invalid 变为正确的
+  度/米值（degE7 与毫米换算）。已用“让 sender 直接 return true”验证该用例会 FAIL。
+
 ### DEAD-001：固件刷写是死代码，状态接口返回硬编码值
 
 - 状态：`OPEN`（低危，未修）
@@ -411,6 +430,7 @@ tools/preflight.sh
 | 飞行日志 | STATUSTEXT 与连接事件真正接入日志服务（`LOG-001`）；写回调移出持锁路径（`LOCK-001`） |
 | 任务规划 | `survey_grid` / `corridor` 成为参数化实体，编译期由 `SurveyCalculator` 展开（`SURVEY-001`）；新增 `.waypoints` 互操作（`INTEROP-001`） |
 | 事件通道 | `MG_EVENT_WAYPOINT_REACHED` 以前从不发出，现已接线并带 `seq`（`EVENT-001`） |
+| Home 点 | 连接并识别后主动请求 `HOME_POSITION` 并设为 1 Hz 上报，不再依赖飞控那一次广播（`HOME-001`） |
 | 架构守卫 | `read_file` 打不开文件时直接判失败，避免守卫静默空转（`TESTGUARD-001`） |
 | 校准测试 | 新增读回失败回归用例；mock 补 `INS_GYROFFS_*` / `INS_ACCOFFS_*` 参数 |
 | 飞行模式分档 | 多旋翼/固定翼 PWM 分档拆分，无效 RC 值不再误判档位 |
@@ -460,7 +480,7 @@ FFmpeg 的构建环境。两者都不影响当前默认构建。
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；本地门禁（含 macOS debug 构建）已实跑通过 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

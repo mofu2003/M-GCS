@@ -146,6 +146,19 @@ public:
         send(m);
     }
 
+    /// 发送 HOME_POSITION，模拟飞控上报 home 点（经纬度用度、高度用米）。
+    void send_home_position(double lat_deg, double lon_deg, double alt_m) {
+        const float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+        mavlink_message_t m;
+        mavlink_msg_home_position_pack(
+            config_.system_id, config_.component_id, &m,
+            static_cast<int32_t>(lat_deg * 1e7),
+            static_cast<int32_t>(lon_deg * 1e7),
+            static_cast<int32_t>(alt_m * 1000.0),
+            0.0f, 0.0f, 0.0f, q, 0.0f, 0.0f, 0.0f, 0);
+        send(m);
+    }
+
     // 故障注入状态（public，供测试断言）
     int cmd_drop_count_=0, cmd_dropped_so_far_=0;
     bool param_list_no_response_=false;

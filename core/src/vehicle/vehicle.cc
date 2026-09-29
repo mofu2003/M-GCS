@@ -260,6 +260,16 @@ void Vehicle::wire_telemetry_callbacks() {
                 info.component_id,
                 adapter.firmware_name(),
                 adapter.normalized_vehicle_name());
+            // ArduPilot 只在首次上电和每次解锁时发一次 HOME_POSITION，GCS 连晚了
+            // 就收不到，地图上的 home 会一直空着（QGC 的 APMFirmwarePlugin 有同样
+            // 的注释与做法）。识别出系统号之后再要，避免猜 target。
+            if (auto* mav = self->conn_.get_mavlink()) {
+                mav->request_home_position(info.system_id, info.component_id);
+                mav->request_message_interval(
+                    info.system_id, info.component_id,
+                    MAVLINK_MSG_ID_HOME_POSITION,
+                    1000000 /* 1 Hz */);
+            }
         }
     });
 
