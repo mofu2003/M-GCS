@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`TEST-001`、`TOOL-002`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`TEST-001`、`TOOL-002`、`CONTRACT-001`）。
 - 当前分支：`main`。
 - 本轮本地门禁由 `tools/preflight.sh --no-macos-build` 实跑得出；**macOS debug 构建本轮未重跑**。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -122,11 +122,14 @@ tools/preflight.sh
 
 ### CONTRACT-001：前端参数写入入口未进入 Catalog
 
-- 状态：`OPEN`
-- 实测：`mg_config_read_param`、`mg_config_write_param`、`mg_config_write_params` 已声明和实现，但未出现在 `API_CATALOG.md`。
-- 当前 Catalog 的 Preferred 参数写入入口仍是 `mg_params_set`。
-- 影响：Flutter 实际使用路径与契约目录不一致，违反铁律三。
-- 处理：统一到 `mg_params_set`，或把 `mg_config_*` 正式登记为首选入口并说明差异。
+- 状态：`RESOLVED`（2026-09-29）
+- 实测（修复前）：`mg_config_read_param`、`mg_config_write_param`、`mg_config_write_params`
+  已声明和实现，但未出现在 `API_CATALOG.md`；Catalog 只把 `mg_params_set` 列为参数写入入口，
+  而 Flutter 走的是 `mg_config_*`。
+- 处理：把 `mg_config_*` 正式登记为“Parameter write (UI) / Parameter metadata”首选入口，
+  并写明与 `mg_params_set` 的差别（带描述库校验；不要求参数表已完整下载，类型缺失回退 REAL32）。
+- 验证：`API_CATALOG.md` 的 Preferred Entry Points 现包含这三个符号；
+  `test_sim_ui_paths` 覆盖“读回描述元数据 + 写入转发 PARAM_SET + 空名拒绝”。
 
 ### UI-001：聚合诊断接口未接 Flutter
 
@@ -154,7 +157,7 @@ tools/preflight.sh
 - 附带修复：给 mock 增加最小 MAVLink FTP 应答器（ResetSessions / OpenFileRO /
   ReadFile / TerminateSession），使 `mg_serial_get_uart_names` 的
   `@SYS/uarts.txt` 下载路径可以在 0.5s 内离线复现，而不是等 3s×4 重试超时。
-- 验证：`ctest -L simulation` 中的 `test_sim_ui_paths` 22/22 通过。
+- 验证：`ctest -L simulation` 中的 `test_sim_ui_paths` 26/26 通过。
 
 ### TEST-002：安全敏感飞行指令无测试
 
@@ -245,6 +248,7 @@ tools/preflight.sh
 | Mock FTP | `MockFlightController` 增加最小 MAVLink FTP 应答器，支撑 `mg_serial_get_uart_names` 离线复现 |
 | 协作脚本 | `preflight.sh`、`install-hooks.sh`、`release.sh` 已实现 |
 | 审计脚本 | 新增 `audit_status.sh`，并修复 `TOOL-001`、`TOOL-002` |
+| FFI 契约目录 | `API_CATALOG.md` 把 `mg_config_read_param` / `mg_config_write_param(s)` 登记为参数读写首选入口（`CONTRACT-001`） |
 | pre-commit | 校验暂存快照，拒绝未暂存和相关未跟踪文件 |
 | CMake/CTest | 最低版本 3.20，空测试会失败 |
 | 任务规划 | 新增 MissionDocument、命令目录、校验、编译、估算、上传和回读 |
@@ -260,13 +264,12 @@ tools/preflight.sh
 
 1. 把 `MISSION-001` 的后端任务规划真正接到 Flutter（先定边界，再绑 FFI）。
 2. 修正 `ARCH-001` 的 core→bridge 逆向依赖。
-3. 解决 `CONTRACT-001`，统一参数写入入口。
-4. 接入 `UI-001` / `UI-002` 聚合诊断和长任务取消。
-5. 补 `TEST-002` / `TEST-003` 安全敏感路径测试。
-6. 清理 `CLEANUP-001` 的孤儿陈列页，或明确其豁免地位。
-7. 启动 `DEPRECATION-001`，让兼容接口进入明确退役流程。
-8. 补跑一次 macOS debug 构建，关闭本轮标记为 UNVERIFIED 的门禁项。
-9. 远端 CI 恢复后，以一次真实运行关闭 `CI-001`。
+3. 接入 `UI-001` / `UI-002` 聚合诊断和长任务取消。
+4. 补 `TEST-002` / `TEST-003` 安全敏感路径测试。
+5. 清理 `CLEANUP-001` 的孤儿陈列页，或明确其豁免地位。
+6. 启动 `DEPRECATION-001`，让兼容接口进入明确退役流程。
+7. 补跑一次 macOS debug 构建，关闭本轮标记为 UNVERIFIED 的门禁项。
+8. 远端 CI 恢复后，以一次真实运行关闭 `CI-001`。
 
 ## 7. 维护规则
 
@@ -286,7 +289,7 @@ tools/preflight.sh
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`（校准读回判失败）、`TEST-001`（5 个 UI 接口测试）、`TOOL-002`（函数指针漏统计）；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`TEST-001`、`TOOL-002`、`CONTRACT-001`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；macOS debug 构建本轮未重跑 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

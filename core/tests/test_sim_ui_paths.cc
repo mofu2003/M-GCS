@@ -149,6 +149,34 @@ void test_calibration_cancel() {
     if (stopped) mg_free_string(stopped);
 }
 
+void test_config_param_write_path() {
+    fprintf(stderr, "\n[Group] mg_config_read_param / mg_config_write_param\n");
+    TestEnv env;
+    env.connect();
+    env.load_params();
+
+    char* detail = mg_config_read_param(env.core, "WPNAV_SPEED");
+    CHECK(json_has(detail, "\"param_name\":\"WPNAV_SPEED\""),
+          "config read returns descriptor metadata");
+    if (detail) mg_free_string(detail);
+
+    env.mock->received_params_set.clear();
+    char* write = mg_config_write_param(env.core, "WPNAV_SPEED", 7.0f);
+    CHECK(json_has(write, "\"success\":true"), "config write accepted");
+    if (write) mg_free_string(write);
+
+    env.tick(50);
+    bool forwarded = false;
+    for (const auto& name : env.mock->received_params_set) {
+        if (name == "WPNAV_SPEED") forwarded = true;
+    }
+    CHECK(forwarded, "config write forwards PARAM_SET to the flight controller");
+
+    char* empty = mg_config_write_param(env.core, "", 1.0f);
+    CHECK(json_has(empty, "\"success\":false"), "empty name is rejected");
+    if (empty) mg_free_string(empty);
+}
+
 void test_serial_get_uart_names() {
     fprintf(stderr, "\n[Group] mg_serial_get_uart_names\n");
 
@@ -186,6 +214,7 @@ int main() {
     test_stream_set_interval();
     test_vehicle_request_firmware_version();
     test_calibration_cancel();
+    test_config_param_write_path();
     test_serial_get_uart_names();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
