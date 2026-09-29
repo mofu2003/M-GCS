@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`TEST-001`、`TEST-002`、`TOOL-002`、`CONTRACT-001`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`）。
 - 当前分支：`main`。
 - 本地门禁由 `tools/preflight.sh --no-macos-build` 加单独一次 `flutter build macos --debug` 实跑得出。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -68,8 +68,8 @@ tools/preflight.sh
 | --- | ---: |
 | FFI 导出 | 281 |
 | 前端实际使用 | 48 |
-| 测试触达 | 185 |
-| 既无前端调用、也无测试触达 | 95 |
+| 测试触达 | 187 |
+| 既无前端调用、也无测试触达 | 93 |
 
 按领域头拆分（三列互斥，逐行求和等于导出数）：
 
@@ -84,7 +84,7 @@ tools/preflight.sh
 | geofence | 16 | 0 | 4 | 12 |
 | logging | 22 | 0 | 3 | 19 |
 | mission | 40 | 15 | 9 | 16 |
-| params | 20 | 6 | 3 | 11 |
+| params | 20 | 6 | 5 | 9 |
 | payload | 17 | 0 | 13 | 4 |
 | telemetry | 46 | 10 | 30 | 6 |
 
@@ -92,7 +92,7 @@ tools/preflight.sh
 
 - 导出数包含新增的任务规划 FFI，因此不再等于 v0.0.8 快照中的 266。
 - “无人区”不等于可删除代码。专用公开面仍需按 `API_CATALOG.md` 的稳定性规则处理。
-- 完整 95 个接口清单可由 `tools/audit_status.sh` 重新生成。
+- 完整 93 个接口清单可由 `tools/audit_status.sh` 重新生成。
 - 早期版本的逐域表格三列不互斥（“仅测试”含前端已用的项），已在修正 `TOOL-001` 时一起修好。
 
 ## 4. 当前问题登记
@@ -184,10 +184,13 @@ tools/preflight.sh
 
 ### TEST-003：批量参数变更集无验证
 
-- 状态：`OPEN`
+- 状态：`RESOLVED`（2026-09-29）
 - 接口：`mg_params_prepare_change_set`、`mg_params_commit_change_set`。
 - 风险点：去重、未知参数、未变化参数、逐项失败和 `_ENABLE` 最后写入。
-- 影响：这是写参数路径中最容易造成部分应用状态的接口组。
+- 处理：`test_sim_params.cc` 新增 4 组用例——未加载参数时拒绝、非数组/缺 value
+  的畸形 JSON 拒绝、重名取最后一次且分别统计 unchanged/unknown、`_ENABLE`
+  在所有依赖项之后写入；另外断言存在未解析项时 `success:false`。
+- 验证：`test_sim_params` 39/39 通过。
 
 ### DEPRECATION-001：兼容接口没有退役状态
 
@@ -208,10 +211,14 @@ tools/preflight.sh
 
 ### CLEANUP-001：组件陈列页无人引用
 
-- 状态：`OPEN`
+- 状态：`RESOLVED`（保留并写明用途，2026-09-29）
 - 实测：`flutter_shell/lib/component_gallery_demo.dart`（1,047 行）没有被任何页面或测试 import。
 - 影响：它仍持有 `MacosColors.*` 引用，会让 token 扫描的豁免范围长期存在。
-- 处理：确认是否已无展示价值；若保留，应在文件中注明用途并加入扫描豁免清单，否则删除。
+- 处理：确认仍有展示价值（对照 macos_ui 原始组件与色板，是前端选型时的参考件），
+  因此保留而不是删除：文件头已注明“开发工具、不进 release 包、main.dart 不引用”，
+  并已在 `tools/check_ui_tokens.dart` 的豁免清单中。
+- 验证：`main.dart` 只 `runApp(const MgcsApp())`，不引用该文件；
+  `flutter analyze lib test` 通过，说明该独立 target 仍可编译。
 
 ### TOOL-001：审计脚本缺失依赖时静默产出假数据
 
@@ -264,6 +271,8 @@ tools/preflight.sh
 | 校准 | 新增 `radio_calibration` 策略（RC 校准）；修正“读回参数失败仍判成功”的校验漏洞（`CAL-001`） |
 | 导航指令编码 | `mg_command_guided_point` 的 `DO_REPOSITION` 经纬度单位修正为「度」（`CAL-002`） |
 | 模拟测试 | 新增 `test_sim_commands` 的安全指令编码与飞行模式状态用例；`flight` 领域已无“无人区”接口 |
+| 参数变更集 | 新增 `test_sim_params` 的批量变更集用例：去重、未知/未变化统计、`_ENABLE` 最后写入（`TEST-003`） |
+| 组件画廊 | `component_gallery_demo.dart` 明确为开发工具（不进 release、已列入 token 豁免），保留而非删除（`CLEANUP-001`） |
 | 校准测试 | 新增读回失败回归用例；mock 补 `INS_GYROFFS_*` / `INS_ACCOFFS_*` 参数 |
 | 飞行模式分档 | 多旋翼/固定翼 PWM 分档拆分，无效 RC 值不再误判档位 |
 | Mock FTP | `MockFlightController` 增加最小 MAVLink FTP 应答器，支撑 `mg_serial_get_uart_names` 离线复现 |
@@ -286,10 +295,8 @@ tools/preflight.sh
 1. 把 `MISSION-001` 的后端任务规划真正接到 Flutter（先定边界，再绑 FFI）。
 2. 修正 `ARCH-001` 的 core→bridge 逆向依赖。
 3. 接入 `UI-001` / `UI-002` 聚合诊断和长任务取消。
-4. 补 `TEST-003` 批量参数变更集的验证。
-5. 清理 `CLEANUP-001` 的孤儿陈列页，或明确其豁免地位。
-6. 启动 `DEPRECATION-001`，让兼容接口进入明确退役流程。
-7. 远端 CI 恢复后，以一次真实运行关闭 `CI-001`。
+4. 启动 `DEPRECATION-001`，让兼容接口进入明确退役流程。
+5. 远端 CI 恢复后，以一次真实运行关闭 `CI-001`。
 
 ## 7. 维护规则
 
@@ -309,7 +316,7 @@ tools/preflight.sh
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`TEST-001`、`TEST-002`、`TOOL-002`、`CONTRACT-001`；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；本地门禁（含 macOS debug 构建）已实跑通过 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

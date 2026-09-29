@@ -214,11 +214,131 @@ static void test_geofence_get_uses_loaded_ardupilot_params() {
     mg_free_string(fence);
 }
 
+static bool load_all_params(TestEnv& env) {
+    env.tick(1100);
+    char* res = mg_params_request_all(env.core);
+    if (res) mg_free_string(res);
+
+    for (int i = 0; i < 50; i++) {
+        env.tick(50);
+        char* prog = mg_params_get_progress(env.core);
+        const int received = parse_progress_received(prog);
+        const int total = parse_progress_total(prog);
+        if (prog) mg_free_string(prog);
+        if (total > 0 && received >= total) return true;
+    }
+    return false;
+}
+
+static void test_change_set_requires_loaded_params() {
+    fprintf(stderr, "\n[Group] Change set requires loaded params\n");
+    TestEnv env;
+    env.tick(1100);
+
+    const char* request = "[{\"name\":\"WPNAV_SPEED\",\"value\":6}]";
+
+    char* prepared = mg_params_prepare_change_set(env.core, request);
+    CHECK("prepare rejects before params load",
+          prepared != nullptr && strstr(prepared, "\"success\":false") != nullptr);
+    if (prepared) mg_free_string(prepared);
+
+    char* committed = mg_params_commit_change_set(env.core, request);
+    CHECK("commit rejects before params load",
+          committed != nullptr && strstr(committed, "\"success\":false") != nullptr);
+    if (committed) mg_free_string(committed);
+}
+
+static void test_change_set_rejects_malformed_json() {
+    fprintf(stderr, "\n[Group] Change set malformed JSON\n");
+    TestEnv env;
+    CHECK("params loaded for malformed json", load_all_params(env));
+
+    char* not_array = mg_params_prepare_change_set(env.core, "{\"name\":\"A\"}");
+    CHECK("prepare rejects non-array json",
+          not_array != nullptr && strstr(not_array, "\"success\":false") != nullptr);
+    if (not_array) mg_free_string(not_array);
+
+    char* missing_value = mg_params_prepare_change_set(
+        env.core, "[{\"name\":\"WPNAV_SPEED\"}]");
+    CHECK("prepare rejects entry without numeric value",
+          missing_value != nullptr &&
+              strstr(missing_value, "\"success\":false") != nullptr);
+    if (missing_value) mg_free_string(missing_value);
+}
+
+static void test_change_set_planning() {
+    fprintf(stderr, "\n[Group] Change set planning\n");
+    TestEnv env;
+    CHECK("params loaded for planning", load_all_params(env));
+
+    // 重名取最后一次，未知参数与未变化参数分别计数。
+    const char* request =
+        "[{\"name\":\"WPNAV_SPEED\",\"value\":6},"
+        "{\"name\":\"WPNAV_SPEED\",\"value\":7},"
+        "{\"name\":\"NOT_A_REAL_PARAM\",\"value\":1},"
+        "{\"name\":\"WPNAV_RADIUS\",\"value\":2}]";
+    char* json = mg_params_prepare_change_set(env.core, request);
+    CHECK("duplicates collapse to one ready change",
+          json != nullptr && strstr(json, "\"ready\":1") != nullptr);
+    CHECK("unchanged change counted",
+          json != nullptr && strstr(json, "\"unchanged\":1") != nullptr);
+    CHECK("unknown change counted",
+          json != nullptr && strstr(json, "\"unknown\":1") != nullptr);
+    CHECK("last duplicate value wins",
+          json != nullptr && strstr(json, "\"value\":7") != nullptr);
+    if (json) mg_free_string(json);
+}
+
+static void test_change_set_commit_orders_enable_last() {
+    fprintf(stderr, "\n[Group] Change set commit ordering\n");
+    TestEnv env;
+    CHECK("params loaded for commit", load_all_params(env));
+    env.mock->received_params_set.clear();
+
+    const char* request =
+        "[{\"name\":\"COMPASS_ENABLE\",\"value\":0},"
+        "{\"name\":\"WPNAV_SPEED\",\"value\":8}]";
+    char* json = mg_params_commit_change_set(env.core, request);
+    CHECK("both ready changes written",
+          json != nullptr && strstr(json, "\"written\":2") != nullptr);
+    CHECK("commit success when everything resolved",
+          json != nullptr && strstr(json, "\"success\":true") != nullptr);
+    if (json) mg_free_string(json);
+
+    env.tick(100);
+
+    int speed_index = -1;
+    int enable_index = -1;
+    for (size_t i = 0; i < env.mock->received_params_set.size(); i++) {
+        if (env.mock->received_params_set[i] == "WPNAV_SPEED") {
+            speed_index = static_cast<int>(i);
+        }
+        if (env.mock->received_params_set[i] == "COMPASS_ENABLE") {
+            enable_index = static_cast<int>(i);
+        }
+    }
+    CHECK("both PARAM_SET reached the flight controller",
+          speed_index >= 0 && enable_index >= 0);
+    CHECK("_ENABLE parameter is written after its dependents",
+          speed_index >= 0 && enable_index > speed_index);
+
+    char* unknown_only = mg_params_commit_change_set(
+        env.core, "[{\"name\":\"NOT_A_REAL_PARAM\",\"value\":1}]");
+    CHECK("commit reports failure when a change is unresolved",
+          unknown_only != nullptr &&
+              strstr(unknown_only, "\"success\":false") != nullptr);
+    if (unknown_only) mg_free_string(unknown_only);
+}
+
 int main() {
     fprintf(stderr, "=== Parameter Simulation Tests ===\n");
     test_full_download();
     test_param_get();
     test_param_set();
+    test_change_set_requires_loaded_params();
+    test_change_set_rejects_malformed_json();
+    test_change_set_planning();
+    test_change_set_commit_orders_enable_last();
     test_config_uses_ardupilot_profile_metadata();
     test_geofence_get_uses_loaded_ardupilot_params();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
