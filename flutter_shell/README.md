@@ -8,6 +8,12 @@ Flutter-rendered; macOS-specific code is limited to optional window chrome.
 Connection, telemetry, sensor waveforms, and calibration remain available in
 the workspace, subject to each platform's native backend support.
 
+UI text uses one bundled font family, `MiSans`, on every platform, so macOS and
+Windows render identically. The family is defined in a single place,
+`lib/theme/mg_typography.dart` (`MgFonts`), and the font files live in
+`assets/fonts/` together with their license. See `docs/adr/0007-unified-font-stack.md`
+for the selection data and the license obligations.
+
 The map reuses the raster-tile catalog. It starts with
 Gaode standard tiles and supports Gaode satellite, satellite-with-road-labels,
 OpenStreetMap HOT, and OpenHikingMap. No AMap JavaScript key is required for

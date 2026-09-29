@@ -2,8 +2,8 @@
 
 ## 状态
 
-已采纳（原则部分）。字体文件与 `MgFonts` 改造尚未落地，选型待定——
-中文侧尚无合格候选，详见「决策」与调研文档。
+已采纳并实施。选型为 **MiSans 单套**（同时覆盖汉字与拉丁），
+字体文件与 `MgFonts` 改造均已落地，实测数据见「决策」与调研文档。
 
 ## 背景
 
@@ -54,36 +54,57 @@ Windows 的 ClearType 光栅化差异，观感差距被进一步放大。
    其他平台向它对齐，而不是反过来让 mac 端迁就别的平台。
 3. **字体打包进仓库**，放在 `flutter_shell/assets/fonts/`，由 `pubspec.yaml`
    声明，`MgFonts` 单点定义族名。业务页面不得出现字体族名或平台判断。
-4. **许可必须商业友好**。本项目是商业项目，只采用 OFL、Apache-2.0 这类许可，
-   来源、版本与分发义务记录在本文件。禁止从系统字体目录复制字体（Apple /
-   Microsoft 的系统字体不可再分发）。
-5. **字体族总数控制在 1～2 套**。西文一套、中文回退一套是上限，不为数字读数
-   单独引入第三套等宽族。数字对齐由 `FontFeature.tabularFigures()` 保证，不用
-   等宽字体实现——多一套族就多一处跨平台回退风险。
+4. **许可必须允许商用与打包**。优先 OFL、Apache-2.0；商业友好的自定义许可
+   也可采用，但必须在本文件记录**署名、修改、再分发、可撤销性**四类义务与风险。
+   禁止从系统字体目录复制字体（Apple / Microsoft 的系统字体不可再分发）。
+5. **字体族总数控制在 1～2 套**。当前选型压到 **1 套**（MiSans），不再需要
+   中文回退链。数字对齐由 `FontFeature.tabularFigures()` 保证，不用等宽字体实现
+   ——多一套族就多一处跨平台回退风险。
+6. **数字不加粗**。数字读数统一 `FontWeight.w400`。界面里数字密度高，加粗会让
+   成片读数抢走标题的层级，也让等宽数字的笔画糊在一起；层级由字号与颜色承担。
 
 已落地的第一步（2026-09-29）：删除了 `MgFonts.mono` 与 `MgTypography.mono`，
 `MgTypography.data` / `dataLarge` 不再硬编码 `Cascadia Mono`，数字读数统一套用
 界面字体族并保留 tabular figures。字体族由三套（Helvetica Neue + PingFang SC +
 Menlo）降为两套（西文 + 中文回退）。
 
-拟采用的字体**尚未定案**，实测数据见
-[字体替代方案调研](../FONT_ALTERNATIVES_RESEARCH.md)。候选与实测相似度：
+### 最终选型：MiSans（单套）
 
-| 用途 | 候选 | 许可 | 实测相似度 | 短板 |
-| --- | --- | --- | --- | --- |
-| 西文 UI + 数字 | TeX Gyre Heros | GUST Font License | 90.5% | 仅 4 档字重，w600 会被就近映射到 Bold |
-| 西文 UI + 数字 | Arimo（与 Liberation Sans 同源） | SIL OFL 1.1 | 81.8% | 数字 "1" 等字形与 Helvetica Neue 差异较大 |
-| 中文回退 | 待定 | — | — | 见下 |
+实测数据见 [字体替代方案调研](../FONT_ALTERNATIVES_RESEARCH.md)。MiSans 是唯一
+同时覆盖汉字与拉丁、且中文相似度可用的候选，因此全应用只用一套字体：
 
-要点：
+| 候选 | 拉丁 vs Helvetica Neue | 中文 vs PingFang SC | 结论 |
+| --- | --- | --- | --- |
+| **MiSans** | 78.4% | 74.7% | **采用**，单套覆盖中英文 |
+| Arimo | 81.8% | 无汉字（0/22） | 拉丁略高但覆盖不了中文，需再配一套 |
+| HarmonyOS Sans SC | 78.3% | 77.1% | 中文略高，但拉丁与 MiSans 打平，字重档位更少 |
+| TeX Gyre Heros | 90.5% | 无汉字 | 最像 Helvetica，但仅 4 档字重且许可非 OFL |
+| Noto Sans SC | — | 51.5% | 低于衬线基准 53.6%，不采用 |
+| Inter | 46.5% | — | SF 系而非 Helvetica 系，作废 |
 
-- 初稿选的 Inter 经实测只有 **46.5%** 相似度，属 SF 系而非 Helvetica 系，作为"高相似"
-  替代不成立，已作废。
-- 西文侧在 TeX Gyre Heros（更像）与 Arimo（字重完整、许可更干净）之间取舍，需产品侧拍板。
-- 中文侧没有合格候选：许可最干净的 Noto Sans SC 实测仅 **51.5%**，低于衬线字体
-  Songti SC 的 53.6%；真正接近的 Hiragino Sans GB（75.6%）是 Apple 资产不可打包；
-  MiSans / HarmonyOS Sans 为自定义许可且未能取得可测量文件。
-  **在中文选型定下来之前，本 ADR 不进入实施。**
+Arimo 曾作为西文首选落地过一版（实测 81.8%，拉丁确实更准），但 Arimo 不含任何
+汉字，必须再配一套中文字体；改用 MiSans 后全项目只保留一套字体，回退链、
+跨平台差异、许可条目都减少一条。已移除 Arimo 文件，需要时可按下节说明重新生成。
+
+### MiSans 许可义务（原文存 `flutter_shell/assets/fonts/MiSans-LICENSE.txt`）
+
+许可允许免费商用与随软件打包，但带四条约束，必须遵守：
+
+1. **署名**：应在软件中特别注明使用了 MiSans 字体。已在系统状态页页脚给出署名。
+2. **不可修改**：不得改编或二次开发字体本身。我们只做子集/字重声明以外的任何
+   改动都不允许；当前用法是原样打包，未修改字形。
+3. **不可单独再分发**：不得单独售卖或再分发字体文件；随软件分发不受限。
+4. **可撤销**：授权写明 revocable。这是本选型的主要风险，若小米未来变更授权，
+   需要切换到 HarmonyOS Sans SC 或 Noto Sans SC（接口只有 `MgFonts` 一处）。
+
+### 如需重新生成 Arimo（备选路径）
+
+1. 取上游变量字体：`google/fonts` 的 `ofl/arimo/Arimo[wght].ttf`（OFL 1.1）。
+2. 实例化静态字重（上游不发静态文件）：
+   `fonttools varLib.instancer -o Arimo-Regular.ttf Arimo[wght].ttf wght=400`
+   （`wght` 轴范围 400–700，`600` / `700` 同理）。
+3. 放回 `flutter_shell/assets/fonts/` 并在 `pubspec.yaml` 声明，再改
+   `MgFonts.sans`。
 
 注意：macOS 当前实际渲染用的 Helvetica Neue、PingFang SC、Menlo 都是 Apple 系统字体，
 **不可打包再分发**，所以"沿用当前字体"只能取其观感、不能取其文件。
@@ -99,8 +120,9 @@ Menlo）降为两套（西文 + 中文回退）。
 
 成本：
 
-- 安装包体积增加，中文占绝大部分（仅 Noto Sans SC 一个变量字体就是 17.7 MB）。
-  体积已确认不作为淘汰条件，但中文候选的相似度问题比体积更棘手。
+- 安装包体积增加约 19.5 MB（MiSans Regular / Semibold / Bold 三个 OTF，各约 6.5 MB）。
+  体积已确认不作为淘汰条件。
+- 主体授权写明可撤销，属于长期分发风险，需要跟踪许可变更。
 - 失去系统字体在中英文混排上的本地化细节。
 - macOS 的 CoreText 灰度抗锯齿与 Windows 的 ClearType 属于系统级光栅化差异，
   打包字体消不掉，同一款字在 Windows 上仍会略微更细更锐。
@@ -109,11 +131,14 @@ Menlo）降为两套（西文 + 中文回退）。
 
 ## 验收条件
 
-1. `flutter_shell/pubspec.yaml` 声明了打包字体，`assets/fonts/` 下的字体文件
-   与 `MgFonts` 中引用的族名一一对应。
-2. `MgFonts` 不再出现 `Platform.isMacOS` / `Platform.isWindows` 分支，也不再
-   出现 `SF Pro Text`、`SF Mono`、`Menlo`、`Cascadia Mono` 之类的系统字体名。
-3. `MgTypography.data` / `dataLarge` 不再硬编码字体族，数字读数走 `MgFonts.mono`。
-4. macOS 与 Windows 上分别截图同一页面，字形一致（允许抗锯齿差异）。
-5. 业务页面中不存在字体族名与平台判断；`dart tools/check_ui_tokens.dart` 扩展后
+1. `flutter_shell/pubspec.yaml` 声明的字体族与 `assets/fonts/` 下的文件一一对应，
+   `MgFonts.sans` 指向同一个族名。
+2. `MgFonts` 不再按平台返回不同的西文字体，也不再出现 `SF Pro Text`、`SF Mono`、
+   `Menlo`、`Cascadia Mono` 之类的系统字体名。
+3. `MgTypography.data` / `dataLarge` 不硬编码字体族，字重为 `w400`，
+   并保留 `tabularFigures`。
+4. 参数值格、PWM 读数、波形读数等数字显示均为常规字重。
+5. 软件内有 MiSans 署名（许可要求）。
+6. macOS 与 Windows 上分别截图同一页面，字形一致（允许抗锯齿差异）。
+7. 业务页面中不存在字体族名与平台判断；`dart tools/check_ui_tokens.dart` 扩展后
    能拦住新增的系统字体名。

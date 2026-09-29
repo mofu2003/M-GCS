@@ -711,7 +711,7 @@ class _MagneticFieldStrength extends StatelessWidget {
           TextSpan(
             text: magnitude.isFinite ? magnitude.round().toString() : '—',
             style: MgTypography.sans(
-              MgTypography.bodyStrong.copyWith(color: context.mgColors.success),
+              MgTypography.body.copyWith(color: context.mgColors.success),
             ),
           ),
         ],
@@ -2284,7 +2284,8 @@ class _ValueWellState extends State<_ValueWell> {
         MgTypography.body.copyWith(color: textColor),
       ),
       style: MgTypography.sans(
-        MgTypography.bodyStrong.copyWith(color: textColor),
+        // 数值不加粗：这一格在表格里成片出现，加粗会把整张表压得发闷。
+        MgTypography.body.copyWith(color: textColor),
       ),
       textAlign: widget.center ? TextAlign.center : TextAlign.start,
       keyboardType: const TextInputType.numberWithOptions(
@@ -2884,6 +2885,14 @@ class _PortConfigurationPageState extends State<_PortConfigurationPage> {
                   ],
                 );
               },
+            ),
+            const SizedBox(height: _sectionGap),
+            // MiSans 许可要求在软件中特别注明使用了该字体，这里给出署名。
+            Text(
+              '界面字体：MiSans（小米科技有限责任公司授权）',
+              style: MacosTheme.of(context).typography.caption1.copyWith(
+                color: context.mgColors.textTertiary,
+              ),
             ),
           ],
         ),

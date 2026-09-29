@@ -4,19 +4,21 @@
 
 ## 结论
 
-当前 mac 端实际渲染的是 **Helvetica Neue（西文/数字）+ PingFang SC（中文）**，两者都是
-Apple 系统字体，不可打包再分发（见 [ADR 0007](adr/0007-unified-font-stack.md)）。
+原始参考：mac 端当时实际渲染的是 **Helvetica Neue（西文/数字）+ PingFang SC（中文）**，
+两者都是 Apple 系统字体，不可打包再分发。
 
-**西文侧有明确答案：TeX Gyre Heros。** 实测纯字形相似度 **90.5%**，远超其他候选。
-代价是它只有 Regular / Italic / Bold / BoldItalic 四款，没有 Medium / SemiBold，
-而本项目用到 w400 / w600 / w700 三档；且许可为 GUST Font License，不是 OFL。
-若要保字重完整，次选 **Arimo**（与 Liberation Sans 同源，OFL，可变字重，相似度 81.8%）。
+**最终选型：MiSans 单套**（实测拉丁 78.4% / 中文 74.7%）。它是唯一同时覆盖汉字与
+拉丁、中文相似度又足够用的候选，所以全应用只保留一套字体。决策与许可义务见
+[ADR 0007](adr/0007-unified-font-stack.md)。
 
-**中文侧是好消息里带坏消息：没有找到既许可干净、又和 PingFang 足够像的字体。**
-许可最干净的 Noto Sans SC 实测只有 **51.5%**，甚至低于衬线字体 Songti SC 的 53.6%，
-说明它和 PingFang 只是"同属黑体"，字形差别很大。真正接近的 Hiragino Sans GB 达到
-75.6%，但那是 Apple 的字体，同样不可打包。社区常提的 MiSans / HarmonyOS Sans 均属
-自定义许可，且本次未能取到可测量的官方字体文件。
+**西文侧高相似度的答案是 TeX Gyre Heros**（实测 **90.5%**），但它只有四档字重，
+w600 会被就近映射到 Bold，且许可为 GUST Font License（非 OFL）。其后的 Arimo 为
+81.8%、可变字重、OFL——**但它一个汉字都没有**，必须再配一套中文字体，这正是它最终
+没被采用的原因。
+
+**中文侧的关键发现：Noto Sans SC 不是 PingFang 的有效替代。** 实测只有 **51.5%**，
+甚至低于衬线字体 Songti SC 的 53.6%，说明两者只是"同属黑体"，字形差别很大。
+真正接近的是 HarmonyOS Sans SC（77.1%）与 MiSans（74.7%），二者都是自定义许可。
 
 ## 实测方法
 
@@ -58,7 +60,9 @@ Apple 系统字体，不可打包再分发（见 [ADR 0007](adr/0007-unified-fon
 
 | 候选 | 平均相似度 | 最差字形 | 许可 | 可否打包 |
 | --- | --- | --- | --- | --- |
+| HarmonyOS Sans SC | 77.1% | 51.1%（参） | 华为自定义（明确允许 embed/bundle） | 是 |
 | Hiragino Sans GB | 75.6% | 66.4%（数） | Apple 系统字体 | 否 |
+| **MiSans** | **74.7%** | 51.7%（参） | 小米自定义（免费商用，可撤销） | 是 |
 | Songti SC（衬线下限基准） | 53.6% | 31.3%（参） | Apple 系统字体 | 否 |
 | Noto Sans SC | 51.5% | 31.5%（查） | SIL OFL 1.1 | 是 |
 
@@ -69,21 +73,22 @@ Apple 系统字体，不可打包再分发（见 [ADR 0007](adr/0007-unified-fon
   部件处理都差得很远。用它替换会让中文界面明显变样。
 - Hiragino Sans GB 达到 75.6%，说明"接近 PingFang"技术上做得到，但它与 PingFang
   同属 Apple 资产，不可再分发。
-- 社区常提的 MiSans、HarmonyOS Sans 未能取得可测量的官方文件：MiSans 官网为 JS 渲染，
-  GitHub 镜像不含完整字体；HarmonyOS Sans 镜像仓库以 Git LFS 存放 52 MB 压缩包，
-  且该仓库自身声明 GPL-3.0，字体原始许可需另行核实。两者都是自定义许可，
-  不满足"许可干净"这一前提。
+- MiSans 与 HarmonyOS Sans 的字体文件后来通过 npm 取得（`@fontpkg/mi-sans` 的
+  10 个 OTF、`harmonyos-sans` 内含的官方 zip），补测后中文分别为 74.7% 与 77.1%，
+  都在可用区间；HarmonyOS 中文略高，但 MiSans 字重档位更完整（Thin→Heavy 十档）。
+- 两者的许可都是"免费商用 + 自定义条款"，不是 OFL：都要求在软件内署名、不得修改
+  字体，且都写明授权**可撤销**。MiSans 的条款原文已存入仓库。
 
 ## 许可与体积
 
-| 字体 | 许可 | 变量字体体积 | 备注 |
+| 字体 | 许可 | 体积 | 备注 |
 | --- | --- | --- | --- |
-| TeX Gyre Heros | GUST Font License | 非变量，Regular 约 130 KB | 允许商业使用与再分发，但不属 MIT/BSD/Apache/OFL 体系，按 `docs/CONSTRAINTS.md` 需单独记录 |
-| Arimo | SIL OFL 1.1 | 496 KB | 无额外义务 |
-| Noto Sans SC | SIL OFL 1.1 | 17.7 MB | 无额外义务；体积与相似度都不理想 |
-| MiSans | 小米自定义 | 未取得 | 免费商用，但要求软件内注明、禁止改编，且授权写明**可撤销** |
-| HarmonyOS Sans | 华为自定义 | 未取得 | 官方条款页为 JS 渲染，未取到原文，需人工核对 |
-| LXGW Neo XiHei | IPA Font License 1.0 | — | 项目 README 明确提示嵌入式使用需自评合规成本 |
+| **MiSans** | 小米自定义 | 6.5 MB / 字重（本次打包 3 档 ≈ 19.5 MB） | **采用**。免费商用；须软件内署名、禁改编、禁单独再分发、授权可撤销 |
+| HarmonyOS Sans SC | 华为自定义 | 52 MB 全部字重 | 免费商用；条款明确允许 embed / bundle / redistribute，同样要求署名、禁改编、可撤销 |
+| Arimo | SIL OFL 1.1 | 496 KB（变量） | 拉丁高相似但零汉字覆盖，需再配中文 |
+| TeX Gyre Heros | GUST Font License | 约 130 KB / 字重 | 最像 Helvetica，但仅 4 档字重，许可非 OFL |
+| Noto Sans SC | SIL OFL 1.1 | 17.7 MB | 许可最干净，但中文相似度不足 |
+| LXGW Neo XiHei | IPA Font License 1.0 | — | README 明确提示嵌入式使用需自评合规成本 |
 
 体积已确认不作为约束，因此不因体积否决候选。中文侧的问题不是体积，
 而是"没有既干净又相似"的选项。
@@ -97,10 +102,14 @@ Apple 系统字体，不可打包再分发（见 [ADR 0007](adr/0007-unified-fon
    并先做许可确认；或由人工提供字体文件后按本文方法复测。
 3. 数字读数继续复用西文字体 + `tabularFigures`，不引入第三套。
 
-## 待确认
+## 落地结果
 
-- 西文：TeX Gyre Heros（90.5%，四档字重，GFL）还是 Arimo（81.8%，可变字重，OFL）？
-- 中文：接受 Noto Sans SC，评估 MiSans / HarmonyOS Sans 的自定义许可，还是另行提供字体？
+采用 **MiSans 单套**：`flutter_shell/assets/fonts/` 放 Regular / Semibold / Bold
+三个 OTF 与许可原文，`MgFonts.sans` 指向 `MiSans`，Arimo 文件已移除。
+数字读数统一为 `w400`（见 ADR 0007 决策第 6 条）。
+
+仍待办：授权可撤销属长期风险，需要跟踪许可变更；若需替换，接口只有
+`MgFonts` 一处加上字体文件本身。
 
 ## 来源
 

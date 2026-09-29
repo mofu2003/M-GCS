@@ -3,34 +3,39 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
-/// 字体族：全应用只允许使用这里定义的两种。
+/// 字体族：全应用只允许使用这里定义的那一套。
 ///
-/// 之前界面同时混用了 `macos_ui` 默认字体、Flutter 默认字体（模拟器上是
-/// Roboto）和 `Menlo`，在 Windows 上会退化成"西文一种、中文另一种"的拼贴
-/// 效果。这里为每个平台给出唯一的一条字体链，并统一走 [MgTypography]。
+/// 当前实验配置：MiSans 同时覆盖汉字与拉丁，因此全应用压到**一套字体**，
+/// 三个平台字形完全一致。Arimo 仍随包分发但未启用，改一行即可切回
+/// "Arimo 西文 + 系统中文" 的组合。决策与实测见
+/// `docs/adr/0007-unified-font-stack.md` 与 `docs/FONT_ALTERNATIVES_RESEARCH.md`。
 class MgFonts {
   const MgFonts._();
 
-  /// 界面文字。按平台给出首选字体，并显式列出中文回退，避免逐字回退。
-  static String get sans {
-    if (Platform.isMacOS) return 'SF Pro Text';
-    if (Platform.isWindows) return 'Segoe UI Variable Text';
-    if (Platform.isAndroid) return 'Roboto';
-    return 'Noto Sans';
-  }
+  /// 西文界面字体族名，与 `pubspec.yaml` 的声明一致。
+  static const String arimo = 'Arimo';
 
-  /// 西文与中文回退链。顺序固定，保证同一台机器上每次都选中同一款字体。
+  /// 中英文统一字体族名。
+  static const String misans = 'MiSans';
+
+  /// 界面文字族。MiSans 覆盖中英文，三平台一致。
+  static String get sans => misans;
+
+  /// 兜底链：只用于 MiSans 缺失的生僻字或符号，正常界面文本走不到这里。
+  ///
+  /// 不再按平台挑西文字体——不同平台解析到不同字体，正是此前 macOS 与 Windows
+  /// 观感差异很大的原因。
   static List<String> get sansFallback {
     if (Platform.isMacOS) {
-      return const ['SF Pro Text', 'Helvetica Neue', 'PingFang SC'];
+      return const ['PingFang SC'];
     }
     if (Platform.isWindows) {
-      return const ['Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI'];
+      return const ['Microsoft YaHei UI'];
     }
     if (Platform.isAndroid) {
-      return const ['Roboto', 'Noto Sans SC', 'Noto Sans CJK SC'];
+      return const ['Noto Sans SC'];
     }
-    return const ['Noto Sans', 'DejaVu Sans', 'Noto Sans CJK SC'];
+    return const ['Noto Sans CJK SC'];
   }
 }
 
@@ -90,12 +95,15 @@ class MgTypography {
 
   /// 数字读数：与界面同一套字体，靠 tabularFigures 保证位数变化时不抖动。
   ///
+  /// 数字一律不加粗。界面里数字密度高，加粗会让整片读数抢走标题的视觉层级，
+  /// 也会让等宽数字的笔画糊在一起。层级靠字号和颜色区分，不靠字重。
+  ///
   /// 不再单独引入等宽字体族：多一套族就多一处跨平台回退风险，而真正要的
   /// "数字对齐"由 tabular figures 提供。取用时用 [sans] 套上字体族。
   static const TextStyle data = TextStyle(
     fontSize: 13,
     height: 1.30,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w400,
     fontFeatures: [FontFeature.tabularFigures()],
   );
 
@@ -103,7 +111,7 @@ class MgTypography {
   static const TextStyle dataLarge = TextStyle(
     fontSize: 15,
     height: 1.30,
-    fontWeight: FontWeight.w700,
+    fontWeight: FontWeight.w400,
     fontFeatures: [FontFeature.tabularFigures()],
   );
 

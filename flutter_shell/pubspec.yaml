@@ -24,3 +24,17 @@ flutter:
   uses-material-design: true
   assets:
     - macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png
+    # 随包分发字体许可原文：MiSans 许可要求署名，OFL 类许可要求附许可副本。
+    - assets/fonts/MiSans-LICENSE.txt
+  fonts:
+    # 中英文统一字体：MiSans 同时覆盖汉字与拉丁，全应用只用这一套。
+    # 许可见 assets/fonts/MiSans-LICENSE.txt：免费商用，但要求在软件中注明、
+    # 不得修改字体、不得单独再分发，且授权可撤销。
+    - family: MiSans
+      fonts:
+        - asset: assets/fonts/MiSans-Regular.otf
+          weight: 400
+        - asset: assets/fonts/MiSans-Semibold.otf
+          weight: 600
+        - asset: assets/fonts/MiSans-Bold.otf
+          weight: 700
