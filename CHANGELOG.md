@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.0.9 - 2026-09-29
+
+### Added
+
+- Added the mission planning engine with its Flutter-side document controller,
+  validator, estimator, and upload/verify bridge.
+- Added the arming checks page: 19 checks driven by a built-in bit table, reading
+  and writing `ARMING_SKIPCHK` on newer firmware with `ARMING_CHECK` as a
+  fallback for older ones.
+- Added RC transmitter calibration end to end: a new `CalibrationType::Radio`
+  strategy sending `MAV_CMD_PREFLIGHT_CALIBRATION` param4=1, `RCn_MIN/TRIM/MAX`
+  read-back verification, and a Flutter page with live channel travel and
+  `RCn_REVERSED` toggles.
+- Added a staged PID tuning page with basic/extended levels for multirotor,
+  fixed-wing, and VTOL. Multirotor and VTOL share one layout and differ only in
+  the `ATC_`/`PSC_` versus `Q_A_`/`Q_P_` prefix; fixed-wing uses
+  `RLL_RATE_`/`PTCH_RATE_`/`YAW_RATE_` plus `RLL2SRV`/`PTCH2SRV`/`YAW2SRV`
+  and TECS.
+
+### Changed
+
+- Reworked the motor output page: `macos_ui` progress bars with centered PWM
+  readouts, `MacosSwitch` for servo reverse, and optimistic parameter writes that
+  render immediately and roll back when the flight controller rejects the value.
+- Raised the regular telemetry poll rate from 2 Hz to 10 Hz and removed the
+  separate servo output limiter, so the PWM bars track live output.
+- Dropped the "waiting for parameter confirmation" banner; write failures are
+  still surfaced.
+- Removed unused frontend declarations (`MgTypography.group`, `hasParameters`,
+  `isCalibrationActive`, `CalibrationStatus.isSuccess/isFailed`, ...) and merged
+  the duplicated parameter lookup and error-formatting helpers.
+- Renamed `widgets/mg_range_bar.dart` to `mg_motor_output_bar.dart` so the file
+  matches its widget.
+- Tightened the arming checks layout into a divided grid with uniform row heights.
+
+### Fixed
+
+- Corrected the position and velocity PID parameter names to the ArduPilot 4.8
+  `PSC_NE_*` / `PSC_D_*` spelling; the previous `PSC_POSXY_P`-style names do not
+  exist on current firmware, so that block read nothing.
+- Hardened the Windows serial runtime and bridge packaging.
+
+### Verification
+
+- Backend offline/simulation gate: 33 passed.
+- Flutter static analysis: passed.
+- Flutter widget tests: 7 passed.
+- UI token check: passed.
+- macOS debug build: passed.
+
 ## 0.0.8 - 2026-09-28
 
 ### Changed

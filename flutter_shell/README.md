@@ -1,6 +1,6 @@
 # M-GCS Flutter Shell
 
-Current version: `0.0.8`.
+Current version: `0.0.9`.
 
 The shell contains the map and a cross-platform configuration workspace.
 The configuration sidebar, toolbar, search, and light/dark backgrounds are
