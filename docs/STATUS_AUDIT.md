@@ -8,7 +8,7 @@
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
 - 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`TEST-001`、`TEST-002`、`TOOL-002`、`CONTRACT-001`）。
 - 当前分支：`main`。
-- 本轮本地门禁由 `tools/preflight.sh --no-macos-build` 实跑得出；**macOS debug 构建本轮未重跑**。
+- 本地门禁由 `tools/preflight.sh --no-macos-build` 加单独一次 `flutter build macos --debug` 实跑得出。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
 - 本轮修订同时修复了 `tools/audit_status.sh`（详见 `TOOL-001`）。
 
@@ -18,7 +18,7 @@
 
 ## 1. 当前门禁
 
-以下为 2026-09-29 在 commit `0c8b193` 上实跑的结果：
+以下为 2026-09-29 在本地工作树（`v0.0.10` 之后）上实跑的结果：
 
 | 检查 | 结果 |
 | --- | --- |
@@ -27,11 +27,11 @@
 | Flutter 静态分析 | No issues found |
 | Flutter 测试 | **12/12 通过**（4 个测试文件） |
 | 后端 offline/simulation | **34/34 通过**（offline 21 + simulation 13，18.4s） |
-| macOS debug 构建 | **本轮未重跑**（见下方说明） |
+| macOS debug 构建 | **成功**（`flutter build macos --debug`，2026-09-29） |
 | `tools/preflight.sh --no-macos-build` | 全部通过 |
 
-说明：本轮用 `--no-macos-build` 跳过了 macOS debug 构建，因此该项结果为
-**UNVERIFIED**，不能沿用上一轮的成功记录。需要时单独执行 `flutter build macos --debug`。
+说明：`preflight.sh` 用的是 `--no-macos-build`，所以 macOS debug 构建单独执行了一次；
+本轮改动含 `flutter_shell/lib/configuration_workspace.dart`，该构建已覆盖这条 UI 改动。
 
 当前门禁覆盖任务文档编译、上传和回读模拟，但仍不覆盖真实飞控写任务。
 
@@ -289,8 +289,7 @@ tools/preflight.sh
 4. 补 `TEST-003` 批量参数变更集的验证。
 5. 清理 `CLEANUP-001` 的孤儿陈列页，或明确其豁免地位。
 6. 启动 `DEPRECATION-001`，让兼容接口进入明确退役流程。
-7. 补跑一次 macOS debug 构建，关闭本轮标记为 UNVERIFIED 的门禁项。
-8. 远端 CI 恢复后，以一次真实运行关闭 `CI-001`。
+7. 远端 CI 恢复后，以一次真实运行关闭 `CI-001`。
 
 ## 7. 维护规则
 
@@ -311,7 +310,7 @@ tools/preflight.sh
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
 | 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`TEST-001`、`TEST-002`、`TOOL-002`、`CONTRACT-001`；刷新门禁与统计 |
-| 复核状态 | **未经人工复核**；macOS debug 构建本轮未重跑 |
+| 复核状态 | **未经人工复核**；本地门禁（含 macOS debug 构建）已实跑通过 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议
 > 应由另一人复跑同一验收命令后再采纳。
