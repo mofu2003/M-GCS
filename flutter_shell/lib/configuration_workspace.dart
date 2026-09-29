@@ -13,8 +13,7 @@ import 'widgets/aligned_field_row.dart';
 import 'widgets/adaptive_popup_button.dart';
 import 'widgets/app_workspace_shell.dart';
 import 'widgets/mac_panel.dart';
-import 'widgets/mg_animated_number.dart';
-import 'widgets/mg_range_bar.dart';
+import 'widgets/mg_motor_output_bar.dart';
 import 'widgets/parameter_load_progress.dart';
 
 /// 后台页面统一间距标准（标签页内层叠加 MacosTabView 自身的 12pt）。
@@ -314,7 +313,8 @@ class _MagnetometerOptionsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final orientation = controller.parameter('COMPASS_ORIENT');
-    final autoRotation = _paramValue(controller, 'COMPASS_AUTO_ROT') != 0;
+    final autoRotation =
+        _parameterNumeric(controller, 'COMPASS_AUTO_ROT', fallback: 0) != 0;
     return MacPanel(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Row(
@@ -322,7 +322,13 @@ class _MagnetometerOptionsCard extends StatelessWidget {
           Expanded(
             child: _MagnetometerToggle(
               label: '自动磁偏角',
-              value: _paramValue(controller, 'COMPASS_AUTODEC') != 0,
+              value:
+                  _parameterNumeric(
+                    controller,
+                    'COMPASS_AUTODEC',
+                    fallback: 0,
+                  ) !=
+                  0,
               onChanged: controller.isConnected
                   ? (value) => controller.setParameter(
                       'COMPASS_AUTODEC',
@@ -513,9 +519,6 @@ class _MagneticFieldStrength extends StatelessWidget {
     );
   }
 }
-
-double _paramValue(ConnectionController controller, String name) =>
-    controller.parameter(name)?.value ?? 0;
 
 class _AccelerometerCalibrationView extends StatelessWidget {
   const _AccelerometerCalibrationView({required this.controller});
@@ -1298,8 +1301,7 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (widget.controller.hasParameterWritesInProgress ||
-                widget.controller.parameterWriteError != null) ...[
+            if (widget.controller.parameterWriteError != null) ...[
               _ParameterWriteStatus(controller: widget.controller),
               const SizedBox(height: 10),
             ],
@@ -1314,11 +1316,11 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 920),
+                    constraints: const BoxConstraints(minWidth: 1040),
                     child: Table(
                       columnWidths: const {
                         0: FixedColumnWidth(76),
-                        1: FixedColumnWidth(148),
+                        1: FixedColumnWidth(220),
                         2: FixedColumnWidth(90),
                         3: FlexColumnWidth(1.5),
                         4: FixedColumnWidth(132),
@@ -1369,11 +1371,6 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
                                     widget.controller,
                                     'SERVO${channel}_MIN',
                                     fallback: 1100,
-                                  ),
-                                  midpoint: _parameterNumeric(
-                                    widget.controller,
-                                    'SERVO${channel}_TRIM',
-                                    fallback: 1500,
                                   ),
                                   maximum: _parameterNumeric(
                                     widget.controller,
@@ -1504,41 +1501,25 @@ class _LiveOutputCell extends StatelessWidget {
   const _LiveOutputCell({
     required this.value,
     required this.minimum,
-    required this.midpoint,
     required this.maximum,
   });
 
   final int? value;
   final double minimum;
-  final double midpoint;
   final double maximum;
 
   @override
   Widget build(BuildContext context) => SizedBox(
     height: MgMetrics.rowHeight,
     child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            height: 18,
-            child: MgAnimatedNumber(
-              value: value?.toDouble() ?? double.nan,
-              style: MgTypography.data,
-              fractionDigits: 0,
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const SizedBox(height: 3),
-          MgRangeBar(
-            value: value?.toDouble(),
-            minimum: minimum,
-            midpoint: midpoint,
-            maximum: maximum,
-            semanticLabel: 'PWM 当前值范围',
-          ),
-        ],
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Center(
+        child: MgMotorOutputBar(
+          value: value,
+          minimum: minimum,
+          maximum: maximum,
+          semanticLabel: 'PWM 当前输出',
+        ),
       ),
     ),
   );
@@ -1562,14 +1543,14 @@ class _ReverseCell extends StatelessWidget {
     child: Center(
       child: parameter == null
           ? Text('—', style: MacosTheme.of(context).typography.body)
-          : MacosCheckbox(
+          : MacosSwitch(
               value: parameter!.value != 0,
               onChanged: parameter!.readOnly || !controller.isConnected
                   ? null
                   : (value) => unawaited(
                       controller.setParameter(parameter!.name, value ? 1 : 0),
                     ),
-              size: 18,
+              size: ControlSize.small,
               semanticLabel: '反向输出',
             ),
     ),
@@ -1836,27 +1817,23 @@ class _ParameterWriteStatus extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.mgColors;
     final error = controller.parameterWriteError;
-    final color = error == null ? colors.accent : colors.danger;
-    final message =
-        error ?? '正在等待飞控确认 ${controller.pendingParameterWriteCount} 项参数变更…';
+    final message = error ?? '参数写入失败';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
       child: Row(
         children: [
           MacosIcon(
-            error == null
-                ? CupertinoIcons.arrow_2_circlepath
-                : CupertinoIcons.exclamationmark_circle,
+            CupertinoIcons.exclamationmark_circle,
             size: 14,
-            color: color,
+            color: colors.danger,
           ),
           const SizedBox(width: 7),
           Expanded(
             child: Text(
               message,
-              style: MacosTheme.of(context).typography.caption1.copyWith(
-                color: error == null ? colors.textSecondary : color,
-              ),
+              style: MacosTheme.of(
+                context,
+              ).typography.caption1.copyWith(color: colors.danger),
             ),
           ),
         ],
@@ -2319,8 +2296,7 @@ class _PortConfigurationPageState extends State<_PortConfigurationPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (controller.hasParameterWritesInProgress ||
-                controller.parameterWriteError != null) ...[
+            if (controller.parameterWriteError != null) ...[
               _ParameterWriteStatus(controller: controller),
               const SizedBox(height: 10),
             ],

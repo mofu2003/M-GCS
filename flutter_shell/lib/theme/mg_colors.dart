@@ -132,6 +132,11 @@ class MgColors {
     Color(0xFF34A853),
     Color(0xFF5E5CE6),
   ];
+
+  // ── 数据进度条 ────────────────────────────────────────────────────
+
+  /// 数据条填充区上的文字色。
+  Color get onMotorBar => const Color(0xFF10231A);
 }
 
 /// 便捷取色：`context.mgColors.accent`。

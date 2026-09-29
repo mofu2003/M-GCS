@@ -54,8 +54,6 @@ final class CalibrationStatus {
 
   bool get isAccelerometer => type == CalibrationType.accelerometer;
   bool get isWaitingOrientation => stage == 'waiting_orientation';
-  bool get isSuccess => stage == 'success';
-  bool get isFailed => stage == 'failed' || stage == 'cancelled';
 
   Map<String, Object?> toJson() => {
     'active': active,
@@ -328,11 +326,8 @@ final class ConnectionController extends ChangeNotifier
   /// 波形页面按采样间隔请求的消息 ID：SCALED_IMU / SCALED_IMU2 / SCALED_IMU3。
   static const List<int> _waveformMessageIds = [26, 116, 129];
 
-  /// 常规遥测轮询间隔。顶栏数据是给人看的，2Hz 足够。
-  static const Duration _telemetryPollInterval = Duration(milliseconds: 500);
-
-  /// 舵机输出（电机输出页面用）单独限流，避免每次遥测轮询都解析一遍。
-  static const Duration _servoPollInterval = Duration(milliseconds: 1000);
+  /// 常规遥测轮询间隔。顶栏数据是给人看的，10Hz 足够顺滑。
+  static const Duration _telemetryPollInterval = Duration(milliseconds: 100);
   final ValueNotifier<int> parameterChanges = ValueNotifier(0);
   final ValueNotifier<int> telemetryChanges = ValueNotifier(0);
   final ValueNotifier<int> profileChanges = ValueNotifier(0);
@@ -417,7 +412,6 @@ final class ConnectionController extends ChangeNotifier
   bool _waveformActive = false;
   late final Pointer<Float> _waveformBuffer;
   int _lastSystemStatusPollMs = 0;
-  int _lastServoPollMs = 0;
   bool _busy = false;
   bool _disposed = false;
   bool _firmwareVersionRequested = false;
@@ -428,7 +422,6 @@ final class ConnectionController extends ChangeNotifier
   bool get busy => _busy;
   bool get isConnected => phase == SerialConnectionPhase.connected;
   bool get hasSession => sessionId != null;
-  bool get hasParameters => parametersLoaded && parameters.isNotEmpty;
   VehicleControlProfile get controlProfile {
     final firmware = firmwareInfo?['firmware']?.toString().toLowerCase();
     final vehicle = firmwareInfo?['vehicle_type']?.toString().toLowerCase();
@@ -446,9 +439,6 @@ final class ConnectionController extends ChangeNotifier
     return VehicleControlProfile.unknown;
   }
 
-  int get pendingParameterWriteCount => _parameterWriteJobs.length;
-  bool get hasParameterWritesInProgress => _parameterWriteJobs.isNotEmpty;
-  bool isParameterWriting(String name) => _parameterWriteJobs.containsKey(name);
   String? get parameterWriteError =>
       _parameterWriteErrors.isEmpty ? null : _parameterWriteErrors.values.last;
 
@@ -478,8 +468,6 @@ final class ConnectionController extends ChangeNotifier
   void _notifyCalibrationChanges() {
     if (!_disposed) calibrationChanges.value++;
   }
-
-  bool get isCalibrationActive => calibrationStatus.active;
 
   Future<void> startAccelerometerCalibration(
     AccelerometerCalibrationMode mode,
@@ -735,7 +723,7 @@ final class ConnectionController extends ChangeNotifier
       _parameterRequestStarted = true;
     } on Object catch (error) {
       parametersLoading = false;
-      parameterError = error.toString().replaceFirst('Bad state: ', '');
+      parameterError = _friendlyError(error);
     }
     _notifyParameterChanges();
     notifyListeners();
@@ -871,6 +859,7 @@ final class ConnectionController extends ChangeNotifier
     _notifyParameterChanges();
     notifyListeners();
 
+    VehicleParameter? latest;
     try {
       if (previous != null) await previous;
       if (_disposed) return false;
@@ -881,11 +870,16 @@ final class ConnectionController extends ChangeNotifier
 
       // A value queued behind an in-flight write may already be current by
       // the time its turn arrives.
-      final latest = parameters[name];
+      latest = parameters[name];
       if (latest == null || latest.readOnly) {
         throw StateError('参数会话已变化，未能写入 $name');
       }
       if (latest.value == value) return true;
+
+      // 乐观更新：点击后立即按目标值渲染，飞控确认后再用回读值校准。
+      parameters[name] = latest.copyWith(value: value);
+      _notifyParameterChanges();
+      notifyListeners();
 
       for (var attempt = 0; attempt < 3; attempt++) {
         _ensureWriteSession(requestedSessionId, name);
@@ -939,10 +933,16 @@ final class ConnectionController extends ChangeNotifier
                   '${actualValue == actualValue.roundToDouble() ? actualValue.toInt() : actualValue}',
       );
     } on Object catch (error) {
-      _recordParameterWriteError(
-        name,
-        error.toString().replaceFirst('Bad state: ', ''),
-      );
+      // 若写入失败，把乐观更新回滚到写入前的值。
+      final previousValue = latest;
+      if (previousValue != null) {
+        final current = parameters[name];
+        if (current != null &&
+            _parameterValuesMatch(value, current.value, current.mavlinkType)) {
+          parameters[name] = previousValue;
+        }
+      }
+      _recordParameterWriteError(name, _friendlyError(error));
       _notifyParameterChanges();
       notifyListeners();
     } finally {
@@ -1591,7 +1591,7 @@ final class ConnectionController extends ChangeNotifier
       _notifyParameterChanges();
       await _pollSession();
     } on Object catch (error) {
-      message = error.toString().replaceFirst('Bad state: ', '');
+      message = _friendlyError(error);
       final openedId = openedSessionId;
       if (openedId != null) {
         try {
@@ -1699,7 +1699,7 @@ final class ConnectionController extends ChangeNotifier
       _calibrationTimer?.cancel();
       _clearTelemetry();
     } on Object catch (error) {
-      message = error.toString().replaceFirst('Bad state: ', '');
+      message = _friendlyError(error);
     } finally {
       _busy = false;
       _notifyConnectionChanges();
@@ -1779,10 +1779,7 @@ final class ConnectionController extends ChangeNotifier
         if (profileChanged) _notifyProfileChanges();
         changed = profileChanged || changed;
       }
-      if (now - _lastServoPollMs >= _servoPollInterval.inMilliseconds) {
-        _lastServoPollMs = now;
-        changed = _pollServoOutputs() || changed;
-      }
+      changed = _pollServoOutputs() || changed;
       if (changed) {
         _notifyTelemetryChanges();
         notifyListeners();

@@ -84,13 +84,6 @@ class MgTypography {
     fontWeight: FontWeight.w600,
   );
 
-  /// 分组标题，例如"加速度计""磁力计"。
-  static const TextStyle group = TextStyle(
-    fontSize: 13,
-    height: 1.35,
-    fontWeight: FontWeight.w600,
-  );
-
   /// 正文与表格内容。
   static const TextStyle body = TextStyle(
     fontSize: 13,
@@ -204,4 +197,7 @@ class MgMetrics {
 
   /// 控件圆角。
   static const double controlRadius = 7;
+
+  /// 电机输出进度条高度。
+  static const double motorBarHeight = 24;
 }
