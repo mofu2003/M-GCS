@@ -104,6 +104,8 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
         MissionCommandDescriptor(
           command: 16,
           name: 'NAV_WAYPOINT',
+          label: '航点',
+          entityType: 'waypoint',
           category: 'navigation',
           description: 'Fly to a position',
           requiresPosition: true,

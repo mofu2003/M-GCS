@@ -269,6 +269,14 @@ void Vehicle::wire_telemetry_callbacks() {
                     info.system_id, info.component_id,
                     MAVLINK_MSG_ID_HOME_POSITION,
                     1000000 /* 1 Hz */);
+                // ArduPilot 同样不主动发 EXTENDED_SYS_STATE（QGC 的注释：
+                // “ArduPilot doesn't send MAVLINK_MSG_ID_EXTENDED_SYS_STATE messages
+                // unless requested”）。引导操作要靠它的 landed_state 判断是否在飞行，
+                // 所以要主动请一下。
+                mav->request_message_interval(
+                    info.system_id, info.component_id,
+                    MAVLINK_MSG_ID_EXTENDED_SYS_STATE,
+                    1000000 /* 1 Hz */);
             }
         }
     });

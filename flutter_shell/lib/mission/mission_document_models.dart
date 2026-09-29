@@ -220,6 +220,25 @@ final class MissionDocument {
     'updated_at_ms': updatedAtMs,
     'entities': [for (final entity in entities) entity.toJson()],
   };
+
+  /// 只替换需要改的字段；`replace` 操作会用整份文档覆盖后端，
+  /// 所以 revision / updatedAtMs 必须原样带过去。
+  MissionDocument copyWith({
+    MissionDocumentMetadata? metadata,
+    MissionHome? home,
+    MissionDefaults? defaults,
+    int? revision,
+    int? updatedAtMs,
+    List<MissionEntity>? entities,
+  }) => MissionDocument(
+    schemaVersion: schemaVersion,
+    metadata: metadata ?? this.metadata,
+    home: home ?? this.home,
+    defaults: defaults ?? this.defaults,
+    revision: revision ?? this.revision,
+    updatedAtMs: updatedAtMs ?? this.updatedAtMs,
+    entities: entities ?? this.entities,
+  );
 }
 
 enum MissionDiagnosticSeverity { info, warning, error }
@@ -411,6 +430,8 @@ final class MissionCommandDescriptor {
   const MissionCommandDescriptor({
     required this.command,
     required this.name,
+    required this.label,
+    required this.entityType,
     required this.category,
     required this.description,
     required this.requiresPosition,
@@ -420,6 +441,12 @@ final class MissionCommandDescriptor {
 
   final int command;
   final String name;
+
+  /// 中文显示名（后端命令目录提供，前端不要硬编码命令列表）。
+  final String label;
+
+  /// 该命令对应的文档实体类型，后端给出，前端新建实体时直接用。
+  final String entityType;
   final String category;
   final String description;
   final bool requiresPosition;
@@ -430,6 +457,8 @@ final class MissionCommandDescriptor {
       MissionCommandDescriptor(
         command: json['command'] as int? ?? 0,
         name: json['name'] as String? ?? '',
+        label: json['label'] as String? ?? json['name'] as String? ?? '',
+        entityType: json['entity_type'] as String? ?? 'waypoint',
         category: json['category'] as String? ?? '',
         description: json['description'] as String? ?? '',
         requiresPosition: json['requires_position'] == true,

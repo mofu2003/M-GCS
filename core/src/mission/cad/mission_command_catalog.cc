@@ -1,5 +1,7 @@
 #include "core/mission/cad/mission_command_catalog.h"
 
+#include "core/mission/cad/mission_document.h"
+
 #include "core/mission/mission_types.h"
 
 namespace mg::core::mission::cad {
@@ -39,6 +41,8 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     MissionCommandDescriptor waypoint;
     waypoint.command = static_cast<uint16_t>(NavCommand::NavWaypoint);
     waypoint.name = "NAV_WAYPOINT";
+    waypoint.label = "航点";
+    waypoint.entity_type = mission_entity_type_for_command(waypoint.command);
     waypoint.category = "navigation";
     waypoint.description = "Fly to a position and continue";
     waypoint.requires_position = true;
@@ -54,6 +58,8 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     MissionCommandDescriptor takeoff;
     takeoff.command = static_cast<uint16_t>(NavCommand::NavTakeoff);
     takeoff.name = "NAV_TAKEOFF";
+    takeoff.label = "起飞";
+    takeoff.entity_type = mission_entity_type_for_command(takeoff.command);
     takeoff.category = "navigation";
     takeoff.description = "Take off to the configured altitude";
     takeoff.requires_altitude = true;
@@ -66,6 +72,8 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     MissionCommandDescriptor land;
     land.command = static_cast<uint16_t>(NavCommand::NavLand);
     land.name = "NAV_LAND";
+    land.label = "降落";
+    land.entity_type = mission_entity_type_for_command(land.command);
     land.category = "navigation";
     land.description = "Land at a position";
     land.requires_position = true;
@@ -75,6 +83,8 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     MissionCommandDescriptor rtl;
     rtl.command = static_cast<uint16_t>(NavCommand::NavReturnToLaunch);
     rtl.name = "NAV_RETURN_TO_LAUNCH";
+    rtl.label = "RTL 返航";
+    rtl.entity_type = mission_entity_type_for_command(rtl.command);
     rtl.category = "navigation";
     rtl.description = "Return to launch";
     catalog.push_back(std::move(rtl));
@@ -82,6 +92,8 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     MissionCommandDescriptor loiter_turns;
     loiter_turns.command = static_cast<uint16_t>(NavCommand::NavLoiterTurns);
     loiter_turns.name = "NAV_LOITER_TURNS";
+    loiter_turns.label = "盘旋圈数";
+    loiter_turns.entity_type = mission_entity_type_for_command(loiter_turns.command);
     loiter_turns.category = "navigation";
     loiter_turns.description = "Loiter for a number of turns";
     loiter_turns.requires_position = true;
@@ -97,6 +109,8 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     MissionCommandDescriptor loiter_time;
     loiter_time.command = static_cast<uint16_t>(NavCommand::NavLoiterTime);
     loiter_time.name = "NAV_LOITER_TIME";
+    loiter_time.label = "定时盘旋";
+    loiter_time.entity_type = mission_entity_type_for_command(loiter_time.command);
     loiter_time.category = "navigation";
     loiter_time.description = "Loiter at a position for a duration";
     loiter_time.requires_position = true;
@@ -112,6 +126,8 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     MissionCommandDescriptor speed;
     speed.command = static_cast<uint16_t>(NavCommand::DoSetSpeed);
     speed.name = "DO_CHANGE_SPEED";
+    speed.label = "改变速度";
+    speed.entity_type = mission_entity_type_for_command(speed.command);
     speed.category = "command";
     speed.description = "Change mission speed";
     speed.parameters = {
@@ -130,6 +146,8 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     MissionCommandDescriptor camera;
     camera.command = static_cast<uint16_t>(NavCommand::DoSetCamTrigDist);
     camera.name = "DO_SET_CAM_TRIGG_DIST";
+    camera.label = "相机触发距离";
+    camera.entity_type = mission_entity_type_for_command(camera.command);
     camera.category = "camera";
     camera.description = "Trigger camera by distance";
     camera.parameters = {
@@ -142,6 +160,8 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     MissionCommandDescriptor servo;
     servo.command = static_cast<uint16_t>(NavCommand::DoSetServo);
     servo.name = "DO_SET_SERVO";
+    servo.label = "设置舵机";
+    servo.entity_type = mission_entity_type_for_command(servo.command);
     servo.category = "command";
     servo.description = "Set a servo output";
     servo.parameters = {
@@ -153,6 +173,8 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     MissionCommandDescriptor delay;
     delay.command = static_cast<uint16_t>(NavCommand::ConditionDelay);
     delay.name = "CONDITION_DELAY";
+    delay.label = "延时";
+    delay.entity_type = mission_entity_type_for_command(delay.command);
     delay.category = "condition";
     delay.description = "Wait for a fixed duration";
     delay.parameters = {
@@ -163,6 +185,8 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     MissionCommandDescriptor distance;
     distance.command = static_cast<uint16_t>(NavCommand::ConditionDistance);
     distance.name = "CONDITION_DISTANCE";
+    distance.label = "距离条件";
+    distance.entity_type = mission_entity_type_for_command(distance.command);
     distance.category = "condition";
     distance.description = "Wait until a distance has been travelled";
     distance.parameters = {

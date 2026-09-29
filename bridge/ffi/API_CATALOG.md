@@ -134,7 +134,8 @@ reports `state: "uploading"` for that reason. Poll `mg_mission_get_progress`
 until it reports completion, then call `mg_mission_doc_verify` to compare the
 readback. Treating the upload return value as completion is a bug.
 
-`mg_mission_get_command_catalog` exposes command names, categories, whether a
+`mg_mission_get_command_catalog` exposes command names, a Chinese `label`, the
+document `entity_type` for each command, categories, whether a
 position or altitude is required, and per-parameter MAVLink index, labels,
 units, types, defaults, ranges, required flags, and enum options. Parameter
 `index` maps directly to `params[index - 1]`. Frontends should render command

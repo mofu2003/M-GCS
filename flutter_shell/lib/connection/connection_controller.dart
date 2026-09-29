@@ -331,6 +331,27 @@ final class ConnectionController extends ChangeNotifier
   _missionDocSave;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _missionDocLoad;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionDocImportFromVehicle;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getVehicleSummary;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getExtendedSysState;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionDownload;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionGetProgress;
+  late final Pointer<Utf8> Function(Pointer<Void>) _commandRtl;
+  late final Pointer<Utf8> Function(Pointer<Void>) _commandLand;
+  late final Pointer<Utf8> Function(Pointer<Void>, double) _commandTakeoff;
+  late final Pointer<Utf8> Function(Pointer<Void>) _commandGuidedPause;
+  late final Pointer<Utf8> Function(Pointer<Void>, double, double, double)
+  _commandSetHome;
+  late final Pointer<Utf8> Function(
+    Pointer<Void>,
+    double,
+    double,
+    double,
+    double,
+    double,
+  )
+  _commandGuidedPoint;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _commandOrbit;
   late final void Function(Pointer<Utf8>) _freeString;
 
   MissionDocumentController? _missionPlanning;
@@ -398,6 +419,21 @@ final class ConnectionController extends ChangeNotifier
   double? batteryVoltage;
   Map<String, Object?>? firmwareInfo;
   Map<String, Object?>? vehicleIdentity;
+
+  /// 心跳摘要：QGC 的引导操作门控按 armed / 飞行模式 / 机型判断。
+  bool vehicleArmed = false;
+  String vehicleFlightMode = '';
+  int vehicleType = 0;
+
+  /// EXTENDED_SYS_STATE 的 landed_state（MAV_LANDED_STATE）：
+  /// 1=undefined、2=on_ground、3=takeoff、4=in_air、5=landing。
+  int vehicleLandedState = 0;
+
+  /// QGC `Vehicle::flying` 的等价判断：只有 landed_state 表明离地才算在飞。
+  bool get vehicleFlying =>
+      vehicleLandedState == 3 ||
+      vehicleLandedState == 4 ||
+      vehicleLandedState == 5;
   Map<String, Object?>? firmwareVersionInfo;
   Map<String, Object?>? sensorHealth;
 
@@ -1295,6 +1331,77 @@ final class ConnectionController extends ChangeNotifier
             NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
           >('mg_mission_doc_load')
           .asFunction();
+      _missionDocImportFromVehicle = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_doc_import_from_vehicle',
+          )
+          .asFunction();
+      _getVehicleSummary = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_vehicle_get_summary',
+          )
+          .asFunction();
+      _getExtendedSysState = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_vehicle_get_extended_sys_state',
+          )
+          .asFunction();
+      _missionDownload = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_download',
+          )
+          .asFunction();
+      _missionGetProgress = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_get_progress',
+          )
+          .asFunction();
+      _commandRtl = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_command_rtl',
+          )
+          .asFunction();
+      _commandLand = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_command_land',
+          )
+          .asFunction();
+      _commandTakeoff = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Double)>
+          >('mg_command_takeoff')
+          .asFunction();
+      _commandGuidedPause = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_command_guided_pause',
+          )
+          .asFunction();
+      _commandSetHome = _library
+          .lookup<
+            NativeFunction<
+              Pointer<Utf8> Function(Pointer<Void>, Double, Double, Double)
+            >
+          >('mg_command_set_home')
+          .asFunction();
+      _commandGuidedPoint = _library
+          .lookup<
+            NativeFunction<
+              Pointer<Utf8> Function(
+                Pointer<Void>,
+                Double,
+                Double,
+                Double,
+                Double,
+                Double,
+              )
+            >
+          >('mg_command_guided_point')
+          .asFunction();
+      _commandOrbit = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+          >('mg_command_orbit')
+          .asFunction();
       _core = _create();
       _waveformBuffer = calloc<Float>(
         _waveformMaxPoints * _waveformFloatsPerPoint,
@@ -1402,6 +1509,141 @@ final class ConnectionController extends ChangeNotifier
         _readJson(_missionDocUpload(_core, expectedRevision)) as JsonMap;
     _requireMissionSuccess(response);
     return response;
+  }
+
+  // ================================================================
+  // 引导操作与任务读取（对标 QGC GuidedActionsController / PlanView）
+  // ================================================================
+
+  void _requireConnected(String action) {
+    if (!isConnected) throw StateError('未连接飞控，无法$action');
+  }
+
+  void _requireCommandSuccess(Object? raw, String action) {
+    if (raw is! JsonMap) throw const FormatException('指令响应格式无效');
+    if (raw['success'] == true) return;
+    final reason = raw['error'] ?? raw['result_text'] ?? '飞控拒绝了该指令';
+    throw StateError('$action失败：$reason');
+  }
+
+  /// 移动到此处（QGC 的 Go To Location，走 COMMAND_INT 保证精度）。
+  Future<void> guidedGoto(
+    double latitude,
+    double longitude,
+    double altitudeMeters,
+  ) async {
+    _requireConnected('移动到此处');
+    _requireCommandSuccess(
+      _readJson(
+        _commandGuidedPoint(_core, latitude, longitude, altitudeMeters, -1, -1),
+      ),
+      '移动到此处',
+    );
+  }
+
+  Future<void> guidedReturnToLaunch() async {
+    _requireConnected('返航');
+    _requireCommandSuccess(_readJson(_commandRtl(_core)), '返航');
+  }
+
+  Future<void> guidedLand() async {
+    _requireConnected('降落');
+    _requireCommandSuccess(_readJson(_commandLand(_core)), '降落');
+  }
+
+  Future<void> guidedTakeoff(double altitudeMeters) async {
+    _requireConnected('起飞');
+    _requireCommandSuccess(
+      _readJson(_commandTakeoff(_core, altitudeMeters)),
+      '起飞',
+    );
+  }
+
+  Future<void> guidedPause() async {
+    _requireConnected('暂停');
+    _requireCommandSuccess(_readJson(_commandGuidedPause(_core)), '暂停');
+  }
+
+  Future<void> guidedOrbit({
+    required double latitude,
+    required double longitude,
+    double radiusMeters = 50,
+    double velocityMetersPerSecond = 5,
+    double altitudeMeters = 50,
+  }) async {
+    _requireConnected('环绕飞行');
+    final config = jsonEncode({
+      'lat': latitude,
+      'lon': longitude,
+      'radius': radiusMeters,
+      'velocity': velocityMetersPerSecond,
+      'altitude': altitudeMeters,
+    }).toNativeUtf8();
+    try {
+      _requireCommandSuccess(_readJson(_commandOrbit(_core, config)), '环绕飞行');
+    } finally {
+      malloc.free(config);
+    }
+  }
+
+  /// 设置飞控 home。会改变返航基准，调用方必须先向用户确认。
+  Future<void> setVehicleHome(
+    double latitude,
+    double longitude,
+    double altitudeMeters,
+  ) async {
+    _requireConnected('设置 Home');
+    _requireCommandSuccess(
+      _readJson(_commandSetHome(_core, latitude, longitude, altitudeMeters)),
+      '设置 Home',
+    );
+  }
+
+  /// 轮询任务传输进度直到结束（MP/QGC 的传输都是异步的，返回即完成是误解）。
+  Future<void> _waitForMissionTransfer(String action) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 20));
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      final progress = _readJson(_missionGetProgress(_core)) as JsonMap;
+      final state = progress['state'] as String? ?? 'idle';
+      if (state == 'downloading' ||
+          state == 'uploading' ||
+          state == 'waiting_ack') {
+        continue;
+      }
+      final total = progress['total'] as int? ?? 0;
+      final result = progress['result'] as int? ?? 0;
+      if (total <= 0 || result != 0) {
+        throw StateError('$action失败：total=$total result=$result');
+      }
+      return;
+    }
+    throw StateError('$action超时');
+  }
+
+  /// 从飞控读取任务并替换文档实体。
+  ///
+  /// 与 QGC 的 Download / MP 的 Read 一致：先启动下载，等它完成，再把结果
+  /// 导进文档。覆盖本地改动前请自行确认。
+  Future<void> importMissionFromVehicle() async {
+    _requireConnected('读取飞控任务');
+    _ensureMissionBackend();
+    _requireMissionSuccess(_readJson(_missionDownload(_core)) as JsonMap);
+    await _waitForMissionTransfer('读取飞控任务');
+
+    final response =
+        _readJson(_missionDocImportFromVehicle(_core)) as Map<String, Object?>;
+    _requireMissionSuccess(response);
+  }
+
+  /// 把任务文档上传到飞控，并等到传输结束。
+  Future<void> uploadMissionToVehicle(int expectedRevision) async {
+    _requireConnected('上传任务');
+    _ensureMissionBackend();
+    _requireMissionSuccess(
+      _readJson(_missionDocUpload(_core, expectedRevision)) as JsonMap,
+    );
+    await _waitForMissionTransfer('上传任务');
   }
 
   @override
@@ -2248,7 +2490,26 @@ final class ConnectionController extends ChangeNotifier
     final oldIdentity = jsonEncode(vehicleIdentity);
     final oldVersion = jsonEncode(firmwareVersionInfo);
     final oldSensors = jsonEncode(sensorHealth);
+    final oldArmed = vehicleArmed;
+    final oldFlightMode = vehicleFlightMode;
+    final oldVehicleType = vehicleType;
+    final oldLandedState = vehicleLandedState;
     try {
+      // 引导操作门控要用到的实时状态（QGC 的 show* 属性）。
+      final summaryEnvelope =
+          _readJson(_getVehicleSummary(_core)) as Map<String, Object?>;
+      final summaryData =
+          summaryEnvelope['data'] as Map<String, Object?>? ?? const {};
+      vehicleArmed = summaryData['armed'] == true;
+      vehicleFlightMode = summaryData['flight_mode'] as String? ?? '';
+      vehicleType = summaryData['vehicle_type'] as int? ?? 0;
+
+      final extendedEnvelope =
+          _readJson(_getExtendedSysState(_core)) as Map<String, Object?>;
+      final extendedData =
+          extendedEnvelope['data'] as Map<String, Object?>? ?? const {};
+      vehicleLandedState = extendedData['landed_state'] as int? ?? 0;
+
       final firmwareEnvelope =
           _readJson(_getFirmwareType(_core)) as Map<String, Object?>;
       firmwareInfo = firmwareEnvelope['success'] == true
@@ -2282,7 +2543,11 @@ final class ConnectionController extends ChangeNotifier
     return oldFirmware != jsonEncode(firmwareInfo) ||
         oldIdentity != jsonEncode(vehicleIdentity) ||
         oldVersion != jsonEncode(firmwareVersionInfo) ||
-        oldSensors != jsonEncode(sensorHealth);
+        oldSensors != jsonEncode(sensorHealth) ||
+        oldArmed != vehicleArmed ||
+        oldFlightMode != vehicleFlightMode ||
+        oldVehicleType != vehicleType ||
+        oldLandedState != vehicleLandedState;
   }
 
   bool _sameIntList(List<int> left, List<int> right) {

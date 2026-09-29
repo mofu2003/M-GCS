@@ -11,6 +11,9 @@ import '../connection/connection_controller.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import '../connection_panel.dart';
+import '../mission/mission_document_controller.dart';
+import '../mission/mission_document_models.dart';
+import '../mission/mission_planning_panel.dart';
 import 'gcj_coordinates.dart';
 import 'map_preferences.dart';
 
@@ -120,6 +123,12 @@ class _AMapMapViewState extends State<AMapMapView> {
   bool _showConnectionPanel = false;
   bool _showMissionPlanning = false;
 
+  /// 地图标记要同时跟着遥测和任务文档变化重画。
+  late final Listenable _markerSources = Listenable.merge([
+    widget.connectionController.telemetryChanges,
+    widget.connectionController.missionPlanning,
+  ]);
+
   @override
   void initState() {
     super.initState();
@@ -185,6 +194,59 @@ class _AMapMapViewState extends State<AMapMapView> {
   ///
   /// 坐标一律先转到当前瓦片所在的坐标系：飞控给的是 WGS-84，高德瓦片是
   /// GCJ-02，不转换会整体偏 100–700 米（Mission Planner 也是这么处理的）。
+  /// 单击地图：规划页开着就新增航点并打开编辑框，否则弹引导操作。
+  ///
+  /// 与 MP 的右键菜单 / QGC 的 Guided Actions 一致，都是“先选位置再选动作”。
+  Future<void> _handleMapTap(LatLng point) async {
+    // 瓦片坐标（可能是 GCJ-02）换算回 WGS-84 再交给文档与飞控。
+    final wgs84 = _toWgs84(point);
+    final controller = widget.connectionController;
+    final mission = controller.missionPlanning;
+    await mission.initialize();
+    if (!mounted) return;
+
+    if (_showMissionPlanning) {
+      await showMissionEntityDialog(
+        context,
+        controller: controller,
+        catalog: mission.commandCatalog,
+        initialPosition: wgs84,
+        onSave: (entity) async {
+          await mission.addEntity(entity);
+          await mission.refreshEstimate();
+        },
+      );
+      return;
+    }
+
+    if (!controller.isConnected) {
+      await showMacosAlertDialog<void>(
+        context: context,
+        builder: (dialogContext) => MacosAlertDialog(
+          appIcon: MacosIcon(
+            CupertinoIcons.bolt_horizontal_circle,
+            size: 44,
+            color: dialogContext.mgColors.warning,
+          ),
+          title: const Text('未连接飞控'),
+          message: const Text('连接飞控后才能在这里发送引导指令。'),
+          primaryButton: PushButton(
+            controlSize: ControlSize.large,
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('好'),
+          ),
+        ),
+      );
+      return;
+    }
+
+    await showGuidedActionsDialog(
+      context,
+      controller: controller,
+      position: wgs84,
+    );
+  }
+
   LatLng _toTileFrame(double latitude, double longitude) {
     if (!_sourceFor(_style).gcj02) return LatLng(latitude, longitude);
     final (lat, lon) = GcjCoordinates.wgs84ToGcj02(latitude, longitude);
@@ -206,7 +268,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   ///
   /// 数据来自后端缓存的 `HOME_POSITION` / `GLOBAL_POSITION_INT`，两个都是
   /// `valid` 才画——定位还没锁定时不画一个假的点在地图中心。
-  List<Marker> _buildMarkers(MgColors colors) {
+  List<Marker> _buildMarkers(BuildContext context, MgColors colors) {
     final connection = widget.connectionController;
     final markers = <Marker>[];
     final home = connection.homePosition;
@@ -243,7 +305,45 @@ class _AMapMapViewState extends State<AMapMapView> {
         ),
       );
     }
+    // 任务文档里的航点：画成编号标记，点击打开编辑框。
+    final mission = connection.missionPlanning;
+    final entities = mission.document?.entities ?? const <MissionEntity>[];
+    for (var index = 0; index < entities.length; index++) {
+      final entity = entities[index];
+      final latitude = entity.latitude;
+      final longitude = entity.longitude;
+      if (latitude == null || longitude == null) continue;
+      markers.add(
+        Marker(
+          point: _toTileFrame(latitude, longitude),
+          width: 26,
+          height: 26,
+          child: GestureDetector(
+            onTap: () => unawaited(_editEntity(mission, entity)),
+            child: _WaypointMarker(position: index + 1, color: colors.accent),
+          ),
+        ),
+      );
+    }
+
     return markers;
+  }
+
+  /// 编辑已有航点：与地图单击新增走同一个编辑框。
+  Future<void> _editEntity(
+    MissionDocumentController mission,
+    MissionEntity entity,
+  ) async {
+    await showMissionEntityDialog(
+      context,
+      controller: widget.connectionController,
+      catalog: mission.commandCatalog,
+      entity: entity,
+      onSave: (updated) async {
+        await mission.updateEntity(updated);
+        await mission.refreshEstimate();
+      },
+    );
   }
 
   @override
@@ -259,6 +359,8 @@ class _AMapMapViewState extends State<AMapMapView> {
             initialZoom: _zoom,
             minZoom: kMinMapZoom,
             maxZoom: kMaxMapZoom,
+            // 单击地图：规划页开着就加航点，否则给引导操作。
+            onTap: (_, point) => unawaited(_handleMapTap(point)),
             onPositionChanged: (camera, hasGesture) =>
                 _scheduleSave(camera.center, camera.zoom),
           ),
@@ -279,9 +381,10 @@ class _AMapMapViewState extends State<AMapMapView> {
               ),
             // 位置每 100ms 更新一次，只重画标记层，不重建整张地图。
             AnimatedBuilder(
-              animation: widget.connectionController.telemetryChanges,
-              builder: (context, _) =>
-                  MarkerLayer(markers: _buildMarkers(context.mgColors)),
+              animation: _markerSources,
+              builder: (context, _) => MarkerLayer(
+                markers: _buildMarkers(context, context.mgColors),
+              ),
             ),
           ],
         ),
@@ -370,6 +473,7 @@ class _AMapMapViewState extends State<AMapMapView> {
             bottom: 18 + MgMetrics.controlHeight + 12,
             right: 18,
             child: MissionPlanningFloatingPanel(
+              controller: widget.connectionController,
               onClose: () => setState(() => _showMissionPlanning = false),
             ),
           ),
@@ -535,4 +639,28 @@ class _MapIconButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 地图上的航点标记：一个带编号的小圆点。
+class _WaypointMarker extends StatelessWidget {
+  const _WaypointMarker({required this.position, required this.color});
+
+  final int position;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: color,
+      shape: BoxShape.circle,
+      border: Border.all(color: context.mgColors.surface, width: 1.5),
+    ),
+    child: Text(
+      '$position',
+      style: MacosTheme.of(
+        context,
+      ).typography.caption1.copyWith(color: context.mgColors.onAccent),
+    ),
+  );
 }

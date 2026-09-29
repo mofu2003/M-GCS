@@ -1701,7 +1701,10 @@ const char* mission_entity_type_for_command(uint16_t command) {
         case static_cast<uint16_t>(NavCommand::NavLoiterTurns):
         case static_cast<uint16_t>(NavCommand::NavLoiterTime):
         case static_cast<uint16_t>(NavCommand::NavLoiterUnlim):      return "loiter";
-        default:                                                     return "waypoint";
+        // 其余命令（改速度/相机/舵机/延时/距离条件）不属于上面的分类。
+        // 返回 "command" 而不是 "waypoint"，否则校验会拿它跟 NAV_WAYPOINT 比对，
+        // 给每个非航点命令都报一条 type_command_mismatch。
+        default:                                                     return "command";
     }
 }
 

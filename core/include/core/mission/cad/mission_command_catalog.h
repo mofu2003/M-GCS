@@ -36,6 +36,11 @@ struct MissionCommandParameter {
 struct MissionCommandDescriptor {
     uint16_t command = 0;
     std::string name;
+    /// 中文显示名（前端下拉/卡片用）；`name` 保留 MAV_CMD 的符号名。
+    std::string label;
+    /// 该命令在任务文档里对应的实体类型（waypoint/takeoff/land/rtl/loiter/command）。
+    /// 前端新建实体时直接用它，避免自己维护一份命令→类型映射。
+    std::string entity_type;
     std::string category;
     std::string description;
     bool requires_position = false;

@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`HOME-002`、`MISSION-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`HOME-002`、`MISSION-002`、`MISSION-003`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
 - 当前分支：`main`。
 - 本地门禁由 `tools/preflight.sh --no-macos-build` 加单独一次 `flutter build macos --debug` 实跑得出。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -376,7 +376,33 @@ tools/preflight.sh
   下载后导入成功、实体命名与类型保留、导入结果 `valid:true`（20/20 通过）。
 - 说明：这个 `_INT` 帧问题是写测试时才暴露出来的——正是“先写用例再信结论”的价值。
 
+### MISSION-003：任务规划没有 UI（本次做完）
+
+- 状态：`RESOLVED`（2026-09-30）
+- 实测（修复前）：`MissionDocumentController` 没有任何页面使用；地图没有单击处理，
+  也没有航点标记；引导指令（goto/rtl/land/takeoff/pause/orbit）与
+  `mg_mission_download` / `mg_vehicle_get_summary` / EXTENDED_SYS_STATE 都没绑定。
+- 本次实现（行为照抄 MP / QGC，见下方“依据”）：
+  - 航线规划面板（贴右边缘、可折叠）加 任务 / 设置 两个标签；任务页 = Home 卡片 +
+    航点卡片（编号徽标、命令下拉、编辑/上移/下移/删除、高度与位置），设置页 =
+    整份任务的默认高度与速度。
+  - 面板内“从飞控读取 / 上传到飞控”两个按钮；读取前若本地有任务项先确认
+    （MP 的 “This will clear your existing points” / QGC 的 unsaved changes 提示）。
+  - 地图单击：规划页关闭 → 引导操作弹窗（门控照 QGC 的 `show*` 属性：
+    移动到此处/环绕要 `flying`，返航要 armed+flying+非 RTL 模式，降落要 armed 且非固定翼，
+    起飞要未飞行，暂停要 armed+flying），每个动作带确认；规划页打开 → 新增航点并打开编辑框，
+    点已有航点标记 → 编辑它。
+  - 编辑框按命令目录动态渲染（命令类型、位置、高度、命令定义的参数），不硬编码参数语义。
+  - 坐标在瓦片坐标系与 WGS-84 之间按地图源自动换算。
+- 后端配套：命令目录补 `label`（中文名）与 `entity_type`（命令→实体类型）；
+  新增 `mg_command_set_home`（`HOME-002`）与 `mg_mission_doc_import_from_vehicle`
+  （`MISSION-002`）；连接后主动请求 `HOME_POSITION` 与 `EXTENDED_SYS_STATE`
+  （`HOME-001`，后者是 QGC `flying` 判断的前提）。
+- 验证：`flutter analyze` 无问题、`flutter test` 12/12、UI token 扫描通过；
+  后端 34/34。面板与弹窗已在 macOS debug 构建里实际打开确认。
+
 ### DEAD-001：固件刷写是死代码，状态接口返回硬编码值
+
 
 
 
@@ -510,7 +536,7 @@ FFmpeg 的构建环境。两者都不影响当前默认构建。
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`HOME-002`、`MISSION-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`HOME-002`、`MISSION-002`、`MISSION-003`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；本地门禁（含 macOS debug 构建）已实跑通过 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

@@ -347,6 +347,17 @@ void test_home_position_is_requested_on_identify() {
     CHECK(requested_home, "GCS asks for home position after identifying the vehicle");
     CHECK(requested_stream, "GCS requests 1 Hz HOME_POSITION streaming");
 
+    bool requested_extended = false;
+    for (const auto& cmd : env.mock->received_cmds) {
+        if (cmd.command == 511 &&
+            cmd.p1 == static_cast<float>(MAVLINK_MSG_ID_EXTENDED_SYS_STATE) &&
+            cmd.p2 == 1000000.0f) {
+            requested_extended = true;
+        }
+    }
+    CHECK(requested_extended,
+          "GCS requests 1 Hz EXTENDED_SYS_STATE streaming (landed_state)");
+
     // 没有 home 之前必须是 invalid，不能拿 0,0 当作有效 home 画到地图上。
     char* empty = mg_vehicle_get_home_position(env.core);
     CHECK(json_has(empty, "\"valid\":false"), "home is invalid before the FC reports one");

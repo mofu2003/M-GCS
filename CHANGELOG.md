@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.0.12 - 2026-09-30
+
+### Added
+
+- Mission planning UI. The route-planning panel (docked to the map's right edge,
+  collapsible into an arrow button) now has two tabs: *任务* and *设置*. The task
+  tab shows a Home card plus one card per mission item — numbered badge, command
+  dropdown, edit / move up / move down / delete, altitude and position. The
+  settings tab edits the mission-wide default altitude and speed.
+- The panel has explicit *从飞控读取* and *上传到飞控* buttons, matching Mission
+  Planner's Read/Write and QGroundControl's Download/Upload. Reading confirms
+  first when local items would be overwritten; neither side auto-downloads.
+- Clicking the map with the panel closed opens the guided-actions sheet (move to
+  here, RTL, land, takeoff, pause, orbit). Availability follows QGC's
+  `GuidedActionsController` gating — move-to-here and orbit require the vehicle to
+  be flying, RTL additionally requires armed and not already in RTL, land requires
+  armed and excludes fixed wing, takeoff is only offered while not flying, and
+  every action asks for confirmation. Clicking the map with the panel open adds a
+  waypoint at that position and opens the editor; tapping a waypoint marker edits
+  it.
+- `mg_command_set_home` (MAV_CMD_DO_SET_HOME), so the Home card can write the
+  flight controller's home. Parameters match QGC's `Vehicle::doSetHome`
+  (`param1=0`, `param5/6` degrees, `param7` metres); out-of-range coordinates are
+  rejected locally. `API_CATALOG.md` notes that this changes the RTL reference.
+- `mg_mission_doc_import_from_vehicle` reads the vehicle mission into the
+  document. It requires a completed download (`invalid_state` otherwise) and
+  replaces the entity list only.
+- Command catalog entries now carry a Chinese `label` and an `entity_type`, so
+  the UI renders the command dropdown and parameter forms straight from the
+  backend instead of hard-coding MAV_CMD semantics.
+
+### Changed
+
+- The vehicle now requests `HOME_POSITION` and `EXTENDED_SYS_STATE` streaming at
+  1 Hz once it has identified the flight controller. ArduPilot only sends Home on
+  first boot and on arming, and does not send EXTENDED_SYS_STATE unless asked
+  (QGC's `APMFirmwarePlugin` documents both), so without the request the map's
+  Home marker stayed empty and `landed_state` was never available for guided-action
+  gating.
+- `MissionDocumentController` is no longer unused: the panel drives it directly.
+
+### Fixed
+
+- `_INT` coordinate frames (5/6/11) are normalised to 0/3/10 when importing a
+  mission. Vehicle readback uses the `_INT` frames, and the document validator
+  only accepted 0/2/3/10, so a real mission imported from a flight controller
+  failed its own validation with `entity.frame_unsupported`.
+- Mission upload no longer reports success on the start of the transfer alone;
+  the client polls `mg_mission_get_progress` until the transfer finishes.
+
+### Verification
+
+- Backend: `ctest -L "offline|simulation"` 34/34. `test_sim_commands` 64/64
+  (includes the SET HOME parameter encoding), `test_sim_ui_paths` 49/49
+  (Home plus EXTENDED_SYS_STATE streaming requests), `test_sim_mission_document`
+  20/20 (import from vehicle, including the frame normalisation),
+  `test_mission_document` 122/122.
+- Frontend: `flutter analyze` clean, `flutter test` 12/12,
+  `dart tools/check_ui_tokens.dart` pass, `flutter build macos --debug` succeeds.
+
 ## 0.0.11 - 2026-09-29
 
 ### Added

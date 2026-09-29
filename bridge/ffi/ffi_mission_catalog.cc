@@ -36,6 +36,8 @@ MGCORE_API char* mg_mission_get_command_catalog(mg_core_t* core) {
         item.begin_object();
         item.field("command", static_cast<int>(command.command));
         item.field("name", command.name);
+        item.field("label", command.label);
+        item.field("entity_type", command.entity_type);
         item.field("category", command.category);
         item.field("description", command.description);
         item.field("requires_position", command.requires_position);
