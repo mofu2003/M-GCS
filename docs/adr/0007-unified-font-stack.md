@@ -2,7 +2,8 @@
 
 ## 状态
 
-已采纳。实施中：字体文件与 `MgFonts` 改造尚未落地。
+已采纳（原则部分）。字体文件与 `MgFonts` 改造尚未落地，选型待定——
+中文侧尚无合格候选，详见「决策」与调研文档。
 
 ## 背景
 
@@ -65,22 +66,24 @@ Windows 的 ClearType 光栅化差异，观感差距被进一步放大。
 界面字体族并保留 tabular figures。字体族由三套（Helvetica Neue + PingFang SC +
 Menlo）降为两套（西文 + 中文回退）。
 
-拟采用的字体（实施时以本文件为准并回填版本号）：
+拟采用的字体**尚未定案**，实测数据见
+[字体替代方案调研](../FONT_ALTERNATIVES_RESEARCH.md)。候选与实测相似度：
 
-| 用途 | 字体 | 许可 | 体积 |
-| --- | --- | --- | --- |
-| 西文 UI + 数字 | Arimo | SIL OFL 1.1 | 变量字体 496 KB |
-| 中文回退 | Noto Sans SC | SIL OFL 1.1 | 变量字体 17.7 MB |
+| 用途 | 候选 | 许可 | 实测相似度 | 短板 |
+| --- | --- | --- | --- | --- |
+| 西文 UI + 数字 | TeX Gyre Heros | GUST Font License | 90.5% | 仅 4 档字重，w600 会被就近映射到 Bold |
+| 西文 UI + 数字 | Arimo（与 Liberation Sans 同源） | SIL OFL 1.1 | 81.8% | 数字 "1" 等字形与 Helvetica Neue 差异较大 |
+| 中文回退 | 待定 | — | — | 见下 |
 
-选型依据见 [字体替代方案调研](../FONT_ALTERNATIVES_RESEARCH.md)。要点：
+要点：
 
-- 社区（Graphic Design Stack Exchange 两个高票问题）公认最接近 Helvetica Neue 的免费方案
-  是 Liberation Sans；Arimo 与它同源，但提供可变字重，且体积只有 496 KB。
-- 初稿选的 Inter 属于 SF 系而非 Helvetica 系，在上述社区讨论里从未出现，作为"高相似"
-  替代不成立。若后续更看重现代 UI 观感而非贴近当前 mac 观感，可换回 Inter，成本只是替换文件。
-- 中文侧 Noto Sans SC 是唯一许可无附加条件的选项；MiSans、HarmonyOS Sans 许可自定义
-  且 MiSans 写明授权**可撤销**，LXGW Neo XiHei 使用 IPA Font License 并在 README 中提示
-  嵌入式使用需自评合规成本，均不优先。
+- 初稿选的 Inter 经实测只有 **46.5%** 相似度，属 SF 系而非 Helvetica 系，作为"高相似"
+  替代不成立，已作废。
+- 西文侧在 TeX Gyre Heros（更像）与 Arimo（字重完整、许可更干净）之间取舍，需产品侧拍板。
+- 中文侧没有合格候选：许可最干净的 Noto Sans SC 实测仅 **51.5%**，低于衬线字体
+  Songti SC 的 53.6%；真正接近的 Hiragino Sans GB（75.6%）是 Apple 资产不可打包；
+  MiSans / HarmonyOS Sans 为自定义许可且未能取得可测量文件。
+  **在中文选型定下来之前，本 ADR 不进入实施。**
 
 注意：macOS 当前实际渲染用的 Helvetica Neue、PingFang SC、Menlo 都是 Apple 系统字体，
 **不可打包再分发**，所以"沿用当前字体"只能取其观感、不能取其文件。
@@ -96,8 +99,8 @@ Menlo）降为两套（西文 + 中文回退）。
 
 成本：
 
-- 安装包体积增加约 18 MB（Arimo 0.5 MB + Noto Sans SC 17.7 MB），中文占绝大部分；
-  若无法接受，需要评估子集化或改用自定义许可的 MiSans / HarmonyOS Sans 的代价。
+- 安装包体积增加，中文占绝大部分（仅 Noto Sans SC 一个变量字体就是 17.7 MB）。
+  体积已确认不作为淘汰条件，但中文候选的相似度问题比体积更棘手。
 - 失去系统字体在中英文混排上的本地化细节。
 - macOS 的 CoreText 灰度抗锯齿与 Windows 的 ClearType 属于系统级光栅化差异，
   打包字体消不掉，同一款字在 Windows 上仍会略微更细更锐。
