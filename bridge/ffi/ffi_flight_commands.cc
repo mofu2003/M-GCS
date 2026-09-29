@@ -120,15 +120,16 @@ MGCORE_API char* mg_command_guided_point(mg_core_t* core,
                                          float yaw, float speed) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
-    // GUIDED point uses COMMAND_INT for precision, send via queue with DO_REPOSITION
-    int32_t lat_e7 = static_cast<int32_t>(lat * 1e7);
-    int32_t lon_e7 = static_cast<int32_t>(lon * 1e7);
+    // 这里走的是命令队列（COMMAND_LONG），MAV_CMD_DO_REPOSITION 在 COMMAND_LONG
+    // 下的 param5/param6 是「度」，不是度×1e7。飞控收到后会自己做 ×1e7 转换，
+    // 传 lat_e7 会让坐标溢出成垃圾值。需要 1e7 精度的路径见
+    // MavlinkAdapter::cmd_guided_point（COMMAND_INT）。
     float p1 = speed > 0 ? speed : -1.0f;
     float p4 = (yaw >= 0) ? yaw : NAN;
     auto* result = cmd_result_queued(core, mav, 192,  // MAV_CMD_DO_REPOSITION
         active_target_sys(core), active_target_comp(core),
         p1, 1.0f, 0, p4,
-        static_cast<float>(lat_e7), static_cast<float>(lon_e7), alt);
+        static_cast<float>(lat), static_cast<float>(lon), alt);
     get_active_flight_log(core).on_command_result("guided_point", result && strstr(result, "\"success\":true"), "queued");
     return result;
 }

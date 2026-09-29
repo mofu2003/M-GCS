@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`TEST-001`、`TOOL-002`、`CONTRACT-001`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`TEST-001`、`TEST-002`、`TOOL-002`、`CONTRACT-001`）。
 - 当前分支：`main`。
 - 本轮本地门禁由 `tools/preflight.sh --no-macos-build` 实跑得出；**macOS debug 构建本轮未重跑**。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -68,8 +68,8 @@ tools/preflight.sh
 | --- | ---: |
 | FFI 导出 | 281 |
 | 前端实际使用 | 48 |
-| 测试触达 | 179 |
-| 既无前端调用、也无测试触达 | 101 |
+| 测试触达 | 185 |
+| 既无前端调用、也无测试触达 | 95 |
 
 按领域头拆分（三列互斥，逐行求和等于导出数）：
 
@@ -80,7 +80,7 @@ tools/preflight.sh
 | core | 12 | 3 | 8 | 1 |
 | environment | 5 | 0 | 4 | 1 |
 | firmware | 7 | 3 | 3 | 1 |
-| flight | 32 | 0 | 26 | 6 |
+| flight | 32 | 0 | 32 | 0 |
 | geofence | 16 | 0 | 4 | 12 |
 | logging | 22 | 0 | 3 | 19 |
 | mission | 40 | 15 | 9 | 16 |
@@ -92,7 +92,7 @@ tools/preflight.sh
 
 - 导出数包含新增的任务规划 FFI，因此不再等于 v0.0.8 快照中的 266。
 - “无人区”不等于可删除代码。专用公开面仍需按 `API_CATALOG.md` 的稳定性规则处理。
-- 完整 101 个接口清单可由 `tools/audit_status.sh` 重新生成。
+- 完整 95 个接口清单可由 `tools/audit_status.sh` 重新生成。
 - 早期版本的逐域表格三列不互斥（“仅测试”含前端已用的项），已在修正 `TOOL-001` 时一起修好。
 
 ## 4. 当前问题登记
@@ -119,6 +119,20 @@ tools/preflight.sh
   （ACK 只代表命令被接受，遥控器行程仍需打杆验证）；`mg_calibration_get_history`
   的 type 上界由 3 改成 4，与 `API_CATALOG.md` 的 0..4 契约一致。
 - 验证：`test_sim_calibration` 75/75 通过，含新增的“无参数读回必须 Failed”回归用例。
+
+### CAL-002：guided point 经纬度按 COMMAND_INT 的量纲塞进 COMMAND_LONG
+
+- 状态：`RESOLVED`（2026-09-29）
+- 实测：`bridge/ffi/ffi_flight_commands.cc` 的 `mg_command_guided_point` 走命令队列
+  （`send_command_queued` → `COMMAND_LONG`），却把 `lat*1e7` / `lon*1e7` 当成
+  param5/param6。COMMAND_LONG 下 `MAV_CMD_DO_REPOSITION` 的 param5/param6 是「度」，
+  飞控会自己再做一次 ×1e7，于是坐标溢出成垃圾值；`float` 也存不下 `399042000`。
+- 影响：这是导航类安全指令，一旦有 UI 接上就会让飞机飞向错误坐标（当前该入口未被
+  UI 使用，属于潜伏缺陷）。
+- 修复：param5/param6 改为传「度」；需要 1e7 精度的路径保留在
+  `MavlinkAdapter::cmd_guided_point`（走 COMMAND_INT）。
+- 回归：`test_sim_commands.cc` 断言 `DO_REPOSITION` 落到 `lat/lon degE7`
+  （已验证：改回旧实现该用例立即 FAIL）。
 
 ### CONTRACT-001：前端参数写入入口未进入 Catalog
 
@@ -161,9 +175,12 @@ tools/preflight.sh
 
 ### TEST-002：安全敏感飞行指令无测试
 
-- 状态：`OPEN`
+- 状态：`RESOLVED`（2026-09-29，模拟链路部分）
 - 接口：`mg_command_set_mode`、`mg_command_land`、`mg_command_rtl`、`mg_command_guided_point`，以及起飞高度和 loiter 半径读写。
-- 处理：先用模拟飞控验证命令编码和 ACK 语义，再进行人工真机验收。
+- 处理：`test_sim_commands.cc` 新增 `SAFETY COMMAND ENCODING` 与
+  `FLIGHT MODE STATE SETTERS` 两组，断言飞机指令的 MAVLink 编码、ACK 语义和
+  参数范围校验。
+- 剩余工作：真机验收仍待人工执行，模拟测试不能替代。
 
 ### TEST-003：批量参数变更集无验证
 
@@ -215,10 +232,12 @@ tools/preflight.sh
   于是该符号被误报为“无人区”。
 - 修复：`extract_tests.awk` 改为匹配裸 `mg_[A-Za-z0-9_]+` 记号；伪符号
   （`mg_core_t`、`mg_socket_t` 等类型名）在与导出表求交集时自然被丢弃。
-- 影响：测试触达 170 → **179**，无人区 105 → **101**；新计入的 5 个符号是
+- 影响（仅这一项修复带来的变化）：测试触达 170 → **179**，无人区 105 → **101**；
+  新计入的 5 个符号是
   `mg_serial_get_uart_names`、`mg_log_request_list`、`mg_terrain_query`、
   `mg_flight_get_takeoff_altitude`、`mg_flight_get_loiter_radius`。
-- 验证：`tools/audit_status.sh` 现输出 281 / 48 / 179 / 101。
+- 验证：修复后脚本输出 281 / 48 / 179 / 101。叠加本轮 `TEST-001` / `TEST-002`
+  的新测试后，当前值为 **281 / 48 / 185 / 95**（以第 3 节与脚本实跑为准）。
 
 ### CI-001：远端 CI 运行状态未在本地审计确认
 
@@ -243,6 +262,8 @@ tools/preflight.sh
 | UI token 迁移 | 已完成业务代码收敛，并加入自动检查 |
 | 内置字体 | MiSans 三字重 + LICENSE（19M）已入库，ADR 0007 记录该决定 |
 | 校准 | 新增 `radio_calibration` 策略（RC 校准）；修正“读回参数失败仍判成功”的校验漏洞（`CAL-001`） |
+| 导航指令编码 | `mg_command_guided_point` 的 `DO_REPOSITION` 经纬度单位修正为「度」（`CAL-002`） |
+| 模拟测试 | 新增 `test_sim_commands` 的安全指令编码与飞行模式状态用例；`flight` 领域已无“无人区”接口 |
 | 校准测试 | 新增读回失败回归用例；mock 补 `INS_GYROFFS_*` / `INS_ACCOFFS_*` 参数 |
 | 飞行模式分档 | 多旋翼/固定翼 PWM 分档拆分，无效 RC 值不再误判档位 |
 | Mock FTP | `MockFlightController` 增加最小 MAVLink FTP 应答器，支撑 `mg_serial_get_uart_names` 离线复现 |
@@ -265,7 +286,7 @@ tools/preflight.sh
 1. 把 `MISSION-001` 的后端任务规划真正接到 Flutter（先定边界，再绑 FFI）。
 2. 修正 `ARCH-001` 的 core→bridge 逆向依赖。
 3. 接入 `UI-001` / `UI-002` 聚合诊断和长任务取消。
-4. 补 `TEST-002` / `TEST-003` 安全敏感路径测试。
+4. 补 `TEST-003` 批量参数变更集的验证。
 5. 清理 `CLEANUP-001` 的孤儿陈列页，或明确其豁免地位。
 6. 启动 `DEPRECATION-001`，让兼容接口进入明确退役流程。
 7. 补跑一次 macOS debug 构建，关闭本轮标记为 UNVERIFIED 的门禁项。
@@ -289,7 +310,7 @@ tools/preflight.sh
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`、`TEST-001`、`TOOL-002`、`CONTRACT-001`；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`TEST-001`、`TEST-002`、`TOOL-002`、`CONTRACT-001`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；macOS debug 构建本轮未重跑 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

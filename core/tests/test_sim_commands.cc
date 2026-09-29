@@ -317,12 +317,132 @@ static void test_mission_retry_on_drop() {
     }
 }
 
+// 直接覆盖 mg_command_* 入口（审计 TEST-002）。别名路径已有测试，这里固定
+// 命令编码本身，尤其是 guided_point 的经纬度单位。
+static void test_safety_command_encoding() {
+    fprintf(stderr, "\n[Group] SAFETY COMMAND ENCODING\n");
+
+    {
+        TestEnv env;
+        CHECK(env.wait_connected(), "set_mode: connected after heartbeat");
+        env.start_pump();
+        char* result = mg_command_set_mode(env.core, 0, 4);
+        env.stop_pump();
+        CHECK(is_success(result), "set_mode success:true");
+        if (result) mg_free_string(result);
+
+        bool encoded = false;
+        for (const auto& cmd : env.mock->received_cmds) {
+            if (cmd.command == MAV_CMD_DO_SET_MODE &&
+                cmd.p1 == static_cast<float>(MAV_MODE_FLAG_CUSTOM_MODE_ENABLED) &&
+                cmd.p2 == 4.0f) {
+                encoded = true;
+            }
+        }
+        CHECK(encoded, "DO_SET_MODE encodes custom-mode-enabled + custom_mode=4");
+    }
+
+    {
+        TestEnv env;
+        CHECK(env.wait_connected(), "rtl: connected after heartbeat");
+        env.start_pump();
+        char* result = mg_command_rtl(env.core);
+        env.stop_pump();
+        CHECK(is_success(result), "rtl success:true");
+        if (result) mg_free_string(result);
+
+        bool sent = false;
+        for (const auto& cmd : env.mock->received_cmds) {
+            if (cmd.command == MAV_CMD_NAV_RETURN_TO_LAUNCH) sent = true;
+        }
+        CHECK(sent, "rtl sends RETURN_TO_LAUNCH");
+    }
+
+    {
+        TestEnv env;
+        CHECK(env.wait_connected(), "land: connected after heartbeat");
+        env.start_pump();
+        char* result = mg_command_land(env.core);
+        env.stop_pump();
+        CHECK(is_success(result), "land success:true");
+        if (result) mg_free_string(result);
+
+        bool sent = false;
+        for (const auto& cmd : env.mock->received_cmds) {
+            if (cmd.command == MAV_CMD_NAV_LAND) sent = true;
+        }
+        CHECK(sent, "land sends NAV_LAND");
+    }
+
+    {
+        TestEnv env;
+        CHECK(env.wait_connected(), "guided point: connected after heartbeat");
+        const double lat = 39.9042;
+        const double lon = 116.4074;
+        env.start_pump();
+        char* result = mg_command_guided_point(
+            env.core, lat, lon, 120.0f, -1.0f, -1.0f);
+        env.stop_pump();
+        CHECK(is_success(result), "guided point success:true");
+        if (result) mg_free_string(result);
+
+        // The mock records COMMAND_LONG param5/param6 as (int32_t)(value*1e7),
+        // so a correctly encoded DO_REPOSITION lands on lat/lon degE7.
+        const int32_t expect_lat = 399042000;
+        const int32_t expect_lon = 1164074000;
+        bool encoded = false;
+        for (const auto& cmd : env.mock->received_cmds) {
+            if (cmd.command != MAV_CMD_DO_REPOSITION) continue;
+            const int32_t dlat = cmd.x - expect_lat;
+            const int32_t dlon = cmd.y - expect_lon;
+            if ((dlat < 0 ? -dlat : dlat) < 1000 &&
+                (dlon < 0 ? -dlon : dlon) < 1000 &&
+                cmd.z == 120) {
+                encoded = true;
+            }
+        }
+        CHECK(encoded,
+              "DO_REPOSITION carries lat/lon in degrees for COMMAND_LONG");
+    }
+}
+
+static void test_flight_mode_state_setters() {
+    fprintf(stderr, "\n[Group] FLIGHT MODE STATE SETTERS\n");
+    TestEnv env;
+
+    char* takeoff = mg_flight_set_takeoff_altitude(env.core, 30.0f);
+    CHECK(is_success(takeoff), "set takeoff altitude accepted");
+    if (takeoff) mg_free_string(takeoff);
+
+    char* too_high = mg_flight_set_takeoff_altitude(env.core, 500.0f);
+    CHECK(is_failure(too_high), "takeoff altitude out of range rejected");
+    if (too_high) mg_free_string(too_high);
+
+    char* readback = mg_flight_get_takeoff_altitude(env.core);
+    CHECK(json_has(readback, "\"altitude_m\":30"), "takeoff altitude readback matches");
+    if (readback) mg_free_string(readback);
+
+    char* loiter = mg_flight_set_loiter_radius(env.core, 100.0f);
+    CHECK(is_success(loiter), "set loiter radius accepted");
+    if (loiter) mg_free_string(loiter);
+
+    char* too_small = mg_flight_set_loiter_radius(env.core, 1.0f);
+    CHECK(is_failure(too_small), "loiter radius out of range rejected");
+    if (too_small) mg_free_string(too_small);
+
+    char* radius = mg_flight_get_loiter_radius(env.core);
+    CHECK(json_has(radius, "\"radius_m\":100"), "loiter radius readback matches");
+    if (radius) mg_free_string(radius);
+}
+
 int main() {
     fprintf(stderr, "=== Command Simulation Tests ===\n");
     test_arm();
     test_takeoff();
     test_rtl();
     test_mode_change();
+    test_safety_command_encoding();
+    test_flight_mode_state_setters();
     test_mode_status_tracks_latest_heartbeat();
     test_command_nak();
     test_command_timeout();
