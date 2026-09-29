@@ -5,11 +5,12 @@
 
 ## 审计范围
 
-- 代码基线：commit `01bd3d3`，叠加 2026-09-29 Windows 连接加固工作树。
-- 本文更新时间：2026-09-29。
+- 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`TEST-001`、`TOOL-002`）。
 - 当前分支：`main`。
-- 本地门禁来自最近一次 `tools/preflight.sh`；代码提交后未再修改后端或前端实现。
+- 本轮本地门禁由 `tools/preflight.sh --no-macos-build` 实跑得出；**macOS debug 构建本轮未重跑**。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
+- 本轮修订同时修复了 `tools/audit_status.sh`（详见 `TOOL-001`）。
 
 历史 v0.0.8 快照：
 
@@ -17,14 +18,20 @@
 
 ## 1. 当前门禁
 
-| 检查 | 当前结果 |
+以下为 2026-09-29 在 commit `0c8b193` 上实跑的结果：
+
+| 检查 | 结果 |
 | --- | --- |
-| UI token 扫描 | 10 项自检通过，无违规 |
+| 补丁格式（`git diff --check`） | 通过 |
+| UI token 扫描 | 10 项自检通过，未发现绕过 token 的用法 |
 | Flutter 静态分析 | No issues found |
-| Flutter 测试 | 5/5 通过 |
-| 后端 offline/simulation | 33/33 通过 |
-| macOS debug 构建 | 成功 |
-| `tools/preflight.sh` | 全部通过 |
+| Flutter 测试 | **12/12 通过**（4 个测试文件） |
+| 后端 offline/simulation | **34/34 通过**（offline 21 + simulation 13，18.4s） |
+| macOS debug 构建 | **本轮未重跑**（见下方说明） |
+| `tools/preflight.sh --no-macos-build` | 全部通过 |
+
+说明：本轮用 `--no-macos-build` 跳过了 macOS debug 构建，因此该项结果为
+**UNVERIFIED**，不能沿用上一轮的成功记录。需要时单独执行 `flutter build macos --debug`。
 
 当前门禁覆盖任务文档编译、上传和回读模拟，但仍不覆盖真实飞控写任务。
 
@@ -43,6 +50,10 @@ tools/audit_status.sh
 - C++ 测试中实际调用的 `mg_*`。
 - 按领域头拆分的前端使用、测试触达和无人区。
 
+脚本现在只依赖 POSIX 工具（`find` / `awk` / `sort` / `comm`），不再依赖 `ripgrep`。
+详见 `TOOL-001`：此前依赖 `rg` 且用 `|| true` 吞掉失败，在缺少 `rg` 的环境会静默产出全 0 的假数据。
+测试维度现按裸符号匹配，函数指针形式的 FFI 引用也会计入（见 `TOOL-002`）。
+
 完整本地验收：
 
 ```bash
@@ -56,30 +67,33 @@ tools/preflight.sh
 | 分类 | 数量 |
 | --- | ---: |
 | FFI 导出 | 281 |
-| 前端实际使用 | 45 |
-| 测试触达 | 170 |
-| 既无前端调用、也无测试触达 | 105 |
+| 前端实际使用 | 48 |
+| 测试触达 | 179 |
+| 既无前端调用、也无测试触达 | 101 |
+
+按领域头拆分（三列互斥，逐行求和等于导出数）：
 
 | 领域头 | 导出 | 前端在用 | 仅测试 | 两者皆无 |
 | --- | ---: | ---: | ---: | ---: |
-| configuration | 43 | 5 | 22 | 19 |
-| connection | 21 | 6 | 15 | 5 |
-| core | 12 | 3 | 11 | 1 |
-| environment | 5 | 0 | 3 | 2 |
-| firmware | 7 | 3 | 5 | 1 |
-| flight | 32 | 0 | 24 | 8 |
+| configuration | 43 | 5 | 19 | 19 |
+| connection | 21 | 6 | 10 | 5 |
+| core | 12 | 3 | 8 | 1 |
+| environment | 5 | 0 | 4 | 1 |
+| firmware | 7 | 3 | 3 | 1 |
+| flight | 32 | 0 | 26 | 6 |
 | geofence | 16 | 0 | 4 | 12 |
-| logging | 22 | 0 | 2 | 20 |
-| mission | 40 | 15 | 23 | 16 |
-| params | 20 | 6 | 8 | 11 |
+| logging | 22 | 0 | 3 | 19 |
+| mission | 40 | 15 | 9 | 16 |
+| params | 20 | 6 | 3 | 11 |
 | payload | 17 | 0 | 13 | 4 |
-| telemetry | 46 | 7 | 40 | 6 |
+| telemetry | 46 | 10 | 30 | 6 |
 
 说明：
 
 - 导出数包含新增的任务规划 FFI，因此不再等于 v0.0.8 快照中的 266。
 - “无人区”不等于可删除代码。专用公开面仍需按 `API_CATALOG.md` 的稳定性规则处理。
-- 完整 105 个接口清单可由 `tools/audit_status.sh` 重新生成。
+- 完整 101 个接口清单可由 `tools/audit_status.sh` 重新生成。
+- 早期版本的逐域表格三列不互斥（“仅测试”含前端已用的项），已在修正 `TOOL-001` 时一起修好。
 
 ## 4. 当前问题登记
 
@@ -91,6 +105,20 @@ tools/preflight.sh
 - 原因：`mgcore` 把 `bridge/ffi` 加到了 PUBLIC include 路径。
 - 修复方式：把 `TelemetryCache` 下沉到 core，或为 Vehicle 定义 core 侧缓存接口，并收紧 CMake include 可见性。
 - 回归保护：给 `test_bridge_architecture_guards.cc` 增加 core→bridge 方向断言。
+- 现状：`TelemetryCache` 依赖 `json_serializers.h` / `telemetry_freshness.h` 等 bridge 私有头，
+  下沉需要连同这组序列化器一起迁移，属于独立重构；本轮不动，避免半个迁移让依赖更乱。
+
+### CAL-001：校准读回失败被判成成功
+
+- 状态：`RESOLVED`（2026-09-29）
+- 实测：`core/src/calibration/calibration_service.cc` 的 `handle_success()` 只在
+  `quality == Poor` 时判失败。参数读回失败时 `verified == false`，但质量仍是默认档，
+  于是校准被报成成功——UI 会显示“校准完成”，实际飞控参数根本没校验过。
+- 修复：`!verified` 一律判 `Failed`，并在原因为空时补默认文案。
+- 相关修正：`radio_calibration` 的 `MAV_RESULT_ACCEPTED` 由 `Success` 改为 `Calibrating`
+  （ACK 只代表命令被接受，遥控器行程仍需打杆验证）；`mg_calibration_get_history`
+  的 type 上界由 3 改成 4，与 `API_CATALOG.md` 的 0..4 契约一致。
+- 验证：`test_sim_calibration` 75/75 通过，含新增的“无参数读回必须 Failed”回归用例。
 
 ### CONTRACT-001：前端参数写入入口未进入 Catalog
 
@@ -118,14 +146,15 @@ tools/preflight.sh
 
 ### TEST-001：5 个前端在用接口无测试
 
-- 状态：`OPEN`
-- 接口：
-  - `mg_calibration_cancel`
-  - `mg_params_get_by_name`
-  - `mg_serial_get_uart_names`
-  - `mg_stream_set_interval`
-  - `mg_vehicle_request_firmware_version`
-- 这些是真实 UI 路径已触达、自动化回归未覆盖的组合，应优先补契约测试。
+- 状态：`RESOLVED`（2026-09-29）
+- 接口：`mg_calibration_cancel`、`mg_params_get_by_name`、`mg_serial_get_uart_names`、
+  `mg_stream_set_interval`、`mg_vehicle_request_firmware_version`。
+- 处理：新增 `core/tests/test_sim_ui_paths.cc`（label `simulation`），在
+  `MockFlightController` 上覆盖请求编码、ACK 语义、取消语义和 FTP 回读失败契约。
+- 附带修复：给 mock 增加最小 MAVLink FTP 应答器（ResetSessions / OpenFileRO /
+  ReadFile / TerminateSession），使 `mg_serial_get_uart_names` 的
+  `@SYS/uarts.txt` 下载路径可以在 0.5s 内离线复现，而不是等 3s×4 重试超时。
+- 验证：`ctest -L simulation` 中的 `test_sim_ui_paths` 22/22 通过。
 
 ### TEST-002：安全敏感飞行指令无测试
 
@@ -147,6 +176,47 @@ tools/preflight.sh
 - 兼容别名、空壳 `mg_rc_calibrate_save` 和返回空列表的 `mg_log_list` 没有明确退役计划。
 - 处理：建立 deprecated 标记和替代关系，不直接删除公开符号。
 
+### MISSION-001：Flutter 任务规划层尚未连接后端
+
+- 状态：`OPEN`
+- 实测：`flutter_shell/lib/mission/`（`mission_document_models.dart`、`_backend.dart`、`_controller.dart`）
+  三个文件只互相 import，既不引入 `dart:ffi`，也不依赖 `ConnectionController`。
+- 现有验证：只有 `test/mission_document_controller_test.dart` 的纯 Dart 单元测试。
+- 影响：任务规划的 Dart 侧目前是纯本地模型层，后端 `core/src/mission/cad/` 与 `bridge/ffi/ffi_mission_*.cc`
+  提供的能力还没被任何 UI 触达；mission 领域 40 个导出中仍有 16 个落在无人区。
+- 下一步：明确 “编辑在 Dart、编译与上传在后端” 的调用边界，再补 FFI 绑定，避免前端复制一份几何或编译逻辑。
+
+### CLEANUP-001：组件陈列页无人引用
+
+- 状态：`OPEN`
+- 实测：`flutter_shell/lib/component_gallery_demo.dart`（1,047 行）没有被任何页面或测试 import。
+- 影响：它仍持有 `MacosColors.*` 引用，会让 token 扫描的豁免范围长期存在。
+- 处理：确认是否已无展示价值；若保留，应在文件中注明用途并加入扫描豁免清单，否则删除。
+
+### TOOL-001：审计脚本缺失依赖时静默产出假数据
+
+- 状态：`RESOLVED`（2026-09-29）
+- 原实现：`tools/audit_status.sh` 用 `rg` 提取符号，且以 `|| true` 吞掉失败。
+  在缺少 `ripgrep` 的机器上，前端和测试两维全部统计为 0，脚本仍正常退出，
+  于是报告出“281 个导出全是无人区”的错误结论。
+- 修复：改用 `find` + `awk`，脚本现只依赖 POSIX 工具。
+- 附带修复：逐域表格的“仅测试”列原先包含前端已用的项，三列不互斥、行和超过导出数；
+  现改为 `导出 - 前端在用 - 两者皆无`，已校验 12 行全部自洽。
+  - 验证：`tools/audit_status.sh` 在无 `rg` 环境下输出 281 / 48 / 170 / 105，与独立统计一致。
+
+### TOOL-002：测试维度漏统计函数指针形式的 FFI 引用
+
+- 状态：`RESOLVED`（2026-09-29）
+- 原实现：测试维度的 `awk` 只匹配 `mg_xxx(` 调用点。测试把 FFI 入口当函数指针
+  传递时（例如 `env.call_with_pump(mg_serial_get_uart_names)`）没有尾随 `(`，
+  于是该符号被误报为“无人区”。
+- 修复：`extract_tests.awk` 改为匹配裸 `mg_[A-Za-z0-9_]+` 记号；伪符号
+  （`mg_core_t`、`mg_socket_t` 等类型名）在与导出表求交集时自然被丢弃。
+- 影响：测试触达 170 → **179**，无人区 105 → **101**；新计入的 5 个符号是
+  `mg_serial_get_uart_names`、`mg_log_request_list`、`mg_terrain_query`、
+  `mg_flight_get_takeoff_altitude`、`mg_flight_get_loiter_radius`。
+- 验证：`tools/audit_status.sh` 现输出 281 / 48 / 179 / 101。
+
 ### CI-001：远端 CI 运行状态未在本地审计确认
 
 - 状态：`UNVERIFIED`
@@ -160,14 +230,27 @@ tools/preflight.sh
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 后端门禁 | 31 → 33 个测试 |
-| Flutter 测试 | 3 → 5 个 |
+| 版本号 | v0.0.8 → **v0.0.10**（commit `0c8b193`） |
+| 后端门禁 | 31 → **34 个测试**（offline 21 + simulation 13） |
+| Flutter 测试 | 3 → **12 个**（4 个测试文件） |
+| `core/src` 规模 | 54 文件 / 14,854 行 → **57 文件 / 16,664 行** |
+| `bridge/ffi` 规模 | 38 `.cc` → **40 `.cc`**（头仍为 29） |
+| `core/tests` | 30 → **33**（新增 `test_sim_ui_paths.cc`） |
+| 前端 Dart | 16 + 1 文件 / 9,116 行 → **21 + 4 文件 / 11,821 行** |
 | UI token 迁移 | 已完成业务代码收敛，并加入自动检查 |
+| 内置字体 | MiSans 三字重 + LICENSE（19M）已入库，ADR 0007 记录该决定 |
+| 校准 | 新增 `radio_calibration` 策略（RC 校准）；修正“读回参数失败仍判成功”的校验漏洞（`CAL-001`） |
+| 校准测试 | 新增读回失败回归用例；mock 补 `INS_GYROFFS_*` / `INS_ACCOFFS_*` 参数 |
+| 飞行模式分档 | 多旋翼/固定翼 PWM 分档拆分，无效 RC 值不再误判档位 |
+| Mock FTP | `MockFlightController` 增加最小 MAVLink FTP 应答器，支撑 `mg_serial_get_uart_names` 离线复现 |
 | 协作脚本 | `preflight.sh`、`install-hooks.sh`、`release.sh` 已实现 |
+| 审计脚本 | 新增 `audit_status.sh`，并修复 `TOOL-001`、`TOOL-002` |
 | pre-commit | 校验暂存快照，拒绝未暂存和相关未跟踪文件 |
 | CMake/CTest | 最低版本 3.20，空测试会失败 |
 | 任务规划 | 新增 MissionDocument、命令目录、校验、编译、估算、上传和回读 |
-| Flutter 桥接 | 新增任务模型、后端接口和 `missionPlanning` 控制器 |
+| Flutter 桥接 | 新增任务模型、后端接口和 `missionPlanning` 控制器（尚未连 FFI，见 `MISSION-001`） |
+| 电机控件 | `mg_range_bar.dart` 删除，替换为 `mg_motor_output_bar.dart` |
+| 新增文档 | `COLLABORATION.md`、`MISSION_PLANNING.md`、`FONT_ALTERNATIVES_RESEARCH.md`、`MULTIVEHICLE_CONNECTION_RESEARCH.md`、ADR 0007 |
 | Windows 串口 | 修复 ANSI/UTF-8 越界写、补齐 DCB/清理/部分写处理、加强读线程退出 |
 | Windows 飞控发现 | USB 遥测电台 `SiK Radio` 现在也会标记为飞控候选 |
 | Windows 打包 | Flutter Windows 构建显式继承生成器/架构，安装阶段校验 DLL 和数据文件 |
@@ -175,13 +258,15 @@ tools/preflight.sh
 
 ## 6. 建议顺序
 
-1. 修正 `ARCH-001` 的 core→bridge 逆向依赖。
-2. 解决 `CONTRACT-001`，统一参数写入入口。
-3. 补 `TEST-001` 的 5 个真实 UI 接口测试。
+1. 把 `MISSION-001` 的后端任务规划真正接到 Flutter（先定边界，再绑 FFI）。
+2. 修正 `ARCH-001` 的 core→bridge 逆向依赖。
+3. 解决 `CONTRACT-001`，统一参数写入入口。
 4. 接入 `UI-001` / `UI-002` 聚合诊断和长任务取消。
 5. 补 `TEST-002` / `TEST-003` 安全敏感路径测试。
-6. 启动 `DEPRECATION-001`，让兼容接口进入明确退役流程。
-7. 远端 CI 恢复后，以一次真实运行关闭 `CI-001`。
+6. 清理 `CLEANUP-001` 的孤儿陈列页，或明确其豁免地位。
+7. 启动 `DEPRECATION-001`，让兼容接口进入明确退役流程。
+8. 补跑一次 macOS debug 构建，关闭本轮标记为 UNVERIFIED 的门禁项。
+9. 远端 CI 恢复后，以一次真实运行关闭 `CI-001`。
 
 ## 7. 维护规则
 
@@ -190,3 +275,19 @@ tools/preflight.sh
 3. 问题必须有稳定 ID，并使用 `OPEN` / `RESOLVED` / `STALE` / `ACCEPTED-RISK` 状态。
 4. 已解决问题保留一行状态和验证提交，不删除历史审计。
 5. 本地门禁与远端 CI 分开记录，不以本地绿色代替远端运行。
+
+---
+
+## 落款
+
+| 项 | 内容 |
+| --- | --- |
+| 编写 | WorkBuddy（AI 助手） |
+| 日期 | 2026-09-29（第二轮更新） |
+| 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
+| 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
+| 本轮改动 | 关闭 `CAL-001`（校准读回判失败）、`TEST-001`（5 个 UI 接口测试）、`TOOL-002`（函数指针漏统计）；刷新门禁与统计 |
+| 复核状态 | **未经人工复核**；macOS debug 构建本轮未重跑 |
+
+> 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议
+> 应由另一人复跑同一验收命令后再采纳。

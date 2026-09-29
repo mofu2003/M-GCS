@@ -386,6 +386,7 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_new_modules.cc
         core/tests/test_sim_geofence.cc
         core/tests/test_sim_full_flow.cc
+        core/tests/test_sim_ui_paths.cc
         tests/test_real_fc_dump.cc
         tests/test_scan_connect.cc
     )

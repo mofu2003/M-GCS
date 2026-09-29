@@ -116,6 +116,12 @@ public:
     /// 任务传输第一次不响应，重试时正常（测试任务超时重发）
     void set_mission_first_attempt_drop(bool e) { mission_first_drop_=e; mission_dropped_=false; }
 
+    // --- MAVLink FTP (FILE_TRANSFER_PROTOCOL) ---
+    /// 注册一个可被 FTP 读取的虚拟文件；未注册的路径返回 FILE_NOT_FOUND。
+    void set_ftp_file(const std::string& path, const std::string& content) {
+        ftp_files_[path] = content;
+    }
+
     // 故障注入状态（public，供测试断言）
     int cmd_drop_count_=0, cmd_dropped_so_far_=0;
     bool param_list_no_response_=false;
@@ -136,6 +142,9 @@ private:
     bool param_streaming_=false; int param_idx_=0;
     std::vector<std::pair<std::string,ParamDef>> param_cache_;
     int param_drop_=0;
+    std::map<std::string,std::string> ftp_files_;
+    std::string ftp_open_path_;
+    uint8_t ftp_session_=0;
     std::vector<mavlink_mission_item_int_t> stored_mission_;
     int mission_recv_=0, mission_total_=0;
     uint8_t next_cmd_result_=0;
@@ -370,7 +379,120 @@ private:
                 send(a); next_cmd_result_=0;
             }
             break; }
+        case MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL:
+            handle_ftp(msg);
+            break;
         default: break;
+        }
+    }
+
+    // --- MAVLink FTP responder ---
+    // 只实现读取系统文件所需的最小子集：ResetSessions / OpenFileRO /
+    // ReadFile / TerminateSession。足够覆盖 @SYS/uarts.txt 之类的下载路径。
+    static constexpr uint8_t kFtpOpTerminate = 1;
+    static constexpr uint8_t kFtpOpReset     = 2;
+    static constexpr uint8_t kFtpOpOpenRead  = 4;
+    static constexpr uint8_t kFtpOpRead      = 5;
+    static constexpr uint8_t kFtpRspAck      = 128;
+    static constexpr uint8_t kFtpRspNak      = 129;
+    static constexpr size_t  kFtpPayload     = 251;
+    static constexpr size_t  kFtpHeader      = 12;
+    static constexpr size_t  kFtpMaxChunk    = 239;
+
+    static uint32_t ftp_u32(const uint8_t* p) {
+        return static_cast<uint32_t>(p[0])
+             | (static_cast<uint32_t>(p[1]) << 8)
+             | (static_cast<uint32_t>(p[2]) << 16)
+             | (static_cast<uint32_t>(p[3]) << 24);
+    }
+
+    void send_ftp(uint16_t seq, uint8_t session, uint8_t response_opcode,
+                  uint8_t request_opcode, uint32_t offset,
+                  const std::vector<uint8_t>& data) {
+        mavlink_file_transfer_protocol_t ftp{};
+        ftp.target_system = 255;
+        uint8_t* p = ftp.payload;
+        // FTP responses echo the request sequence + 1; the client matches on it.
+        const uint16_t response_seq = static_cast<uint16_t>(seq + 1);
+        p[0] = static_cast<uint8_t>(response_seq & 0xff);
+        p[1] = static_cast<uint8_t>((response_seq >> 8) & 0xff);
+        p[2] = session;
+        p[3] = response_opcode;
+        p[4] = static_cast<uint8_t>(data.size());
+        p[5] = request_opcode;
+        p[8]  = static_cast<uint8_t>(offset & 0xff);
+        p[9]  = static_cast<uint8_t>((offset >> 8) & 0xff);
+        p[10] = static_cast<uint8_t>((offset >> 16) & 0xff);
+        p[11] = static_cast<uint8_t>((offset >> 24) & 0xff);
+        if (!data.empty()) std::memcpy(p + kFtpHeader, data.data(), data.size());
+        mavlink_message_t m;
+        mavlink_msg_file_transfer_protocol_pack(
+            config_.system_id, config_.component_id, &m, 0, 0, 0, p);
+        send(m);
+    }
+
+    void handle_ftp(const mavlink_message_t& msg) {
+        mavlink_file_transfer_protocol_t req{};
+        mavlink_msg_file_transfer_protocol_decode(&msg, &req);
+        const uint8_t* p = req.payload;
+        const uint16_t seq = static_cast<uint16_t>(p[0] | (p[1] << 8));
+        const uint8_t session = p[2];
+        const uint8_t opcode = p[3];
+        const uint8_t request_size = p[4];
+        const uint32_t offset = ftp_u32(p + 8);
+
+        switch (opcode) {
+            case kFtpOpReset:
+                ftp_session_ = static_cast<uint8_t>(ftp_session_ + 1);
+                send_ftp(seq, ftp_session_, kFtpRspAck, opcode, 0, {});
+                break;
+            case kFtpOpTerminate:
+                send_ftp(seq, session, kFtpRspAck, opcode, 0, {});
+                break;
+            case kFtpOpOpenRead: {
+                const std::string path(reinterpret_cast<const char*>(p + kFtpHeader),
+                                       request_size);
+                auto it = ftp_files_.find(path);
+                if (it == ftp_files_.end()) {
+                    // MAV_FTP_ERR_FILE_NOT_FOUND = 10
+                    send_ftp(seq, session, kFtpRspNak, opcode, 0, {10});
+                    break;
+                }
+                ftp_open_path_ = path;
+                ftp_session_ = static_cast<uint8_t>(ftp_session_ + 1);
+                const uint32_t size = static_cast<uint32_t>(it->second.size());
+                std::vector<uint8_t> length{
+                    static_cast<uint8_t>(size & 0xff),
+                    static_cast<uint8_t>((size >> 8) & 0xff),
+                    static_cast<uint8_t>((size >> 16) & 0xff),
+                    static_cast<uint8_t>((size >> 24) & 0xff)};
+                send_ftp(seq, ftp_session_, kFtpRspAck, opcode, 0, length);
+                break;
+            }
+            case kFtpOpRead: {
+                auto it = ftp_files_.find(ftp_open_path_);
+                if (it == ftp_files_.end()) {
+                    send_ftp(seq, session, kFtpRspNak, opcode, 0, {1});
+                    break;
+                }
+                const std::string& content = it->second;
+                if (offset >= content.size()) {
+                    // MAV_FTP_ERR_EOF = 6
+                    send_ftp(seq, session, kFtpRspNak, opcode, 0, {6});
+                    break;
+                }
+                const size_t count = std::min<size_t>(
+                    std::min<size_t>(request_size, kFtpMaxChunk),
+                    content.size() - offset);
+                std::vector<uint8_t> chunk(
+                    content.begin() + offset, content.begin() + offset + count);
+                send_ftp(seq, session, kFtpRspAck, opcode, offset, chunk);
+                break;
+            }
+            default:
+                // MAV_FTP_ERR_UNKNOWN_COMMAND = 7
+                send_ftp(seq, session, kFtpRspNak, opcode, 0, {7});
+                break;
         }
     }
 };

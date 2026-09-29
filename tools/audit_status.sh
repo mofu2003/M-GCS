@@ -41,18 +41,38 @@ done
 
 sort -u "$all_exports" -o "$all_exports"
 
+cat > "$tmp_dir/extract_frontend.awk" <<'AWK'
 {
-  rg -o --no-filename '"mg_[A-Za-z0-9_]+"' flutter_shell/lib || true
-  rg -o --no-filename "'mg_[A-Za-z0-9_]+'" flutter_shell/lib || true
-} |
-  sed -E 's/["'\'']//g' |
+  line = $0
+  while (match(line, /["']mg_[A-Za-z0-9_]+/)) {
+    tok = substr(line, RSTART, RLENGTH)
+    sub(/^["']/, "", tok)
+    print tok
+    line = substr(line, RSTART + RLENGTH)
+  }
+}
+AWK
+
+cat > "$tmp_dir/extract_tests.awk" <<'AWK'
+{
+  line = $0
+  # 匹配裸符号而不是只匹配调用点：测试里也会把 FFI 入口作为函数指针传递
+  # （例如 call_with_pump(mg_serial_get_uart_names)），只认 `name(` 会漏统计。
+  # 伪符号（mg_core_t 等类型名）会在与导出表求交集时被过滤掉。
+  while (match(line, /mg_[A-Za-z0-9_]+/)) {
+    tok = substr(line, RSTART, RLENGTH)
+    print tok
+    line = substr(line, RSTART + RLENGTH)
+  }
+}
+AWK
+
+find flutter_shell/lib -type f -name '*.dart' \
+  -exec awk -f "$tmp_dir/extract_frontend.awk" {} + |
   sort -u > "$frontend_used"
 
-{
-  rg -o --no-filename --pcre2 \
-    'mg_[A-Za-z0-9_]+(?=\s*\()' \
-    core/tests tests || true
-} |
+find core/tests tests -type f \( -name '*.cc' -o -name '*.h' \) \
+  -exec awk -f "$tmp_dir/extract_tests.awk" {} + |
   sort -u > "$test_touched"
 
 comm -12 "$all_exports" "$frontend_used" > "$frontend_exports"
@@ -96,14 +116,14 @@ for header in bridge/ffi/ffi_api*.h; do
   frontend_count_domain="$(
     comm -12 "$exports_file" "$frontend_exports" | wc -l | tr -d ' '
   )"
-  test_count_domain="$(
-    comm -12 "$exports_file" "$test_exports" | wc -l | tr -d ' '
-  )"
   untouched_count_domain="$(
     comm -23 "$exports_file" "$all_used" | wc -l | tr -d ' '
   )"
+  # 三列互斥：仅测试 = 导出 - 前端在用 - 两者皆无。
+  # 直接用 comm -12 exports test_exports 会把"前端也在用"的算进来，导致三列之和超过导出数。
+  test_only_count_domain=$((export_count - frontend_count_domain - untouched_count_domain))
 
-  echo "| $domain | $export_count | $frontend_count_domain | $test_count_domain | $untouched_count_domain |"
+  echo "| $domain | $export_count | $frontend_count_domain | $test_only_count_domain | $untouched_count_domain |"
 done
 
 echo
