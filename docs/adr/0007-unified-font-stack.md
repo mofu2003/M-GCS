@@ -56,17 +56,29 @@ Windows 的 ClearType 光栅化差异，观感差距被进一步放大。
 4. **许可必须商业友好**。本项目是商业项目，只采用 OFL、Apache-2.0 这类许可，
    来源、版本与分发义务记录在本文件。禁止从系统字体目录复制字体（Apple /
    Microsoft 的系统字体不可再分发）。
+5. **字体族总数控制在 1～2 套**。西文一套、中文回退一套是上限，不为数字读数
+   单独引入第三套等宽族。数字对齐由 `FontFeature.tabularFigures()` 保证，不用
+   等宽字体实现——多一套族就多一处跨平台回退风险。
+
+已落地的第一步（2026-09-29）：删除了 `MgFonts.mono` 与 `MgTypography.mono`，
+`MgTypography.data` / `dataLarge` 不再硬编码 `Cascadia Mono`，数字读数统一套用
+界面字体族并保留 tabular figures。字体族由三套（Helvetica Neue + PingFang SC +
+Menlo）降为两套（西文 + 中文回退）。
 
 拟采用的字体（实施时以本文件为准并回填版本号）：
 
 | 用途 | 字体 | 许可 |
 | --- | --- | --- |
-| 西文 UI | Inter | SIL OFL 1.1 |
-| 中文 | Noto Sans SC | SIL OFL 1.1 |
-| 数字 / 等宽读数 | JetBrains Mono | SIL OFL 1.1 |
+| 西文 UI + 数字 | Inter | SIL OFL 1.1 |
+| 中文回退 | Noto Sans SC | SIL OFL 1.1 |
 
-选型理由：Inter 的字面气质最接近 SF / Segoe UI，小字号清晰；Noto Sans SC 中性，
-与 Inter 混排不冲突；JetBrains Mono 满足 `tabularFigures` 之外的等宽对齐需求。
+选型理由：Inter 的字面气质最接近 SF / Segoe UI，小字号清晰，且自带 tabular figures，
+PWM、坐标、参数值这类读数可以直接复用它；Noto Sans SC 中性，与 Inter 混排不冲突。
+两套即可覆盖全部界面，不再需要单独的等宽字体。
+
+注意：macOS 当前实际渲染用的 Helvetica Neue、PingFang SC、Menlo 都是 Apple 系统字体，
+**不可打包再分发**，所以"沿用当前字体"只能取其观感、不能取其文件。Inter 是开放许可里
+最接近的一套替代。
 
 ## 影响
 

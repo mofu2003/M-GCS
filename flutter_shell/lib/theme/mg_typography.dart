@@ -32,25 +32,6 @@ class MgFonts {
     }
     return const ['Noto Sans', 'DejaVu Sans', 'Noto Sans CJK SC'];
   }
-
-  /// 参数值、PWM、传感器读数等需要等宽对齐的数字。
-  ///
-  /// 不再使用 `Menlo`：它在 Windows/Linux 上不存在，会触发不可控回退。
-  static String get mono {
-    if (Platform.isMacOS) return 'SF Mono';
-    if (Platform.isWindows) return 'Cascadia Mono';
-    return 'Noto Sans Mono';
-  }
-
-  static List<String> get monoFallback {
-    if (Platform.isMacOS) {
-      return const ['SF Mono', 'Menlo', 'PingFang SC'];
-    }
-    if (Platform.isWindows) {
-      return const ['Cascadia Mono', 'Consolas', 'Microsoft YaHei UI'];
-    }
-    return const ['Noto Sans Mono', 'DejaVu Sans Mono', 'Noto Sans CJK SC'];
-  }
 }
 
 /// 全应用字号、字重、行高唯一来源。
@@ -63,11 +44,6 @@ class MgTypography {
   static TextStyle sans(TextStyle style) => style.copyWith(
     fontFamily: MgFonts.sans,
     fontFamilyFallback: MgFonts.sansFallback,
-  );
-
-  static TextStyle mono(TextStyle style) => style.copyWith(
-    fontFamily: MgFonts.mono,
-    fontFamilyFallback: MgFonts.monoFallback,
   );
 
   /// 页面标题，例如"电机输出""飞控校准"。
@@ -112,13 +88,14 @@ class MgTypography {
     fontWeight: FontWeight.w600,
   );
 
-  /// 数字读数：等宽数字，位数变化时不抖动。
+  /// 数字读数：与界面同一套字体，靠 tabularFigures 保证位数变化时不抖动。
+  ///
+  /// 不再单独引入等宽字体族：多一套族就多一处跨平台回退风险，而真正要的
+  /// "数字对齐"由 tabular figures 提供。取用时用 [sans] 套上字体族。
   static const TextStyle data = TextStyle(
     fontSize: 13,
     height: 1.30,
     fontWeight: FontWeight.w600,
-    fontFamily: 'Cascadia Mono',
-    fontFamilyFallback: ['SF Mono', 'Menlo', 'Consolas', 'Noto Sans Mono'],
     fontFeatures: [FontFeature.tabularFigures()],
   );
 
@@ -127,8 +104,6 @@ class MgTypography {
     fontSize: 15,
     height: 1.30,
     fontWeight: FontWeight.w700,
-    fontFamily: 'Cascadia Mono',
-    fontFamilyFallback: ['SF Mono', 'Menlo', 'Consolas', 'Noto Sans Mono'],
     fontFeatures: [FontFeature.tabularFigures()],
   );
 

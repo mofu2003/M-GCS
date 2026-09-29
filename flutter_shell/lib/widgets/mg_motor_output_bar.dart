@@ -64,7 +64,9 @@ class MgMotorOutputBar extends StatelessWidget {
               alignment: Alignment.center,
               child: Text(
                 label,
-                style: MgTypography.data.copyWith(color: textColor),
+                style: MgTypography.sans(
+                  MgTypography.data,
+                ).copyWith(color: textColor),
               ),
             ),
           ],

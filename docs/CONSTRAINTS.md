@@ -70,7 +70,9 @@
    不会报错，只会静默回退成另一款字体，问题极难发现。
 4. 打包字体必须具备商业友好许可（OFL、Apache-2.0 等），来源、版本和分发义务
    记录在 `docs/adr/0007-unified-font-stack.md`。
-5. 字号、颜色、关键尺寸分别只能取自 `MgTypography`、`MgColors`、`MgMetrics`。
+5. 字体族总数控制在 1～2 套。数字读数复用界面字体族，靠 `tabularFigures` 对齐，
+   不为数字单独引入等宽族。
+6. 字号、颜色、关键尺寸分别只能取自 `MgTypography`、`MgColors`、`MgMetrics`。
 
 ## 商业授权和侵权边界
 

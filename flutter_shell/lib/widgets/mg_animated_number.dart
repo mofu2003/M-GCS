@@ -12,7 +12,7 @@ class MgAnimatedNumber extends StatelessWidget {
   const MgAnimatedNumber({
     super.key,
     required this.value,
-    this.style = MgTypography.data,
+    this.style,
     this.textAlign = TextAlign.right,
     this.duration = const Duration(milliseconds: 260),
     this.placeholder = '—',
@@ -22,7 +22,9 @@ class MgAnimatedNumber extends StatelessWidget {
   });
 
   final double value;
-  final TextStyle style;
+
+  /// 不传时按 [MgTypography.data] 的字号字重，并套上界面字体族。
+  final TextStyle? style;
   final TextAlign textAlign;
   final Duration duration;
   final String placeholder;
@@ -44,7 +46,11 @@ class MgAnimatedNumber extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveStyle = color == null ? style : style.copyWith(color: color);
+    // 字体族在这里统一套上，调用方传什么字号字重都不会漏掉字体统一。
+    final baseStyle = MgTypography.sans(style ?? MgTypography.data);
+    final effectiveStyle = color == null
+        ? baseStyle
+        : baseStyle.copyWith(color: color);
     if (!value.isFinite) {
       return Text(
         placeholder,

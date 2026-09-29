@@ -2755,7 +2755,7 @@ class _ParameterSummaryRow extends StatelessWidget {
                   parameter.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: MgTypography.mono(
+                  style: MgTypography.sans(
                     MgTypography.caption.copyWith(color: colors.textSecondary),
                   ),
                 ),
@@ -2953,7 +2953,7 @@ class _SerialParameterCardState extends State<_SerialParameterCard> {
               children: [
                 Text(
                   serial,
-                  style: MgTypography.mono(
+                  style: MgTypography.sans(
                     MgTypography.section.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
