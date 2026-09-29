@@ -24,10 +24,11 @@ constexpr uint16_t kStartMagCalCommand = 42424;
 } while (0)
 
 struct TestEnv : MockVehicleTestEnv {
-    explicit TestEnv(const MockFlightController::Config& cfg = MockFlightController::Config())
+    explicit TestEnv(const MockFlightController::Config& cfg = MockFlightController::Config(),
+                     bool load_default_params = false)
         : MockVehicleTestEnv(
               cfg,
-              false,
+              load_default_params,
               [](mg::core::mavlink::MavlinkAdapter& mav, mg_core_t* core) {
                   mav.on_statustext([core](const std::string& text, uint8_t severity) {
                       mg_calibration_process_statustext(core, text.c_str(), severity);
@@ -36,6 +37,13 @@ struct TestEnv : MockVehicleTestEnv {
                       mg_calibration_process_command_ack(core, ack.command, ack.result, ack.progress);
                   });
               }) {}
+
+    // Verification reads calibration results back from the FC parameter table,
+    // so the cache has to be populated before the calibration finishes.
+    void request_params() {
+        mg_params_request_all(core);
+        for (int i = 0; i < 40; i++) tick(20);
+    }
 };
 
 static void test_cal_start_compass() {
@@ -224,8 +232,8 @@ static void test_radio_calibration_strategy() {
     CHECK(strategy.mav_command() == 241, "mav_command is 241");
     CHECK(
         strategy.interpret_ack(0, 0, CalibrationStage::Calibrating) ==
-            CalibrationStage::Success,
-        "ACK accepted means success");
+            CalibrationStage::Calibrating,
+        "ACK accepted means calibration started");
     CHECK(
         strategy.interpret_ack(5, 0, CalibrationStage::Calibrating) ==
             CalibrationStage::Calibrating,
@@ -256,9 +264,10 @@ static void test_radio_calibration_strategy() {
 
 static void test_accelerometer_six_face_position_handshake() {
     fprintf(stderr, "\n[Group] Accelerometer six-face handshake\n");
-    TestEnv env;
+    TestEnv env(MockFlightController::Config(), /*load_default_params=*/true);
 
     for (int i = 0; i < 15; i++) env.tick(100);
+    env.request_params();
 
     char* start = mg_calibration_start(env.core, 1, 1);
     CHECK(start != nullptr, "six-face start returns non-null");
@@ -324,9 +333,10 @@ static void test_accelerometer_six_face_position_handshake() {
 
 static void test_success_history_clears_verification_failure() {
     fprintf(stderr, "\n[Group] Success history clears verification failure\n");
-    TestEnv env;
+    TestEnv env(MockFlightController::Config(), /*load_default_params=*/true);
 
     for (int i = 0; i < 15; i++) env.tick(100);
+    env.request_params();
 
     char* result = mg_cal_start(env.core, 0, 0);
     CHECK(result != nullptr, "mg_cal_start returns non-null for gyro");
@@ -342,6 +352,36 @@ static void test_success_history_clears_verification_failure() {
           "gyro history contains success result");
     CHECK(json.find("\"failure_reason\":\"\"") != std::string::npos,
           "success history has empty failure_reason");
+}
+
+// Regression: before the fix, verification only failed on Poor quality, so a
+// failed parameter readback (empty param cache) still reported success.
+static void test_verification_readback_failure_is_reported_failed() {
+    fprintf(stderr, "\n[Group] Verification readback failure\n");
+    TestEnv env;  // no params loaded and none requested -> empty param cache
+
+    for (int i = 0; i < 15; i++) env.tick(100);
+
+    char* result = mg_cal_start(env.core, 0, 0);
+    CHECK(result != nullptr, "gyro start returns non-null without params");
+    if (result) mg_free_string(result);
+
+    for (int i = 0; i < 20; i++) env.tick(50);
+
+    char* status = mg_calibration_get_status(env.core);
+    std::string json = status ? status : "";
+    if (status) mg_free_string(status);
+
+    CHECK(json.find("\"active\":false") != std::string::npos,
+          "readback failure ends calibration");
+    CHECK(json.find("\"stage\":\"failed\"") != std::string::npos,
+          "parameter readback failure is not reported as success");
+
+    char* history = mg_cal_history(env.core, 0);
+    std::string history_json = history ? history : "";
+    if (history) mg_free_string(history);
+    CHECK(history_json.find("\"failure_reason\":\"\"") == std::string::npos,
+          "failed calibration history carries a failure reason");
 }
 
 static void test_level_calibration_history_has_mode_and_wall_clock_timestamp() {
@@ -507,6 +547,7 @@ int main() {
     test_radio_calibration_strategy();
     test_accelerometer_six_face_position_handshake();
     test_success_history_clears_verification_failure();
+    test_verification_readback_failure_is_reported_failed();
     test_level_calibration_history_has_mode_and_wall_clock_timestamp();
     test_statustext_progress();
     test_statustext_success();

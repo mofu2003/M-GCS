@@ -82,7 +82,10 @@ CalibrationStage RadioCalibration::interpret_ack(
     (void)progress;
     switch (result) {
         case 0:  // MAV_RESULT_ACCEPTED
-            return CalibrationStage::Success;
+            // ACK only confirms that the FC accepted the start command. The
+            // operator still has to move the sticks before RCn_MIN/TRIM/MAX
+            // can be verified.
+            return CalibrationStage::Calibrating;
         case 5:  // MAV_RESULT_IN_PROGRESS
             return current_stage == CalibrationStage::Calibrating
                 ? current_stage

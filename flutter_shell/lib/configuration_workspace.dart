@@ -2584,18 +2584,33 @@ class _FlightModesPage extends StatefulWidget {
 }
 
 class _FlightModesPageState extends State<_FlightModesPage> {
-  /// 模式通道的 PWM 分档。
-  ///
-  /// ArduPilot 的档位边界是固定的（FLTMODE1..6 各对应一段 PWM），所以标签和判定
-  /// 区间放在同一张表里，避免"显示一套、判定另一套"。
-  static const _pwmRanges = <({String label, int min, int max})>[
-    (label: '≤ 1230', min: 0, max: 1230),
+  /// ArduPilot 多旋翼/固定翼的 FLTMODE PWM 分档来自参数描述库的规则。
+  /// 固定翼的模式 1 还接受 2050 以上的特殊回绕值，不能用一套通用硬编码覆盖。
+  static const _copterPwmRanges = <({String label, int min, int max})>[
+    (label: '≤ 1230', min: 910, max: 1230),
     (label: '1231–1360', min: 1231, max: 1360),
     (label: '1361–1490', min: 1361, max: 1490),
     (label: '1491–1620', min: 1491, max: 1620),
     (label: '1621–1749', min: 1621, max: 1749),
-    (label: '≥ 1750', min: 1750, max: 1 << 30),
+    (label: '≥ 1750', min: 1750, max: 2049),
   ];
+
+  static const _planePwmRanges = <({String label, int min, int max})>[
+    (label: '910–1230 / ≥2050', min: 910, max: 1230),
+    (label: '1231–1360', min: 1231, max: 1360),
+    (label: '1361–1490', min: 1361, max: 1490),
+    (label: '1491–1620', min: 1491, max: 1620),
+    (label: '1621–1749', min: 1621, max: 1749),
+    (label: '1750–2049', min: 1750, max: 2049),
+  ];
+
+  static List<({String label, int min, int max})> _pwmRangesFor(
+    VehicleControlProfile profile,
+  ) =>
+      profile == VehicleControlProfile.fixedWing ||
+          profile == VehicleControlProfile.planeVtol
+      ? _planePwmRanges
+      : _copterPwmRanges;
 
   /// 当前模式通道的实时 PWM；通道未知或没有遥控数据时返回 null。
   int? _modeChannelPwm(ConnectionController controller) {
@@ -2606,11 +2621,18 @@ class _FlightModesPageState extends State<_FlightModesPage> {
     return controller.rcChannels[channel - 1];
   }
 
-  /// PWM 落在第几档；超出量程返回 -1。
-  static int _modeIndexForPwm(int pwm) {
-    for (var index = 0; index < _pwmRanges.length; index++) {
-      final range = _pwmRanges[index];
+  /// PWM 落在第几档；无效 RC 值和超出量程返回 -1。
+  static int _modeIndexForPwm(int pwm, VehicleControlProfile profile) {
+    if (pwm < 800 || pwm > 2200) return -1;
+    final ranges = _pwmRangesFor(profile);
+    for (var index = 0; index < ranges.length; index++) {
+      final range = ranges[index];
       if (pwm >= range.min && pwm <= range.max) return index;
+    }
+    if ((profile == VehicleControlProfile.fixedWing ||
+            profile == VehicleControlProfile.planeVtol) &&
+        pwm >= 2050) {
+      return 0;
     }
     return -1;
   }
@@ -2636,9 +2658,11 @@ class _FlightModesPageState extends State<_FlightModesPage> {
       final liveMode =
           widget.controller.vehicleIdentity?['flight_mode'] as String?;
       final channelPwm = _modeChannelPwm(widget.controller);
+      final profile = widget.controller.controlProfile;
+      final pwmRanges = _pwmRangesFor(profile);
       final activeIndex = channelPwm == null
           ? -1
-          : _modeIndexForPwm(channelPwm);
+          : _modeIndexForPwm(channelPwm, profile);
       return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(_pageMargin, 22, _pageMargin, 32),
         child: Column(
@@ -2688,7 +2712,7 @@ class _FlightModesPageState extends State<_FlightModesPage> {
                 final position = index + 1;
                 return _FlightModeCard(
                   position: position,
-                  pwmRange: _pwmRanges[index].label,
+                  pwmRange: pwmRanges[index].label,
                   active: index == activeIndex,
                   parameter: widget.controller.parameters['FLTMODE$position'],
                   controller: widget.controller,

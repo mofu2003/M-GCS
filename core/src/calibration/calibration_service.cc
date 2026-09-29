@@ -458,11 +458,16 @@ void CalibrationService::handle_success() {
             conn_->get_mavlink(), current_result_, validator_);
         current_result_.quality = validator_.assess(current_result_);
 
-        if (!verified && current_result_.quality == CalibrationQuality::Poor) {
-            MGC_LOG_WARN("[CalService] Calibration verification failed - quality is Poor");
+        if (!verified) {
+            MGC_LOG_WARN("[CalService] Calibration verification failed: %s",
+                         current_result_.failure_reason.empty()
+                             ? "parameter readback or quality check failed"
+                             : current_result_.failure_reason.c_str());
             current_result_.stage = CalibrationStage::Failed;
-            current_result_.failure_reason = "Calibration quality is poor. "
-                                             "Parameters verified but values are out of acceptable range.";
+            if (current_result_.failure_reason.empty()) {
+                current_result_.failure_reason =
+                    "Calibration verification failed: parameter readback or quality check failed.";
+            }
             status_.stage = CalibrationStage::Failed;
             status_.failure_reason = current_result_.failure_reason;
             status_.active = false;

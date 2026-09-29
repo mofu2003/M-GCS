@@ -59,7 +59,7 @@ MGCORE_API char* mg_calibration_get_status(mg_core_t* core) {
 
 MGCORE_API char* mg_calibration_get_history(mg_core_t* core, int type) {
     CHECK_CORE(core);
-    if (type < 0 || type > 3) return to_cstr("[]");
+    if (type < 0 || type > 4) return to_cstr("[]");
     auto history = get_active_calibration(core).get_history(static_cast<mg::core::calibration::CalibrationType>(type));
     return to_cstr(cal_history_json(history));
 }

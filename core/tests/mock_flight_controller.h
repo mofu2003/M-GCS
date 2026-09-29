@@ -88,6 +88,10 @@ public:
         add_param("MAV_GCS_SYSID",255,4); add_param("TELEM1_BAUD",57,4); add_param("AHRS_GPS_GAIN",1);
         add_param("INS_GYRO_FILTER",20); add_param("THR_MID",500); add_param("MIS_RESTART",0,2);
         add_param("PILOT_SPEED_DN",150);
+        // 校准结果参数：校准完成后的读回校验需要它们存在（否则校验必失败）。
+        add_param("INS_GYROFFS_X",0.0012f); add_param("INS_GYROFFS_Y",-0.0008f); add_param("INS_GYROFFS_Z",0.0005f);
+        add_param("INS_ACCOFFS_X",0.05f); add_param("INS_ACCOFFS_Y",-0.03f); add_param("INS_ACCOFFS_Z",0.02f);
+        add_param("INS_ACCSCAL_X",1.0f); add_param("INS_ACCSCAL_Y",1.0f); add_param("INS_ACCSCAL_Z",1.0f);
     }
 
     // Mission
