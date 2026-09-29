@@ -37,6 +37,9 @@ CalibrationQuality CalibrationValidator::assess(const CalibrationResult& result)
             // For barometer we check absolute pressure baseline reasonableness
             // A typical ground pressure is 950-1050 hPa; deviation from nominal is the metric
             return assess_baro(result.offset_x);  // offset_x stores ground pressure for baro
+        case CalibrationType::Radio:
+            // offset_x/y/z 存主通道的 min/trim/max，trim 应落在行程中间。
+            return assess_radio(result.offset_x, result.offset_y, result.offset_z);
         default:
             return CalibrationQuality::Poor;
     }
@@ -129,6 +132,24 @@ bool CalibrationValidator::read_calibration_params(CalibrationType type,
             return ok;
         }
 
+        case CalibrationType::Radio: {
+            // 四个主通道的行程都要有效，否则说明校准没覆盖全部摇杆。
+            for (int channel = 0; channel < 4; ++channel) {
+                float min_pwm = 0.0f, trim_pwm = 0.0f, max_pwm = 0.0f;
+                const bool ok =
+                    find_param(params, ardupilot_params::kRcMin[channel], min_pwm) &&
+                    find_param(params, ardupilot_params::kRcTrim[channel], trim_pwm) &&
+                    find_param(params, ardupilot_params::kRcMax[channel], max_pwm);
+                if (!ok || max_pwm <= min_pwm) return false;
+                if (channel == 0) {
+                    result.offset_x = min_pwm;
+                    result.offset_y = trim_pwm;
+                    result.offset_z = max_pwm;
+                }
+            }
+            return true;
+        }
+
         default:
             return false;
     }
@@ -214,6 +235,7 @@ const char* CalibrationValidator::type_string(CalibrationType t) {
         case CalibrationType::Accelerometer: return "accelerometer";
         case CalibrationType::Magnetometer:  return "magnetometer";
         case CalibrationType::Barometer:     return "barometer";
+        case CalibrationType::Radio:         return "radio";
         default: return "unknown";
     }
 }
@@ -295,6 +317,21 @@ CalibrationQuality CalibrationValidator::assess_baro(float ground_pressure) cons
     if (deviation < thresholds_.baro_excellent) return CalibrationQuality::Excellent;
     if (deviation < thresholds_.baro_good)      return CalibrationQuality::Good;
     if (deviation < thresholds_.baro_marginal)  return CalibrationQuality::Marginal;
+    return CalibrationQuality::Poor;
+}
+
+CalibrationQuality CalibrationValidator::assess_radio(float rc_min, float rc_trim, float rc_max) const {
+    // PWM 行程的常见范围是 1000-2000us；行程过窄说明摇杆没有打满。
+    const float span = rc_max - rc_min;
+    if (span < 400.0f) return CalibrationQuality::Poor;
+    if (rc_trim < rc_min || rc_trim > rc_max) return CalibrationQuality::Poor;
+
+    // 中位值偏离行程中心的比例越小越好。
+    const float centre = (rc_max + rc_min) * 0.5f;
+    const float offset = std::abs(rc_trim - centre);
+    if (offset < 50.0f && span >= 800.0f) return CalibrationQuality::Excellent;
+    if (offset < 100.0f) return CalibrationQuality::Good;
+    if (offset < 200.0f) return CalibrationQuality::Marginal;
     return CalibrationQuality::Poor;
 }
 

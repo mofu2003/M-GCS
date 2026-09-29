@@ -25,7 +25,13 @@ final class SerialPortInfo {
 /// 波形选择器里的两类实例：IMU（加速度计/陀螺仪）和磁力计。
 enum WaveformInstanceKind { imu, mag }
 
-enum CalibrationType { gyroscope, accelerometer, magnetometer, barometer }
+enum CalibrationType {
+  gyroscope,
+  accelerometer,
+  magnetometer,
+  barometer,
+  radio,
+}
 
 enum AccelerometerCalibrationMode { sixFace, level, simple }
 
@@ -270,6 +276,7 @@ final class ConnectionController extends ChangeNotifier
   late final Pointer<Utf8> Function(Pointer<Void>, int)
   _calibrationAccelConfirm;
   late final Pointer<Utf8> Function(Pointer<Void>) _getServoOutputs;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getRcChannels;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _close;
@@ -400,6 +407,8 @@ final class ConnectionController extends ChangeNotifier
   String? parameterError;
   List<int> servoOutputs = const [];
   bool servoOutputsValid = false;
+  List<int> rcChannels = const [];
+  bool rcChannelsValid = false;
   final Map<String, String> serialHardwareMappings = {};
   bool serialHardwareMappingLoading = false;
   String? serialHardwareMappingError;
@@ -439,6 +448,8 @@ final class ConnectionController extends ChangeNotifier
     return VehicleControlProfile.unknown;
   }
 
+  /// 参数是否正在写入飞控；位掩码这类需要读-改-写的控件用它避免并发覆盖。
+  bool isParameterWriting(String name) => _parameterWriteJobs.containsKey(name);
   String? get parameterWriteError =>
       _parameterWriteErrors.isEmpty ? null : _parameterWriteErrors.values.last;
 
@@ -507,6 +518,7 @@ final class ConnectionController extends ChangeNotifier
         CalibrationType.accelerometer => 1,
         CalibrationType.magnetometer => 2,
         CalibrationType.barometer => 3,
+        CalibrationType.radio => 4,
       };
       final result = _readJson(_calibrationStart(_core, nativeType, 1));
       if (result is! Map<String, Object?> || result['success'] != true) {
@@ -595,6 +607,7 @@ final class ConnectionController extends ChangeNotifier
     'accelerometer' => CalibrationType.accelerometer,
     'magnetometer' => CalibrationType.magnetometer,
     'barometer' => CalibrationType.barometer,
+    'radio' => CalibrationType.radio,
     _ => CalibrationType.gyroscope,
   };
 
@@ -1127,6 +1140,11 @@ final class ConnectionController extends ChangeNotifier
       _getServoOutputs = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
             'mg_servo_get_outputs',
+          )
+          .asFunction();
+      _getRcChannels = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_rc_get_channels',
           )
           .asFunction();
       _getSerialUartNames = _library
@@ -1780,6 +1798,7 @@ final class ConnectionController extends ChangeNotifier
         changed = profileChanged || changed;
       }
       changed = _pollServoOutputs() || changed;
+      changed = _pollRcChannels() || changed;
       if (changed) {
         _notifyTelemetryChanges();
         notifyListeners();
@@ -2049,6 +2068,23 @@ final class ConnectionController extends ChangeNotifier
         !_sameIntList(oldValues, servoOutputs);
   }
 
+  bool _pollRcChannels() {
+    final oldValid = rcChannelsValid;
+    final oldValues = rcChannels;
+    try {
+      final result = _readJson(_getRcChannels(_core)) as Map<String, Object?>;
+      rcChannelsValid = result['valid'] == true;
+      final values = result['channels'] as List<Object?>? ?? const [];
+      rcChannels = values
+          .map((value) => value is num ? value.toInt() : 0)
+          .toList(growable: false);
+    } on Object {
+      rcChannelsValid = false;
+      rcChannels = const [];
+    }
+    return oldValid != rcChannelsValid || !_sameIntList(oldValues, rcChannels);
+  }
+
   bool _pollSystemStatus() {
     final oldFirmware = jsonEncode(firmwareInfo);
     final oldIdentity = jsonEncode(vehicleIdentity);
@@ -2118,6 +2154,8 @@ final class ConnectionController extends ChangeNotifier
     calibrationError = null;
     servoOutputs = const [];
     servoOutputsValid = false;
+    rcChannels = const [];
+    rcChannelsValid = false;
     serialHardwareMappings.clear();
     serialHardwareMappingLoading = false;
     serialHardwareMappingError = null;
@@ -2146,6 +2184,8 @@ final class ConnectionController extends ChangeNotifier
     waveformMagInstance = 0;
     servoOutputs = const [];
     servoOutputsValid = false;
+    rcChannels = const [];
+    rcChannelsValid = false;
   }
 
   String _openFailureMessage(int code, String endpoint) => switch (code) {

@@ -114,6 +114,7 @@ set(MGCORE_SOURCES
     core/src/calibration/strategies/accel_calibration.cc
     core/src/calibration/strategies/compass_calibration.cc
     core/src/calibration/strategies/baro_calibration.cc
+    core/src/calibration/strategies/radio_calibration.cc
     core/src/settings/flight_logging_service.cc
     core/src/transport/connection_manager.cc
     core/src/transport/in_memory_link.cc

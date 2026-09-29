@@ -185,7 +185,10 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
     'flightModes' => _FlightModesPage(controller: widget.connectionController),
     'pid' => _PidTuningPage(controller: widget.connectionController),
     'battery' => const _BatteryConfigurationPage(),
-    'arming' => const _ArmingChecksPage(),
+    'arming' => _ArmingChecksPage(
+      scrollController: scrollController,
+      controller: widget.connectionController,
+    ),
     'allParameters' => _AllParametersPage(
       scrollController: scrollController,
       controller: widget.connectionController,
@@ -261,9 +264,206 @@ class _CalibrationPageState extends State<_CalibrationPage> {
       _AccelerometerCalibrationView(controller: widget.controller),
       _MagnetometerCalibrationView(controller: widget.controller),
       const SizedBox.expand(),
-      const SizedBox.expand(),
+      _RcCalibrationView(controller: widget.controller),
     ],
   );
+}
+
+/// 按 RCMAP_* 找到通道当前承担的功能，用于给主通道加中文标注。
+String? _rcChannelFunction(ConnectionController controller, int channel) {
+  const functions = [
+    ('RCMAP_ROLL', '横滚'),
+    ('RCMAP_PITCH', '俯仰'),
+    ('RCMAP_THROTTLE', '油门'),
+    ('RCMAP_YAW', '偏航'),
+  ];
+  for (final (name, label) in functions) {
+    final value = controller.parameters[name]?.value;
+    if (value != null && value.round() == channel) return label;
+  }
+  return null;
+}
+
+/// 遥控器校准：实时行程 + 反向开关，校准指令由飞控采样行程。
+class _RcCalibrationView extends StatelessWidget {
+  const _RcCalibrationView({required this.controller});
+
+  final ConnectionController controller;
+
+  static const _primaryChannels = [1, 2, 3, 4];
+  static const _auxiliaryChannels = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: Listenable.merge([
+      controller.parameterChanges,
+      controller.telemetryChanges,
+      controller.calibrationChanges,
+    ]),
+    builder: (context, _) {
+      final theme = MacosTheme.of(context);
+      final colors = context.mgColors;
+      final status = controller.calibrationStatus;
+      final radioActive = status.active && status.type == CalibrationType.radio;
+      final error = controller.calibrationError;
+      final message = error ?? (radioActive ? status.message : '');
+      final hint = message.isNotEmpty
+          ? message
+          : radioActive
+          ? '正在校准，请按提示打满各通道行程'
+          : '点击开始校准后按提示打满各通道行程';
+
+      return SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(
+          kWaveformContentInset,
+          8,
+          kWaveformContentInset,
+          20,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            MacPanel(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      hint,
+                      style: theme.typography.body.copyWith(
+                        color: error != null
+                            ? colors.danger
+                            : colors.textSecondary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  if (radioActive)
+                    PushButton(
+                      controlSize: ControlSize.regular,
+                      onPressed: () =>
+                          unawaited(controller.cancelCalibration()),
+                      child: const Text('取消'),
+                    )
+                  else
+                    PushButton(
+                      controlSize: ControlSize.regular,
+                      onPressed: controller.isConnected && !status.active
+                          ? () => unawaited(
+                              controller.startCalibration(
+                                CalibrationType.radio,
+                              ),
+                            )
+                          : null,
+                      child: const Text('开始校准'),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: _sectionGap),
+            Text('主通道', style: theme.typography.title3),
+            const SizedBox(height: _headerGap),
+            _RcChannelGrid(channels: _primaryChannels, controller: controller),
+            const SizedBox(height: _sectionGap),
+            Text('辅助通道', style: theme.typography.title3),
+            const SizedBox(height: _headerGap),
+            _RcChannelGrid(
+              channels: _auxiliaryChannels,
+              controller: controller,
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _RcChannelGrid extends StatelessWidget {
+  const _RcChannelGrid({required this.channels, required this.controller});
+
+  final List<int> channels;
+  final ConnectionController controller;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns = constraints.maxWidth >= 900 ? 2 : 1;
+      final width = (constraints.maxWidth - (columns - 1) * _cardGap) / columns;
+      return Wrap(
+        spacing: _cardGap,
+        runSpacing: 4,
+        children: [
+          for (final channel in channels)
+            SizedBox(
+              width: width,
+              child: _RcChannelTile(channel: channel, controller: controller),
+            ),
+        ],
+      );
+    },
+  );
+}
+
+class _RcChannelTile extends StatelessWidget {
+  const _RcChannelTile({required this.channel, required this.controller});
+
+  final int channel;
+  final ConnectionController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = MacosTheme.of(context);
+    final function = _rcChannelFunction(controller, channel);
+    final value =
+        controller.rcChannelsValid && channel <= controller.rcChannels.length
+        ? controller.rcChannels[channel - 1]
+        : null;
+    final reversed =
+        (controller.parameters['RC${channel}_REVERSED']?.value ?? 0) != 0;
+    final canReverse =
+        controller.isConnected &&
+        controller.parameters.containsKey('RC${channel}_REVERSED');
+
+    return SizedBox(
+      height: MgMetrics.rowHeight,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 108,
+            child: Text(
+              function == null ? '通道$channel' : '通道$channel（$function）',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.typography.caption1,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: MgMotorOutputBar(
+              value: value,
+              minimum: 800,
+              maximum: 2200,
+              semanticLabel: '通道$channel PWM',
+            ),
+          ),
+          const SizedBox(width: 10),
+          MacosSwitch(
+            value: reversed,
+            size: ControlSize.small,
+            onChanged: canReverse
+                ? (next) => unawaited(
+                    controller.setParameter(
+                      'RC${channel}_REVERSED',
+                      next ? 1 : 0,
+                    ),
+                  )
+                : null,
+            semanticLabel: '通道$channel 反向',
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _MagnetometerCalibrationView extends StatelessWidget {
@@ -819,6 +1019,10 @@ class _PidTuningPage extends StatelessWidget {
   );
 }
 
+/// 调参层级。基础档只放自稳 P 和速率 P/I/D；扩展档补齐前馈、滤波、限幅
+/// 以及位置环，避免一屏同时铺开四十多个输入框。
+enum _PidLevel { basic, extended }
+
 class _PidParametersPage extends StatefulWidget {
   const _PidParametersPage({
     required this.controller,
@@ -836,15 +1040,32 @@ class _PidParametersPage extends StatefulWidget {
 
 class _PidParametersPageState extends State<_PidParametersPage> {
   final ScrollController _scrollController = ScrollController();
+  late final MacosTabController _levels = MacosTabController(
+    initialIndex: 0,
+    length: 2,
+  );
+  int _levelIndex = 0;
+
+  _PidLevel get _level =>
+      _levelIndex == 0 ? _PidLevel.basic : _PidLevel.extended;
 
   @override
   void initState() {
     super.initState();
+    _levels.addListener(_handleLevelChanged);
     _loadVisibleParameters();
+  }
+
+  void _handleLevelChanged() {
+    final index = _levels.index;
+    if (!mounted || index == _levelIndex) return;
+    setState(() => _levelIndex = index);
   }
 
   @override
   void dispose() {
+    _levels.removeListener(_handleLevelChanged);
+    _levels.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -857,42 +1078,14 @@ class _PidParametersPageState extends State<_PidParametersPage> {
     }
   }
 
+  /// 两个层级一次全部登记，切换档位时不再往返后端补元数据。
   void _loadVisibleParameters() {
-    final names = switch ((widget.profile, widget.vtol)) {
-      (VehicleControlProfile.copter, false) => [
-        for (final axis in const ['RLL', 'PIT', 'YAW']) ...[
-          for (final term in const ['P', 'I', 'D', 'FF'])
-            'ATC_RAT_${axis}_$term',
-          'ATC_ANG_${axis}_P',
-        ],
-        for (final prefix in const ['PSC_VELXY', 'PSC_VELZ'])
-          for (final term in const ['P', 'I', 'D', 'FF']) '${prefix}_$term',
-        'PSC_POSXY_P',
-        'PSC_ACCZ_P',
-      ],
-      (VehicleControlProfile.copter, true) ||
-      (VehicleControlProfile.planeVtol, true) => [
-        for (final axis in const ['RLL', 'PIT', 'YAW']) ...[
-          for (final term in const ['P', 'I', 'D', 'FF'])
-            'Q_A_RAT_${axis}_$term',
-          'Q_A_ANG_${axis}_P',
-        ],
-        for (final prefix in const ['Q_P_VELXY', 'Q_P_VELZ'])
-          for (final term in const ['P', 'I', 'D', 'FF']) '${prefix}_$term',
-        'Q_P_POSXY_P',
-      ],
-      (VehicleControlProfile.fixedWing, _) ||
-      (VehicleControlProfile.planeVtol, false) => [
-        for (final axis in const ['RLL_RATE', 'PTCH_RATE', 'YAW_RATE'])
-          for (final term in const ['P', 'I', 'D', 'FF']) '${axis}_$term',
-        'TECS_TIME_CONST',
-        'TECS_SPDWEIGHT',
-        'TECS_INTEG_GAIN',
-        'TECS_THR_DAMP',
-        'TECS_PTCH_DAMP',
-      ],
-      _ => const <String>[],
-    };
+    final names = <String>{
+      for (final level in _PidLevel.values)
+        for (final section in _pidSections(widget.profile, widget.vtol, level))
+          for (final card in section.cards)
+            for (final field in card.fields) field.parameterName,
+    }.toList(growable: false);
     if (names.isEmpty) return;
     widget.controller.loadParameterMetadata(names);
   }
@@ -901,7 +1094,10 @@ class _PidParametersPageState extends State<_PidParametersPage> {
   Widget build(BuildContext context) => SizedBox.expand(
     // 面板必须撑满标签视图，否则 Stack 会垂直居中面板，在标签卡下方留出空档。
     child: AnimatedBuilder(
-      animation: widget.controller.parameterChanges,
+      animation: Listenable.merge([
+        widget.controller.parameterChanges,
+        widget.controller.profileChanges,
+      ]),
       builder: (context, _) {
         final controller = widget.controller;
         if (!controller.isConnected) {
@@ -924,116 +1120,60 @@ class _PidParametersPageState extends State<_PidParametersPage> {
             message: '暂不支持当前固件或机型的 PID 页面',
           );
         }
-        return _buildPidContent(context, controller, profile);
+        final sections = _pidSections(profile, widget.vtol, _level);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                _tabBodyInset,
+                8,
+                _tabBodyInset,
+                0,
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: MacosSegmentedControl(
+                  controller: _levels,
+                  tabs: const [
+                    MacosTab(label: '基础'),
+                    MacosTab(label: '扩展'),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: _headerGap),
+            Expanded(
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                // 外层标签视图已提供 12pt，这里补足到统一标准的 24pt。
+                padding: const EdgeInsets.fromLTRB(
+                  _tabBodyInset,
+                  0,
+                  _tabBodyInset,
+                  16,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final section in sections) ...[
+                      _PidSectionHeader(title: section.title),
+                      const SizedBox(height: _headerGap),
+                      _PidCardGrid(
+                        controller: controller,
+                        cards: section.cards,
+                      ),
+                      const SizedBox(height: _sectionGap),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
       },
     ),
   );
-
-  Widget _buildPidContent(
-    BuildContext context,
-    ConnectionController controller,
-    VehicleControlProfile profile,
-  ) {
-    final isCopter = profile == VehicleControlProfile.copter;
-    final isVtolPage = widget.vtol;
-    final planeFixedWing =
-        profile == VehicleControlProfile.fixedWing ||
-        (profile == VehicleControlProfile.planeVtol && !isVtolPage);
-    final axisPrefix = isVtolPage ? 'Q_A_RAT' : 'ATC_RAT';
-    final axes = isCopter || isVtolPage
-        ? [
-            ('横滚', '${axisPrefix}_RLL'),
-            ('俯仰', '${axisPrefix}_PIT'),
-            ('偏航', '${axisPrefix}_YAW'),
-          ]
-        : [('横滚', 'RLL_RATE'), ('俯仰', 'PTCH_RATE'), ('偏航', 'YAW_RATE')];
-    final heading = isVtolPage
-        ? 'VTOL 姿态速率'
-        : planeFixedWing
-        ? '固定翼姿态速率'
-        : '多旋翼姿态速率';
-
-    return SingleChildScrollView(
-      controller: _scrollController,
-      // 外层 MacosTabView 已提供 12pt，这里补足到统一标准的 24pt 左右边距。
-      padding: const EdgeInsets.fromLTRB(_tabBodyInset, 8, _tabBodyInset, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _PidSectionHeader(title: heading),
-          const SizedBox(height: _headerGap),
-          _PidAxisGrid(axes: axes, controller: controller),
-          if (!planeFixedWing) ...[
-            const SizedBox(height: _sectionGap),
-            _PidSectionHeader(title: isVtolPage ? 'VTOL 角度响应' : '姿态角响应'),
-            const SizedBox(height: _headerGap),
-            _PidGainGrid(
-              controller: controller,
-              fields: [
-                _PidGainField(
-                  '横滚 P',
-                  isVtolPage ? 'Q_A_ANG_RLL_P' : 'ATC_ANG_RLL_P',
-                ),
-                _PidGainField(
-                  '俯仰 P',
-                  isVtolPage ? 'Q_A_ANG_PIT_P' : 'ATC_ANG_PIT_P',
-                ),
-                _PidGainField(
-                  '偏航 P',
-                  isVtolPage ? 'Q_A_ANG_YAW_P' : 'ATC_ANG_YAW_P',
-                ),
-              ],
-            ),
-          ],
-          if (planeFixedWing) ...[
-            const SizedBox(height: _sectionGap),
-            _PidSectionHeader(title: 'TECS 能量控制'),
-            const SizedBox(height: _headerGap),
-            _PidGainGrid(
-              controller: controller,
-              fields: const [
-                _PidGainField('时间常数', 'TECS_TIME_CONST'),
-                _PidGainField('速度权重', 'TECS_SPDWEIGHT'),
-                _PidGainField('积分增益', 'TECS_INTEG_GAIN'),
-                _PidGainField('油门阻尼', 'TECS_THR_DAMP'),
-                _PidGainField('俯仰阻尼', 'TECS_PTCH_DAMP'),
-              ],
-            ),
-          ] else ...[
-            const SizedBox(height: _sectionGap),
-            _PidSectionHeader(title: '位置与速度'),
-            const SizedBox(height: _headerGap),
-            _PidGainGrid(
-              controller: controller,
-              fields: [
-                _PidGainField(
-                  '水平位置 P',
-                  isVtolPage ? 'Q_P_POSXY_P' : 'PSC_POSXY_P',
-                ),
-                _PidGainField(
-                  '水平速度 P',
-                  isVtolPage ? 'Q_P_VELXY_P' : 'PSC_VELXY_P',
-                ),
-                _PidGainField(
-                  '水平速度 I',
-                  isVtolPage ? 'Q_P_VELXY_I' : 'PSC_VELXY_I',
-                ),
-                _PidGainField(
-                  '垂直速度 P',
-                  isVtolPage ? 'Q_P_VELZ_P' : 'PSC_VELZ_P',
-                ),
-                _PidGainField(
-                  '垂直速度 I',
-                  isVtolPage ? 'Q_P_VELZ_I' : 'PSC_VELZ_I',
-                ),
-                if (isCopter) const _PidGainField('垂直加速度 P', 'PSC_ACCZ_P'),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 }
 
 class _PidGainField {
@@ -1041,6 +1181,162 @@ class _PidGainField {
 
   final String label;
   final String parameterName;
+}
+
+class _PidCard {
+  const _PidCard(this.title, this.fields);
+
+  final String title;
+  final List<_PidGainField> fields;
+}
+
+class _PidSection {
+  const _PidSection(this.title, this.cards);
+
+  final String title;
+  final List<_PidCard> cards;
+}
+
+const _pidAxes = [('横滚', 'RLL'), ('俯仰', 'PIT'), ('偏航', 'YAW')];
+
+/// 三轴速率卡：基础档给 P/I/D，扩展档给前馈、积分上限与三档滤波。
+_PidCard _pidRateCard(String title, String base, _PidLevel level) =>
+    switch (level) {
+      _PidLevel.basic => _PidCard(title, [
+        _PidGainField('比例 (P)', '${base}_P'),
+        _PidGainField('积分 (I)', '${base}_I'),
+        _PidGainField('微分 (D)', '${base}_D'),
+      ]),
+      _PidLevel.extended => _PidCard(title, [
+        _PidGainField('前馈 (FF)', '${base}_FF'),
+        _PidGainField('积分上限 (I Max)', '${base}_IMAX'),
+        _PidGainField('误差滤波 (FLTE)', '${base}_FLTE'),
+        _PidGainField('微分滤波 (FLTD)', '${base}_FLTD'),
+        _PidGainField('目标滤波 (FLTT)', '${base}_FLTT'),
+      ]),
+    };
+
+List<_PidSection> _pidSections(
+  VehicleControlProfile profile,
+  bool vtol,
+  _PidLevel level,
+) {
+  // 垂起的多旋翼部分与多旋翼一一对应，只是把 ATC_/PSC_ 换成 Q_A_/Q_P_；
+  // 参数名已在 ArduPilot 4.8 参数库里逐条核对过。
+  if (vtol || profile == VehicleControlProfile.copter) {
+    return _multirotorPidSections(vtol, level);
+  }
+  if (profile == VehicleControlProfile.fixedWing ||
+      profile == VehicleControlProfile.planeVtol) {
+    return _fixedWingPidSections(level);
+  }
+  return const [];
+}
+
+List<_PidSection> _multirotorPidSections(bool vtol, _PidLevel level) {
+  final angle = vtol ? 'Q_A_ANG' : 'ATC_ANG';
+  final rate = vtol ? 'Q_A_RAT' : 'ATC_RAT';
+  final accel = vtol ? 'Q_A_ACC' : 'ATC_ACC';
+  final rateMax = vtol ? 'Q_A_RATE' : 'ATC_RATE';
+  final attitude = vtol ? 'Q_A' : 'ATC';
+  final psc = vtol ? 'Q_P' : 'PSC';
+
+  if (level == _PidLevel.basic) {
+    return [
+      _PidSection('自稳 P', [
+        for (final (label, axis) in _pidAxes)
+          _PidCard('自稳 $label', [
+            _PidGainField('比例 (P)', '${angle}_${axis}_P'),
+          ]),
+      ]),
+      _PidSection('速率 PID', [
+        for (final (label, axis) in _pidAxes)
+          _pidRateCard('$label速率', '${rate}_$axis', level),
+      ]),
+    ];
+  }
+  return [
+    _PidSection('速率滤波与前馈', [
+      for (final (label, axis) in _pidAxes)
+        _pidRateCard('$label速率', '${rate}_$axis', level),
+    ]),
+    _PidSection('响应限制', [
+      _PidCard('最大角加速度 (ACCEL MAX)', [
+        _PidGainField('横滚', '${accel}_R_MAX'),
+        _PidGainField('俯仰', '${accel}_P_MAX'),
+        _PidGainField('偏航', '${accel}_Y_MAX'),
+      ]),
+      _PidCard('最大角速度 (RATE MAX)', [
+        _PidGainField('横滚', '${rateMax}_R_MAX'),
+        _PidGainField('俯仰', '${rateMax}_P_MAX'),
+        _PidGainField('偏航', '${rateMax}_Y_MAX'),
+      ]),
+      _PidCard('姿态平滑', [
+        _PidGainField('输入时间常数 (INPUT TC)', '${attitude}_INPUT_TC'),
+        _PidGainField('角度上限 (ANGLE MAX)', '${attitude}_ANGLE_MAX'),
+      ]),
+    ]),
+    _PidSection('位置与速度', [
+      _PidCard('水平位置', [_PidGainField('位置 P', '${psc}_NE_POS_P')]),
+      _PidCard('水平速度', [
+        _PidGainField('比例 (P)', '${psc}_NE_VEL_P'),
+        _PidGainField('积分 (I)', '${psc}_NE_VEL_I'),
+        _PidGainField('微分 (D)', '${psc}_NE_VEL_D'),
+        _PidGainField('积分上限 (I Max)', '${psc}_NE_VEL_IMAX'),
+      ]),
+      _PidCard('垂直位置', [_PidGainField('位置 P', '${psc}_D_POS_P')]),
+      _PidCard('垂直速度', [
+        _PidGainField('比例 (P)', '${psc}_D_VEL_P'),
+        _PidGainField('积分 (I)', '${psc}_D_VEL_I'),
+        _PidGainField('积分上限 (I Max)', '${psc}_D_VEL_IMAX'),
+      ]),
+    ]),
+  ];
+}
+
+List<_PidSection> _fixedWingPidSections(_PidLevel level) {
+  const axes = [('横滚', 'RLL'), ('俯仰', 'PTCH'), ('偏航', 'YAW')];
+  if (level == _PidLevel.basic) {
+    return [
+      _PidSection('速率 PID', [
+        for (final (label, axis) in axes)
+          _pidRateCard('$label速率', '${axis}_RATE', level),
+      ]),
+    ];
+  }
+  return [
+    _PidSection('速率滤波与前馈', [
+      for (final (label, axis) in axes)
+        _pidRateCard('$label速率', '${axis}_RATE', level),
+    ]),
+    _PidSection('舵机与姿态', [
+      _PidCard('滚转', [_PidGainField('时间常数 (TCONST)', 'RLL2SRV_TCONST')]),
+      _PidCard('俯仰', [
+        _PidGainField('时间常数 (TCONST)', 'PTCH2SRV_TCONST'),
+        _PidGainField('俯仰→滚转混控', 'PTCH2SRV_RLL'),
+      ]),
+      _PidCard('偏航', [
+        _PidGainField('阻尼 (DAMP)', 'YAW2SRV_DAMP'),
+        _PidGainField('积分 (INT)', 'YAW2SRV_INT'),
+        _PidGainField('积分上限 (I Max)', 'YAW2SRV_IMAX'),
+        _PidGainField('偏航→滚转补偿', 'YAW2SRV_RLL'),
+        _PidGainField('侧滑补偿 (SLIP)', 'YAW2SRV_SLIP'),
+      ]),
+    ]),
+    _PidSection('TECS 能量控制', [
+      _PidCard('高度与速度', [
+        _PidGainField('时间常数', 'TECS_TIME_CONST'),
+        _PidGainField('速度权重', 'TECS_SPDWEIGHT'),
+        _PidGainField('积分增益', 'TECS_INTEG_GAIN'),
+        _PidGainField('油门阻尼', 'TECS_THR_DAMP'),
+        _PidGainField('俯仰阻尼', 'TECS_PTCH_DAMP'),
+      ]),
+      _PidCard('爬升与下降', [
+        _PidGainField('最大爬升率', 'TECS_CLMB_MAX'),
+        _PidGainField('最大下降率', 'TECS_SINK_MAX'),
+      ]),
+    ]),
+  ];
 }
 
 class _PidSectionHeader extends StatelessWidget {
@@ -1053,33 +1349,33 @@ class _PidSectionHeader extends StatelessWidget {
       Text(title, style: MacosTheme.of(context).typography.title3);
 }
 
-class _PidAxisGrid extends StatelessWidget {
-  const _PidAxisGrid({required this.axes, required this.controller});
+/// 卡片按可用宽度自动分栏；卡片内部的字段再按两列排。
+class _PidCardGrid extends StatelessWidget {
+  const _PidCardGrid({required this.controller, required this.cards});
 
-  final List<(String, String)> axes;
   final ConnectionController controller;
+  final List<_PidCard> cards;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final columns = constraints.maxWidth >= 1050
-          ? 3
-          : constraints.maxWidth >= 680
-          ? 2
+      if (cards.isEmpty) return const SizedBox.shrink();
+      final columns = constraints.maxWidth >= 1180
+          ? math.min(4, cards.length)
+          : constraints.maxWidth >= 800
+          ? math.min(3, cards.length)
+          : constraints.maxWidth >= 540
+          ? math.min(2, cards.length)
           : 1;
-      final width = (constraints.maxWidth - (columns - 1) * 12) / columns;
+      final width = (constraints.maxWidth - (columns - 1) * _cardGap) / columns;
       return Wrap(
         spacing: _cardGap,
         runSpacing: _cardGap,
         children: [
-          for (final (axis, prefix) in axes)
+          for (final card in cards)
             SizedBox(
               width: width,
-              child: _PidAxisCard(
-                axis: axis,
-                prefix: prefix,
-                controller: controller,
-              ),
+              child: _PidCardView(card: card, controller: controller),
             ),
         ],
       );
@@ -1087,21 +1383,15 @@ class _PidAxisGrid extends StatelessWidget {
   );
 }
 
-class _PidAxisCard extends StatelessWidget {
-  const _PidAxisCard({
-    required this.axis,
-    required this.prefix,
-    required this.controller,
-  });
+class _PidCardView extends StatelessWidget {
+  const _PidCardView({required this.card, required this.controller});
 
-  final String axis;
-  final String prefix;
+  final _PidCard card;
   final ConnectionController controller;
 
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
-    const terms = ['P', 'I', 'D', 'FF'];
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1112,75 +1402,35 @@ class _PidAxisCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(axis, style: theme.typography.headline),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              for (final term in terms)
-                Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.only(right: term == 'FF' ? 0 : 6),
-                    child: Text(
-                      term,
-                      textAlign: TextAlign.center,
-                      style: theme.typography.caption1.copyWith(
-                        color: context.mgColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+          Text(
+            card.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.typography.headline,
           ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              for (final term in terms)
-                Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.only(right: term == 'FF' ? 0 : 6),
-                    child: _ParameterValueControl(
-                      parameter: controller.parameters['${prefix}_$term'],
-                      controller: controller,
-                      center: true,
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = card.fields.length <= 1 ? 1 : 2;
+              final width =
+                  (constraints.maxWidth - (columns - 1) * 8) / columns;
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final field in card.fields)
+                    SizedBox(
+                      width: width,
+                      child: _PidGainTile(field: field, controller: controller),
                     ),
-                  ),
-                ),
-            ],
+                ],
+              );
+            },
           ),
         ],
       ),
     );
   }
-}
-
-class _PidGainGrid extends StatelessWidget {
-  const _PidGainGrid({required this.controller, required this.fields});
-
-  final ConnectionController controller;
-  final List<_PidGainField> fields;
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final columns = constraints.maxWidth >= 1000
-          ? 4
-          : constraints.maxWidth >= 640
-          ? 3
-          : 2;
-      final width = (constraints.maxWidth - (columns - 1) * 10) / columns;
-      return Wrap(
-        spacing: _cardGap,
-        runSpacing: _cardGap,
-        children: [
-          for (final field in fields)
-            SizedBox(
-              width: width,
-              child: _PidGainTile(field: field, controller: controller),
-            ),
-        ],
-      );
-    },
-  );
 }
 
 class _PidGainTile extends StatelessWidget {
@@ -1193,30 +1443,25 @@ class _PidGainTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
     final parameter = controller.parameters[field.parameterName];
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: context.mgColors.surface,
-        border: Border.all(color: context.mgColors.divider),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            field.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.typography.caption1,
+    // 外层已经是卡片，这里只排标签和输入框，避免卡片套卡片。
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          field.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.typography.caption1.copyWith(
+            color: context.mgColors.textSecondary,
           ),
-          const SizedBox(height: 5),
-          _ParameterValueControl(
-            parameter: parameter,
-            controller: controller,
-            center: true,
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 5),
+        _ParameterValueControl(
+          parameter: parameter,
+          controller: controller,
+          center: true,
+        ),
+      ],
     );
   }
 }
@@ -1228,11 +1473,260 @@ class _BatteryConfigurationPage extends StatelessWidget {
   Widget build(BuildContext context) => const _BlankConfigurationPage();
 }
 
-class _ArmingChecksPage extends StatelessWidget {
-  const _ArmingChecksPage();
+/// 一条解锁检查项。位值与 ArduPilot 的 bitmask 定义一致。
+class _ArmingCheck {
+  const _ArmingCheck(
+    this.bit,
+    this.label, {
+    this.fixedWingOnly = false,
+    this.multirotorOnly = false,
+  });
+
+  final int bit;
+  final String label;
+  final bool fixedWingOnly;
+  final bool multirotorOnly;
+}
+
+/// 解锁检查清单。旧固件写 ARMING_CHECK（置位=执行检查），
+/// 新固件写 ARMING_SKIPCHK（置位=跳过检查），两者位值相同、语义相反。
+const _armingCheckCatalog = [
+  _ArmingCheck(2, '气压计'),
+  _ArmingCheck(4, '罗盘'),
+  _ArmingCheck(8, 'GPS 锁定'),
+  _ArmingCheck(16, 'INS'),
+  _ArmingCheck(32, '参数'),
+  _ArmingCheck(64, '遥控通道'),
+  _ArmingCheck(128, '板载电压'),
+  _ArmingCheck(256, '电池电量'),
+  _ArmingCheck(512, '空速计', fixedWingOnly: true),
+  _ArmingCheck(1024, '日志可用性'),
+  _ArmingCheck(2048, '硬件安全开关'),
+  _ArmingCheck(4096, 'GPS 配置'),
+  _ArmingCheck(8192, '系统'),
+  _ArmingCheck(16384, '任务'),
+  _ArmingCheck(32768, '测距仪'),
+  _ArmingCheck(65536, '相机'),
+  _ArmingCheck(131072, 'AuxAuth'),
+  _ArmingCheck(262144, '视觉里程计', multirotorOnly: true),
+  _ArmingCheck(524288, 'FFT'),
+];
+
+List<_ArmingCheck> _armingChecksFor(VehicleControlProfile profile) {
+  final fixedWing =
+      profile == VehicleControlProfile.fixedWing ||
+      profile == VehicleControlProfile.planeVtol;
+  final multirotor = profile == VehicleControlProfile.copter;
+  return [
+    for (final check in _armingCheckCatalog)
+      if (!check.fixedWingOnly || fixedWing)
+        if (!check.multirotorOnly || multirotor) check,
+  ];
+}
+
+/// 新固件优先用 ARMING_SKIPCHK，旧固件回退到 ARMING_CHECK。
+String? _armingParameterName(ConnectionController controller) {
+  if (controller.parameters.containsKey('ARMING_SKIPCHK')) {
+    return 'ARMING_SKIPCHK';
+  }
+  if (controller.parameters.containsKey('ARMING_CHECK')) return 'ARMING_CHECK';
+  return null;
+}
+
+class _ArmingChecksPage extends StatefulWidget {
+  const _ArmingChecksPage({
+    required this.scrollController,
+    required this.controller,
+  });
+
+  final ScrollController scrollController;
+  final ConnectionController controller;
 
   @override
-  Widget build(BuildContext context) => const _BlankConfigurationPage();
+  State<_ArmingChecksPage> createState() => _ArmingChecksPageState();
+}
+
+class _ArmingChecksPageState extends State<_ArmingChecksPage> {
+  Future<void> _write(
+    ConnectionController controller,
+    String parameterName,
+    bool inverted,
+    List<_ArmingCheck> checks,
+    bool Function(_ArmingCheck) enabled,
+  ) {
+    final current = controller.parameters[parameterName]?.value.round() ?? 0;
+    var mask = current;
+    for (final check in checks) {
+      // 置位含义随参数而变：SKIPCHK 置位表示跳过，CHECK 置位表示执行。
+      final bitSet = inverted ? !enabled(check) : enabled(check);
+      mask = bitSet ? (mask | check.bit) : (mask & ~check.bit);
+    }
+    return controller.setParameter(parameterName, mask.toDouble());
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: Listenable.merge([
+      widget.controller.parameterChanges,
+      widget.controller.profileChanges,
+    ]),
+    builder: (context, _) {
+      final controller = widget.controller;
+      if (!controller.isConnected) {
+        return _ParameterEmptyState(
+          scrollController: widget.scrollController,
+          message: '连接飞控后读取解锁检查项',
+        );
+      }
+      if (!controller.parametersLoaded) {
+        return _ParameterLoadingState(
+          scrollController: widget.scrollController,
+          controller: controller,
+          title: '解锁检查项',
+        );
+      }
+      final parameterName = _armingParameterName(controller);
+      if (parameterName == null) {
+        return _ParameterEmptyState(
+          scrollController: widget.scrollController,
+          message: '当前固件未提供解锁检查参数',
+        );
+      }
+      final inverted = parameterName == 'ARMING_SKIPCHK';
+      final mask = controller.parameters[parameterName]?.value.round() ?? 0;
+      final checks = _armingChecksFor(controller.controlProfile);
+      final busy = controller.isParameterWriting(parameterName);
+      bool enabled(_ArmingCheck check) =>
+          inverted ? (mask & check.bit) == 0 : (mask & check.bit) != 0;
+      final allEnabled = checks.every(enabled);
+
+      return SingleChildScrollView(
+        controller: widget.scrollController,
+        padding: const EdgeInsets.fromLTRB(_pageMargin, 22, _pageMargin, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (controller.parameterWriteError != null) ...[
+              _ParameterWriteStatus(controller: controller),
+              const SizedBox(height: _headerGap),
+            ],
+            // 和其它配置页同一观感：整块用带边框的面板框住，主开关与清单之间加分隔线。
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: context.mgColors.surface,
+                border: Border.all(color: context.mgColors.divider),
+                borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _ArmingToggle(
+                      label: '全部',
+                      value: allEnabled,
+                      enabled: !busy,
+                      onChanged: (value) => unawaited(
+                        _write(
+                          controller,
+                          parameterName,
+                          inverted,
+                          checks,
+                          (_) => value,
+                        ),
+                      ),
+                    ),
+                    Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: context.mgColors.divider,
+                    ),
+                    const SizedBox(height: 10),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final columns = constraints.maxWidth >= 900
+                            ? 3
+                            : constraints.maxWidth >= 560
+                            ? 2
+                            : 1;
+                        final width =
+                            (constraints.maxWidth - (columns - 1) * _cardGap) /
+                            columns;
+                        return Wrap(
+                          spacing: _cardGap,
+                          runSpacing: _cardGap,
+                          children: [
+                            for (final check in checks)
+                              SizedBox(
+                                width: width,
+                                child: _ArmingToggle(
+                                  label: check.label,
+                                  value: enabled(check),
+                                  enabled: !busy,
+                                  onChanged: (value) => unawaited(
+                                    _write(
+                                      controller,
+                                      parameterName,
+                                      inverted,
+                                      checks,
+                                      (item) => item.bit == check.bit
+                                          ? value
+                                          : enabled(item),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _ArmingToggle extends StatelessWidget {
+  const _ArmingToggle({
+    required this.label,
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: MgMetrics.rowHeight,
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: MacosTheme.of(context).typography.body,
+          ),
+        ),
+        const SizedBox(width: 10),
+        MacosSwitch(
+          value: value,
+          size: ControlSize.small,
+          onChanged: enabled ? onChanged : null,
+          semanticLabel: label,
+        ),
+      ],
+    ),
+  );
 }
 
 class _BlankConfigurationPage extends StatelessWidget {

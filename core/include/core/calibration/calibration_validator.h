@@ -68,6 +68,9 @@ private:
     CalibrationQuality assess_compass(float ox, float oy, float oz, float fitness) const;
     CalibrationQuality assess_baro(float pressure_deviation) const;
 
+    /// 遥控器行程质量：中位值应落在行程中间，且行程不能过窄。
+    CalibrationQuality assess_radio(float rc_min, float rc_trim, float rc_max) const;
+
     // Find parameter value by name in all_params
     bool find_param(const std::vector<mg::core::mavlink::ParamInfo>& params,
                     const char* name, float& value) const;

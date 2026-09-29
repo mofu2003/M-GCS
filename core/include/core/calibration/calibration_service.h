@@ -124,7 +124,7 @@ private:
     };
 
     // 每种校准类型对应一个策略。
-    std::array<std::unique_ptr<ICalibrationStrategy>, 4> strategies_;
+    std::array<std::unique_ptr<ICalibrationStrategy>, 5> strategies_;
 
     // 当前校准状态。
     CalibrationStatus status_;
@@ -138,7 +138,7 @@ private:
     AccelCalMode accel_mode_ = AccelCalMode::Full;
 
     // 按校准类型保存历史。
-    std::array<std::vector<CalibrationResult>, 4> history_;
+    std::array<std::vector<CalibrationResult>, 5> history_;
 
     // 校准结果验证器。
     CalibrationValidator validator_;

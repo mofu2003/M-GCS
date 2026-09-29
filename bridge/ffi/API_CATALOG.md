@@ -29,7 +29,7 @@ and a migration note have been published.
 | Long operations | `mg_operations_get_snapshot`, `mg_operations_cancel` |
 | Parameters | `mg_params_request_all`, `mg_params_get_progress`, `mg_params_get_all`, `mg_params_get_by_name`, `mg_params_set`, `mg_params_prepare_change_set`, `mg_params_commit_change_set` |
 | Parameter metadata/files | `mg_config_get_groups`, `mg_config_get_group_descriptor`, `mg_param_file_export`, `mg_param_file_import` |
-| Calibration | `mg_calibration_start`, `mg_calibration_cancel`, `mg_calibration_get_status`, `mg_calibration_accel_confirm`, `mg_calibration_start_airspeed` |
+| Calibration | `mg_calibration_start`, `mg_calibration_cancel`, `mg_calibration_get_status`, `mg_calibration_accel_confirm`, `mg_calibration_start_airspeed`. `mg_calibration_start` 的 `type` 取 0=gyro、1=accel、2=compass、3=baro、4=radio（遥控器行程校准，MAV_CMD_PREFLIGHT_CALIBRATION param4=1） |
 | Flight commands | `mg_command_*` |
 | Logging | `mg_log_request_list`, `mg_log_get_entries`, `mg_log_record_*` |
 | Mission planning document | `mg_mission_doc_create`, `mg_mission_doc_apply`, `mg_mission_doc_validate`, `mg_mission_doc_compile`, `mg_mission_doc_upload`, `mg_mission_doc_verify` |

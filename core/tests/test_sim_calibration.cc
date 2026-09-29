@@ -3,6 +3,7 @@
  */
 #include "mock_vehicle_test_env.h"
 #include "core/calibration/strategies/compass_calibration.h"
+#include "core/calibration/strategies/radio_calibration.h"
 #include "core/calibration/calibration_types.h"
 #include "ffi_api.h"
 
@@ -164,6 +165,69 @@ static void test_cal_start_uses_heartbeat_target() {
     for (int i = 0; i < 20; i++) env.tick(50);
 
     CHECK(env.mock->cal_start_received, "mock sysid 2 received PREFLIGHT_CALIBRATION command");
+}
+
+/// 遥控器校准走 MAV_CMD_PREFLIGHT_CALIBRATION 的 param4=1。
+static void test_radio_calibration_ffi_sends_param4() {
+    fprintf(stderr, "\n[Group] Radio calibration via FFI\n");
+    TestEnv env;
+
+    for (int i = 0; i < 15; i++) env.tick(100);
+
+    char* result = mg_cal_start(env.core, 4, 0);
+    CHECK(result != nullptr, "mg_cal_start accepts type=4 (radio)");
+    if (result) mg_free_string(result);
+
+    for (int i = 0; i < 20; i++) env.tick(50);
+
+    bool sent_radio_cal = false;
+    for (const auto& command : env.mock->received_cmds) {
+        if (command.command == 241 && command.p4 == 1.0f) {
+            sent_radio_cal = true;
+            break;
+        }
+    }
+    CHECK(sent_radio_cal, "MAV_CMD_PREFLIGHT_CALIBRATION param4=1 sent");
+}
+
+/// 策略层的纯逻辑：类型名、指令号、ACK 与 STATUSTEXT 解析。
+static void test_radio_calibration_strategy() {
+    fprintf(stderr, "\n[Group] Radio calibration strategy\n");
+    RadioCalibration strategy;
+
+    CHECK(strategy.type() == CalibrationType::Radio, "type is Radio");
+    CHECK(std::strcmp(strategy.type_name(), "radio") == 0, "type name is radio");
+    CHECK(strategy.mav_command() == 241, "mav_command is 241");
+    CHECK(
+        strategy.interpret_ack(0, 0, CalibrationStage::Calibrating) ==
+            CalibrationStage::Success,
+        "ACK accepted means success");
+    CHECK(
+        strategy.interpret_ack(5, 0, CalibrationStage::Calibrating) ==
+            CalibrationStage::Calibrating,
+        "ACK in-progress keeps calibrating");
+    CHECK(
+        strategy.interpret_ack(4, 0, CalibrationStage::Calibrating) ==
+            CalibrationStage::Failed,
+        "ACK failed means failed");
+    CHECK(
+        strategy
+                .parse_statustext(
+                    "RC calibration complete", 6, CalibrationStage::Calibrating)
+                .new_stage == CalibrationStage::Success,
+        "statustext complete means success");
+    CHECK(
+        strategy
+                .parse_statustext(
+                    "Radio calibration failed", 6, CalibrationStage::Calibrating)
+                .new_stage == CalibrationStage::Failed,
+        "statustext failed means failed");
+    CHECK(
+        !strategy
+             .parse_statustext(
+                 "EKF variance", 6, CalibrationStage::Calibrating)
+             .is_calibration_text,
+        "unrelated statustext is ignored");
 }
 
 static void test_accelerometer_six_face_position_handshake() {
@@ -393,6 +457,8 @@ int main() {
     test_mag_cal_report_failure_does_not_auto_retry();
     test_mag_cal_progress_reaches_calibration_service();
     test_cal_start_uses_heartbeat_target();
+    test_radio_calibration_ffi_sends_param4();
+    test_radio_calibration_strategy();
     test_accelerometer_six_face_position_handshake();
     test_success_history_clears_verification_failure();
     test_level_calibration_history_has_mode_and_wall_clock_timestamp();

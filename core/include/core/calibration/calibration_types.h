@@ -26,6 +26,7 @@ enum class CalibrationType : uint8_t {
     Accelerometer = 1,
     Magnetometer  = 2,
     Barometer     = 3,
+    Radio         = 4,  // 遥控器行程校准（MAV_CMD_PREFLIGHT_CALIBRATION param4）。
 };
 
 /// 校准阶段，由状态机维护。
@@ -188,6 +189,11 @@ namespace ardupilot_params {
     inline constexpr const char* kBaroGroundPress = "GND_ABS_PRESS";
     inline constexpr const char* kBaroGroundTemp   = "GND_TEMP";
 
+    // 遥控器行程参数（按通道 1..4 检查主通道即可判定校准结果）。
+    inline constexpr const char* kRcMin[]  = {"RC1_MIN", "RC2_MIN", "RC3_MIN", "RC4_MIN"};
+    inline constexpr const char* kRcTrim[] = {"RC1_TRIM", "RC2_TRIM", "RC3_TRIM", "RC4_TRIM"};
+    inline constexpr const char* kRcMax[]  = {"RC1_MAX", "RC2_MAX", "RC3_MAX", "RC4_MAX"};
+
 } // namespace ardupilot_params
 
 // ================================================================
@@ -207,6 +213,8 @@ inline constexpr float kCalAccelTrim     = 2.0f;
 inline constexpr float kCalAccelSimple   = 4.0f;
 inline constexpr float kCalMagForceSave  = 76.0f;
 inline constexpr float kCalAccelForceSave = 76.0f;
+inline constexpr float kCalRadioStart    = 1.0f;
+inline constexpr float kCalRadioTrim     = 2.0f;
 
 } // namespace mg::core::calibration
 

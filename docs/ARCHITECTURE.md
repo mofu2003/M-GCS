@@ -35,7 +35,7 @@ flowchart TB
 - `core/src/mavlink/`：MAVLink adapter、发送器、命令队列、参数缓存、任务传输。
 - `core/src/vehicle/`：飞控模型、多机管理、连接状态和当前飞控选择。
 - `core/src/mission/`：MAVLink 航点、围栏、集结点、测绘任务和任务管理；任务文档、几何、约束与编译属于后端领域。
-- `core/src/calibration/`：陀螺仪、加速度计、罗盘、气压计校准。
+- `core/src/calibration/`：陀螺仪、加速度计、罗盘、气压计、遥控器校准。
 - `core/src/firmware/`：ArduPilot / PX4 固件插件、模式映射和参数重映射。
 - `core/src/telemetry/`：遥测环形缓冲、ADSB 等遥测能力。
 - `core/src/settings/` 与 `core/src/log/`：飞行日志、MAVLink 日志和日志回放。

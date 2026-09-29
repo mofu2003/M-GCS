@@ -16,6 +16,7 @@
 #include "core/calibration/strategies/accel_calibration.h"
 #include "core/calibration/strategies/compass_calibration.h"
 #include "core/calibration/strategies/baro_calibration.h"
+#include "core/calibration/strategies/radio_calibration.h"
 #include "core/mavlink/mavlink_adapter.h"
 #include "core/transport/connection_manager.h"
 #include "core/log/logging.h"
@@ -33,6 +34,7 @@ CalibrationService::CalibrationService() {
     strategies_[1] = std::make_unique<AccelCalibration>();
     strategies_[2] = std::make_unique<CompassCalibration>();
     strategies_[3] = std::make_unique<BaroCalibration>();
+    strategies_[4] = std::make_unique<RadioCalibration>();
     load_history_from_disk();
 }
 

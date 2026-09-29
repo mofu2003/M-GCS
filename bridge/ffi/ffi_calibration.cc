@@ -2,7 +2,7 @@
 /**
  * ffi_calibration.cc - 传感器校准 FFI 入口
  *
- * 管理陀螺仪、加速度计、罗盘、气压计校准流程。
+ * 管理陀螺仪、加速度计、罗盘、气压计、遥控器校准流程。
  *
  * mg_calibration_start, mg_calibration_cancel, mg_calibration_get_status,
  * mg_calibration_get_history, mg_calibration_get_retry_info,
@@ -19,7 +19,7 @@ MGCORE_API char* mg_calibration_start(mg_core_t* core, int type, int accel_mode)
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto& cal = get_active_calibration(core);
     if (cal.is_active()) return fail(MG_ERROR_CALIBRATION, "calibration already in progress");
-    if (type < 0 || type > 3) return fail(MG_ERROR_INVALID_PARAM, "invalid calibration type (0=gyro, 1=accel, 2=compass, 3=baro)");
+    if (type < 0 || type > 4) return fail(MG_ERROR_INVALID_PARAM, "invalid calibration type (0=gyro, 1=accel, 2=compass, 3=baro, 4=radio)");
     if (type == 1 && accel_mode != 1 && accel_mode != 2 && accel_mode != 4) return fail(MG_ERROR_INVALID_PARAM, "invalid accel mode (1=full, 2=trim, 4=simple)");
 
     auto cal_type = static_cast<mg::core::calibration::CalibrationType>(type);

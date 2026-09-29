@@ -41,6 +41,7 @@ MGCORE_API char* mg_cal_cancel(mg_core_t* core);
 MGCORE_API char* mg_cal_status(mg_core_t* core);
 MGCORE_API char* mg_cal_history(mg_core_t* core, int type);
 MGCORE_API char* mg_cal_retry_info(mg_core_t* core);
+/* type: 0=gyro, 1=accel, 2=compass, 3=baro, 4=radio (RC transmitter travel). */
 MGCORE_API char* mg_calibration_start(mg_core_t* core, int type, int accel_mode);
 MGCORE_API char* mg_calibration_cancel(mg_core_t* core);
 MGCORE_API char* mg_calibration_get_status(mg_core_t* core);
