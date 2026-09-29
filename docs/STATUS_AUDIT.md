@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
 - 当前分支：`main`。
 - 本地门禁由 `tools/preflight.sh --no-macos-build` 加单独一次 `flutter build macos --debug` 实跑得出。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -68,8 +68,8 @@ tools/preflight.sh
 | --- | ---: |
 | FFI 导出 | 281 |
 | 前端实际使用 | 48 |
-| 测试触达 | 191 |
-| 既无前端调用、也无测试触达 | 89 |
+| 测试触达 | 194 |
+| 既无前端调用、也无测试触达 | 86 |
 
 按领域头拆分（三列互斥，逐行求和等于导出数）：
 
@@ -82,7 +82,7 @@ tools/preflight.sh
 | firmware | 7 | 3 | 3 | 1 |
 | flight | 32 | 0 | 32 | 0 |
 | geofence | 16 | 0 | 4 | 12 |
-| logging | 22 | 0 | 4 | 18 |
+| logging | 22 | 0 | 7 | 15 |
 | mission | 40 | 15 | 10 | 15 |
 | params | 20 | 6 | 5 | 9 |
 | payload | 17 | 0 | 13 | 4 |
@@ -92,7 +92,7 @@ tools/preflight.sh
 
 - 导出数包含新增的任务规划 FFI，因此不再等于 v0.0.8 快照中的 266。
 - “无人区”不等于可删除代码。专用公开面仍需按 `API_CATALOG.md` 的稳定性规则处理。
-- 完整 89 个接口清单可由 `tools/audit_status.sh` 重新生成。
+- 完整 86 个接口清单可由 `tools/audit_status.sh` 重新生成。
 - 早期版本的逐域表格三列不互斥（“仅测试”含前端已用的项），已在修正 `TOOL-001` 时一起修好。
 
 ## 4. 当前问题登记
@@ -225,6 +225,53 @@ tools/preflight.sh
 - 验证：`test_sim_calibration` 新增 `Calibration history flush` 组，先删除历史文件，
   跑完一次校准后直接读磁盘断言 `MGCAL1` 记录与失败原因确实落盘（79/79 通过）。
 
+### LOG-001：飞行日志声称采集 STATUSTEXT / 连接事件，但从来没接线
+
+- 状态：`RESOLVED`（2026-09-29）
+- 实测：`FlightLoggingService` 暴露 `on_statustext` / `on_connection_state`，
+  `ffi_logging.cc` 的注释也写明“captures STATUSTEXT, connection events”，
+  但 `core/src` 与 `bridge/ffi` 里没有任何地方调用这两个入口。
+  结果是日志页永远只有 `system` / `command` 两类事件。
+- 修复：`Vehicle::wire_telemetry_callbacks()` 的 statustext 分支补上
+  `flight_log_.on_statustext(...)`；`conn_.set_state_callback` 里补上
+  `flight_log_.on_connection_state(...)`。
+- 验证：`test_sim_ui_paths` 新增 `flight log captures STATUSTEXT` 组。
+  已验证删掉接线该用例立即 FAIL。
+
+### LOCK-001：飞行日志写回调在持锁路径调用
+
+- 状态：`RESOLVED`（2026-09-29）
+- 实测：`FlightLoggingService::append_event()` 持有 `mtx_` 时调用 `write_cb_`。
+  该回调会去拿 `core->core_mtx` 并触发 FFI 事件，等于在 MAVLink 读线程上
+  串起两把锁并调用外部回调——仓库禁区，也是锁序隐患。
+- 修复：与 `CAL-003` 同一套路：锁内只记账 + 组装 JSON，锁外再调用回调。
+- 验证：`test_sim_ui_paths` 的日志用例覆盖事件仍能送达。
+
+### EVENT-001：MG_EVENT_WAYPOINT_REACHED 声明了却从不发出
+
+- 状态：`RESOLVED`（2026-09-29）
+- 实测：`MG_EVENT_MISSION`(6) 与 `MG_EVENT_WAYPOINT_REACHED`(26) 都在公开枚举里，
+  但 `core/src` 与 `bridge/ffi` 里没有任何 `post_event`/`fire_event` 使用它们；
+  `MavlinkAdapter::on_mission_reached` 也没有任何订阅者。订阅航点事件的客户端
+  会一直收不到消息，且没有报错。
+- 修复：`Vehicle::wire_telemetry_callbacks()` 注册 `mav->on_mission_reached(...)`，
+  发出带 `seq` 的 `MG_EVENT_WAYPOINT_REACHED`。
+- 附带修正：`MockVehicleTestEnv` 之前没给 fallback vehicle 接事件回调，
+  与真实会话（`open_vehicle_session` 会接线）行为不一致，导致事件路径测不到；
+  已按生产逻辑补齐。
+- 验证：`test_sim_ui_paths` 新增 `MG_EVENT_WAYPOINT_REACHED` 组，
+  断言事件发出且 `seq` 正确。已验证删掉接线该用例立即 FAIL。
+
+### TESTGUARD-001：架构守卫读不到文件时会静默空转
+
+- 状态：`RESOLVED`（2026-09-29）
+- 实测：`test_bridge_architecture_guards.cc` 的 `read_file()` 打不开文件时返回空串，
+  而绝大多数断言是“不应该包含 X”。文件一改名/搬走，守卫全部空转通过——
+  本轮搬迁 `telemetry_cache.h` 时就真实发生过。
+- 修复：`read_file()` 打不开文件时直接记一次失败并打印路径；两处已搬迁文件的
+  守卫再加 `CHECK(!content.empty(), "... was actually read")`。
+- 验证：临时把路径改成不存在的文件，确认立即 FAIL 并打印 `cannot open ...`。
+
 ### MISSION-001：Flutter 任务规划层尚未连接后端
 
 - 状态：`OPEN`（只剩前端）
@@ -247,6 +294,30 @@ tools/preflight.sh
   并已在 `tools/check_ui_tokens.dart` 的豁免清单中。
 - 验证：`main.dart` 只 `runApp(const MgcsApp())`，不引用该文件；
   `flutter analyze lib test` 通过，说明该独立 target 仍可编译。
+
+### DEAD-001：固件刷写是死代码，状态接口返回硬编码值
+
+- 状态：`OPEN`（低危，未修）
+- 实测：`FirmwareFlasher`（`download_firmware` / `flash_firmware`）只在
+  `CMakeLists.txt` 里被编译，`core/src`、`bridge/ffi` 里没有任何调用者；
+  两个方法都只 `report_progress(..., "not implemented")`。
+  `mg_firmware_flash` 诚实返回 `MG_ERROR_NOT_SUPPORTED`，但
+  `mg_firmware_flash_status` 直接返回硬编码的 `{"flashing":false,"progress":0}`，
+  不看 `FirmwareFlasher::is_flashing()`。
+- 危害：目前只是死代码 + 一个永远报“空闲”的状态接口，不会造成误动作。
+- 为什么没修：刷写要实现 HTTP 下载 + bootloader 握手，属于功能开发；
+  只改状态接口反而会让人以为刷写可用。
+- 建议：要么删除 `FirmwareFlasher` 与状态接口，要么等真正实现刷写时一起接通。
+
+### VIDEO-001：FFmpegDecoder 的帧回调存在数据竞争
+
+- 状态：`OPEN`（未验证，未修）
+- 实测：`FFmpegDecoder::set_frame_callback()` 直接赋值 `frame_cb_`，
+  解码线程在循环里直接读同一个成员，类里没有任何互斥保护。
+- 危害：启用 FFmpeg 构建时属于数据竞争（UB），换回调可能与解码循环读到半初始化状态。
+- 为什么没修：本机 `build_check` 未开 `MGCORE_HAS_FFMPEG`，改了无法编译验证，
+  属于“改了也不敢说对”。需要能编 FFmpeg 的环境再动。
+- 建议：加一把回调锁，set 与读各自持锁，读侧取副本后在锁外调用。
 
 ### TOOL-001：审计脚本缺失依赖时静默产出假数据
 
@@ -272,7 +343,7 @@ tools/preflight.sh
   `mg_serial_get_uart_names`、`mg_log_request_list`、`mg_terrain_query`、
   `mg_flight_get_takeoff_altitude`、`mg_flight_get_loiter_radius`。
 - 验证：修复后脚本输出 281 / 48 / 179 / 101。叠加本轮 `TEST-001` / `TEST-002` /
-  `TEST-003` 及后续兼容入口用例后，当前值为 **281 / 48 / 191 / 89**（以第 3 节与脚本实跑为准）。
+  `TEST-003`、事件/日志用例后，当前值为 **281 / 48 / 194 / 86**（以第 3 节与脚本实跑为准）。
 
 ### CI-001：远端 CI 运行状态未在本地审计确认
 
@@ -303,6 +374,9 @@ tools/preflight.sh
 | 组件画廊 | `component_gallery_demo.dart` 明确为开发工具（不进 release、已列入 token 豁免），保留而非删除（`CLEANUP-001`） |
 | 兼容入口 | `mg_log_list` 返回真实日志、`mg_rc_calibrate_save` 不再谎报成功、`mg_mission_request` 透传发送失败；`API_CATALOG.md` 补退役策略（`DEPRECATION-001`） |
 | 校准落盘 | 校准历史写盘移出持锁路径，改在 `fire_event_safe` 的锁外快照写文件（`CAL-003`） |
+| 飞行日志 | STATUSTEXT 与连接事件真正接入日志服务（`LOG-001`）；写回调移出持锁路径（`LOCK-001`） |
+| 事件通道 | `MG_EVENT_WAYPOINT_REACHED` 以前从不发出，现已接线并带 `seq`（`EVENT-001`） |
+| 架构守卫 | `read_file` 打不开文件时直接判失败，避免守卫静默空转（`TESTGUARD-001`） |
 | 校准测试 | 新增读回失败回归用例；mock 补 `INS_GYROFFS_*` / `INS_ACCOFFS_*` 参数 |
 | 飞行模式分档 | 多旋翼/固定翼 PWM 分档拆分，无效 RC 值不再误判档位 |
 | Mock FTP | `MockFlightController` 增加最小 MAVLink FTP 应答器，支撑 `mg_serial_get_uart_names` 离线复现 |
@@ -329,6 +403,10 @@ tools/preflight.sh
 剩余的 `MISSION-001` / `UI-001` / `UI-002` 都是**新增前端能力**，不是缺陷：
 后端接口、契约和测试都已就绪，缺的是页面本身。
 
+`DEAD-001`（固件刷写死代码）与 `VIDEO-001`（FFmpeg 回调数据竞争）是已知但
+本机无法安全验证的项：前者需要实现完整刷写功能才有意义，后者需要能编
+FFmpeg 的构建环境。两者都不影响当前默认构建。
+
 ## 7. 维护规则
 
 1. 当前事实写在本文；历史结论写入 `docs/audits/`。
@@ -347,7 +425,7 @@ tools/preflight.sh
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；本地门禁（含 macOS debug 构建）已实跑通过 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

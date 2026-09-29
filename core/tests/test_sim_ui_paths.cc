@@ -12,6 +12,7 @@
 #include "ffi_api.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -45,6 +46,40 @@ struct TestEnv : MockVehicleTestEnv {
 
 bool json_has(const char* json, const char* needle) {
     return json != nullptr && std::strstr(json, needle) != nullptr;
+}
+
+struct EventProbe {
+    int waypoint_events = 0;
+    int waypoint_seq = -1;
+};
+
+void event_probe_cb(mg_event_type_t type, char* json, void* user_data) {
+    auto* probe = static_cast<EventProbe*>(user_data);
+    if (probe != nullptr && type == MG_EVENT_WAYPOINT_REACHED) {
+        probe->waypoint_events++;
+        const char* seq = json != nullptr ? std::strstr(json, "\"seq\":") : nullptr;
+        if (seq != nullptr) probe->waypoint_seq = std::atoi(seq + 6);
+    }
+    // 事件 json 归回调所有，每个分支都要释放。
+    if (json != nullptr) mg_free_string(json);
+}
+
+// MG_EVENT_WAYPOINT_REACHED 以前只在公开枚举里声明，没有地方发出。
+void test_waypoint_reached_event_is_emitted() {
+    fprintf(stderr, "\n[Group] MG_EVENT_WAYPOINT_REACHED\n");
+    TestEnv env;
+    env.connect();
+
+    EventProbe probe;
+    mg_set_event_callback(env.core, event_probe_cb, &probe);
+
+    env.mock->send_mission_item_reached(3);
+    env.tick(50);
+
+    CHECK(probe.waypoint_events >= 1, "waypoint reached event is emitted");
+    CHECK(probe.waypoint_seq == 3, "event carries the reached sequence number");
+
+    mg_set_event_callback(env.core, nullptr, nullptr);
 }
 
 void test_params_get_by_name() {
@@ -200,6 +235,31 @@ void test_log_list_reports_real_entries() {
     if (entries) mg_free_string(entries);
 }
 
+// 飞行日志声明会采集飞控 STATUSTEXT，但状态转发以前没接线。这条用例要求
+// 事件真的落到 mg_log_get_events 里。
+void test_flight_log_captures_statustext() {
+    fprintf(stderr, "\n[Group] flight log captures STATUSTEXT\n");
+    TestEnv env;
+    env.connect();
+
+    char* start = mg_log_start(env.core);
+    CHECK(json_has(start, "\"success\":true"), "flight log starts");
+    if (start) mg_free_string(start);
+
+    env.mock->send_statustext("PreArm: Throttle too high", 4);
+    env.tick(50);
+
+    char* events = mg_log_get_events(env.core);
+    CHECK(json_has(events, "fc.statustext"), "statustext stored under fc.statustext");
+    CHECK(json_has(events, "PreArm: Throttle too high"),
+          "statustext text reaches the flight log");
+    if (events) mg_free_string(events);
+
+    char* stop = mg_log_stop(env.core);
+    CHECK(json_has(stop, "\"success\":true"), "flight log stops");
+    if (stop) mg_free_string(stop);
+}
+
 void test_rc_calibrate_save_is_honest() {
     fprintf(stderr, "\n[Group] mg_rc_calibrate_save\n");
     TestEnv env;
@@ -272,6 +332,8 @@ int main() {
     test_vehicle_request_firmware_version();
     test_calibration_cancel();
     test_config_param_write_path();
+    test_flight_log_captures_statustext();
+    test_waypoint_reached_event_is_emitted();
     test_log_list_reports_real_entries();
     test_rc_calibrate_save_is_honest();
     test_mission_request_propagates_send_failure();

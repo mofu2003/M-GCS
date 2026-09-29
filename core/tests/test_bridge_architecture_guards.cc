@@ -15,6 +15,14 @@ static int g_fail = 0;
 
 static std::string read_file(const std::filesystem::path& path) {
     std::ifstream in(path);
+    // 读不到文件时明确记一次失败：这些守卫全靠文本匹配，文件改名/搬走后
+    // 空字符串会让“不应该包含 X”这类断言悄悄通过，守卫就废了。
+    if (!in.is_open()) {
+        g_fail++;
+        fprintf(stderr, "  [FAIL] cannot open %s (guard would be vacuous)\n",
+                path.string().c_str());
+        return {};
+    }
     std::ostringstream out;
     out << in.rdbuf();
     return out.str();
@@ -141,6 +149,8 @@ static void test_telemetry_cache_delegates_freshness_tracking() {
     const auto telemetry_cache =
         read_file(repo_root() / "core/include/core/telemetry/telemetry_cache.h");
 
+    CHECK(!telemetry_cache.empty(), "telemetry_cache.h was actually read");
+
     CHECK(telemetry_cache.find("std::map<TelemetryType, uint64_t> last_update_ms_") == std::string::npos,
           "TelemetryCache does not own raw freshness timestamp storage");
     CHECK(telemetry_cache.find("std::chrono::steady_clock::now") == std::string::npos,
@@ -155,6 +165,8 @@ static void test_json_serializers_stay_focused_on_telemetry_shapes() {
     fprintf(stderr, "\n[Group] JSON serializer locality\n");
     const auto serializers =
         read_file(repo_root() / "core/include/core/telemetry/json_serializers.h");
+
+    CHECK(!serializers.empty(), "json_serializers.h was actually read");
 
     CHECK(serializers.find("core/mission/mission_types.h") == std::string::npos,
           "core telemetry serializers do not depend on mission domain types");

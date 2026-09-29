@@ -47,6 +47,13 @@ struct MockVehicleTestEnv {
         core->fallback_vehicle->conn().wire_for_test(std::move(link_up), std::move(mav_up));
         core->fallback_vehicle->init_subsystems();
         core->fallback_vehicle->wire_telemetry_callbacks();
+        // 真实会话在 open_vehicle_session 里会把 Vehicle 事件转发到 core->events；
+        // 测试用的是 fallback vehicle，这里补上同样的接线，否则事件路径测不到。
+        mg_core_t* core_ptr = core;
+        core->fallback_vehicle->set_event_callback(
+            [core_ptr](int event_type, const std::string& json) {
+                core_ptr->events.fire(static_cast<mg_event_type_t>(event_type), json);
+            });
 
         link = link_raw;
         mav = mav_raw;

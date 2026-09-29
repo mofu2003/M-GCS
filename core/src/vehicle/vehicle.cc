@@ -114,6 +114,11 @@ bool Vehicle::connect(const std::string& endpoint) {
 
     wire_telemetry_callbacks();
     conn_.set_state_callback([this](mg::core::transport::ConnectionState state, const char* reason) {
+        // 飞行日志声称记录连接事件，但之前没有任何地方把状态转发进去，
+        // 于是日志页里永远没有 connection 分类。
+        flight_log_.on_connection_state(
+            mg::core::transport::ConnectionManager::state_string(state),
+            reason ? reason : "");
         switch (state) {
             case mg::core::transport::ConnectionState::Connected:
                 fire_event(MG_EVENT_CONNECTION, R"({"connected":true})");
@@ -314,6 +319,8 @@ void Vehicle::wire_telemetry_callbacks() {
     mav->on_statustext([weak](const std::string& text, uint8_t severity) {
         auto self = weak.lock(); if (!self) return;
         self->cache_.update_statustext(text, severity);
+        // 同理：飞行日志声明采集飞控 STATUSTEXT，但之前没有接线。
+        self->flight_log_.on_statustext(severity, text);
         auto snap = self->cache_.snapshot_statustext();
         self->fire_event(MG_EVENT_STATUSTEXT, mg::core::telemetry::statustext_json(snap.data));
         self->calibration_.process_statustext(text, severity);
@@ -336,6 +343,17 @@ void Vehicle::wire_telemetry_callbacks() {
             self->calibration_.process_accelerometer_position_request(
                 static_cast<uint32_t>(command.param1));
         }
+    });
+
+    // MG_EVENT_WAYPOINT_REACHED 之前只在公开枚举里声明，没有任何地方发出，
+    // 订阅该事件的客户端会一直收不到消息。这里把适配器的 reached 回调接上。
+    mav->on_mission_reached([weak](uint16_t seq) {
+        auto self = weak.lock(); if (!self) return;
+        mg::core::telemetry::JsonBuilder jb;
+        jb.begin_object();
+        jb.field("seq", static_cast<int>(seq));
+        jb.end_object();
+        self->fire_event(MG_EVENT_WAYPOINT_REACHED, jb.str());
     });
 
     mav->on_imu([weak](const mg::core::mavlink::ImuInfo& info) {

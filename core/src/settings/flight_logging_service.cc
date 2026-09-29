@@ -62,10 +62,16 @@ bool FlightLoggingService::stop() {
 }
 
 bool FlightLoggingService::append_event(const std::string& source, int severity, const std::string& text) {
-    mg::core::platform::LockGuard lk(mtx_);
-    if (!active_.load()) return false;
-    event_count_++;
-    if (write_cb_) {
+    // 锁内只做记账和 JSON 组装；写回调必须在锁外调用，否则会在
+    // MAVLink 读线程上持锁进入 core_mtx 和 FFI 事件回调（仓库禁区）。
+    WriteCallback cb;
+    std::string line;
+    {
+        mg::core::platform::LockGuard lk(mtx_);
+        if (!active_.load()) return false;
+        event_count_++;
+        if (!write_cb_) return true;
+
         auto now = std::chrono::system_clock::now();
         std::time_t t = std::chrono::system_clock::to_time_t(now);
         std::tm tm{};
@@ -84,8 +90,10 @@ bool FlightLoggingService::append_event(const std::string& source, int severity,
         jb.field("severity", severity);
         jb.field("text", text);
         jb.end_object();
-        write_cb_(jb.str());
+        line = jb.str();
+        cb = write_cb_;
     }
+    cb(line);
     return true;
 }
 

@@ -130,6 +130,22 @@ public:
         send(m);
     }
 
+    /// 发送一条 STATUSTEXT，模拟飞控的提示/告警文本。
+    void send_statustext(const std::string& text, uint8_t severity) {
+        mavlink_message_t m;
+        mavlink_msg_statustext_pack(config_.system_id, config_.component_id, &m,
+                                    severity, text.c_str(), 0, 0);
+        send(m);
+    }
+
+    /// 发送 MISSION_ITEM_REACHED，模拟飞控到达某个航点。
+    void send_mission_item_reached(uint16_t seq) {
+        mavlink_message_t m;
+        mavlink_msg_mission_item_reached_pack(config_.system_id, config_.component_id,
+                                              &m, seq);
+        send(m);
+    }
+
     // 故障注入状态（public，供测试断言）
     int cmd_drop_count_=0, cmd_dropped_so_far_=0;
     bool param_list_no_response_=false;
