@@ -2,6 +2,7 @@
 
 #include "core/mission/cad/mission_command_catalog.h"
 #include "core/mission/mission_manager.h"
+#include "core/mission/survey_calculator.h"
 
 #include <algorithm>
 #include <chrono>
@@ -23,6 +24,63 @@ constexpr double kMaxLatitude = 90.0;
 constexpr double kMinLongitude = -180.0;
 constexpr double kMaxLongitude = 180.0;
 constexpr float kMaxMissionAltitudeM = 500.0f;
+
+/// 参数化测绘实体的几何参数来源。展开工作交给 SurveyCalculator，
+/// 文档层只负责校验参数是否自洽。
+CameraSpec survey_camera_spec(const MissionSurveySpec& survey) {
+    CameraSpec camera;
+    camera.focal_length_mm = survey.focal_length_mm;
+    camera.sensor_width_mm = survey.sensor_width_mm;
+    camera.sensor_height_mm = survey.sensor_height_mm;
+    camera.image_width_px = survey.image_width_px;
+    camera.image_height_px = survey.image_height_px;
+    camera.min_overlap_pct = survey.forward_overlap_pct;
+    camera.side_overlap_pct = survey.side_overlap_pct;
+    return camera;
+}
+
+SurveyConfig survey_grid_config(const MissionEntity& entity) {
+    const MissionSurveySpec& spec = entity.survey;
+    SurveyConfig config;
+    config.center_lat_deg = entity.latitude;
+    config.center_lon_deg = entity.longitude;
+    config.width_m = spec.width_m;
+    config.length_m = spec.length_m;
+    config.altitude_m = spec.altitude_m;
+    config.speed_ms = spec.speed_ms;
+    config.angle_deg = spec.angle_deg;
+    config.cross_grid = spec.cross_grid;
+    config.return_to_start = spec.return_to_start;
+    config.camera = survey_camera_spec(spec);
+    return config;
+}
+
+CorridorConfig corridor_config(const MissionEntity& entity) {
+    const MissionSurveySpec& spec = entity.survey;
+    CorridorConfig config;
+    config.center_lat_deg = entity.latitude;
+    config.center_lon_deg = entity.longitude;
+    config.end_lat_deg = spec.end_latitude;
+    config.end_lon_deg = spec.end_longitude;
+    config.width_m = spec.corridor_width_m;
+    config.altitude_m = spec.altitude_m;
+    config.speed_ms = spec.speed_ms;
+    config.side_overlap_pct = spec.side_overlap_pct;
+    config.return_to_start = spec.return_to_start;
+    config.camera = survey_camera_spec(spec);
+    return config;
+}
+
+/// 按实体类型选择测绘算法。compile 和 estimate 共用，避免两处展开不一致。
+SurveyResult expand_survey_entity(const MissionEntity& entity) {
+    if (entity.type == "corridor") {
+        return SurveyCalculator::generate_corridor_scan(corridor_config(entity));
+    }
+    if (entity.survey.cross_grid) {
+        return SurveyCalculator::generate_cross_grid(survey_grid_config(entity));
+    }
+    return SurveyCalculator::generate_grid(survey_grid_config(entity));
+}
 constexpr uint64_t kMaxJsonSafeInteger = 9007199254740991ULL;
 
 int64_t now_ms() {
@@ -90,6 +148,175 @@ void add_diagnostic(
         });
     if (severity == DiagnosticSeverity::Error) {
         report.valid = false;
+    }
+}
+
+/// 参数化测绘实体的校验。展开交给 SurveyCalculator，这里只保证参数自洽，
+/// 避免把“尺寸为 0”“终点缺失”这类意图错误拖到编译期才炸。
+void validate_survey_entity(
+    MissionValidationReport& report,
+    const MissionEntity& entity) {
+    const MissionSurveySpec& spec = entity.survey;
+    const bool corridor = entity.type == "corridor";
+
+    if (!finite(entity.latitude) ||
+        entity.latitude < kMinLatitude ||
+        entity.latitude > kMaxLatitude) {
+        add_diagnostic(
+            report,
+            DiagnosticSeverity::Error,
+            "entity.latitude",
+            corridor ? "Corridor start latitude is invalid or missing"
+                     : "Survey center latitude is invalid or missing",
+            entity.id,
+            "lat");
+    }
+    if (!finite(entity.longitude) ||
+        entity.longitude < kMinLongitude ||
+        entity.longitude > kMaxLongitude) {
+        add_diagnostic(
+            report,
+            DiagnosticSeverity::Error,
+            "entity.longitude",
+            corridor ? "Corridor start longitude is invalid or missing"
+                     : "Survey center longitude is invalid or missing",
+            entity.id,
+            "lon");
+    }
+
+    if (corridor) {
+        const bool end_lat_ok = finite(spec.end_latitude) &&
+                                spec.end_latitude >= kMinLatitude &&
+                                spec.end_latitude <= kMaxLatitude;
+        const bool end_lon_ok = finite(spec.end_longitude) &&
+                                spec.end_longitude >= kMinLongitude &&
+                                spec.end_longitude <= kMaxLongitude;
+        if (!end_lat_ok) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "survey.end_lat",
+                "Corridor end latitude is invalid or missing",
+                entity.id,
+                "survey.end_lat");
+        }
+        if (!end_lon_ok) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "survey.end_lon",
+                "Corridor end longitude is invalid or missing",
+                entity.id,
+                "survey.end_lon");
+        }
+        if (end_lat_ok && end_lon_ok && finite(entity.latitude) &&
+            finite(entity.longitude) &&
+            spec.end_latitude == entity.latitude &&
+            spec.end_longitude == entity.longitude) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "survey.zero_length",
+                "Corridor start and end points are identical",
+                entity.id,
+                "survey.end_lat");
+        }
+        if (!(spec.corridor_width_m > 0.0)) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "survey.corridor_width",
+                "Corridor width must be positive",
+                entity.id,
+                "survey.corridor_width_m");
+        }
+    } else {
+        if (!(spec.width_m > 0.0)) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "survey.width",
+                "Survey width must be positive",
+                entity.id,
+                "survey.width_m");
+        }
+        if (!(spec.length_m > 0.0)) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "survey.length",
+                "Survey length must be positive",
+                entity.id,
+                "survey.length_m");
+        }
+        if (!finite(spec.angle_deg)) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "survey.angle",
+                "Survey rotation angle must be finite",
+                entity.id,
+                "survey.angle_deg");
+        }
+    }
+
+    if (!finite(spec.altitude_m) || !(spec.altitude_m > 0.0f)) {
+        add_diagnostic(
+            report,
+            DiagnosticSeverity::Error,
+            "survey.altitude",
+            "Survey altitude must be positive",
+            entity.id,
+            "survey.alt_m");
+    } else if (spec.altitude_m > kMaxMissionAltitudeM) {
+        add_diagnostic(
+            report,
+            DiagnosticSeverity::Warning,
+            "survey.altitude_high",
+            "Survey altitude is unusually high",
+            entity.id,
+            "survey.alt_m");
+    }
+    if (!finite(spec.speed_ms) || !(spec.speed_ms > 0.0f)) {
+        add_diagnostic(
+            report,
+            DiagnosticSeverity::Error,
+            "survey.speed",
+            "Survey speed must be positive",
+            entity.id,
+            "survey.speed_ms");
+    }
+    const auto overlap_ok = [](float value) {
+        return std::isfinite(value) && value >= 0.0f && value < 100.0f;
+    };
+    if (!overlap_ok(spec.forward_overlap_pct)) {
+        add_diagnostic(
+            report,
+            DiagnosticSeverity::Error,
+            "survey.forward_overlap",
+            "Forward overlap must be in [0, 100)",
+            entity.id,
+            "survey.forward_overlap_pct");
+    }
+    if (!overlap_ok(spec.side_overlap_pct)) {
+        add_diagnostic(
+            report,
+            DiagnosticSeverity::Error,
+            "survey.side_overlap",
+            "Side overlap must be in [0, 100)",
+            entity.id,
+            "survey.side_overlap_pct");
+    }
+    if (!(spec.focal_length_mm > 0.0f) || !(spec.sensor_width_mm > 0.0f) ||
+        !(spec.sensor_height_mm > 0.0f) || !(spec.image_width_px > 0.0f) ||
+        !(spec.image_height_px > 0.0f)) {
+        add_diagnostic(
+            report,
+            DiagnosticSeverity::Error,
+            "survey.camera",
+            "Camera focal length, sensor size and image size must be positive",
+            entity.id,
+            "survey");
     }
 }
 
@@ -211,6 +438,41 @@ bool parse_entity(
             entity.params[static_cast<size_t>(i)] =
                 get_float(item, key.c_str(), entity.params[static_cast<size_t>(i)]);
         }
+    }
+
+    cJSON* survey = get_item(item, "survey");
+    if (survey && cJSON_IsObject(survey)) {
+        MissionSurveySpec& spec = entity.survey;
+        spec.width_m = get_double(survey, "width_m", spec.width_m);
+        spec.length_m = get_double(survey, "length_m", spec.length_m);
+        spec.angle_deg = get_double(survey, "angle_deg", spec.angle_deg);
+        spec.cross_grid = get_bool(survey, "cross_grid", spec.cross_grid);
+        spec.end_latitude = get_double(
+            survey, "end_lat", get_double(survey, "end_latitude", spec.end_latitude));
+        spec.end_longitude = get_double(
+            survey, "end_lon", get_double(survey, "end_longitude", spec.end_longitude));
+        spec.corridor_width_m = get_double(
+            survey, "corridor_width_m", spec.corridor_width_m);
+        spec.altitude_m = get_float(
+            survey, "alt_m", get_float(survey, "altitude_m", spec.altitude_m));
+        spec.speed_ms = get_float(
+            survey, "speed_ms", spec.speed_ms);
+        spec.return_to_start = get_bool(
+            survey, "return_to_start", spec.return_to_start);
+        spec.forward_overlap_pct = get_float(
+            survey, "forward_overlap_pct", spec.forward_overlap_pct);
+        spec.side_overlap_pct = get_float(
+            survey, "side_overlap_pct", spec.side_overlap_pct);
+        spec.focal_length_mm = get_float(
+            survey, "focal_length_mm", spec.focal_length_mm);
+        spec.sensor_width_mm = get_float(
+            survey, "sensor_width_mm", spec.sensor_width_mm);
+        spec.sensor_height_mm = get_float(
+            survey, "sensor_height_mm", spec.sensor_height_mm);
+        spec.image_width_px = get_float(
+            survey, "image_width_px", spec.image_width_px);
+        spec.image_height_px = get_float(
+            survey, "image_height_px", spec.image_height_px);
     }
 
     return true;
@@ -697,14 +959,10 @@ MissionValidationReport MissionDocumentService::validate_document(
                     "params[" + std::to_string(parameter_index) + "]");
             }
         }
-        if (entity.type == "survey_grid" || entity.type == "corridor") {
-            add_diagnostic(
-                report,
-                DiagnosticSeverity::Error,
-                "entity.type_unsupported",
-                "Parameterized survey entities are not implemented yet",
-                entity.id,
-                "type");
+        if (is_parameterized_survey_type(entity.type)) {
+            // 展开后的任务项由 SurveyCalculator 产生，实体本身没有单一命令
+            // 可比对，所以这里只校验几何参数。
+            validate_survey_entity(report, entity);
             continue;
         }
 
@@ -951,6 +1209,34 @@ MissionCompileResult MissionDocumentService::compile_document(
         if (!entity.enabled) {
             continue;
         }
+
+        if (is_parameterized_survey_type(entity.type)) {
+            // 参数化实体在编译期展开成具体航点：文档保存设计意图，
+            // 展开算法集中在 SurveyCalculator，前端不复制几何计算。
+            const SurveyResult generated = expand_survey_entity(entity);
+            if (!generated.valid || generated.items.empty()) {
+                add_diagnostic(
+                    result.report,
+                    DiagnosticSeverity::Error,
+                    "entity.survey_expansion_failed",
+                    generated.error.empty()
+                        ? "Survey entity produced no mission items"
+                        : generated.error,
+                    entity.id,
+                    "survey");
+                result.plan.valid = false;
+                result.valid = false;
+                return result;
+            }
+            for (MissionItem item : generated.items) {
+                item.seq = static_cast<uint16_t>(result.plan.items.size());
+                result.plan.items.push_back(item);
+                // 每个展开出来的任务项都指回同一个源实体。
+                result.source_entity_ids.push_back(entity.id);
+            }
+            continue;
+        }
+
         MissionItem item{};
         item.seq = static_cast<uint16_t>(result.plan.items.size());
         item.frame = entity.frame;
@@ -993,6 +1279,41 @@ MissionEstimate MissionDocumentService::estimate_document(
             continue;
         }
         ++estimate.enabled_entity_count;
+
+        if (is_parameterized_survey_type(entity.type)) {
+            const SurveyResult generated = expand_survey_entity(entity);
+            if (!generated.valid) {
+                continue;
+            }
+            estimate.waypoint_count += generated.waypoint_count;
+            estimate.command_count += static_cast<int>(generated.items.size()) -
+                                      generated.waypoint_count;
+            estimate.total_distance_m += generated.total_distance_m;
+            estimate.estimated_time_s += generated.estimated_time_s;
+            estimate.photo_count += generated.photo_count;
+
+            const double altitude = static_cast<double>(entity.survey.altitude_m);
+            if (altitude >= 0.0) {
+                if (estimate.min_altitude_m == 0.0 ||
+                    altitude < estimate.min_altitude_m) {
+                    estimate.min_altitude_m = altitude;
+                }
+                estimate.max_altitude_m = std::max(estimate.max_altitude_m, altitude);
+            }
+
+            // 展开后的末点作为后续实体的起点，估算才不会在测绘块处断开。
+            has_previous = false;
+            for (const MissionItem& item : generated.items) {
+                if (item.x == 0 && item.y == 0) {
+                    continue;
+                }
+                previous_lat = static_cast<double>(item.x) / 1e7;
+                previous_lon = static_cast<double>(item.y) / 1e7;
+                has_previous = true;
+            }
+            continue;
+        }
+
         if (entity.command == static_cast<uint16_t>(NavCommand::NavWaypoint)) {
             ++estimate.waypoint_count;
         } else {
@@ -1160,6 +1481,36 @@ std::string serialize_mission_document(const MissionDocument& document) {
         cJSON* params = cJSON_AddArrayToObject(item, "params");
         for (float value : entity.params) {
             cJSON_AddItemToArray(params, cJSON_CreateNumber(value));
+        }
+        if (is_parameterized_survey_type(entity.type)) {
+            const MissionSurveySpec& spec = entity.survey;
+            cJSON* survey = cJSON_AddObjectToObject(item, "survey");
+            cJSON_AddNumberToObject(survey, "width_m", spec.width_m);
+            cJSON_AddNumberToObject(survey, "length_m", spec.length_m);
+            cJSON_AddNumberToObject(survey, "angle_deg", spec.angle_deg);
+            cJSON_AddBoolToObject(survey, "cross_grid", spec.cross_grid);
+            cJSON_AddNumberToObject(
+                survey, "corridor_width_m", spec.corridor_width_m);
+            add_optional_number(survey, "end_lat", spec.end_latitude);
+            add_optional_number(survey, "end_lon", spec.end_longitude);
+            cJSON_AddNumberToObject(survey, "alt_m", spec.altitude_m);
+            cJSON_AddNumberToObject(survey, "speed_ms", spec.speed_ms);
+            cJSON_AddBoolToObject(
+                survey, "return_to_start", spec.return_to_start);
+            cJSON_AddNumberToObject(
+                survey, "forward_overlap_pct", spec.forward_overlap_pct);
+            cJSON_AddNumberToObject(
+                survey, "side_overlap_pct", spec.side_overlap_pct);
+            cJSON_AddNumberToObject(
+                survey, "focal_length_mm", spec.focal_length_mm);
+            cJSON_AddNumberToObject(
+                survey, "sensor_width_mm", spec.sensor_width_mm);
+            cJSON_AddNumberToObject(
+                survey, "sensor_height_mm", spec.sensor_height_mm);
+            cJSON_AddNumberToObject(
+                survey, "image_width_px", spec.image_width_px);
+            cJSON_AddNumberToObject(
+                survey, "image_height_px", spec.image_height_px);
         }
         if (!entity.notes.empty()) {
             cJSON_AddStringToObject(item, "notes", entity.notes.c_str());
@@ -1336,6 +1687,10 @@ bool load_mission_document(
 
 const char* mission_entity_type_name(const std::string& type) {
     return type.c_str();
+}
+
+bool is_parameterized_survey_type(const std::string& type) {
+    return type == "survey_grid" || type == "corridor";
 }
 
 } // namespace mg::core::mission::cad

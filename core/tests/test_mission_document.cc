@@ -415,12 +415,154 @@ static void test_ffi_contract() {
     mg_destroy(core);
 }
 
+// 参数化测绘实体：文档只存设计意图，编译期由 SurveyCalculator 展开。
+static void test_parameterized_survey_entities() {
+    fprintf(stderr, "\n[Group] Parameterized survey entities\n");
+
+    MissionDocument document = valid_document();
+    document.entities.clear();
+
+    MissionEntity survey;
+    survey.id = "survey-1";
+    survey.type = "survey_grid";
+    survey.latitude = 39.9;
+    survey.longitude = 116.4;
+    survey.survey.width_m = 200.0;
+    survey.survey.length_m = 300.0;
+    survey.survey.altitude_m = 80.0f;
+    survey.survey.speed_ms = 8.0f;
+    survey.survey.angle_deg = 30.0;
+    document.entities.push_back(survey);
+
+    MissionValidationReport report =
+        MissionDocumentService::validate_document(document);
+    CHECK(!report.has_errors(),
+          "survey_grid entity validates without the old not-implemented error");
+
+    MissionCompileResult compiled =
+        MissionDocumentService::compile_document(document);
+    CHECK(compiled.valid, "survey_grid compiles");
+    CHECK(compiled.plan.items.size() > 2,
+          "survey_grid expands into multiple mission items");
+    CHECK(compiled.source_entity_ids.size() == compiled.plan.items.size(),
+          "every expanded item maps back to the source entity");
+    bool all_from_survey = true;
+    for (const auto& id : compiled.source_entity_ids) {
+        if (id != "survey-1") all_from_survey = false;
+    }
+    CHECK(all_from_survey, "expanded items all reference the survey entity");
+    bool sequenced = true;
+    for (size_t i = 0; i < compiled.plan.items.size(); ++i) {
+        if (compiled.plan.items[i].seq != i) sequenced = false;
+    }
+    CHECK(sequenced, "expanded items are re-sequenced contiguously");
+
+    MissionEstimate estimate =
+        MissionDocumentService::estimate_document(document);
+    CHECK(estimate.total_distance_m > 0.0, "survey estimate has distance");
+    CHECK(estimate.waypoint_count > 0, "survey estimate counts waypoints");
+    CHECK(estimate.photo_count > 0, "survey estimate counts photos");
+
+    // 序列化往返必须保留 survey 参数，否则前端保存后参数会丢。
+    const std::string json = serialize_mission_document(document);
+    MissionDocument reloaded;
+    std::string error;
+    CHECK(deserialize_mission_document(json, reloaded, error),
+          "survey document round-trips through JSON");
+    CHECK(reloaded.entities.size() == 1 &&
+              std::fabs(reloaded.entities[0].survey.width_m - 200.0) < 1e-6 &&
+              std::fabs(reloaded.entities[0].survey.length_m - 300.0) < 1e-6 &&
+              std::fabs(reloaded.entities[0].survey.angle_deg - 30.0) < 1e-6,
+          "survey parameters survive serialization");
+
+    // 走廊实体：起终点必须都能通过校验，终点缺失要报错。
+    MissionDocument corridor_document = valid_document();
+    corridor_document.entities.clear();
+    MissionEntity corridor;
+    corridor.id = "corridor-1";
+    corridor.type = "corridor";
+    corridor.latitude = 39.9;
+    corridor.longitude = 116.4;
+    corridor.survey.end_latitude = 39.905;
+    corridor.survey.end_longitude = 116.4;
+    corridor.survey.corridor_width_m = 60.0;
+    corridor.survey.altitude_m = 60.0f;
+    corridor_document.entities.push_back(corridor);
+
+    report = MissionDocumentService::validate_document(corridor_document);
+    CHECK(!report.has_errors(), "corridor entity validates");
+    compiled = MissionDocumentService::compile_document(corridor_document);
+    CHECK(compiled.valid && compiled.plan.items.size() > 2,
+          "corridor expands into mission items");
+
+    MissionEntity broken = corridor;
+    broken.id = "corridor-2";
+    broken.survey.end_latitude = std::numeric_limits<double>::quiet_NaN();
+    MissionDocument broken_document = valid_document();
+    broken_document.entities.clear();
+    broken_document.entities.push_back(broken);
+    report = MissionDocumentService::validate_document(broken_document);
+    CHECK(report.has_errors(), "corridor without an end point is rejected");
+    compiled = MissionDocumentService::compile_document(broken_document);
+    CHECK(!compiled.valid, "invalid corridor does not compile");
+
+    MissionEntity bad_grid = survey;
+    bad_grid.id = "survey-bad";
+    bad_grid.survey.width_m = 0.0;
+    MissionDocument bad_document = valid_document();
+    bad_document.entities.clear();
+    bad_document.entities.push_back(bad_grid);
+    report = MissionDocumentService::validate_document(bad_document);
+    CHECK(report.has_errors(), "zero-width survey is rejected");
+}
+
+// 前端走的是 FFI 路径：add 一个 survey 实体 -> validate -> compile -> export。
+static void test_ffi_survey_entity_roundtrip() {
+    fprintf(stderr, "\n[Group] Survey entity through FFI\n");
+    mg_core_t* core = mg_create();
+    CHECK(core != nullptr, "mg_create succeeds (survey)");
+
+    char* result = mg_mission_doc_create(
+        core, R"({"metadata":{"name":"Survey Mission"}})");
+    if (result) mg_free_string(result);
+
+    const char* add_survey =
+        R"({"operation":"add","expected_revision":1,"entity":{"type":"survey_grid",)"
+        R"("lat":39.9,"lon":116.4,"survey":{"width_m":200,"length_m":200,)"
+        R"("alt_m":70,"speed_ms":7,"angle_deg":15}}})";
+    result = mg_mission_doc_apply(core, add_survey);
+    CHECK(result && strstr(result, "\"success\":true"),
+          "FFI add survey_grid succeeds");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_validate(core);
+    CHECK(result && strstr(result, "\"valid\":true"),
+          "FFI validates the survey document");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_compile(core);
+    CHECK(result && strstr(result, "\"valid\":true"),
+          "FFI compiles the survey document");
+    CHECK(result && strstr(result, "\"source_entity_ids\""),
+          "compile returns the source entity mapping");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_export(core);
+    CHECK(result && strstr(result, "\"survey\""),
+          "exported document keeps the survey spec");
+    if (result) mg_free_string(result);
+
+    mg_destroy(core);
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Tests ===\n");
     test_document_editing_history();
     test_document_roundtrip();
     test_validation_compile_and_estimate();
+    test_parameterized_survey_entities();
     test_ffi_contract();
+    test_ffi_survey_entity_roundtrip();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

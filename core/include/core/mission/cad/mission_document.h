@@ -48,6 +48,37 @@ struct MissionDefaults {
     float speed_ms = 12.0f;
 };
 
+/// 参数化测绘实体的几何参数，只在 type 为 `survey_grid` / `corridor` 时有意义。
+///
+/// 这些实体在编译期由 `SurveyCalculator` 展开成具体的航点，因此文档里存的
+/// 是"设计意图"而不是展开后的几十个点。字段名与前端 / docs 保持一致。
+struct MissionSurveySpec {
+    // 网格（survey_grid）
+    double width_m = 100.0;
+    double length_m = 100.0;
+    double angle_deg = 0.0;
+    bool cross_grid = false;
+
+    // 走廊（corridor）：entity.lat/lon 是起点，这里是终点
+    double end_latitude = std::numeric_limits<double>::quiet_NaN();
+    double end_longitude = std::numeric_limits<double>::quiet_NaN();
+    double corridor_width_m = 50.0;
+
+    // 通用
+    float altitude_m = 50.0f;
+    float speed_ms = 5.0f;
+    bool return_to_start = true;
+
+    // 相机与重叠率，缺省与 CameraSpec 默认值一致
+    float forward_overlap_pct = 70.0f;
+    float side_overlap_pct = 60.0f;
+    float focal_length_mm = 35.0f;
+    float sensor_width_mm = 23.5f;
+    float sensor_height_mm = 15.6f;
+    float image_width_px = 6000.0f;
+    float image_height_px = 4000.0f;
+};
+
 struct MissionEntity {
     std::string id;
     std::string type = "waypoint";
@@ -61,6 +92,7 @@ struct MissionEntity {
     double longitude = std::numeric_limits<double>::quiet_NaN();
     float altitude_m = std::numeric_limits<float>::quiet_NaN();
     std::array<float, 4> params = {0.0f, 0.0f, 0.0f, 0.0f};
+    MissionSurveySpec survey;
     std::string notes;
 };
 
@@ -196,5 +228,8 @@ bool load_mission_document(
     std::string& error);
 
 const char* mission_entity_type_name(const std::string& type);
+
+/// 该实体类型是否由 SurveyCalculator 在编译期展开（而不是 1 实体 1 任务项）。
+bool is_parameterized_survey_type(const std::string& type);
 
 } // namespace mg::core::mission::cad

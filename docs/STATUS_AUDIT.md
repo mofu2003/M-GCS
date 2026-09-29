@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
 - 当前分支：`main`。
 - 本地门禁由 `tools/preflight.sh --no-macos-build` 加单独一次 `flutter build macos --debug` 实跑得出。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -283,6 +283,10 @@ tools/preflight.sh
 - 下一步：设计任务规划页面（属新增前端能力），按用现有 `missionPlanning` 控制器接线。
 - 契约提醒：上传是“启动传输”语义，完成后需要用 `mg_mission_get_progress`
   轮询再 `mg_mission_doc_verify`，`API_CATALOG.md` 已写明。
+- 后端补充（2026-09-29）：`survey_grid` / `corridor` 之前在校验里被直接拒绝
+  （“Parameterized survey entities are not implemented yet”）。现已实现为参数化
+  实体：文档存设计意图，编译期由 `SurveyCalculator` 展开，`source_entity_ids`
+  逐项指回源实体，`estimate` 也按展开结果统计。详见 `SURVEY-001`。
 
 ### CLEANUP-001：组件陈列页无人引用
 
@@ -294,6 +298,21 @@ tools/preflight.sh
   并已在 `tools/check_ui_tokens.dart` 的豁免清单中。
 - 验证：`main.dart` 只 `runApp(const MgcsApp())`，不引用该文件；
   `flutter analyze lib test` 通过，说明该独立 target 仍可编译。
+
+### SURVEY-001：参数化测绘实体未接入文档
+
+- 状态：`RESOLVED`（2026-09-29）
+- 实测（修复前）：`mission_document.cc` 的校验对 `survey_grid` / `corridor`
+  直接报 `entity.type_unsupported` + “Parameterized survey entities are not
+  implemented yet”，所以文档里根本放不下测绘区域，只能用旧 survey API 单独生成。
+- 修复：新增 `MissionSurveySpec`，实体 JSON 增加 `survey` 子对象；校验改为真正的
+  参数校验（经纬度、尺寸、高度、速度、重叠率、相机参数、走廊起终点不同）；
+  编译期按类型调用 `SurveyCalculator::generate_grid / generate_cross_grid /
+  generate_corridor_scan` 展开，逐项写入 `source_entity_ids`；
+  `estimate` 用展开结果统计距离、时间、航点与照片数。
+- 验证：`test_mission_document` 新增 `Parameterized survey entities` 与
+  `Survey entity through FFI` 两组共 20 条断言（101/101 通过），覆盖
+  验证、编译展开、序列化往返、走廊终点缺失拒绝、宽度为 0 拒绝、FFI 全链路。
 
 ### DEAD-001：固件刷写是死代码，状态接口返回硬编码值
 
@@ -375,6 +394,7 @@ tools/preflight.sh
 | 兼容入口 | `mg_log_list` 返回真实日志、`mg_rc_calibrate_save` 不再谎报成功、`mg_mission_request` 透传发送失败；`API_CATALOG.md` 补退役策略（`DEPRECATION-001`） |
 | 校准落盘 | 校准历史写盘移出持锁路径，改在 `fire_event_safe` 的锁外快照写文件（`CAL-003`） |
 | 飞行日志 | STATUSTEXT 与连接事件真正接入日志服务（`LOG-001`）；写回调移出持锁路径（`LOCK-001`） |
+| 任务规划 | `survey_grid` / `corridor` 成为参数化实体，编译期由 `SurveyCalculator` 展开（`SURVEY-001`） |
 | 事件通道 | `MG_EVENT_WAYPOINT_REACHED` 以前从不发出，现已接线并带 `seq`（`EVENT-001`） |
 | 架构守卫 | `read_file` 打不开文件时直接判失败，避免守卫静默空转（`TESTGUARD-001`） |
 | 校准测试 | 新增读回失败回归用例；mock 补 `INS_GYROFFS_*` / `INS_ACCOFFS_*` 参数 |
@@ -425,7 +445,7 @@ FFmpeg 的构建环境。两者都不影响当前默认构建。
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；本地门禁（含 macOS debug 构建）已实跑通过 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

@@ -130,6 +130,15 @@ units, types, defaults, ranges, required flags, and enum options. Parameter
 `index` maps directly to `params[index - 1]`. Frontends should render command
 forms from this catalog rather than hard-coding MAV_CMD parameter semantics.
 
+`survey_grid` and `corridor` entities are parameterized: the document stores the
+intent (`survey.width_m`, `survey.length_m`, `survey.angle_deg`,
+`survey.cross_grid`, `survey.end_lat` / `survey.end_lon`,
+`survey.corridor_width_m`, camera and overlap fields) and `mg_mission_doc_compile`
+expands them into waypoints through the existing `SurveyCalculator`. Every
+expanded item maps back to the same source entity in `source_entity_ids`, so a
+client renders one row per survey block rather than one per generated waypoint.
+See `docs/MISSION_PLANNING.md` for the full example.
+
 ## Compatibility Entries
 
 | Compatibility API | Replacement / note |
