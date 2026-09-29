@@ -1619,7 +1619,9 @@ class _ArmingChecksPageState extends State<_ArmingChecksPage> {
                 borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
               ),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
+                // 垂直方向不留内边距：否则上下多出来的空白会算进首/末行，
+                // 让它们比中间行更高。行高本身已经留出了呼吸空间。
+                padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
