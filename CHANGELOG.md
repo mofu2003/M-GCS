@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.0.11 - 2026-09-29
+
+### Added
+
+- `core/tests/test_sim_ui_paths.cc` covers the five FFI entry points that real
+  UI paths call but no test touched: `mg_calibration_cancel`,
+  `mg_params_get_by_name`, `mg_stream_set_interval`,
+  `mg_vehicle_request_firmware_version` and `mg_serial_get_uart_names`.
+- `MockFlightController` now answers a minimal MAVLink FTP subset
+  (ResetSessions / OpenFileRO / ReadFile / TerminateSession), so the
+  `@SYS/uarts.txt` download behind `mg_serial_get_uart_names` runs offline in
+  under a second instead of waiting out the 3 s x 4 retry budget.
+- `test_sim_commands` pins the encoding of the safety commands
+  (`mg_command_set_mode`, `mg_command_rtl`, `mg_command_land`,
+  `mg_command_guided_point`) plus the takeoff-altitude and loiter-radius
+  setters.
+- `test_sim_params` covers the batch parameter change set: duplicate collapse,
+  unknown/unchanged accounting, malformed JSON rejection, and `_ENABLE` written
+  after its dependents.
+
+### Changed
+
+- `API_CATALOG.md` registers `mg_config_read_param`, `mg_config_write_param` and
+  `mg_config_write_params` as the preferred parameter read/write entry points,
+  and spells out how they differ from `mg_params_set` (descriptor validation,
+  no need for a completed parameter download, REAL32 fallback).
+- The flight mode page derives its PWM bands from the vehicle profile: fixed
+  wing mode 1 additionally accepts `>= 2050`, and out-of-range RC values no
+  longer select a slot.
+- `tools/audit_status.sh` scans the test dimension for bare `mg_*` symbols
+  instead of only call sites, so entries passed as function pointers are counted.
+- `component_gallery_demo.dart` is documented as a development-only target: it
+  is not reachable from `main.dart`, does not ship in a release build, and is the
+  one intentional token-scan exemption.
+
+### Fixed
+
+- Calibration verification no longer reports success when the flight controller
+  parameter readback fails. The previous check only failed on `Poor` quality, so
+  a failed readback still surfaced as "calibration successful".
+- Radio calibration treated `MAV_RESULT_ACCEPTED` as completion. The ACK only
+  confirms the start command; the operator still has to move the sticks, so the
+  stage now stays `Calibrating`.
+- `mg_calibration_get_history` rejected type 4, so radio calibration history was
+  always empty; the bound now matches the 0..4 contract in `API_CATALOG.md`.
+- `mg_command_guided_point` carried `lat*1e7` / `lon*1e7` in the param5/param6
+  slots of a `COMMAND_LONG`, where `MAV_CMD_DO_REPOSITION` expects degrees. The
+  flight controller multiplies by 1e7 itself, so the coordinate overflowed.
+
+### Verification
+
+- Backend: `ctest -L "offline|simulation"` 34/34 pass; `test_sim_ui_paths` 26/26,
+  `test_sim_commands` 58/58, `test_sim_params` 39/39, `test_sim_calibration` 75/75.
+- Frontend: `flutter analyze lib test` clean, `flutter test` 12/12,
+  `dart tools/check_ui_tokens.dart` pass, `flutter build macos --debug` succeeds.
+- `tools/audit_status.sh` reports 281 exports / 48 used by frontend / 187 touched
+  by tests / 93 untouched.
+
 ## 0.0.10 - 2026-09-29
 
 ### Added
