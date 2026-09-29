@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`HOME-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
 - 当前分支：`main`。
 - 本地门禁由 `tools/preflight.sh --no-macos-build` 加单独一次 `flutter build macos --debug` 实跑得出。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -348,7 +348,21 @@ tools/preflight.sh
   发出 410 与 511(HOME_POSITION, 1 Hz)，且 home 缓存从 invalid 变为正确的
   度/米值（degE7 与毫米换算）。已用“让 sender 直接 return true”验证该用例会 FAIL。
 
+### HOME-002：无法设置飞控 home（DO_SET_HOME）
+
+- 状态：`RESOLVED`（2026-09-29）
+- 实测（修复前）：全仓库没有 `MAV_CMD_DO_SET_HOME`，地图/任务页面上的 “设置 Home”
+  只能改文档里的 home，改不了飞控用于返航的那个 home。
+- 修复：新增 `mg_command_set_home(core, lat, lon, alt_m)`，走命令队列等 ACK；
+  参数编码对齐 QGC 的 `Vehicle::doSetHome` →
+  `MAV_CMD_DO_SET_HOME(param1=0, param5=纬度/度, param6=经度/度, param7=米)`；
+  越界经纬度在本地拒绝，不发往飞控。`API_CATALOG.md` 标注该命令会影响 RTL 基准，
+  调用方必须先确认。
+- 验证：`test_sim_commands` 新增 `SET HOME ENCODING` 组：断言参数编码
+  （param1=0、degE7 位置、高度米）、越界经纬度被拒且不发出命令（64/64 通过）。
+
 ### DEAD-001：固件刷写是死代码，状态接口返回硬编码值
+
 
 - 状态：`OPEN`（低危，未修）
 - 实测：`FirmwareFlasher`（`download_firmware` / `flash_firmware`）只在
@@ -480,7 +494,7 @@ FFmpeg 的构建环境。两者都不影响当前默认构建。
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`HOME-001`、`HOME-002`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；本地门禁（含 macOS debug 构建）已实跑通过 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

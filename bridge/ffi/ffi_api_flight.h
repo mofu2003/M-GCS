@@ -30,6 +30,13 @@ MGCORE_API char* mg_command_guided_point(mg_core_t* core,
                                          float yaw, float speed);
 MGCORE_API char* mg_command_guided_velocity(mg_core_t* core, float vx, float vy, float vz);
 MGCORE_API char* mg_command_guided_pause(mg_core_t* core);
+// 设置飞控 home 点（MAV_CMD_DO_SET_HOME）。
+//
+// 会改变返航（RTL）基准，属于安全敏感操作：调用方应先向用户确认，
+// 文案参考 QGC 的 “Set vehicle home as the specified location. This will
+// affect Return to Home position”。
+MGCORE_API char* mg_command_set_home(mg_core_t* core,
+                                     double lat, double lon, float alt_m);
 MGCORE_API char* mg_command_orbit(mg_core_t* core, const char* json_config);
 MGCORE_API char* mg_command_set_roi(mg_core_t* core, double lat, double lon, float alt);
 MGCORE_API char* mg_command_stop_roi(mg_core_t* core);

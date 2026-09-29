@@ -9,6 +9,7 @@ import 'package:macos_ui/macos_ui.dart';
 
 import '../connection/connection_controller.dart';
 import '../theme/mg_colors.dart';
+import '../theme/mg_typography.dart';
 import '../connection_panel.dart';
 import 'gcj_coordinates.dart';
 import 'map_preferences.dart';
@@ -104,6 +105,10 @@ class AMapMapView extends StatefulWidget {
 }
 
 class _AMapMapViewState extends State<AMapMapView> {
+  /// 航线规划浮层距内容区顶边的间距。原先贴到顶边（18）显得压在工具栏下面，
+  /// 这里整体下移，单独留一个常量方便继续微调。
+  static const double _missionPanelTopInset = 60;
+
   final _controller = MapController();
   MapStyle _style = MapStyle.amap;
   double _zoom = kDefaultMapZoom;
@@ -357,12 +362,15 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           ),
         if (_showMissionPlanning)
-          Positioned.fill(
-            child: Align(
-              alignment: Alignment.center,
-              child: MissionPlanningFloatingPanel(
-                onClose: () => setState(() => _showMissionPlanning = false),
-              ),
+          // 贴右边缘悬浮：高度由 top/bottom 约束决定，所以窗口缩放时自动跟随；
+          // 不给 left，宽度交给面板自己决定（展开 / 折叠成箭头按钮）。
+          Positioned(
+            top: _missionPanelTopInset,
+            // 让开右下角的底图选择 / 帮助按钮行，避免叠在它们上面。
+            bottom: 18 + MgMetrics.controlHeight + 12,
+            right: 18,
+            child: MissionPlanningFloatingPanel(
+              onClose: () => setState(() => _showMissionPlanning = false),
             ),
           ),
       ],

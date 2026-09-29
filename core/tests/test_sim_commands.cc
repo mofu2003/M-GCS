@@ -406,6 +406,45 @@ static void test_safety_command_encoding() {
     }
 }
 
+// 设置 home 点：参数编码对齐 QGC 的 doSetHome / MP 的 Set Home Here。
+static void test_set_home_encoding() {
+    fprintf(stderr, "\n[Group] SET HOME ENCODING\n");
+    TestEnv env;
+    CHECK(env.wait_connected(), "set_home: connected after heartbeat");
+    env.mock->received_cmds.clear();
+
+    env.start_pump();
+    char* result = mg_command_set_home(env.core, 39.9042, 116.4074, 42.5f);
+    env.stop_pump();
+    CHECK(is_success(result), "set_home success:true");
+    if (result) mg_free_string(result);
+
+    bool encoded = false;
+    for (const auto& cmd : env.mock->received_cmds) {
+        if (cmd.command != MAV_CMD_DO_SET_HOME) continue;
+        const int32_t expected_lat = 399042000;
+        const int32_t expected_lon = 1164074000;
+        const int32_t dlat = cmd.x - expected_lat;
+        const int32_t dlon = cmd.y - expected_lon;
+        if (cmd.p1 == 0.0f && (dlat < 0 ? -dlat : dlat) < 1000 &&
+            (dlon < 0 ? -dlon : dlon) < 1000 && cmd.z == 42) {
+            encoded = true;
+        }
+    }
+    CHECK(encoded, "DO_SET_HOME carries param1=0 plus lat/lon/alt in degrees");
+
+    // 越界坐标必须被本地拒绝，不能把垃圾值发给飞控。
+    env.mock->received_cmds.clear();
+    char* bad_lat = mg_command_set_home(env.core, 120.0, 116.4, 10.0f);
+    CHECK(is_failure(bad_lat), "out-of-range latitude is rejected locally");
+    if (bad_lat) mg_free_string(bad_lat);
+    char* bad_lon = mg_command_set_home(env.core, 39.9, 200.0, 10.0f);
+    CHECK(is_failure(bad_lon), "out-of-range longitude is rejected locally");
+    if (bad_lon) mg_free_string(bad_lon);
+    CHECK(env.mock->received_cmds.empty(),
+          "rejected set_home never reaches the flight controller");
+}
+
 static void test_flight_mode_state_setters() {
     fprintf(stderr, "\n[Group] FLIGHT MODE STATE SETTERS\n");
     TestEnv env;
@@ -443,6 +482,7 @@ int main() {
     test_mode_change();
     test_safety_command_encoding();
     test_flight_mode_state_setters();
+    test_set_home_encoding();
     test_mode_status_tracks_latest_heartbeat();
     test_command_nak();
     test_command_timeout();

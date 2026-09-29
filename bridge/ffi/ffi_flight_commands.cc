@@ -146,6 +146,26 @@ MGCORE_API char* mg_command_guided_velocity(mg_core_t* core,
     return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "send failed");
 }
 
+// 设置 home 点。参数与 QGC 的 doSetHome / MP 的 setHomeHere 一致：
+// param1 = 0（用给定位置，而不是当前位置）、param2..4 = 0、
+// param5 = 纬度（度）、param6 = 经度（度）、param7 = 高度（米）。
+// QGC 在发送前会先弹确认框，因为这会改变 RTL 基准。
+MGCORE_API char* mg_command_set_home(mg_core_t* core,
+                                     double lat, double lon, float alt_m) {
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
+    if (!(lat >= -90.0 && lat <= 90.0) || !(lon >= -180.0 && lon <= 180.0)) {
+        return fail(MG_ERROR_INVALID_PARAM, "home latitude or longitude out of range");
+    }
+    auto* mav = get_active_mavlink(core);
+    auto* result = cmd_result_queued(core, mav, MAV_CMD_DO_SET_HOME,
+        active_target_sys(core), active_target_comp(core),
+        0.0f, 0.0f, 0.0f, 0.0f,
+        static_cast<float>(lat), static_cast<float>(lon), alt_m);
+    get_active_flight_log(core).on_command_result(
+        "set_home", result && strstr(result, "\"success\":true"), "queued");
+    return result;
+}
+
 MGCORE_API char* mg_command_guided_pause(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);

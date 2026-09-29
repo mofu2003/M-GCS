@@ -32,7 +32,7 @@ and a migration note have been published.
 | Parameter write (UI) | `mg_config_write_param`, `mg_config_write_params`。带描述库校验的前端写入入口；数值越界或不合法会返回 `success:false`。相比 `mg_params_set` 的差别是不要求参数表已完整下载，缺失的类型回退到 REAL32 |
 | Parameter metadata/files | `mg_config_read_param`, `mg_config_get_groups`, `mg_config_get_group_descriptor`, `mg_param_file_export`, `mg_param_file_import` |
 | Calibration | `mg_calibration_start`, `mg_calibration_cancel`, `mg_calibration_get_status`, `mg_calibration_accel_confirm`, `mg_calibration_start_airspeed`. `mg_calibration_start` 的 `type` 取 0=gyro、1=accel、2=compass、3=baro、4=radio（遥控器行程校准，MAV_CMD_PREFLIGHT_CALIBRATION param4=1）。`mg_calibration_get_status` 的返回里 `progress` 是所有罗盘的最大值，`compass_progress` 是分罗盘数组 `[{compass_id, completion_pct}]`，供界面按识别到的罗盘数量各画一条进度条 |
-| Flight commands | `mg_command_*` |
+| Flight commands | `mg_command_*`。注意 `mg_command_set_home` 会改变返航（RTL）基准，调用方必须先向用户确认；参数与 QGC 的 `doSetHome` 一致（`param1=0`、`param5/6` 用「度」、`param7` 米），越界经纬度会被本地拒绝 |
 | Logging | `mg_log_request_list`, `mg_log_get_entries`, `mg_log_record_*` |
 | Mission planning document | `mg_mission_doc_create`, `mg_mission_doc_apply`, `mg_mission_doc_validate`, `mg_mission_doc_compile`, `mg_mission_doc_upload`, `mg_mission_doc_verify` |
 | Mission file interchange | `mg_mission_doc_export_format`, `mg_mission_doc_import_format`（当前支持 `"waypoints"`，即 Mission Planner / QGC 的 `QGC WPL 110` 文本） |

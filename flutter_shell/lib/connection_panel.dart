@@ -6,6 +6,7 @@ import 'package:macos_ui/macos_ui.dart';
 
 import 'connection/connection_controller.dart';
 import 'theme/mg_colors.dart';
+import 'theme/mg_typography.dart';
 import 'widgets/aligned_field_row.dart';
 import 'widgets/adaptive_popup_button.dart';
 import 'widgets/mac_panel.dart';
@@ -477,49 +478,149 @@ class _ConnectionStateLabel extends StatelessWidget {
   }
 }
 
-class MissionPlanningFloatingPanel extends StatelessWidget {
+/// 航线规划面板：贴地图右边缘悬浮、随窗口伸缩、不可拖动，可折叠成箭头按钮。
+///
+/// 折叠状态由面板自己持有，调用方只要给出贴边位置。面板不实现拖拽，
+/// 位置完全由 [Positioned] 的约束决定，所以窗口缩放时会自动跟随。
+class MissionPlanningFloatingPanel extends StatefulWidget {
   const MissionPlanningFloatingPanel({super.key, required this.onClose});
 
   final VoidCallback onClose;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 760,
-    height: 520,
-    child: Container(
-      decoration: BoxDecoration(
-        color: context.mgColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.mgColors.divider),
-        boxShadow: [
-          BoxShadow(
-            color: context.mgColors.shadow,
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 12, 12, 12),
-            child: Row(
-              children: [
-                Text('航线规划', style: MacosTheme.of(context).typography.title3),
-                const Spacer(),
-                MacosIconButton(
-                  icon: const MacosIcon(CupertinoIcons.xmark, size: 14),
-                  semanticLabel: '关闭航线规划',
-                  onPressed: onClose,
-                ),
-              ],
-            ),
-          ),
-          Divider(height: 1, color: context.mgColors.divider),
-          const Expanded(child: SizedBox.expand()),
-        ],
-      ),
-    ),
+  State<MissionPlanningFloatingPanel> createState() =>
+      _MissionPlanningFloatingPanelState();
+}
+
+class _MissionPlanningFloatingPanelState
+    extends State<MissionPlanningFloatingPanel> {
+  /// 展开时的面板宽度；折叠后只剩一个箭头按钮。
+  static const double _expandedWidth = 420;
+
+  static const _tabLabels = ['任务', '设置'];
+
+  final MacosTabController _tabs = MacosTabController(
+    initialIndex: 0,
+    length: _tabLabels.length,
   );
+
+  bool _collapsed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs.addListener(_handleTabChanged);
+  }
+
+  void _handleTabChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _tabs.removeListener(_handleTabChanged);
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  void _toggleCollapsed() => setState(() => _collapsed = !_collapsed);
+
+  @override
+  Widget build(BuildContext context) {
+    if (_collapsed) {
+      // 折叠态：整块面板收起成一个箭头按钮，仍然贴在同一个边缘。
+      return Align(
+        alignment: Alignment.topRight,
+        child: Tooltip(
+          message: '展开航线规划',
+          child: MacosIconButton(
+            icon: const MacosIcon(CupertinoIcons.chevron_left, size: 14),
+            semanticLabel: '展开航线规划',
+            onPressed: _toggleCollapsed,
+          ),
+        ),
+      );
+    }
+
+    final colors = context.mgColors;
+    return SizedBox(
+      width: _expandedWidth,
+      child: Container(
+        decoration: BoxDecoration(
+          color: colors.surfaceMuted,
+          borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
+          border: Border.all(color: colors.divider),
+          boxShadow: [
+            BoxShadow(
+              color: colors.shadow,
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 12, 12),
+              child: Row(
+                children: [
+                  Text('航线规划', style: MacosTheme.of(context).typography.title3),
+                  const Spacer(),
+                  Tooltip(
+                    message: '折叠航线规划',
+                    child: MacosIconButton(
+                      icon: const MacosIcon(
+                        CupertinoIcons.chevron_right,
+                        size: 14,
+                      ),
+                      semanticLabel: '折叠航线规划',
+                      onPressed: _toggleCollapsed,
+                    ),
+                  ),
+                  Tooltip(
+                    message: '关闭航线规划',
+                    child: MacosIconButton(
+                      icon: const MacosIcon(CupertinoIcons.xmark, size: 14),
+                      semanticLabel: '关闭航线规划',
+                      onPressed: widget.onClose,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Divider(height: 1, color: colors.divider),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 6, 18, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: MacosSegmentedControl(
+                        controller: _tabs,
+                        tabs: [
+                          for (final label in _tabLabels)
+                            MacosTab(label: label),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: kMacTabStripGap),
+                    Expanded(
+                      // 任务页 / 设置页的内容待补：任务页放航点与测绘编辑，
+                      // 设置页放默认高度、速度这类整份任务的参数。
+                      child: MacPanel(
+                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
