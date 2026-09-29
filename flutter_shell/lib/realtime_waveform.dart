@@ -38,23 +38,11 @@ const double kWaveformContentInset = 12;
 /// 同一行相邻卡片之间的水平间距，含义同 [kWaveformContentInset]。
 const double kWaveformCardGap = 12;
 
-const List<Color> _kAccelColors = [
-  Color(0xFFFF375F),
-  Color(0xFF30D158),
-  Color(0xFF0A84FF),
-];
+const List<Color> _kAccelColors = MgColors.waveformAccel;
 
-const List<Color> _kGyroColors = [
-  Color(0xFFFF7A00),
-  Color(0xFFAF52DE),
-  Color(0xFF14B8C4),
-];
+const List<Color> _kGyroColors = MgColors.waveformGyro;
 
-const List<Color> _kMagColors = [
-  Color(0xFFB25000),
-  Color(0xFF34A853),
-  Color(0xFF5E5CE6),
-];
+const List<Color> _kMagColors = MgColors.waveformMag;
 
 /// 面板里可以显示哪几组传感器。
 enum SensorWaveformGroup { accel, gyro, mag }
@@ -168,8 +156,8 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
         _cachedRevision = -1;
       }
       final view = _WaveformView(controller, widget.instanceKind);
-      final brightness = MacosTheme.brightnessOf(context);
       final colors = MgColors.of(context);
+      final brightness = colors.brightness;
       // 图表只在有新数据时重建，普通重建直接复用缓存。
       if (_cachedRevision != controller.waveformChanges.value ||
           _cachedBrightness != brightness) {
@@ -674,8 +662,8 @@ class _SignalCard extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: colors.chartSurface,
-                border: Border.all(color: theme.dividerColor),
-                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: colors.divider),
+                borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
               ),
               child: chart == null
                   ? Center(

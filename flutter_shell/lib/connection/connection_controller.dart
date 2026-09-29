@@ -6,6 +6,10 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 
+import '../mission/mission_document_backend.dart';
+import '../mission/mission_document_controller.dart';
+import '../mission/mission_document_models.dart';
+
 final class SerialPortInfo {
   const SerialPortInfo({
     required this.path,
@@ -225,7 +229,8 @@ enum ConnectionTransport { serial, udp, tcp }
 /// Selects the tuning UI surface for the detected ArduPilot vehicle profile.
 enum VehicleControlProfile { unknown, copter, fixedWing, planeVtol }
 
-final class ConnectionController extends ChangeNotifier {
+final class ConnectionController extends ChangeNotifier
+    implements MissionDocumentBackend {
   ConnectionController() {
     _initialize();
   }
@@ -270,7 +275,32 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _close;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _missionDocCreate;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionDocGet;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _missionDocApply;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionDocUndo;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionDocRedo;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionDocValidate;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionDocCompile;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionDocEstimate;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _missionDocUpload;
+  late final Pointer<Utf8> Function(Pointer<Void>, double) _missionDocVerify;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionCommandCatalog;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionDocExport;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _missionDocImport;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _missionDocSave;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _missionDocLoad;
   late final void Function(Pointer<Utf8>) _freeString;
+
+  MissionDocumentController? _missionPlanning;
+
+  MissionDocumentController get missionPlanning =>
+      _missionPlanning ??= MissionDocumentController(backend: this);
 
   final List<SerialPortInfo> ports = [];
   final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
@@ -1109,6 +1139,81 @@ final class ConnectionController extends ChangeNotifier {
             'mg_vehicle_select',
           )
           .asFunction();
+      _missionDocCreate = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+          >('mg_mission_doc_create')
+          .asFunction();
+      _missionDocGet = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_doc_get',
+          )
+          .asFunction();
+      _missionDocApply = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+          >('mg_mission_doc_apply')
+          .asFunction();
+      _missionDocUndo = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_doc_undo',
+          )
+          .asFunction();
+      _missionDocRedo = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_doc_redo',
+          )
+          .asFunction();
+      _missionDocValidate = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_doc_validate',
+          )
+          .asFunction();
+      _missionDocCompile = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_doc_compile',
+          )
+          .asFunction();
+      _missionDocEstimate = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_doc_estimate',
+          )
+          .asFunction();
+      _missionDocUpload = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Uint64)>
+          >('mg_mission_doc_upload')
+          .asFunction();
+      _missionDocVerify = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Double)>
+          >('mg_mission_doc_verify')
+          .asFunction();
+      _missionCommandCatalog = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_get_command_catalog',
+          )
+          .asFunction();
+      _missionDocExport = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_doc_export',
+          )
+          .asFunction();
+      _missionDocImport = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+          >('mg_mission_doc_import')
+          .asFunction();
+      _missionDocSave = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+          >('mg_mission_doc_save')
+          .asFunction();
+      _missionDocLoad = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+          >('mg_mission_doc_load')
+          .asFunction();
       _core = _create();
       _waveformBuffer = calloc<Float>(
         _waveformMaxPoints * _waveformFloatsPerPoint,
@@ -1123,6 +1228,190 @@ final class ConnectionController extends ChangeNotifier {
     } on Object catch (error) {
       initializationError = '串口连接后端初始化失败：$error';
       notifyListeners();
+    }
+  }
+
+  @override
+  Future<MissionDocument> createMissionDocument([
+    JsonMap config = const {},
+  ]) async {
+    _ensureMissionBackend();
+    final nativeConfig = jsonEncode(config).toNativeUtf8();
+    try {
+      return _documentFromEnvelope(
+        _readJson(_missionDocCreate(_core, nativeConfig)),
+      );
+    } finally {
+      malloc.free(nativeConfig);
+    }
+  }
+
+  @override
+  Future<MissionDocument> getMissionDocument() async {
+    _ensureMissionBackend();
+    return _documentFromEnvelope(_readJson(_missionDocGet(_core)));
+  }
+
+  @override
+  Future<MissionDocumentOperationResult> applyMissionDocumentCommand(
+    JsonMap command,
+  ) async {
+    _ensureMissionBackend();
+    final nativeCommand = jsonEncode(command).toNativeUtf8();
+    try {
+      return _operationResult(
+        _readJson(_missionDocApply(_core, nativeCommand)),
+      );
+    } finally {
+      malloc.free(nativeCommand);
+    }
+  }
+
+  @override
+  Future<MissionDocumentOperationResult> undoMissionDocument() async {
+    _ensureMissionBackend();
+    return _operationResult(_readJson(_missionDocUndo(_core)));
+  }
+
+  @override
+  Future<MissionDocumentOperationResult> redoMissionDocument() async {
+    _ensureMissionBackend();
+    return _operationResult(_readJson(_missionDocRedo(_core)));
+  }
+
+  @override
+  Future<MissionValidationReport> validateMissionDocument() async {
+    _ensureMissionBackend();
+    return MissionValidationReport.fromJson(
+      _readJson(_missionDocValidate(_core)) as JsonMap,
+    );
+  }
+
+  @override
+  Future<MissionCompileResult> compileMissionDocument() async {
+    _ensureMissionBackend();
+    return MissionCompileResult.fromJson(
+      _readJson(_missionDocCompile(_core)) as JsonMap,
+    );
+  }
+
+  @override
+  Future<MissionEstimate> estimateMissionDocument() async {
+    _ensureMissionBackend();
+    return MissionEstimate.fromJson(
+      _readJson(_missionDocEstimate(_core)) as JsonMap,
+    );
+  }
+
+  @override
+  Future<List<MissionCommandDescriptor>> getMissionCommandCatalog() async {
+    _ensureMissionBackend();
+    final response = _readJson(_missionCommandCatalog(_core)) as JsonMap;
+    _requireMissionSuccess(response);
+    return (response['commands'] as List<Object?>? ?? const [])
+        .whereType<JsonMap>()
+        .map(MissionCommandDescriptor.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<JsonMap> uploadMissionDocument(int expectedRevision) async {
+    _ensureMissionBackend();
+    final response =
+        _readJson(_missionDocUpload(_core, expectedRevision)) as JsonMap;
+    _requireMissionSuccess(response);
+    return response;
+  }
+
+  @override
+  Future<JsonMap> verifyMissionDocument({double toleranceMeters = 0.1}) async {
+    _ensureMissionBackend();
+    final response =
+        _readJson(_missionDocVerify(_core, toleranceMeters)) as JsonMap;
+    _requireMissionSuccess(response);
+    return response;
+  }
+
+  @override
+  Future<MissionDocument> importMissionDocument(String json) async {
+    _ensureMissionBackend();
+    final nativeJson = json.toNativeUtf8();
+    try {
+      return _documentFromEnvelope(
+        _readJson(_missionDocImport(_core, nativeJson)),
+      );
+    } finally {
+      malloc.free(nativeJson);
+    }
+  }
+
+  @override
+  Future<String> exportMissionDocument() async {
+    _ensureMissionBackend();
+    return _readString(_missionDocExport(_core));
+  }
+
+  @override
+  Future<void> saveMissionDocument(String filePath) async {
+    _ensureMissionBackend();
+    final nativePath = filePath.toNativeUtf8();
+    try {
+      final response = _readJson(_missionDocSave(_core, nativePath)) as JsonMap;
+      _requireMissionSuccess(response);
+    } finally {
+      malloc.free(nativePath);
+    }
+  }
+
+  @override
+  Future<MissionDocument> loadMissionDocument(String filePath) async {
+    _ensureMissionBackend();
+    final nativePath = filePath.toNativeUtf8();
+    try {
+      return _documentFromEnvelope(
+        _readJson(_missionDocLoad(_core, nativePath)),
+      );
+    } finally {
+      malloc.free(nativePath);
+    }
+  }
+
+  void _ensureMissionBackend() {
+    if (initializationError != null) {
+      throw StateError(initializationError ?? '任务后端尚未初始化');
+    }
+  }
+
+  MissionDocument _documentFromEnvelope(Object? raw) {
+    if (raw is! JsonMap) throw const FormatException('任务文档响应格式无效');
+    _requireMissionSuccess(raw);
+    return MissionDocument.fromJson(raw['document'] as JsonMap);
+  }
+
+  MissionDocumentOperationResult _operationResult(Object? raw) {
+    if (raw is! JsonMap) throw const FormatException('任务编辑响应格式无效');
+    _requireMissionSuccess(raw);
+    return MissionDocumentOperationResult(
+      document: MissionDocument.fromJson(raw['document'] as JsonMap),
+      revision: raw['revision'] as int? ?? 0,
+    );
+  }
+
+  void _requireMissionSuccess(JsonMap response) {
+    if (response['success'] == true) return;
+    final message = response['error']?.toString() ?? '任务后端操作失败';
+    final revision = response['revision'];
+    throw StateError(
+      revision == null ? message : '$message（当前 revision $revision）',
+    );
+  }
+
+  String _readString(Pointer<Utf8> pointer) {
+    if (pointer == nullptr) throw StateError('后端返回空结果');
+    try {
+      return pointer.toDartString();
+    } finally {
+      _freeString(pointer);
     }
   }
 
@@ -1893,6 +2182,7 @@ final class ConnectionController extends ChangeNotifier {
     connectionChanges.dispose();
     waveformChanges.dispose();
     calibrationChanges.dispose();
+    _missionPlanning?.dispose();
     super.dispose();
   }
 }

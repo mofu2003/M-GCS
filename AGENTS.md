@@ -36,7 +36,7 @@ flutter_shell/  →  bridge/ffi/  →  core/  →  third_party/
 
 ```bash
 # 后端门禁（约 35 秒，31 个 offline/simulation 测试）
-ctest --test-dir build_check --output-on-failure -L "offline|simulation" -LE "hardware|manual"
+ctest --test-dir build_check --output-on-failure --no-tests=error -L "offline|simulation" -LE "hardware|manual"
 
 # 前端门禁
 cd flutter_shell && flutter analyze lib test && flutter test
@@ -121,6 +121,7 @@ cd flutter_shell && flutter run -d macos
 - 任务卡写清四件事：涉及文件、依赖契约、验收命令、完成标准
 - 独占资源清单：飞控串口、Flutter 热重载窗口、git 索引
 - 完成后由另一个 agent 或人跑同一验收命令复核，不要由实现者自证
+- 日常操作流程、任务卡模板和本地脚本见 `docs/COLLABORATION.md`
 
 ## 提交与发布
 

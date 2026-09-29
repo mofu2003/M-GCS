@@ -24,7 +24,7 @@ backend_configure() {
 backend_test() {
   backend_configure
   cmake --build "$BUILD_DIR"
-  ctest --test-dir "$BUILD_DIR" --output-on-failure \
+  ctest --test-dir "$BUILD_DIR" --output-on-failure --no-tests=error \
     -L 'offline|simulation' -LE 'hardware|manual'
 }
 

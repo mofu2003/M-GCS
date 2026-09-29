@@ -1,6 +1,6 @@
 # 文档索引
 
-`docs/` 只保存当前仍有效的后端维护文档和架构决策。一次性计划、临时规格、调试输出和已经完成的迁移记录不进入仓库。
+`docs/` 只保存当前仍有效的项目维护文档和架构决策。一次性计划、临时规格、调试输出和已经完成的迁移记录不进入仓库。
 
 ## 推荐顺序
 
@@ -11,8 +11,10 @@
 5. [故障排查](TROUBLESHOOTING.md)：当前可复用的排障路径。
 6. [编码规范](ENCODING.md)：UTF-8、LF 和 Windows 终端设置。
 7. [ADR](adr/)：已经采纳的长期架构决策。
-8. [更新日志](../CHANGELOG.md)：版本发布内容与迁移说明。
-9. [FFI API Catalog](../bridge/ffi/API_CATALOG.md)：公开 C ABI 分组、兼容入口和弃用规则。
+8. [任务规划后端契约](MISSION_PLANNING.md)：文档模型、编辑命令、编译、上传和回读。
+9. [协作流程](COLLABORATION.md)：worktree、任务卡、独占资源和本地预检。
+10. [更新日志](../CHANGELOG.md)：版本发布内容与迁移说明。
+11. [FFI API Catalog](../bridge/ffi/API_CATALOG.md)：公开 C ABI 分组、兼容入口和弃用规则。
 
 ## ADR
 

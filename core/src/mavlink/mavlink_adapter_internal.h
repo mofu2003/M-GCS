@@ -959,6 +959,7 @@ struct MavlinkAdapter::Impl {
         state.download_total = mc.count;
         state.download_seq = 0;
         state.plan.items.clear();
+        ++state.plan_revision;
         state.plan.items.reserve(mc.count);
         state.progress = mg::core::mission::MissionTransferProgress{};
         state.progress.state = mg::core::mission::MissionState::Downloading;
@@ -968,6 +969,8 @@ struct MavlinkAdapter::Impl {
         if (mc.count == 0) {
             state.progress.state = mg::core::mission::MissionState::Idle;
             state.plan.valid = true;
+            state.last_completed_download_revision = state.plan_revision;
+            ++state.completed_download_count;
         } else {
             send_mission_request_int(m.sysid, m.compid, 0);
             state.record_send(m.sysid, m.compid, [this, &state, sys = m.sysid, comp = m.compid]() {
@@ -1001,6 +1004,7 @@ struct MavlinkAdapter::Impl {
             state.plan.items.resize(mi.seq + 1);
         }
         state.plan.items[mi.seq] = item;
+        ++state.plan_revision;
         state.download_seq = mi.seq + 1;
         state.progress.received = state.download_seq;
         state.record_recv();
@@ -1012,6 +1016,8 @@ struct MavlinkAdapter::Impl {
             });
         } else {
             state.plan.valid = true;
+            state.last_completed_download_revision = state.plan_revision;
+            ++state.completed_download_count;
             send_mission_ack(m.sysid, m.compid, MAV_MISSION_ACCEPTED);
             state.progress.state = mg::core::mission::MissionState::Idle;
             state.resend_fn = nullptr;
@@ -1050,6 +1056,7 @@ struct MavlinkAdapter::Impl {
             state.plan.items.resize(mi.seq + 1);
         }
         state.plan.items[mi.seq] = item;
+        ++state.plan_revision;
         state.download_seq = mi.seq + 1;
         state.progress.received = state.download_seq;
         state.record_recv();
@@ -1061,6 +1068,8 @@ struct MavlinkAdapter::Impl {
             });
         } else {
             state.plan.valid = true;
+            state.last_completed_download_revision = state.plan_revision;
+            ++state.completed_download_count;
             send_mission_ack(m.sysid, m.compid, MAV_MISSION_ACCEPTED);
             state.progress.state = mg::core::mission::MissionState::Idle;
             state.resend_fn = nullptr;

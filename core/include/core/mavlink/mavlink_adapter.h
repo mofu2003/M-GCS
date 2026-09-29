@@ -528,6 +528,12 @@ public:
     /// Get current transfer progress
     mg::core::mission::MissionTransferProgress mission_get_progress() const;
 
+    /// Get provenance for the cached mission plan.
+    mg::core::mission::MissionPlanProvenance mission_get_plan_provenance() const;
+
+    /// Get the cached mission plan and provenance atomically.
+    mg::core::mission::MissionPlanSnapshot mission_get_plan_snapshot() const;
+
     // ================================================================
     // Rally Points (MAV_MISSION_TYPE_RALLY = 2)
     // ================================================================

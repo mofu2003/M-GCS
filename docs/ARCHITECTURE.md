@@ -2,7 +2,8 @@
 
 ## 当前架构状态
 
-本分支（`New-main`）只包含 **C++ 后端核心 + C FFI 契约**。前端不在本仓库，只作为 FFI 的消费者存在。
+当前 `main` 分支包含 **C++ 后端核心 + C FFI 契约 + Flutter 外壳**。
+`flutter_shell/` 只作为 FFI 的消费者存在，后端仍不得依赖任何 UI 框架。
 
 核心原则：
 
@@ -16,7 +17,7 @@
 
 ```mermaid
 flowchart TB
-    Frontend["任意前端（不在本仓库）"]
+    Frontend["Flutter Shell<br/>flutter_shell"]
     FFI["C FFI Bridge<br/>bridge/ffi"]
     Core["C++ Core<br/>core"]
     Third["third_party<br/>MAVLink / cJSON"]
@@ -122,11 +123,16 @@ FFI 约束：
 
 Mission CAD 是面向精确航线设计的后端领域子系统。其可编辑源模型是 `MissionCadDocument`，在局部 ENU 米制坐标中保存点、航段、扫描区和约束；WGS84 仅在地图、导入导出和 MAVLink 编译边界使用。
 
-- `core/mission/cad` 负责文档、几何、约束、编译、校验、估算、诊断和持久化。
+- `core/mission/cad` 负责文档、编辑历史、约束、编译、校验、估算、诊断和持久化；
+  几何参数化实体和导入导出适配器按阶段继续扩展。
 - `bridge/ffi` 负责稳定、版本化、前端无关的 C ABI/JSON 契约。
 - 任何前端和 CLI 只负责编辑交互与渲染，不能拥有第二套权威几何或航线编译逻辑。
 - `MissionPlan` 是编译后的 MAVLink 目标模型；任务上传下载继续由既有 mission transfer 负责。
 - 编辑、校验和编译不写飞控；上传是单独、显式的安全敏感操作。
+
+当前已实现的文档模型包含稳定实体 ID、revision、undo/redo、结构化诊断、
+命令目录、`.mgcad.json` 序列化，以及编译、上传和回读比对链路。编辑动作不写飞控；
+上传必须由调用方显式触发。
 
 任务领域边界由 ADR 0005 约束；新增实现必须先落在 `core/mission/` 和对应的 FFI 契约中。
 

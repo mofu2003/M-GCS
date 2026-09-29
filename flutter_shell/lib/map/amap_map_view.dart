@@ -251,7 +251,7 @@ class _MapControls extends StatelessWidget {
     decoration: BoxDecoration(
       color: MgColors.of(context).mapControlSurface,
       borderRadius: BorderRadius.circular(9),
-      border: Border.all(color: MacosTheme.of(context).dividerColor),
+      border: Border.all(color: MgColors.of(context).divider),
       boxShadow: [
         BoxShadow(
           color: MgColors.of(context).shadow,
@@ -272,10 +272,7 @@ class _MapControls extends StatelessWidget {
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 9),
-          child: Container(
-            height: 1,
-            color: MacosTheme.of(context).dividerColor,
-          ),
+          child: Container(height: 1, color: MgColors.of(context).divider),
         ),
         _MapIconButton(
           icon: CupertinoIcons.slider_horizontal_3,
@@ -284,10 +281,7 @@ class _MapControls extends StatelessWidget {
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 9),
-          child: Container(
-            height: 1,
-            color: MacosTheme.of(context).dividerColor,
-          ),
+          child: Container(height: 1, color: MgColors.of(context).divider),
         ),
         _MapIconButton(
           icon: CupertinoIcons.link,
@@ -325,7 +319,7 @@ class _MapIconButton extends StatelessWidget {
         semanticLabel: tooltip,
         boxConstraints: const BoxConstraints.tightFor(width: 38, height: 38),
         padding: EdgeInsets.zero,
-        backgroundColor: Colors.transparent,
+        backgroundColor: colors.transparent,
         hoverColor: colors.mapControlHover,
         onPressed: onPressed,
       ),

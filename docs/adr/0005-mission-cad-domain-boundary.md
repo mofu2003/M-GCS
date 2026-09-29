@@ -2,7 +2,7 @@
 
 ## 状态
 
-提议中。
+已接受，分阶段实现中。
 
 ## 背景
 
@@ -39,3 +39,10 @@ Mission CAD 的源文档、局部坐标、几何实体、约束、编译、校�
 2. 不同前端针对同一份 `.mgcad.json` 和相同 profile 得到等价的编译结果。
 3. FFI 头文件、JSON schema 和诊断不包含任何前端框架、widget、页面或地图供应商专有概念。
 4. CAD 编译本身不触发飞控写入；上传必须走既有显式任务传输流程。
+
+## 当前进度
+
+- 已实现 `MissionDocument`、稳定实体 ID、revision、undo/redo、结构化诊断、
+  `.mgcad.json` 持久化、命令目录、编译、估算、上传和回读比对。
+- 参数化测绘区域、走廊几何、QGC `.plan` 和 Mission Planner `.waypoints`
+  适配器仍待后续阶段实现。

@@ -1,6 +1,6 @@
-# M-GCS Backend
+# M-GCS
 
-这是 M-GCS 的**后端与接口以及 Flutter 精简外壳**。仓库保留 C++ 后端核心、C FFI 契约、后端测试、构建工具和 `flutter_shell/`，用于提供可运行的 macOS 地面站外壳和稳定接口。
+这是 M-GCS 的**后端、接口与 Flutter 外壳**。仓库保留 C++ 后端核心、C FFI 契约、后端测试、构建工具和 `flutter_shell/`，提供可运行的跨平台地面站外壳和稳定接口。
 
 当前版本：`0.0.8`
 
@@ -12,16 +12,17 @@
 M-GCS/
 |- core/                  C++ 后端核心：传输、MAVLink、飞控、任务、参数、遥测、校准、日志
 |- bridge/ffi/            对外 C ABI 与 JSON 契约（唯一稳定接口边界）
+|- flutter_shell/         Flutter 地面站外壳
 |- tests/                 跨模块测试、硬件只读工具和手动测试
 |- tools/                 MAVLink 生成、Docker 开发和硬件测试脚本
 |- docker/                Linux 开发容器
-|- docs/                  后端架构、约束、开发指南和 ADR
+|- docs/                  项目文档、协作流程、架构决策和开发指南
 |- third_party/           MAVLink 定义、cJSON 等第三方源码
 |- CMakeLists.txt         后端构建入口
-\- .github/workflows/     CI（后端构建与测试）
+\- .github/workflows/     CI（后端与 Flutter 构建、测试）
 ```
 
-仓库不包含旧的完整 Flutter 应用；当前只保留 `flutter_shell/` 中的精简 macOS 外壳（地图、连接、遥测、传感器波形和校准工作区），旧的完整前端仍保留在历史提交和 `v0.0.5` 标签中。
+仓库不包含旧的完整 Flutter 应用；当前只保留 `flutter_shell/` 中的精简外壳（地图、连接、遥测、传感器波形和校准工作区）。macOS 已完成本地构建验证；Windows、Linux 和 Android 仍需真机验收。旧的完整前端保留在历史提交和 `v0.0.5` 标签中。
 
 ## 前端如何接入
 
@@ -93,7 +94,7 @@ mg_connection_close(session_id)
 ```bash
 cmake -S . -B build_check -DMGCORE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build_check --config Release
-ctest --test-dir build_check --output-on-failure \
+ctest --test-dir build_check --output-on-failure --no-tests=error \
   -L "offline|simulation" -LE "hardware|manual"
 ```
 
@@ -108,6 +109,7 @@ ctest --test-dir build_check --output-on-failure \
 - [文档索引](docs/README.md)
 - [项目结构](docs/PROJECT_LAYOUT.md)
 - [开发指南](docs/DEVELOPMENT.md)
+- [任务规划后端契约](docs/MISSION_PLANNING.md)
 - [架构说明](docs/ARCHITECTURE.md)
 - [开发约束](docs/CONSTRAINTS.md)
 - [故障排查](docs/TROUBLESHOOTING.md)

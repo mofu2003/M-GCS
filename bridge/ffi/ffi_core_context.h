@@ -2,6 +2,7 @@
 #define MGCORE_FFI_CORE_CONTEXT_H
 
 #include "ffi_api.h"
+#include "core/mission/cad/mission_document.h"
 #include "core/platform/platform_mutex.h"
 #include "core/settings/flight_log_writer.h"
 #include "core/sitl/sitl_launcher.h"
@@ -79,6 +80,8 @@ struct mg_core_t {
 
     mg::core::settings::FlightLogWriter      log_writer;
     mg::core::sitl::SitlLauncher             sitl;
+    std::shared_ptr<mg::core::mission::cad::MissionDocumentService>
+                                             mission_document;
     std::vector<std::string>                 log_events;
     static constexpr size_t kMaxLogEvents = 5000;
 };

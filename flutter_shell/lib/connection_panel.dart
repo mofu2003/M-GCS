@@ -126,7 +126,7 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
               decoration: BoxDecoration(
                 color: colors.surfaceMuted,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.dividerColor),
+                border: Border.all(color: colors.divider),
                 boxShadow: [
                   BoxShadow(
                     color: colors.shadow,
@@ -155,8 +155,8 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
                       ],
                     ),
                   ),
-                  // 与后台 ToolBar 同款下边框：颜色取主题 dividerColor。
-                  Divider(height: 1, thickness: 1, color: theme.dividerColor),
+                  // 与后台 ToolBar 同款下边框，统一使用全局细线色。
+                  Divider(height: 1, thickness: 1, color: colors.divider),
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(18, 6, 18, 14),
@@ -490,12 +490,12 @@ class MissionPlanningFloatingPanel extends StatelessWidget {
     height: 520,
     child: Container(
       decoration: BoxDecoration(
-        color: MgColors.of(context).surfaceMuted,
+        color: context.mgColors.surfaceMuted,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: MacosTheme.of(context).dividerColor),
+        border: Border.all(color: context.mgColors.divider),
         boxShadow: [
           BoxShadow(
-            color: MgColors.of(context).shadow,
+            color: context.mgColors.shadow,
             blurRadius: 24,
             offset: const Offset(0, 8),
           ),
@@ -518,7 +518,7 @@ class MissionPlanningFloatingPanel extends StatelessWidget {
               ],
             ),
           ),
-          Divider(height: 1, color: MacosTheme.of(context).dividerColor),
+          Divider(height: 1, color: context.mgColors.divider),
           const Expanded(child: SizedBox.expand()),
         ],
       ),

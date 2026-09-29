@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(mgcore VERSION 0.0.8 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
 
 set(CMAKE_CXX_STANDARD 17)
@@ -126,6 +126,8 @@ set(MGCORE_SOURCES
     # Mission management
     core/src/mission/mission_manager.cc
     core/src/mission/survey_calculator.cc
+    core/src/mission/cad/mission_document.cc
+    core/src/mission/cad/mission_command_catalog.cc
     # Flight mode management
     core/src/flight/flight_mode_manager.cc
     # Configuration management
@@ -181,6 +183,8 @@ set(MGCORE_SOURCES
     bridge/ffi/ffi_v2_power_sensors.cc
     bridge/ffi/ffi_sensor_decode.cc
     bridge/ffi/ffi_mission_commands.cc
+    bridge/ffi/ffi_mission_document.cc
+    bridge/ffi/ffi_mission_catalog.cc
     bridge/ffi/ffi_payload_commands.cc
     bridge/ffi/ffi_sitl_commands.cc
     bridge/ffi/ffi_survey_commands.cc
@@ -357,6 +361,7 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_bridge_architecture_guards.cc
         core/tests/test_bridge_vehicle_session.cc
         core/tests/test_bridge_mission_workflow.cc
+        core/tests/test_mission_document.cc
         tests/test_v2_contract.cc
         core/tests/test_mavlink_protocol.cc
 
@@ -371,6 +376,7 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_sim_telemetry.cc
         core/tests/test_sim_params.cc
         core/tests/test_sim_mission.cc
+        core/tests/test_sim_mission_document.cc
         core/tests/test_sim_commands.cc
         core/tests/test_sim_calibration.cc
         core/tests/test_sim_survey.cc

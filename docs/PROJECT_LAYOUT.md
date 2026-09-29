@@ -7,6 +7,7 @@ M-GCS/
 |- bridge/ffi/           对外 C ABI 与后端适配（唯一稳定接口边界）
 |- core/                 C++ 后端核心
 |- docs/                 当前维护文档与 ADR
+|- flutter_shell/        Flutter 桌面外壳
 |- tests/                集成、硬件和手动测试
 |- tools/                开发与硬件测试工具
 |- docker/               Linux 开发容器入口
@@ -15,7 +16,14 @@ M-GCS/
 \- .github/workflows/    CI
 ```
 
-本分支不包含前端应用；前端版本在 `main` 分支。
+`main` 分支包含 Flutter 外壳；后端与接口分支的差异见
+[约束与分支说明](CONSTRAINTS.md#分支说明)。
+
+## Flutter 外壳
+
+- `flutter_shell/lib/`：地图、连接、遥测、波形、配置工作区和本地 FFI 适配。
+- `flutter_shell/test/`：不依赖原生共享库的 Flutter widget 测试。
+- `flutter_shell/lib/theme/`：字号、尺寸和颜色的唯一 token 来源。
 
 ## 后端核心
 

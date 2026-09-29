@@ -590,6 +590,7 @@ class _AccelerometerCalibrationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
+    final colors = context.mgColors;
     final status = controller.calibrationStatus;
     final activeOtherCalibration = status.active && !isThisCalibrationActive;
     final canStart =
@@ -618,7 +619,7 @@ class _AccelerometerCalibrationCard extends StatelessWidget {
                 Text(
                   orientation?.label ?? '水平放置',
                   style: theme.typography.caption1.copyWith(
-                    color: MacosColors.systemBlueColor,
+                    color: colors.accent,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -639,7 +640,7 @@ class _AccelerometerCalibrationCard extends StatelessWidget {
                       Text(
                         '第 $step/6 面',
                         style: theme.typography.caption1.copyWith(
-                          color: MacosColors.systemBlueColor,
+                          color: colors.accent,
                         ),
                       ),
                   ],
@@ -1102,8 +1103,8 @@ class _PidAxisCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: context.mgColors.surface,
-        border: Border.all(color: theme.dividerColor),
-        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: context.mgColors.divider),
+        borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1120,7 +1121,7 @@ class _PidAxisCard extends StatelessWidget {
                       term,
                       textAlign: TextAlign.center,
                       style: theme.typography.caption1.copyWith(
-                        color: MacosColors.secondaryLabelColor,
+                        color: context.mgColors.textSecondary,
                       ),
                     ),
                   ),
@@ -1193,7 +1194,7 @@ class _PidGainTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: context.mgColors.surface,
-        border: Border.all(color: theme.dividerColor),
+        border: Border.all(color: context.mgColors.divider),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -1283,7 +1284,6 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
       widget.controller.telemetryChanges,
     ]),
     builder: (context, _) {
-      final theme = MacosTheme.of(context);
       // 参数未读完时所有输出通道都是空值，先给出加载进度而不是空表格。
       if (!widget.controller.parametersLoaded) {
         return _ParameterLoadingState(
@@ -1306,11 +1306,11 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
             DecoratedBox(
               decoration: BoxDecoration(
                 color: context.mgColors.surface,
-                border: Border.all(color: theme.dividerColor),
-                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: context.mgColors.divider),
+                borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: ConstrainedBox(
@@ -1340,7 +1340,7 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
                             decoration: BoxDecoration(
                               border: Border(
                                 bottom: BorderSide(
-                                  color: theme.dividerColor,
+                                  color: context.mgColors.divider,
                                   width: 0.6,
                                 ),
                               ),
@@ -1476,17 +1476,17 @@ class _ChannelNumberCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 48,
+    height: MgMetrics.rowHeight,
     child: Center(
       child: Container(
         width: 24,
         height: 24,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: MacosColors.systemBlueColor.withValues(alpha: 0.12),
+          color: context.mgColors.accentSurface,
           shape: BoxShape.circle,
           border: Border.all(
-            color: MacosColors.systemBlueColor.withValues(alpha: 0.35),
+            color: context.mgColors.accent.withValues(alpha: 0.35),
           ),
         ),
         child: Text(
@@ -1558,7 +1558,7 @@ class _ReverseCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 48,
+    height: MgMetrics.rowHeight,
     child: Center(
       child: parameter == null
           ? Text('—', style: MacosTheme.of(context).typography.body)
@@ -1584,7 +1584,7 @@ class _FunctionCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 48,
+    height: MgMetrics.rowHeight,
     child: Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
@@ -1771,8 +1771,8 @@ class _ValueWellState extends State<_ValueWell> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: widget.fillColor ?? context.mgColors.well,
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: MacosTheme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+        border: Border.all(color: context.mgColors.divider),
       ),
       onSubmitted: (value) {
         unawaited(
@@ -1796,14 +1796,14 @@ class _LimitCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.mgColors;
     final toneColor = switch (tone) {
-      _LimitTone.min => MacosColors.systemRedColor,
-      _LimitTone.mid => MacosColors.systemBlueColor,
-      _LimitTone.max => MacosColors.systemGreenColor,
+      _LimitTone.min => colors.danger,
+      _LimitTone.mid => colors.accent,
+      _LimitTone.max => colors.success,
     };
-    final brightness = MacosTheme.brightnessOf(context);
     return SizedBox(
-      height: 48,
+      height: MgMetrics.rowHeight,
       child: Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
@@ -1816,9 +1816,7 @@ class _LimitCell extends StatelessWidget {
                 controller.isConnected &&
                 !parameter!.readOnly,
             center: true,
-            fillColor: toneColor.withValues(
-              alpha: brightness.isDark ? 0.28 : 0.12,
-            ),
+            fillColor: toneColor.withValues(alpha: colors.isDark ? 0.28 : 0.12),
             onSubmitted: parameter == null
                 ? null
                 : (value) => controller.setParameter(parameter!.name, value),
@@ -1836,10 +1834,9 @@ class _ParameterWriteStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.mgColors;
     final error = controller.parameterWriteError;
-    final color = error == null
-        ? MacosColors.systemBlueColor
-        : MacosColors.systemRedColor;
+    final color = error == null ? colors.accent : colors.danger;
     final message =
         error ?? '正在等待飞控确认 ${controller.pendingParameterWriteCount} 项参数变更…';
     return Padding(
@@ -1858,7 +1855,7 @@ class _ParameterWriteStatus extends StatelessWidget {
             child: Text(
               message,
               style: MacosTheme.of(context).typography.caption1.copyWith(
-                color: error == null ? MacosColors.secondaryLabelColor : color,
+                color: error == null ? colors.textSecondary : color,
               ),
             ),
           ),
@@ -1904,8 +1901,7 @@ class _FlightModesPageState extends State<_FlightModesPage> {
       widget.controller.telemetryChanges,
     ]),
     builder: (context, _) {
-      final theme = MacosTheme.of(context);
-      final brightness = MacosTheme.brightnessOf(context);
+      final colors = context.mgColors;
       final liveMode =
           widget.controller.vehicleIdentity?['flight_mode'] as String?;
       return SingleChildScrollView(
@@ -1989,8 +1985,7 @@ class _FlightModesPageState extends State<_FlightModesPage> {
                   parameter:
                       widget.controller.parameters['RC${channel}_OPTION'],
                   controller: widget.controller,
-                  brightness: brightness,
-                  dividerColor: theme.dividerColor,
+                  dividerColor: colors.divider,
                 );
               },
             ),
@@ -2020,7 +2015,7 @@ class _FlightModeCard extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.mgColors.surfaceMuted,
-        border: Border.all(color: theme.dividerColor),
+        border: Border.all(color: context.mgColors.divider),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Padding(
@@ -2052,14 +2047,12 @@ class _AuxChannelCard extends StatelessWidget {
     required this.channel,
     required this.parameter,
     required this.controller,
-    required this.brightness,
     required this.dividerColor,
   });
 
   final int channel;
   final VehicleParameter? parameter;
   final ConnectionController controller;
-  final Brightness brightness;
   final Color dividerColor;
 
   @override
@@ -2067,7 +2060,7 @@ class _AuxChannelCard extends StatelessWidget {
     decoration: BoxDecoration(
       color: context.mgColors.surfaceMuted,
       border: Border.all(color: dividerColor),
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
     ),
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -2125,6 +2118,7 @@ class _ParameterLoadingState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
+    final colors = context.mgColors;
     final error = controller.parameterError;
     return SingleChildScrollView(
       controller: scrollController,
@@ -2143,7 +2137,7 @@ class _ParameterLoadingState extends StatelessWidget {
                     error,
                     textAlign: TextAlign.center,
                     style: theme.typography.callout.copyWith(
-                      color: MacosColors.systemRedColor,
+                      color: colors.danger,
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -2164,7 +2158,7 @@ class _ParameterLoadingState extends StatelessWidget {
                     '连接飞控后自动读取参数',
                     textAlign: TextAlign.center,
                     style: theme.typography.callout.copyWith(
-                      color: MacosColors.secondaryLabelColor,
+                      color: colors.textSecondary,
                     ),
                   ),
               ],
@@ -2195,7 +2189,7 @@ class _ParameterEmptyState extends StatelessWidget {
           message,
           style: MacosTheme.of(
             context,
-          ).typography.callout.copyWith(color: MacosColors.secondaryLabelColor),
+          ).typography.callout.copyWith(color: context.mgColors.textSecondary),
         ),
       ),
     ),
@@ -2214,12 +2208,13 @@ class _ParameterSummaryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
+    final colors = context.mgColors;
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: context.mgColors.surface,
-        border: Border.all(color: theme.dividerColor),
+        border: Border.all(color: context.mgColors.divider),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -2241,10 +2236,8 @@ class _ParameterSummaryRow extends StatelessWidget {
                   parameter.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.typography.caption1.copyWith(
-                    color: MacosColors.secondaryLabelColor,
-                    fontFamily: MgFonts.mono,
-                    fontFamilyFallback: MgFonts.monoFallback,
+                  style: MgTypography.mono(
+                    MgTypography.caption.copyWith(color: colors.textSecondary),
                   ),
                 ),
               ],
@@ -2337,7 +2330,7 @@ class _PortConfigurationPageState extends State<_PortConfigurationPage> {
                 child: Text(
                   '正在读取飞控硬件串口映射…',
                   style: theme.typography.caption1.copyWith(
-                    color: MacosColors.secondaryLabelColor,
+                    color: context.mgColors.textSecondary,
                   ),
                 ),
               )
@@ -2347,7 +2340,7 @@ class _PortConfigurationPageState extends State<_PortConfigurationPage> {
                 child: Text(
                   '飞控未提供硬件串口映射：$error',
                   style: theme.typography.caption1.copyWith(
-                    color: MacosColors.secondaryLabelColor,
+                    color: context.mgColors.textSecondary,
                   ),
                 ),
               ),
@@ -2366,7 +2359,7 @@ class _PortConfigurationPageState extends State<_PortConfigurationPage> {
                         child: _SerialParameterCard(
                           serialPrefix: port,
                           controller: controller,
-                          dividerColor: theme.dividerColor,
+                          dividerColor: context.mgColors.divider,
                           hardwareName: controller.serialHardwareMappings[port],
                         ),
                       ),
@@ -2442,10 +2435,8 @@ class _SerialParameterCardState extends State<_SerialParameterCard> {
               children: [
                 Text(
                   serial,
-                  style: theme.typography.title3.copyWith(
-                    fontFamily: MgFonts.mono,
-                    fontFamilyFallback: MgFonts.monoFallback,
-                    fontWeight: FontWeight.w700,
+                  style: MgTypography.mono(
+                    MgTypography.section.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
                 if (widget.hardwareName case final hardwareName?) ...[
@@ -2522,12 +2513,12 @@ class _SerialParameterCardState extends State<_SerialParameterCard> {
               Text(
                 '该逻辑串口没有可读取的协议或波特率参数。',
                 style: theme.typography.caption1.copyWith(
-                  color: MacosColors.secondaryLabelColor,
+                  color: context.mgColors.textSecondary,
                 ),
               ),
             if (extraParameters.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Divider(height: 1, color: theme.dividerColor),
+              Divider(height: 1, color: context.mgColors.divider),
               Row(
                 children: [
                   MacosDisclosureButton(
@@ -2674,10 +2665,12 @@ class _AllParametersPageState extends State<_AllParametersPage> {
                 expanded: isExpanded,
                 label: '$group，${entry.parameterCount} 个参数',
                 child: Material(
-                  color: Colors.transparent,
+                  color: context.mgColors.transparent,
                   child: InkWell(
                     onTap: toggleGroup,
-                    borderRadius: BorderRadius.circular(7),
+                    borderRadius: BorderRadius.circular(
+                      MgMetrics.controlRadius,
+                    ),
                     child: SizedBox(
                       height: 34,
                       child: Row(
@@ -2699,7 +2692,7 @@ class _AllParametersPageState extends State<_AllParametersPage> {
                             '${entry.parameterCount}',
                             style: MacosTheme.of(context).typography.caption1
                                 .copyWith(
-                                  color: MacosColors.secondaryLabelColor,
+                                  color: context.mgColors.textSecondary,
                                 ),
                           ),
                           const SizedBox(width: 8),
@@ -2775,7 +2768,6 @@ class _SystemStatusPage extends StatelessWidget {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: controller.telemetryChanges,
     builder: (context, _) {
-      final theme = MacosTheme.of(context);
       final connected = controller.isConnected;
       final firmware = controller.firmwareInfo;
       final identity = controller.vehicleIdentity;
@@ -2812,7 +2804,7 @@ class _SystemStatusPage extends StatelessWidget {
                   : null,
               firmwareVersion: versionLabel,
               background: context.mgColors.surfaceMuted,
-              borderColor: theme.dividerColor,
+              borderColor: context.mgColors.divider,
             ),
             const SizedBox(height: 22),
             _SystemSectionTitle(
@@ -2823,7 +2815,7 @@ class _SystemStatusPage extends StatelessWidget {
             if (!connected || health == null)
               _SensorDataPendingCard(
                 connected: connected,
-                borderColor: theme.dividerColor,
+                borderColor: context.mgColors.divider,
                 background: context.mgColors.surface,
               )
             else
@@ -2847,7 +2839,7 @@ class _SystemStatusPage extends StatelessWidget {
                             sensor: _sensorLabels[item['key']]!.$1,
                             icon: _sensorLabels[item['key']]!.$2,
                             status: item['status'] as String? ?? 'unknown',
-                            borderColor: theme.dividerColor,
+                            borderColor: context.mgColors.divider,
                             background: context.mgColors.surface,
                           ),
                         ),
@@ -2877,7 +2869,7 @@ class _SystemStatusPage extends StatelessWidget {
                             ? '卫星数：等待数据'
                             : '卫星数：${controller.satellitesVisible}',
                         fresh: controller.gpsFixType != null,
-                        borderColor: theme.dividerColor,
+                        borderColor: context.mgColors.divider,
                         background: context.mgColors.surface,
                       ),
                     ),
@@ -2895,7 +2887,7 @@ class _SystemStatusPage extends StatelessWidget {
                         fresh:
                             controller.batteryRemainingPercent != null ||
                             controller.batteryVoltage != null,
-                        borderColor: theme.dividerColor,
+                        borderColor: context.mgColors.divider,
                         background: context.mgColors.surface,
                       ),
                     ),
@@ -2909,7 +2901,7 @@ class _SystemStatusPage extends StatelessWidget {
                             : '${controller.headingDegrees!.toStringAsFixed(0)}°',
                         detail: '来自飞控航向遥测',
                         fresh: controller.headingDegrees != null,
-                        borderColor: theme.dividerColor,
+                        borderColor: context.mgColors.divider,
                         background: context.mgColors.surface,
                       ),
                     ),
@@ -3002,8 +2994,8 @@ class _SystemOverviewCard extends StatelessWidget {
                 value: connectionState,
                 icon: connected ? CupertinoIcons.link : CupertinoIcons.link,
                 valueColor: connected
-                    ? MacosColors.systemGreenColor
-                    : MacosColors.secondaryLabelColor,
+                    ? context.mgColors.success
+                    : context.mgColors.textSecondary,
               ),
             ),
             SizedBox(
@@ -3057,12 +3049,13 @@ class _OverviewValue extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final typography = MacosTheme.of(context).typography;
+    final colors = context.mgColors;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 2),
-          child: MacosIcon(icon, size: 17, color: MacosColors.systemBlueColor),
+          child: MacosIcon(icon, size: 17, color: colors.accent),
         ),
         const SizedBox(width: 9),
         Expanded(
@@ -3072,7 +3065,7 @@ class _OverviewValue extends StatelessWidget {
               Text(
                 label,
                 style: typography.caption1.copyWith(
-                  color: MacosColors.secondaryLabelColor,
+                  color: colors.textSecondary,
                 ),
               ),
               const SizedBox(height: 3),
@@ -3122,12 +3115,11 @@ class _HealthSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (summary == null) return const SizedBox.shrink();
+    final colors = context.mgColors;
     final faults = summary!['fault_count'] as int? ?? 0;
     final healthy = summary!['healthy_count'] as int? ?? 0;
     final label = faults > 0 ? '异常 $faults' : '正常 $healthy';
-    final color = faults > 0
-        ? MacosColors.systemRedColor
-        : MacosColors.systemGreenColor;
+    final color = faults > 0 ? colors.danger : colors.success;
     return Text(
       label,
       style: MacosTheme.of(
@@ -3154,7 +3146,7 @@ class _SensorDataPendingCard extends StatelessWidget {
     decoration: BoxDecoration(
       color: background,
       border: Border.all(color: borderColor),
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
     ),
     child: MacosListTile(
       leading: MacosIcon(
@@ -3188,19 +3180,20 @@ class _SensorStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.mgColors;
     final (label, color) = switch (status) {
-      'healthy' => ('正常', MacosColors.systemGreenColor),
-      'fault' => ('异常', MacosColors.systemRedColor),
-      'disabled' => ('未启用', MacosColors.systemOrangeColor),
-      'missing' => ('未检测到', MacosColors.secondaryLabelColor),
-      _ => ('未知', MacosColors.secondaryLabelColor),
+      'healthy' => ('正常', colors.success),
+      'fault' => ('异常', colors.danger),
+      'disabled' => ('未启用', colors.warning),
+      'missing' => ('未检测到', colors.textSecondary),
+      _ => ('未知', colors.textSecondary),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: background,
         border: Border.all(color: borderColor),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
       ),
       child: Row(
         children: [
@@ -3253,11 +3246,11 @@ class _TelemetryStatusCard extends StatelessWidget {
     decoration: BoxDecoration(
       color: background,
       border: Border.all(color: borderColor),
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
     ),
     child: Row(
       children: [
-        MacosIcon(icon, size: 21, color: MacosColors.systemBlueColor),
+        MacosIcon(icon, size: 21, color: context.mgColors.accent),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -3270,7 +3263,7 @@ class _TelemetryStatusCard extends StatelessWidget {
                 style: MacosTheme.of(context).typography.body.copyWith(
                   color: fresh
                       ? _adaptiveLabelColor(context)
-                      : MacosColors.secondaryLabelColor,
+                      : context.mgColors.textSecondary,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -3278,7 +3271,7 @@ class _TelemetryStatusCard extends StatelessWidget {
               Text(
                 detail,
                 style: MacosTheme.of(context).typography.caption1.copyWith(
-                  color: MacosColors.secondaryLabelColor,
+                  color: context.mgColors.textSecondary,
                 ),
               ),
             ],

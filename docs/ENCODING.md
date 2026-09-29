@@ -14,7 +14,7 @@
 
 仓库中的常规文本换行已经由 `.gitattributes` 约束；PowerShell 脚本保留 CRLF。部分历史 C++ 文件仍带 UTF-8 BOM，应在独立改动中归一化并运行完整后端测试。
 
-本分支不包含前端工程，因此不涉及 Dart/Flutter 相关编码约定。
+Dart/Flutter 代码使用 UTF-8 和 LF，并统一通过 `dart format` 维护格式。
 
 ## Windows 终端
 

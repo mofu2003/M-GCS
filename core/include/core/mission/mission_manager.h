@@ -1,7 +1,7 @@
 /**
  * mission_manager.h - Mission management with editing, validation, and persistence
  *
- * High-level mission management that provides:
+ * Legacy compiled-plan management that provides:
  *   - Waypoint editing (add, remove, update, reorder)
  *   - Mission validation (altitude, distance, command constraints)
  *   - Mission statistics (total distance, estimated time, etc.)
@@ -9,7 +9,10 @@
  *   - Thread-safe access to mission state
  *
  * This sits above the raw MAVLink mission protocol in MavlinkAdapter.
- * It manages the local mission plan and syncs with the FC when needed.
+ * It manages the compiled MissionPlan and remains available for compatibility,
+ * tests, and low-level tooling. New frontend editing should use the
+ * MissionDocument under core/mission/cad instead; mission_doc_apply owns
+ * offline edits, revision, undo/redo, validation and compilation.
  *
  * Design: inspired by QGC MissionController + MissionItemTableModel.
  */

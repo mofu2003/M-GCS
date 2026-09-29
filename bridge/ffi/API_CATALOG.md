@@ -32,6 +32,8 @@ and a migration note have been published.
 | Calibration | `mg_calibration_start`, `mg_calibration_cancel`, `mg_calibration_get_status`, `mg_calibration_accel_confirm`, `mg_calibration_start_airspeed` |
 | Flight commands | `mg_command_*` |
 | Logging | `mg_log_request_list`, `mg_log_get_entries`, `mg_log_record_*` |
+| Mission planning document | `mg_mission_doc_create`, `mg_mission_doc_apply`, `mg_mission_doc_validate`, `mg_mission_doc_compile`, `mg_mission_doc_upload`, `mg_mission_doc_verify` |
+| Mission command metadata | `mg_mission_get_command_catalog` |
 
 Existing first-party bindings deliberately cover connection, dashboard,
 parameters, servo/RC telemetry, serial mapping, calibration, and the
@@ -64,6 +66,61 @@ always listed so the client has a default before any data arrives.
 `mg_waveform_clear` drops the buffered history (also done automatically when a
 session connects or disconnects).
 
+## Mission Planning Document
+
+The mission planning document is the preferred offline editing model. It is
+separate from the compiled MAVLink `MissionPlan`: editing, validation, undo,
+redo, save, and load never write to the vehicle.
+
+Lifecycle:
+
+```text
+mg_mission_doc_create/get
+    -> mg_mission_doc_apply (local revision-checked edits)
+    -> mg_mission_doc_validate
+    -> mg_mission_doc_compile
+    -> mg_mission_doc_upload (explicit write)
+    -> mg_mission_doc_verify (compare vehicle readback)
+```
+
+`mg_mission_doc_apply` accepts one operation per call. Supported operations
+are `add`, `update`, `remove`, `move`, `clear`, and `replace`. Except for
+`replace`, mutation operations use `entity` or `entity_id` and may include
+`expected_revision`; a stale revision is rejected.
+
+The document JSON schema is versioned by `schema_version`. The source
+document contains:
+
+- `metadata`: id, name, description, firmware profile, vehicle type.
+- `home`: optional home latitude, longitude, and altitude.
+- `defaults`: frame, altitude, and speed used when an entity omits them.
+- `revision`: monotonically increasing local revision.
+- `entities`: ordered mission entities with a stable `id`, command, frame,
+  coordinates, altitude, four command parameters, and enabled state.
+
+`mg_mission_doc_export` returns the document JSON for `.mgcad.json` storage.
+`mg_mission_doc_import` loads that JSON without uploading to a vehicle.
+`mg_mission_doc_save/load` provide the same operation through a filesystem
+path.
+
+`mg_mission_doc_compile` returns `valid`, the compiled `MissionPlan`, a
+source-entity-id list, and structured diagnostics. `mg_mission_doc_upload`
+requires the expected document revision, compiles locally, rejects validation
+errors, and then starts the existing mission transfer. ArduPilot home-item
+injection remains in the existing transport adapter.
+
+`mg_mission_doc_verify` compares the compiled document with the current
+vehicle mission after a completed full download. Calling verify after upload
+but before download returns `invalid_state`. It returns `matches` plus structured
+differences for item count, command, frame, position, altitude, parameters,
+`autocontinue`, and `mission_type`.
+
+`mg_mission_get_command_catalog` exposes command names, categories, whether a
+position or altitude is required, and per-parameter MAVLink index, labels,
+units, types, defaults, ranges, required flags, and enum options. Parameter
+`index` maps directly to `params[index - 1]`. Frontends should render command
+forms from this catalog rather than hard-coding MAV_CMD parameter semantics.
+
 ## Compatibility Entries
 
 | Compatibility API | Replacement / note |
@@ -75,6 +132,9 @@ session connects or disconnects).
 | `mg_firmware_request_version`, `mg_firmware_get_version` | `mg_vehicle_request_firmware_version`, `mg_vehicle_get_firmware_version`. |
 | `mg_fence_get`, `mg_fence_set` | `mg_geofence_get_config`, `mg_geofence_set_config`. |
 | `mg_mission_request` | `mg_mission_download`. |
+| `mg_mission_add_item`, `mg_mission_update_item`, `mg_mission_remove_item`, `mg_mission_move_item` | `mg_mission_doc_apply`; legacy APIs mutate and upload immediately instead of editing an offline document. |
+| `mg_mission_validate`, `mg_mission_get_stats` | `mg_mission_doc_validate`, `mg_mission_doc_estimate`; new APIs validate the source document and return structured diagnostics. |
+| `mg_mission_export_json`, `mg_mission_import_json`, `mg_mission_export_csv`, `mg_mission_import_csv` | `mg_mission_doc_export`, `mg_mission_doc_import`, `mg_mission_doc_save`, `mg_mission_doc_load`; the new format preserves revision and parameterized intent. |
 
 `mg_connection_open` accepts one explicit URI (`serial://`, `tcp://`, or
 `udp://`) and returns a session/vehicle ID without changing active/UI focus.

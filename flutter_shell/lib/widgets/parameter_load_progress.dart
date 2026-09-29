@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
+import '../theme/mg_colors.dart';
+
 /// 参数下载进度：进度条随下载推进，右侧显示「已加载/总数」。
 class ParameterLoadProgress extends StatelessWidget {
   const ParameterLoadProgress({
@@ -29,7 +31,7 @@ class ParameterLoadProgress extends StatelessWidget {
           Text(
             text,
             style: MacosTheme.of(context).typography.caption1.copyWith(
-              color: MacosColors.secondaryLabelColor,
+              color: context.mgColors.textSecondary,
             ),
           ),
           const SizedBox(width: 10),
@@ -47,7 +49,7 @@ class ParameterLoadProgress extends StatelessWidget {
         Text(
           counter,
           style: MacosTheme.of(context).typography.caption1.copyWith(
-            color: MacosColors.secondaryLabelColor,
+            color: context.mgColors.textSecondary,
             // 等宽数字，进度跳动时右侧数字不会左右晃动。
             fontFeatures: const [FontFeature.tabularFigures()],
           ),

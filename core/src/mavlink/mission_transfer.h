@@ -31,6 +31,10 @@ struct MissionTransferState {
     uint16_t download_seq   = 0;
     uint16_t upload_total   = 0;
     uint16_t upload_seq     = 0;
+    uint64_t plan_revision = 0;
+    uint64_t last_completed_download_revision = 0;
+    uint64_t last_upload_revision = 0;
+    uint64_t completed_download_count = 0;
 
     // 超时重试
     int         retry_count = 0;

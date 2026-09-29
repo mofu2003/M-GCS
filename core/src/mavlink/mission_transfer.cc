@@ -16,6 +16,10 @@ void MissionTransferState::reset() {
     resend_fn = nullptr;
     progress = mg::core::mission::MissionTransferProgress{};
     plan = mg::core::mission::MissionPlan{};
+    plan_revision = 0;
+    last_completed_download_revision = 0;
+    last_upload_revision = 0;
+    completed_download_count = 0;
 }
 
 void MissionTransferState::record_send(uint8_t sys, uint8_t comp,

@@ -61,6 +61,6 @@
 ```bash
 cmake -S . -B build_check -DMGCORE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build_check
-ctest --test-dir build_check --output-on-failure \
+ctest --test-dir build_check --output-on-failure --no-tests=error \
   -L "offline|simulation" -LE "hardware|manual"
 ```

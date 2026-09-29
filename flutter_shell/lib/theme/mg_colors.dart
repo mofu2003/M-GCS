@@ -30,6 +30,12 @@ class MgColors {
   /// 强调色（系统蓝）。
   Color get accent => _pick(const Color(0xFF007AFF), const Color(0xFF0A84FF));
 
+  /// 强调色前景，用于选中导航项等实心强调底上的文字和图标。
+  Color get onAccent => const Color(0xFFFFFFFF);
+
+  /// 完全透明，供 Material、IconButton 等要求显式色值的位置使用。
+  Color get transparent => const Color(0x00000000);
+
   /// 强调色的淡底，用于选中行、标记块和姿态图框。
   Color get accentSurface => accent.withValues(alpha: isDark ? 0.28 : 0.12);
 
@@ -86,6 +92,9 @@ class MgColors {
   /// 网格线、细分隔线。
   Color get hairline => _pick(const Color(0x14000000), const Color(0x14FFFFFF));
 
+  /// 控件边框、工具栏分隔线；数值对齐 macos_ui 主题的 `dividerColor`。
+  Color get divider => _pick(const Color(0x1F000000), const Color(0x1FFFFFFF));
+
   /// 浮层阴影。
   Color get shadow => const Color(0x3D000000);
 
@@ -102,6 +111,27 @@ class MgColors {
   /// 地图浮动控件的悬停色。
   Color get mapControlHover =>
       _pick(const Color(0x11000000), const Color(0x22FFFFFF));
+
+  // ── 波形通道色 ────────────────────────────────────────────────────
+
+  /// 波形曲线与瞬时值卡片的通道色。颜色固定，不随明暗模式切换。
+  static const List<Color> waveformAccel = [
+    Color(0xFFFF375F),
+    Color(0xFF30D158),
+    Color(0xFF0A84FF),
+  ];
+
+  static const List<Color> waveformGyro = [
+    Color(0xFFFF7A00),
+    Color(0xFFAF52DE),
+    Color(0xFF14B8C4),
+  ];
+
+  static const List<Color> waveformMag = [
+    Color(0xFFB25000),
+    Color(0xFF34A853),
+    Color(0xFF5E5CE6),
+  ];
 }
 
 /// 便捷取色：`context.mgColors.accent`。

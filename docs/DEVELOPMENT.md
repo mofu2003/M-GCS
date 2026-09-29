@@ -2,10 +2,14 @@
 
 ## 日常流程
 
-1. 先确认改动属于 `core`、`bridge/ffi`、`tests`、`tools`、`docker` 或 `docs`。
+1. 先确认改动属于 `core`、`bridge/ffi`、`flutter_shell`、`tests`、`tools`、`docker` 或 `docs`。
 2. 后端行为变化补 C++ 测试；FFI 契约变化同时更新头文件、实现、测试、`API_CATALOG.md` 和文档。
 3. 连接、任务、参数、校准或命令路径变化必须运行聚焦测试和默认门禁。
 4. 提交前使用 `git status` 和 `git diff --check` 检查范围与格式。
+5. 提交前运行 `tools/preflight.sh`；FFI 与硬件相关改动按 [协作流程](COLLABORATION.md) 追加复核。
+
+涉及 `flutter_shell/` 时，UI 字号、颜色和关键尺寸必须使用 `MgTypography`、`MgColors` 和
+`MgMetrics`；`dart tools/check_ui_tokens.dart` 会作为本地预检和 CI 的组成部分运行。
 
 参数文件导入与批量写入的变更必须覆盖后端参数变更集测试：去重、未知参数、未变化参数、`_ENABLE` 最后写入和逐项失败结果均属于 FFI 契约。
 
@@ -37,6 +41,8 @@ Windows 安装 Docker Desktop 后，在 PowerShell 中执行等价命令：
 容器不能替代 Windows 或 macOS 原生构建；后端在两个平台都使用同一套 CMake 配置。
 
 ### 本地构建
+
+本地构建要求 CMake/CTest 3.20 或更高版本。
 
 仓库包含 MAVLink XML 定义，但没有提交生成后的 C 头。首次构建前创建本地 Python 环境，安装已验证的 `pymavlink 2.4.49`，并生成 `common` dialect：
 
@@ -70,10 +76,29 @@ cmake -S . -B build_check -G Ninja \
 默认门禁：
 
 ```bash
-ctest --test-dir build_check --output-on-failure \
+ctest --test-dir build_check --output-on-failure --no-tests=error \
   -L "offline|simulation" \
   -LE "hardware|manual"
 ```
+
+### 本地预检
+
+完整预检会检查补丁格式、UI token、Flutter 分析/测试、后端默认门禁，并在 macOS
+上执行 debug 构建：
+
+```bash
+tools/preflight.sh
+```
+
+开发迭代可以按范围缩短：
+
+```bash
+tools/preflight.sh --frontend-only
+tools/preflight.sh --backend-only
+tools/preflight.sh --no-macos-build
+```
+
+提交前必须运行完整预检。仓库 hook 可通过 `tools/install-hooks.sh` 启用。
 
 ## 测试标签
 

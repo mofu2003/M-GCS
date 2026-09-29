@@ -99,6 +99,19 @@ struct MissionTransferProgress {
     std::string error;          // Error message if failed
 };
 
+/// Provenance of the cached mission plan used for safe readback verification.
+struct MissionPlanProvenance {
+    uint64_t plan_revision = 0;
+    uint64_t last_completed_download_revision = 0;
+    uint64_t last_upload_revision = 0;
+    uint64_t completed_download_count = 0;
+};
+
+struct MissionPlanSnapshot {
+    MissionPlan plan;
+    MissionPlanProvenance provenance;
+};
+
 /// Helper: get human-readable command name
 inline const char* command_name(uint16_t cmd) {
     switch (cmd) {

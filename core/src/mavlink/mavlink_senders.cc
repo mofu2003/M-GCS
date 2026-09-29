@@ -246,6 +246,7 @@ bool MavlinkAdapter::mission_download(uint8_t target_system, uint8_t target_comp
     impl_->mission.download_seq = 0;
     impl_->mission.progress = mg::core::mission::MissionTransferProgress{};
     impl_->mission.progress.state = mg::core::mission::MissionState::Downloading;
+    ++impl_->mission.plan_revision;
 
     // Request mission list
     mavlink_msg_mission_request_list_pack(
@@ -269,6 +270,8 @@ bool MavlinkAdapter::mission_upload(uint8_t target_system, uint8_t target_compon
     if (plan.items.empty()) return false;
     
     impl_->mission.plan = plan;
+    ++impl_->mission.plan_revision;
+    impl_->mission.last_upload_revision = impl_->mission.plan_revision;
     impl_->mission.upload_total = static_cast<uint16_t>(plan.items.size());
     impl_->mission.upload_seq = 0;
     impl_->mission.progress = mg::core::mission::MissionTransferProgress{};
@@ -296,6 +299,7 @@ bool MavlinkAdapter::mission_upload(uint8_t target_system, uint8_t target_compon
 bool MavlinkAdapter::mission_clear(uint8_t target_system, uint8_t target_component) {
     mg::core::platform::LockGuard lk(impl_->mtx);
     impl_->mission.plan.clear();
+    ++impl_->mission.plan_revision;
     impl_->mission.progress = mg::core::mission::MissionTransferProgress{};
     
     mavlink_msg_mission_clear_all_pack(
@@ -312,7 +316,10 @@ bool MavlinkAdapter::mission_set_current(uint8_t target_system, uint8_t target_c
         255, 0, &impl_->msg,
         target_system, target_component, seq);
     bool ok = impl_->send_msg();
-    if (ok) impl_->mission.plan.current_index = seq;
+    if (ok && impl_->mission.plan.current_index != seq) {
+        impl_->mission.plan.current_index = seq;
+        ++impl_->mission.plan_revision;
+    }
     return ok;
 }
 
@@ -326,6 +333,26 @@ mg::core::mission::MissionTransferProgress MavlinkAdapter::mission_get_progress(
     return impl_->mission.progress;
 }
 
+mg::core::mission::MissionPlanProvenance
+MavlinkAdapter::mission_get_plan_provenance() const {
+    return mission_get_plan_snapshot().provenance;
+}
+
+mg::core::mission::MissionPlanSnapshot
+MavlinkAdapter::mission_get_plan_snapshot() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    mg::core::mission::MissionPlanSnapshot snapshot;
+    snapshot.plan = impl_->mission.plan;
+    snapshot.provenance.plan_revision = impl_->mission.plan_revision;
+    snapshot.provenance.last_completed_download_revision =
+        impl_->mission.last_completed_download_revision;
+    snapshot.provenance.last_upload_revision =
+        impl_->mission.last_upload_revision;
+    snapshot.provenance.completed_download_count =
+        impl_->mission.completed_download_count;
+    return snapshot;
+}
+
 // ================================================================
 // 集结点（MAV_MISSION_TYPE_RALLY = 2）
 // ================================================================
@@ -334,6 +361,7 @@ mg::core::mission::MissionTransferProgress MavlinkAdapter::mission_get_progress(
 bool MavlinkAdapter::mission_type_download(uint8_t sys, uint8_t comp,
                                             MissionTransferState& state, uint8_t mission_type) {
     state.plan.clear();
+    ++state.plan_revision;
     state.download_total = 0;
     state.download_seq = 0;
     state.progress = mg::core::mission::MissionTransferProgress{};
@@ -342,7 +370,7 @@ bool MavlinkAdapter::mission_type_download(uint8_t sys, uint8_t comp,
     mavlink_msg_mission_request_list_pack(255, 0, &impl_->msg, sys, comp, mission_type);
     bool ok = impl_->send_msg();
     if (ok) {
-        state.record_send(sys, comp, [this, &state, sys, comp, mission_type]() {
+        state.record_send(sys, comp, [this, sys, comp, mission_type]() {
             mavlink_msg_mission_request_list_pack(255, 0, &impl_->msg, sys, comp, mission_type);
             impl_->send_msg();
         });
@@ -358,6 +386,8 @@ bool MavlinkAdapter::mission_type_upload(uint8_t sys, uint8_t comp,
     if (plan.items.empty()) return false;
 
     state.plan = plan;
+    ++state.plan_revision;
+    state.last_upload_revision = state.plan_revision;
     state.upload_total = static_cast<uint16_t>(plan.items.size());
     state.upload_seq = 0;
     state.progress = mg::core::mission::MissionTransferProgress{};

@@ -29,6 +29,24 @@ MGCORE_API char* mg_mission_export_csv(mg_core_t* core);
 MGCORE_API char* mg_mission_import_csv(mg_core_t* core, const char* csv);
 MGCORE_API char* mg_mission_get_templates(mg_core_t* core);
 
+MGCORE_API char* mg_mission_doc_create(mg_core_t* core, const char* json_config);
+MGCORE_API char* mg_mission_doc_get(mg_core_t* core);
+MGCORE_API char* mg_mission_doc_apply(mg_core_t* core, const char* json_command);
+MGCORE_API char* mg_mission_doc_undo(mg_core_t* core);
+MGCORE_API char* mg_mission_doc_redo(mg_core_t* core);
+MGCORE_API char* mg_mission_doc_validate(mg_core_t* core);
+MGCORE_API char* mg_mission_doc_compile(mg_core_t* core);
+MGCORE_API char* mg_mission_doc_estimate(mg_core_t* core);
+MGCORE_API char* mg_mission_doc_upload(
+    mg_core_t* core,
+    unsigned long long expected_revision);
+MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m);
+MGCORE_API char* mg_mission_get_command_catalog(mg_core_t* core);
+MGCORE_API char* mg_mission_doc_export(mg_core_t* core);
+MGCORE_API char* mg_mission_doc_import(mg_core_t* core, const char* json_document);
+MGCORE_API char* mg_mission_doc_save(mg_core_t* core, const char* filepath);
+MGCORE_API char* mg_mission_doc_load(mg_core_t* core, const char* filepath);
+
 MGCORE_API char* mg_survey_generate(mg_core_t* core, const char* json_config);
 MGCORE_API char* mg_survey_generate_corridor(mg_core_t* core, const char* json_config);
 

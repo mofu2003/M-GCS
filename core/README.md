@@ -8,7 +8,8 @@
 - `src/mavlink/`：MAVLink 适配器、发送器、命令队列、参数缓存和任务传输。
 - `src/transport/`：串口、TCP、UDP、内存链路、端口发现和连接管理器。
 - `src/vehicle/`：飞控模型和多飞控管理器。
-- `src/mission/`：MAVLink 任务编辑、航点传输和测绘辅助能力；`mission/cad` 将保存前端无关的参数化任务几何、约束与编译器。
+- `src/mission/`：MAVLink 任务编辑、航点传输和测绘辅助能力；`mission/cad`
+  已包含前端无关的规划文档、revision、undo/redo、命令目录、校验、编译、估算和持久化。
 - `src/geofence/`：围栏数据管理和校验。
 - `src/calibration/`：传感器校准状态机和各传感器策略。
 - `src/firmware/`：ArduPilot/PX4 固件 profile、模式映射和参数重映射。

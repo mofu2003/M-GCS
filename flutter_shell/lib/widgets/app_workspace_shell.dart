@@ -160,7 +160,7 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
                   child: Column(
                     children: [
                       Container(
-                        height: topInset + 52,
+                        height: topInset + MgMetrics.toolbarHeight,
                         padding: EdgeInsets.fromLTRB(24, topInset, 12, 0),
                         decoration: BoxDecoration(
                           color: colors.toolbar,
@@ -249,7 +249,7 @@ class _SidebarEntry extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
-    final foreground = selected ? Colors.white : colors.textPrimary;
+    final foreground = selected ? colors.onAccent : colors.textPrimary;
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: Tooltip(
@@ -259,11 +259,11 @@ class _SidebarEntry extends StatelessWidget {
           selected: selected,
           label: item.label,
           child: Material(
-            color: selected ? colors.accent : Colors.transparent,
-            borderRadius: BorderRadius.circular(7),
+            color: selected ? colors.accent : colors.transparent,
+            borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
             child: InkWell(
               onTap: onPressed,
-              borderRadius: BorderRadius.circular(7),
+              borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
               child: SizedBox(
                 height: MgMetrics.navItemHeight,
                 child: Row(
