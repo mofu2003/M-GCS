@@ -11,6 +11,11 @@
 涉及 `flutter_shell/` 时，UI 字号、颜色和关键尺寸必须使用 `MgTypography`、`MgColors` 和
 `MgMetrics`；`dart tools/check_ui_tokens.dart` 会作为本地预检和 CI 的组成部分运行。
 
+界面字体跨平台统一，以 macOS 端设计为基准：字体文件打包在 `flutter_shell/assets/fonts/`，
+字体族只在 `lib/theme/mg_typography.dart` 的 `MgFonts` 单点定义。禁止按平台挑系统字体，
+也禁止在业务页面写字体族名或平台判断——`SF Pro Text` 这类名字在未安装的平台上不会报错，
+只会静默回退成另一款字体。决策依据与字体来源见 [ADR 0007](adr/0007-unified-font-stack.md)。
+
 参数文件导入与批量写入的变更必须覆盖后端参数变更集测试：去重、未知参数、未变化参数、`_ENABLE` 最后写入和逐项失败结果均属于 FFI 契约。
 
 ## 构建

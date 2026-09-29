@@ -185,3 +185,5 @@ MGC 当前采用 ArduPilot-first，PX4-compatible 路线：ArduPilot 能力优�
 - ADR 0002：复用官方 MAVLink。
 - ADR 0003：本地 FFI 桥接。
 - ADR 0005：Mission CAD 由后端领域模型负责。
+- ADR 0006：波形显示管线——采集保真、显示可读。
+- ADR 0007：界面字体跨平台统一，以 macOS 端为设计基准。

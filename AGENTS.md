@@ -78,7 +78,16 @@ cmake --build build_check --config Release
 - 文本与控件默认垂直居中：固定行高 + `CrossAxisAlignment.center`，
   不允许出现顶对齐／底对齐造成的错位
 - 数字读数使用 `MgAnimatedNumber`，并保留等宽数字（`tabularFigures`）
-- 不使用平台专属字体名（例如 `Menlo`），字体族统一从 `MgFonts` 取
+- **字体跨平台必须统一，并以 macOS 端的设计为基准**（依据见
+  `docs/adr/0007-unified-font-stack.md`）：
+  - 同一段文字在 macOS / Windows / Linux 上必须由同一款字体渲染，
+    不允许按平台各挑一套系统字体
+  - 字体族、字重、字号、行高的取值一律以 mac 端效果为准，其他平台向它对齐，
+    而不是反过来让 mac 端迁就别的平台
+  - 字体族只在 `MgFonts` 单点定义；业务页面里不得出现字体族名或平台判断
+  - 禁止平台专属字体名（例如 `SF Pro Text`、`Menlo`）。这类名字在未安装的平台上
+    会静默回退成完全不相关的字体，且不会报错
+  - 打包字体必须商业友好许可（OFL、Apache-2.0 等），来源和版本记录在 ADR 0007
 
 新增控件必须先考虑复用已有组件，而不是再写一个近似版本。
 

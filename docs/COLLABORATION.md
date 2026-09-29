@@ -103,6 +103,8 @@ hook 会要求工作区与暂存区一致；存在未暂存或相关未跟踪文
 - 字号、颜色、关键尺寸分别取 `MgTypography`、`MgColors`、`MgMetrics`。
 - 不在业务页面直接使用 `MacosColors`、裸色值或裸 `TextStyle(fontSize:)`。
 - 数字读数使用 `MgAnimatedNumber`，并保留等宽数字。
+- 字体跨平台统一，以 macOS 端设计为基准；字体族只在 `MgFonts` 定义，页面里不写字体族名
+  或平台判断，详见 [ADR 0007](adr/0007-unified-font-stack.md)。
 - `component_gallery_demo.dart` 只作为组件画廊，允许展示 `macos_ui` 原始色板。
 - `dart tools/check_ui_tokens.dart` 会扫描业务代码中的禁用写法。
 
