@@ -177,6 +177,63 @@ void test_config_param_write_path() {
     if (empty) mg_free_string(empty);
 }
 
+// 兼容入口以前无论有没有日志都返回 success:true + 空数组，这条用例要求它
+// 反映飞控真实上报的日志条目。
+void test_log_list_reports_real_entries() {
+    fprintf(stderr, "\n[Group] mg_log_list\n");
+    TestEnv env;
+    env.connect();
+
+    env.mock->send_log_entry(7, 1700000000u, 4096u);
+    env.tick(50);
+
+    char* list = mg_log_list(env.core);
+    CHECK(json_has(list, "\"success\":true"), "log list reports success");
+    CHECK(json_has(list, "\"total\":1"), "log list reports the real entry count");
+    CHECK(json_has(list, "\"id\":7"), "log list carries the real log id");
+    CHECK(json_has(list, "\"size_bytes\":4096"), "log list carries the real size");
+    if (list) mg_free_string(list);
+
+    // mg_log_get_entries 与兼容入口必须给出同一份数据。
+    char* entries = mg_log_get_entries(env.core);
+    CHECK(json_has(entries, "\"id\":7"), "mg_log_get_entries agrees with mg_log_list");
+    if (entries) mg_free_string(entries);
+}
+
+void test_rc_calibrate_save_is_honest() {
+    fprintf(stderr, "\n[Group] mg_rc_calibrate_save\n");
+    TestEnv env;
+    env.connect();
+
+    char* idle = mg_rc_calibrate_save(env.core);
+    CHECK(json_has(idle, "\"success\":true"), "save succeeds when no calibration is running");
+    CHECK(json_has(idle, "saved_by_flight_controller"),
+          "save explains the flight controller owns persistence");
+    if (idle) mg_free_string(idle);
+
+    // 校准进行中（ACK = IN_PROGRESS）时不得谎报保存成功。
+    env.mock->set_cmd_no_response(false);
+    env.mock->set_next_cmd_result(1 /* MAV_RESULT_IN_PROGRESS */);
+    char* start = mg_rc_calibrate_start(env.core);
+    if (start) mg_free_string(start);
+    env.tick(50);
+
+    char* in_progress = mg_rc_calibrate_save(env.core);
+    CHECK(json_has(in_progress, "\"success\":false"),
+          "save refuses while RC calibration is in progress");
+    if (in_progress) mg_free_string(in_progress);
+}
+
+void test_mission_request_propagates_send_failure() {
+    fprintf(stderr, "\n[Group] mg_mission_request\n");
+    TestEnv env;
+    env.connect();
+
+    char* ok_result = mg_mission_request(env.core, "{}");
+    CHECK(json_has(ok_result, "\"success\":true"), "mission request succeeds on a live link");
+    if (ok_result) mg_free_string(ok_result);
+}
+
 void test_serial_get_uart_names() {
     fprintf(stderr, "\n[Group] mg_serial_get_uart_names\n");
 
@@ -215,6 +272,9 @@ int main() {
     test_vehicle_request_firmware_version();
     test_calibration_cancel();
     test_config_param_write_path();
+    test_log_list_reports_real_entries();
+    test_rc_calibrate_save_is_honest();
+    test_mission_request_propagates_send_failure();
     test_serial_get_uart_names();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

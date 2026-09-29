@@ -146,6 +146,9 @@ private:
 
     // 按校准类型保存历史。
     std::array<std::vector<CalibrationResult>, 5> history_;
+    // 历史有变动但尚未落盘。写盘放在锁外（fire_event_safe），
+    // 避免在 MAVLink 回调的持锁路径里做文件 I/O。
+    bool persist_dirty_ = false;
 
     // 校准结果验证器。
     CalibrationValidator validator_;
@@ -170,7 +173,8 @@ private:
     uint64_t now_ms() const;
     uint64_t wall_clock_now_ms() const;
     void load_history_from_disk();
-    void persist_history() const;
+    void write_history_file(
+        const std::array<std::vector<CalibrationResult>, 5>& history) const;
     std::string history_storage_path() const;
 };
 

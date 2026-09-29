@@ -122,6 +122,14 @@ public:
         ftp_files_[path] = content;
     }
 
+    /// 发送一条 LOG_ENTRY，模拟飞控的日志列表。
+    void send_log_entry(uint16_t id, uint32_t time_utc, uint32_t size) {
+        mavlink_message_t m;
+        mavlink_msg_log_entry_pack(config_.system_id, config_.component_id, &m,
+                                   id, 1, id, time_utc, size);
+        send(m);
+    }
+
     // 故障注入状态（public，供测试断言）
     int cmd_drop_count_=0, cmd_dropped_so_far_=0;
     bool param_list_no_response_=false;

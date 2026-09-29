@@ -9,6 +9,10 @@
 
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
 
 using namespace mg::core::calibration;
 
@@ -384,6 +388,33 @@ static void test_verification_readback_failure_is_reported_failed() {
           "failed calibration history carries a failure reason");
 }
 
+// 回归：历史落盘现在推迟到 fire_event_safe 的锁外路径，必须验证真的写进了磁盘，
+// 而不是只改了内存里的标记。
+static void test_history_is_flushed_to_disk_outside_the_lock() {
+    fprintf(stderr, "\n[Group] Calibration history flush\n");
+    TestEnv env;
+    for (int i = 0; i < 15; i++) env.tick(100);
+
+    const auto path = std::filesystem::temp_directory_path() /
+                      "M-GCS-test" / "calibration-history.v1";
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+
+    char* result = mg_cal_start(env.core, 0, 0);
+    CHECK(result != nullptr, "gyro start returns non-null for flush test");
+    if (result) mg_free_string(result);
+    for (int i = 0; i < 20; i++) env.tick(50);
+
+    std::ifstream input(path);
+    CHECK(input.is_open(), "calibration history file is written to disk");
+    const std::string content((std::istreambuf_iterator<char>(input)),
+                              std::istreambuf_iterator<char>());
+    CHECK(content.find("MGCAL1 0 ") != std::string::npos,
+          "gyro record persisted with MGCAL1 format");
+    CHECK(content.find("Failed to read calibration parameters") != std::string::npos,
+          "failure reason persisted verbatim");
+}
+
 static void test_level_calibration_history_has_mode_and_wall_clock_timestamp() {
     fprintf(stderr, "\n[Group] Level calibration audit metadata\n");
     TestEnv env;
@@ -548,6 +579,7 @@ int main() {
     test_accelerometer_six_face_position_handshake();
     test_success_history_clears_verification_failure();
     test_verification_readback_failure_is_reported_failed();
+    test_history_is_flushed_to_disk_outside_the_lock();
     test_level_calibration_history_has_mode_and_wall_clock_timestamp();
     test_statustext_progress();
     test_statustext_success();

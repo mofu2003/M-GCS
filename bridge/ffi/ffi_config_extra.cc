@@ -168,6 +168,8 @@ MGCORE_API char* mg_mission_request(mg_core_t* core, const char* json_request) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     (void)json_request;
     auto* mav = get_active_mavlink(core);
-    mav->mission_download(active_target_sys(core), active_target_comp(core));
-    return ok();
+    if (mav->mission_download(active_target_sys(core), active_target_comp(core))) {
+        return ok();
+    }
+    return fail(MG_ERROR_SEND_FAILED, "mission download request failed to send");
 }

@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`ARCH-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`；`CI-001` 标记 `WONTFIX`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`）。
 - 当前分支：`main`。
 - 本地门禁由 `tools/preflight.sh --no-macos-build` 加单独一次 `flutter build macos --debug` 实跑得出。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -68,22 +68,22 @@ tools/preflight.sh
 | --- | ---: |
 | FFI 导出 | 281 |
 | 前端实际使用 | 48 |
-| 测试触达 | 187 |
-| 既无前端调用、也无测试触达 | 93 |
+| 测试触达 | 191 |
+| 既无前端调用、也无测试触达 | 89 |
 
 按领域头拆分（三列互斥，逐行求和等于导出数）：
 
 | 领域头 | 导出 | 前端在用 | 仅测试 | 两者皆无 |
 | --- | ---: | ---: | ---: | ---: |
-| configuration | 43 | 5 | 19 | 19 |
+| configuration | 43 | 5 | 21 | 17 |
 | connection | 21 | 6 | 10 | 5 |
 | core | 12 | 3 | 8 | 1 |
 | environment | 5 | 0 | 4 | 1 |
 | firmware | 7 | 3 | 3 | 1 |
 | flight | 32 | 0 | 32 | 0 |
 | geofence | 16 | 0 | 4 | 12 |
-| logging | 22 | 0 | 3 | 19 |
-| mission | 40 | 15 | 9 | 16 |
+| logging | 22 | 0 | 4 | 18 |
+| mission | 40 | 15 | 10 | 15 |
 | params | 20 | 6 | 5 | 9 |
 | payload | 17 | 0 | 13 | 4 |
 | telemetry | 46 | 10 | 30 | 6 |
@@ -92,7 +92,7 @@ tools/preflight.sh
 
 - 导出数包含新增的任务规划 FFI，因此不再等于 v0.0.8 快照中的 266。
 - “无人区”不等于可删除代码。专用公开面仍需按 `API_CATALOG.md` 的稳定性规则处理。
-- 完整 93 个接口清单可由 `tools/audit_status.sh` 重新生成。
+- 完整 89 个接口清单可由 `tools/audit_status.sh` 重新生成。
 - 早期版本的逐域表格三列不互斥（“仅测试”含前端已用的项），已在修正 `TOOL-001` 时一起修好。
 
 ## 4. 当前问题登记
@@ -200,20 +200,42 @@ tools/preflight.sh
 
 ### DEPRECATION-001：兼容接口没有退役状态
 
-- 状态：`OPEN`
-- FFI 中 deprecated 标记仍为 0。
-- 兼容别名、空壳 `mg_rc_calibrate_save` 和返回空列表的 `mg_log_list` 没有明确退役计划。
-- 处理：建立 deprecated 标记和替代关系，不直接删除公开符号。
+- 状态：`RESOLVED`（2026-09-29）
+- 修复前：`API_CATALOG.md` 虽列了兼容别名，但缺少退役规则；`mg_rc_calibrate_save`
+  无条件返回成功，`mg_log_list` 无条件返回 `success:true` + 空数组。
+- 处理：
+  - `API_CATALOG.md` 新增 `Deprecation policy` 段落，写明兼容名冻结、不新增行为、
+    只在 ABI-major 版本移除，并说明为什么暂不加编译器 `deprecated` 属性。
+  - 兼容表补上 `mg_log_list` 与 `mg_rc_calibrate_save` 两行及替代关系。
+  - `mg_log_list` 改为读取真实日志缓存；`mg_rc_calibrate_save` 在校准进行中改为
+    返回失败，不再谎报保存成功。
+  - `mg_mission_request` 之前忽略 `mission_download` 的返回值、无条件返回成功，现已透传失败。
+- 验证：`test_sim_ui_paths` 新增 `mg_log_list` / `mg_rc_calibrate_save` /
+  `mg_mission_request` 三组用例（含“旧实现会失败”的对照验证）。
+
+### CAL-003：校准历史在持锁路径写盘
+
+- 状态：`RESOLVED`（2026-09-29）
+- 实测：`CalibrationService::save_to_history()` 在持有 `mtx_` 时调用
+  `persist_history()` 写文件。该路径由 MAVLink 回调驱动，属于仓库禁区里
+  “持锁路径做阻塞 I/O”。
+- 修复：锁内只置 `persist_dirty_` 标记并保存历史；真正的写盘移到
+  `fire_event_safe()`（锁已释放）里，先用短锁取历史快照，再在锁外写文件。
+  `EventDispatchScope` 在所有回调返回后都会触发该路径，因此落盘时机基本不变。
+- 验证：`test_sim_calibration` 新增 `Calibration history flush` 组，先删除历史文件，
+  跑完一次校准后直接读磁盘断言 `MGCAL1` 记录与失败原因确实落盘（79/79 通过）。
 
 ### MISSION-001：Flutter 任务规划层尚未连接后端
 
-- 状态：`OPEN`
-- 实测：`flutter_shell/lib/mission/`（`mission_document_models.dart`、`_backend.dart`、`_controller.dart`）
-  三个文件只互相 import，既不引入 `dart:ffi`，也不依赖 `ConnectionController`。
-- 现有验证：只有 `test/mission_document_controller_test.dart` 的纯 Dart 单元测试。
-- 影响：任务规划的 Dart 侧目前是纯本地模型层，后端 `core/src/mission/cad/` 与 `bridge/ffi/ffi_mission_*.cc`
-  提供的能力还没被任何 UI 触达；mission 领域 40 个导出中仍有 16 个落在无人区。
-- 下一步：明确 “编辑在 Dart、编译与上传在后端” 的调用边界，再补 FFI 绑定，避免前端复制一份几何或编译逻辑。
+- 状态：`OPEN`（只剩前端）
+- 更正（2026-09-29）：本条早先写的“Dart 侧不依赖 `ConnectionController`”已过期。
+  `ConnectionController implements MissionDocumentBackend`，`missionPlanning`
+  控制器走的就是真实 FFI（`mg_mission_doc_*`），并不是纯本地模型层。
+- 实际缺口：`MissionDocumentController` 目前没有任何页面或组件使用，
+  也就是“后端已通、UI 未接”。mission 领域 40 个导出里仍有 15 个落在无人区。
+- 下一步：设计任务规划页面（属新增前端能力），按用现有 `missionPlanning` 控制器接线。
+- 契约提醒：上传是“启动传输”语义，完成后需要用 `mg_mission_get_progress`
+  轮询再 `mg_mission_doc_verify`，`API_CATALOG.md` 已写明。
 
 ### CLEANUP-001：组件陈列页无人引用
 
@@ -250,7 +272,7 @@ tools/preflight.sh
   `mg_serial_get_uart_names`、`mg_log_request_list`、`mg_terrain_query`、
   `mg_flight_get_takeoff_altitude`、`mg_flight_get_loiter_radius`。
 - 验证：修复后脚本输出 281 / 48 / 179 / 101。叠加本轮 `TEST-001` / `TEST-002` /
-  `TEST-003` 的新测试后，当前值为 **281 / 48 / 187 / 93**（以第 3 节与脚本实跑为准）。
+  `TEST-003` 及后续兼容入口用例后，当前值为 **281 / 48 / 191 / 89**（以第 3 节与脚本实跑为准）。
 
 ### CI-001：远端 CI 运行状态未在本地审计确认
 
@@ -279,6 +301,8 @@ tools/preflight.sh
 | 模拟测试 | 新增 `test_sim_commands` 的安全指令编码与飞行模式状态用例；`flight` 领域已无“无人区”接口 |
 | 参数变更集 | 新增 `test_sim_params` 的批量变更集用例：去重、未知/未变化统计、`_ENABLE` 最后写入（`TEST-003`） |
 | 组件画廊 | `component_gallery_demo.dart` 明确为开发工具（不进 release、已列入 token 豁免），保留而非删除（`CLEANUP-001`） |
+| 兼容入口 | `mg_log_list` 返回真实日志、`mg_rc_calibrate_save` 不再谎报成功、`mg_mission_request` 透传发送失败；`API_CATALOG.md` 补退役策略（`DEPRECATION-001`） |
+| 校准落盘 | 校准历史写盘移出持锁路径，改在 `fire_event_safe` 的锁外快照写文件（`CAL-003`） |
 | 校准测试 | 新增读回失败回归用例；mock 补 `INS_GYROFFS_*` / `INS_ACCOFFS_*` 参数 |
 | 飞行模式分档 | 多旋翼/固定翼 PWM 分档拆分，无效 RC 值不再误判档位 |
 | Mock FTP | `MockFlightController` 增加最小 MAVLink FTP 应答器，支撑 `mg_serial_get_uart_names` 离线复现 |
@@ -301,7 +325,9 @@ tools/preflight.sh
 
 1. 把 `MISSION-001` 的后端任务规划真正接到 Flutter（先定边界，再绑 FFI）。
 2. 接入 `UI-001` / `UI-002` 聚合诊断和长任务取消。
-3. 启动 `DEPRECATION-001`，让兼容接口进入明确退役流程。
+
+剩余的 `MISSION-001` / `UI-001` / `UI-002` 都是**新增前端能力**，不是缺陷：
+后端接口、契约和测试都已就绪，缺的是页面本身。
 
 ## 7. 维护规则
 
@@ -321,7 +347,7 @@ tools/preflight.sh
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`ARCH-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`；`CI-001` 转 `WONTFIX`；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；本地门禁（含 macOS debug 构建）已实跑通过 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

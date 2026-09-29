@@ -117,6 +117,13 @@ but before download returns `invalid_state`. It returns `matches` plus structure
 differences for item count, command, frame, position, altitude, parameters,
 `autocontinue`, and `mission_type`.
 
+Upload is start-only, for both `mg_mission_doc_upload` and the compatibility
+entry `mg_mission_upload`: a successful return means the transfer was started,
+not that the flight controller finished receiving it. `mg_mission_doc_upload`
+reports `state: "uploading"` for that reason. Poll `mg_mission_get_progress`
+until it reports completion, then call `mg_mission_doc_verify` to compare the
+readback. Treating the upload return value as completion is a bug.
+
 `mg_mission_get_command_catalog` exposes command names, categories, whether a
 position or altitude is required, and per-parameter MAVLink index, labels,
 units, types, defaults, ranges, required flags, and enum options. Parameter
@@ -137,6 +144,22 @@ forms from this catalog rather than hard-coding MAV_CMD parameter semantics.
 | `mg_mission_add_item`, `mg_mission_update_item`, `mg_mission_remove_item`, `mg_mission_move_item` | `mg_mission_doc_apply`; legacy APIs mutate and upload immediately instead of editing an offline document. |
 | `mg_mission_validate`, `mg_mission_get_stats` | `mg_mission_doc_validate`, `mg_mission_doc_estimate`; new APIs validate the source document and return structured diagnostics. |
 | `mg_mission_export_json`, `mg_mission_import_json`, `mg_mission_export_csv`, `mg_mission_import_csv` | `mg_mission_doc_export`, `mg_mission_doc_import`, `mg_mission_doc_save`, `mg_mission_doc_load`; the new format preserves revision and parameterized intent. |
+| `mg_log_list` | `mg_log_get_entries`. Both now read the same log-entry cache; `mg_log_list` wraps it in `{success, logs, total}`. |
+| `mg_rc_calibrate_save` | No replacement is needed: ArduPilot and PX4 persist `RCn_MIN/TRIM/MAX` when RC calibration finishes. The entry remains for ABI compatibility and now refuses while an RC calibration is still running instead of reporting a false success. |
+
+### Deprecation policy
+
+Compatibility entries stay exported so existing binaries keep linking; they are
+frozen rather than removed. Concretely:
+
+- No new behavior is added to a compatibility name. Bug fixes that make a
+  compatibility entry stop reporting false success are allowed, and are called
+  out in the `CHANGELOG.md` entry of the release that ships them.
+- New consumers must use the replacement listed above.
+- Removal happens only at an ABI-major release with a migration note. Until
+  then, `MGCORE_API` keeps the plain C signature; no compiler `deprecated`
+  attribute is applied, because that would emit warnings in consumers that are
+  already pinned to the old name.
 
 `mg_connection_open` accepts one explicit URI (`serial://`, `tcp://`, or
 `udp://`) and returns a session/vehicle ID without changing active/UI focus.

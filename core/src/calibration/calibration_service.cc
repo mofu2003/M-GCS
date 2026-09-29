@@ -428,13 +428,24 @@ void CalibrationService::fire_event() {
 void CalibrationService::fire_event_safe() {
     // Self-locks, copies callback+state, invokes outside lock.
     // Safe for re-entrant callbacks. Callers must NOT hold mtx_.
+    // 校准历史的落盘也在这里完成：锁内只取快照，文件 I/O 在锁外。
     std::vector<CalibrationStatus> pending;
     CalibrationEventCallback cb_fn;
+    std::array<std::vector<CalibrationResult>, 5> history_snapshot;
+    bool flush_history = false;
     {
         mg::core::platform::LockGuard lk(mtx_);
-        if (pending_events_.empty()) return;
+        if (pending_events_.empty() && !persist_dirty_) return;
         pending.swap(pending_events_);
         cb_fn = event_cb_;
+        if (persist_dirty_) {
+            persist_dirty_ = false;
+            flush_history = true;
+            history_snapshot = history_;
+        }
+    }
+    if (flush_history) {
+        write_history_file(history_snapshot);
     }
     if (cb_fn) {
         for (const auto& status : pending) {
@@ -572,7 +583,8 @@ void CalibrationService::save_to_history() {
         while (history_[idx].size() > static_cast<size_t>(kMaxCalibrationHistory)) {
             history_[idx].erase(history_[idx].begin());
         }
-        persist_history();
+        // 只打脏标记；真正的写盘在 fire_event_safe 的锁外路径完成。
+        persist_dirty_ = true;
     }
 }
 
@@ -680,7 +692,8 @@ void CalibrationService::load_history_from_disk() {
     }
 }
 
-void CalibrationService::persist_history() const {
+void CalibrationService::write_history_file(
+    const std::array<std::vector<CalibrationResult>, 5>& history) const {
     namespace fs = std::filesystem;
     const fs::path path(history_storage_path());
     std::error_code error;
@@ -697,7 +710,7 @@ void CalibrationService::persist_history() const {
         return;
     }
     output << std::setprecision(9);
-    for (const auto& type_history : history_) {
+    for (const auto& type_history : history) {
         for (const auto& result : type_history) {
             output << "MGCAL1 " << static_cast<int>(result.type) << ' '
                    << static_cast<int>(result.stage) << ' '

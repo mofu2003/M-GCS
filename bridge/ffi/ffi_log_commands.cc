@@ -50,14 +50,29 @@ MGCORE_API char* mg_log_get_entries(mg_core_t* core) {
 
 MGCORE_API char* mg_log_list(mg_core_t* core) {
     CHECK_CORE(core);
+    auto* mav = get_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
+
+    // 兼容入口：以前无论有没有日志都返回 success:true + 空数组，等于撒谎。
+    // 现在返回真实条目，字段与 mg_log_get_entries 保持一致。
+    const auto entries = mav->log_get_entries();
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     mg::bridge::JsonBuilder arr;
     arr.begin_array();
+    for (const auto& entry : entries) {
+        mg::bridge::JsonBuilder item;
+        item.begin_object();
+        item.field("id", static_cast<int>(entry.id));
+        item.field("time_utc", static_cast<int>(entry.time_utc));
+        item.field("size_bytes", static_cast<int>(entry.size_bytes));
+        item.end_object();
+        arr.append_json(item.str());
+    }
     arr.end_array();
     jb.raw_field("logs", arr.str());
-    jb.field("total", 0);
+    jb.field("total", static_cast<int>(entries.size()));
     jb.end_object();
     return to_cstr(jb.str());
 }
