@@ -2,6 +2,7 @@
 
 #include "ffi_api.h"
 #include "core/mission/cad/mission_document.h"
+#include "core/mission/cad/mission_interchange.h"
 
 #include <cmath>
 #include <cstdio>
@@ -555,6 +556,97 @@ static void test_ffi_survey_entity_roundtrip() {
     mg_destroy(core);
 }
 
+// .waypoints 互操作：导出格式对齐 Mission Planner 的写出实现，且能原样读回。
+static void test_waypoints_interchange() {
+    fprintf(stderr, "\n[Group] .waypoints interchange\n");
+    MissionDocument document = valid_document();
+    const MissionCompileResult compiled =
+        MissionDocumentService::compile_document(document);
+    CHECK(compiled.valid, "document compiles for waypoints export");
+
+    std::string error;
+    const std::string text = export_waypoints_text(document, compiled.plan, error);
+    CHECK(error.empty(), "waypoints export reports no error");
+    CHECK(text.rfind("QGC WPL 110", 0) == 0,
+          "waypoints export starts with the QGC WPL header");
+    CHECK(text.find("\n0\t1\t0\t16\t") != std::string::npos,
+          "waypoints export writes the MP-style home row at seq 0");
+    CHECK(text.find("39.9000000") != std::string::npos,
+          "waypoints export writes home latitude in degrees");
+
+    MissionDocument imported;
+    imported.metadata.name = "Imported";
+    CHECK(import_waypoints_text(text, imported, error),
+          "exported waypoints text re-imports");
+    CHECK(imported.home.set && std::fabs(imported.home.latitude - 39.9) < 1e-6,
+          "import restores home from the home row");
+    CHECK(imported.entities.size() == compiled.plan.items.size(),
+          "import restores one entity per mission item");
+    CHECK(!imported.entities.empty() &&
+              imported.entities[0].command ==
+                  static_cast<uint16_t>(NavCommand::NavTakeoff),
+          "import keeps the first mission command");
+
+    const MissionValidationReport report =
+        MissionDocumentService::validate_document(imported);
+    CHECK(!report.has_errors(), "imported document validates");
+
+    MissionDocument dummy;
+    error.clear();
+    CHECK(!import_waypoints_text("not a waypoint file\n", dummy, error),
+          "missing QGC WPL header is rejected");
+    CHECK(!error.empty(), "rejected import reports a reason");
+    error.clear();
+    CHECK(!import_waypoints_text("QGC WPL 110\n", dummy, error),
+          "header without rows is rejected");
+}
+
+static void test_ffi_waypoints_interchange() {
+    fprintf(stderr, "\n[Group] .waypoints interchange through FFI\n");
+    mg_core_t* core = mg_create();
+    CHECK(core != nullptr, "mg_create succeeds (interchange)");
+
+    char* result = mg_mission_doc_create(
+        core, R"({"metadata":{"name":"Interchange"}})");
+    if (result) mg_free_string(result);
+    result = mg_mission_doc_apply(
+        core,
+        R"({"operation":"add","expected_revision":1,"entity":{"type":"waypoint","command":16,"lat":39.9,"lon":116.4,"alt_m":50}})");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_export_format(core, "waypoints");
+    CHECK(result && strstr(result, "\"success\":true"),
+          "FFI export_format succeeds");
+    CHECK(result && strstr(result, "QGC WPL 110"),
+          "FFI export_format returns QGC WPL text");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_export_format(core, "kml");
+    CHECK(result && strstr(result, "\"success\":false"),
+          "FFI export_format rejects an unsupported format");
+    if (result) mg_free_string(result);
+
+    const char* import_text =
+        "QGC WPL 110\n"
+        "0\t1\t0\t16\t0\t0\t0\t0\t39.9000000\t116.4000000\t20.000000\t1\n"
+        "1\t0\t3\t16\t0\t2\t0\t0\t39.9050000\t116.4050000\t50.000000\t1\n";
+    result = mg_mission_doc_import_format(core, "waypoints", import_text);
+    CHECK(result && strstr(result, "\"success\":true"),
+          "FFI import_format accepts a QGC WPL file");
+    CHECK(result && strstr(result, "\"waypoint-1\""),
+          "FFI import_format brings in the mission entity");
+    CHECK(result && strstr(result, "\"lat\":39.90"),
+          "FFI import_format keeps the imported latitude");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_import_format(core, "waypoints", "garbage");
+    CHECK(result && strstr(result, "\"success\":false"),
+          "FFI import_format rejects a malformed file");
+    if (result) mg_free_string(result);
+
+    mg_destroy(core);
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Tests ===\n");
     test_document_editing_history();
@@ -563,6 +655,8 @@ int main() {
     test_parameterized_survey_entities();
     test_ffi_contract();
     test_ffi_survey_entity_roundtrip();
+    test_waypoints_interchange();
+    test_ffi_waypoints_interchange();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

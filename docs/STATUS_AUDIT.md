@@ -6,7 +6,7 @@
 ## 审计范围
 
 - 代码基线：`v0.0.10`（commit `0c8b193`）之后再叠加 `fix:` 校准提交与本轮审计修订。
-- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
+- 本文更新时间：2026-09-29（第三轮：关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 标记 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`）。
 - 当前分支：`main`。
 - 本地门禁由 `tools/preflight.sh --no-macos-build` 加单独一次 `flutter build macos --debug` 实跑得出。
 - 本审计不访问远端。CI 是否真正运行需要单独检查 GitHub Actions，不能由本地门禁推断。
@@ -314,6 +314,21 @@ tools/preflight.sh
   `Survey entity through FFI` 两组共 20 条断言（101/101 通过），覆盖
   验证、编译展开、序列化往返、走廊终点缺失拒绝、宽度为 0 拒绝、FFI 全链路。
 
+### INTEROP-001：任务文件互操作未实现
+
+- 状态：`RESOLVED`（2026-09-29，`.waypoints` 部分）
+- 实测（修复前）：`core` 只有自定义 `.mgcad.json`，Mission Planner / QGC 通用的
+  `.waypoints`（`QGC WPL 110`）无法导入导出，`MissionManager` 的 csv/json 导出
+  是另一套字段，不能直接喂给 MP。
+- 修复：新增 `core/.../mission_interchange.{h,cc}`，实现 `QGC WPL 110` 读写，
+  格式对齐 Mission Planner 自身的写出实现（第 0 行 home、任务项 seq 从 1 起、
+  lat/lon 十进制度）；FFI 暴露 `mg_mission_doc_export_format` /
+  `mg_mission_doc_import_format`，格式名参数化，后续可加 `.plan`。
+- 验证：`test_mission_document` 新增 `.waypoints interchange` 与
+  `.waypoints interchange through FFI` 两组，覆盖表头、home 行、往返、
+  导入后校验、缺表头/空行拒绝、格式名不合法拒绝。
+- 剩余：QGC `.plan`（JSON，含 geoFence / rallyPoints）与 Rally 文档尚未实现。
+
 ### DEAD-001：固件刷写是死代码，状态接口返回硬编码值
 
 - 状态：`OPEN`（低危，未修）
@@ -394,7 +409,7 @@ tools/preflight.sh
 | 兼容入口 | `mg_log_list` 返回真实日志、`mg_rc_calibrate_save` 不再谎报成功、`mg_mission_request` 透传发送失败；`API_CATALOG.md` 补退役策略（`DEPRECATION-001`） |
 | 校准落盘 | 校准历史写盘移出持锁路径，改在 `fire_event_safe` 的锁外快照写文件（`CAL-003`） |
 | 飞行日志 | STATUSTEXT 与连接事件真正接入日志服务（`LOG-001`）；写回调移出持锁路径（`LOCK-001`） |
-| 任务规划 | `survey_grid` / `corridor` 成为参数化实体，编译期由 `SurveyCalculator` 展开（`SURVEY-001`） |
+| 任务规划 | `survey_grid` / `corridor` 成为参数化实体，编译期由 `SurveyCalculator` 展开（`SURVEY-001`）；新增 `.waypoints` 互操作（`INTEROP-001`） |
 | 事件通道 | `MG_EVENT_WAYPOINT_REACHED` 以前从不发出，现已接线并带 `seq`（`EVENT-001`） |
 | 架构守卫 | `read_file` 打不开文件时直接判失败，避免守卫静默空转（`TESTGUARD-001`） |
 | 校准测试 | 新增读回失败回归用例；mock 补 `INS_GYROFFS_*` / `INS_ACCOFFS_*` 参数 |
@@ -445,7 +460,7 @@ FFmpeg 的构建环境。两者都不影响当前默认构建。
 | 日期 | 2026-09-29（第二轮更新） |
 | 依据版本 | tag `v0.0.10` 之后的本地工作树（含 `CAL-001` 修复与新增仿真测试） |
 | 数据来源 | 本机实跑 `tools/preflight.sh --no-macos-build` 与 `tools/audit_status.sh`，非估算 |
-| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
+| 本轮改动 | 关闭 `CAL-001`、`CAL-002`、`CAL-003`、`ARCH-001`、`LOG-001`、`LOCK-001`、`EVENT-001`、`TESTGUARD-001`、`SURVEY-001`、`INTEROP-001`、`TEST-001`、`TEST-002`、`TEST-003`、`TOOL-002`、`CONTRACT-001`、`CLEANUP-001`、`DEPRECATION-001`；`CI-001` 转 `WONTFIX`；新增 `DEAD-001`、`VIDEO-001`；刷新门禁与统计 |
 | 复核状态 | **未经人工复核**；本地门禁（含 macOS debug 构建）已实跑通过 |
 
 > 按 [协作流程](COLLABORATION.md) 中“不要由实现者自证”的约定，本文所列修改建议

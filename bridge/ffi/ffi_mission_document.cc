@@ -4,6 +4,7 @@
 #include "mission_json_serializers.h"
 
 #include "core/mission/cad/mission_document.h"
+#include "core/mission/cad/mission_interchange.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -609,6 +610,74 @@ MGCORE_API char* mg_mission_doc_export(mg_core_t* core) {
     CHECK_CORE(core);
     return to_cstr(mg::core::mission::cad::serialize_mission_document(
         ensure_document(core)->snapshot()));
+}
+
+MGCORE_API char* mg_mission_doc_export_format(mg_core_t* core, const char* format) {
+    CHECK_CORE(core);
+    if (!format || format[0] == '\0') {
+        return fail(MG_ERROR_INVALID_PARAM, "empty interchange format");
+    }
+    if (!mg::core::mission::cad::is_supported_interchange_format(format)) {
+        return fail(MG_ERROR_INVALID_PARAM,
+                    "unsupported interchange format (supported: waypoints)");
+    }
+
+    // 导出用编译结果，保证写出的文件就是会上传的那份任务。
+    const auto service = ensure_document(core);
+    const MissionDocument document = service->snapshot();
+    const auto compiled = service->compile();
+    if (compiled.report.has_errors()) {
+        return validation_failure_json(
+            "mission document cannot be exported because validation failed",
+            compiled.report);
+    }
+
+    std::string error;
+    const std::string text = mg::core::mission::cad::export_waypoints_text(
+        document, compiled.plan, error);
+    if (!error.empty()) {
+        return fail(MG_ERROR_INTERNAL, error.c_str());
+    }
+
+    mg::bridge::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("format", "waypoints");
+    jb.field("item_count", static_cast<int>(compiled.plan.items.size()));
+    jb.field("text", text);
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
+MGCORE_API char* mg_mission_doc_import_format(
+    mg_core_t* core,
+    const char* format,
+    const char* text) {
+    CHECK_CORE(core);
+    if (!format || format[0] == '\0') {
+        return fail(MG_ERROR_INVALID_PARAM, "empty interchange format");
+    }
+    if (!mg::core::mission::cad::is_supported_interchange_format(format)) {
+        return fail(MG_ERROR_INVALID_PARAM,
+                    "unsupported interchange format (supported: waypoints)");
+    }
+    if (!text || text[0] == '\0') {
+        return fail(MG_ERROR_INVALID_PARAM, "empty mission file text");
+    }
+
+    // 在现有文档上导入，保留 metadata / defaults / revision。
+    MissionDocument document = ensure_document(core)->snapshot();
+    std::string error;
+    if (!mg::core::mission::cad::import_waypoints_text(text, document, error)) {
+        return fail(MG_ERROR_INVALID_PARAM, error.c_str());
+    }
+
+    auto service = std::make_shared<MissionDocumentService>(std::move(document));
+    {
+        mg::core::platform::LockGuard lock(core->mission_mtx);
+        core->mission_document = service;
+    }
+    return to_cstr(document_snapshot_json(service, true));
 }
 
 MGCORE_API char* mg_mission_doc_import(mg_core_t* core, const char* json_document) {

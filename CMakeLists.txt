@@ -129,6 +129,7 @@ set(MGCORE_SOURCES
     core/src/mission/survey_calculator.cc
     core/src/mission/cad/mission_document.cc
     core/src/mission/cad/mission_command_catalog.cc
+    core/src/mission/cad/mission_interchange.cc
     # Flight mode management
     core/src/flight/flight_mode_manager.cc
     # Configuration management
@@ -362,7 +363,7 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_bridge_architecture_guards.cc
         core/tests/test_bridge_vehicle_session.cc
         core/tests/test_bridge_mission_workflow.cc
-        core/tests/test_mission_document.cc
+    core/tests/test_mission_document.cc
         tests/test_v2_contract.cc
         core/tests/test_mavlink_protocol.cc
 

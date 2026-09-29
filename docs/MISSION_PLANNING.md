@@ -235,7 +235,31 @@ ArduPilot 的 home item 注入仍由现有传输适配层处理，不进入任�
 - 测绘区域（`survey_grid`）和走廊（`corridor`）已作为参数化实体接入文档，编译期由
   `SurveyCalculator` 展开；环绕（orbit）仍用命令目录里的参数表达。
 
+## 文件互操作
+
+`mg_mission_doc_export_format` / `mg_mission_doc_import_format` 处理外部任务文件。
+目前支持 `"waypoints"`，即 Mission Planner 与 QGroundControl 通用的
+`QGC WPL 110` 文本格式：
+
+```text
+QGC WPL 110
+seq<TAB>current<TAB>frame<TAB>command<TAB>p1<TAB>p2<TAB>p3<TAB>p4<TAB>lat<TAB>lon<TAB>alt<TAB>autocontinue
+```
+
+约定与 Mission Planner 的写出实现一致：
+
+- 首行固定 `QGC WPL 110`。
+- 第 0 行是 home：`current=1`、`frame=0`、`command=16`、参数全 0，经纬度用十进制度。
+- 任务项从 `seq=1` 开始，`current=0`；lat/lon 十进制度、alt 米。
+- 导出用的是**编译结果**，所以文件内容等于会上传的任务；文档校验不通过时导出会被拒绝。
+- 导入按命令反推实体类型（航点/起飞/降落/RTL/悬停），home 行进 `document.home`，
+  其余行各生成一个实体。导入会**丢弃**参数化测绘的意图——展开后的航点无法还原成
+  `survey_grid`，这是格式本身的限制。
+
+读取端容忍 `#` 注释行与制表符/空格/逗号分隔（与 Mission Planner 一致）。
+
 ## 与旧任务的边界
+
 
 - `MissionManager` 和 `mg_mission_add_item/update_item/remove_item/move_item`
   属于旧兼容路径，会直接读改写 `MissionPlan` 并立即上传飞控。
@@ -243,4 +267,5 @@ ArduPilot 的 home item 注入仍由现有传输适配层处理，不进入任�
   上传统一使用 `mg_mission_doc_upload`。
 - `SurveyCalculator` 是唯一的测绘几何实现，由 `survey_grid` / `corridor` 编译实体调用，
   前端不得复制它的测绘计算。
-- QGC `.plan`、Mission Planner `.waypoints` 和地理围栏/Rally 的统一文档尚未实现。
+- Mission Planner / QGC 的 `.waypoints`（`QGC WPL 110`）已支持导入导出；
+  QGC `.plan`（JSON）与地理围栏 / Rally 的统一文档尚未实现。

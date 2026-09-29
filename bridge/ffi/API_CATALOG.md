@@ -35,6 +35,7 @@ and a migration note have been published.
 | Flight commands | `mg_command_*` |
 | Logging | `mg_log_request_list`, `mg_log_get_entries`, `mg_log_record_*` |
 | Mission planning document | `mg_mission_doc_create`, `mg_mission_doc_apply`, `mg_mission_doc_validate`, `mg_mission_doc_compile`, `mg_mission_doc_upload`, `mg_mission_doc_verify` |
+| Mission file interchange | `mg_mission_doc_export_format`, `mg_mission_doc_import_format`（当前支持 `"waypoints"`，即 Mission Planner / QGC 的 `QGC WPL 110` 文本） |
 | Mission command metadata | `mg_mission_get_command_catalog` |
 
 Existing first-party bindings deliberately cover connection, dashboard,
