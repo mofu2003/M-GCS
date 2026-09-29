@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -7,6 +10,8 @@ import 'package:macos_ui/macos_ui.dart';
 import '../connection/connection_controller.dart';
 import '../theme/mg_colors.dart';
 import '../connection_panel.dart';
+import 'gcj_coordinates.dart';
+import 'map_preferences.dart';
 
 enum MapStyle { standard, terrain, amap, amapSatellite, amapSatelliteHybrid }
 
@@ -19,6 +24,7 @@ class _MapSource {
     this.maxNativeZoom = 18,
     this.fallbackUrl,
     this.overlay,
+    this.gcj02 = false,
   });
 
   final String label;
@@ -28,6 +34,9 @@ class _MapSource {
   final int maxNativeZoom;
   final String? fallbackUrl;
   final _MapSource? overlay;
+
+  /// 瓦片是否为 GCJ-02 坐标系。高德是，OSM/HOT/OpenHikingMap 是 WGS-84。
+  final bool gcj02;
 }
 
 _MapSource _sourceFor(MapStyle style) => switch (style) {
@@ -51,6 +60,7 @@ _MapSource _sourceFor(MapStyle style) => switch (style) {
         'https://webrd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=1&style=7',
     subdomains: ['1', '2', '3', '4'],
     attribution: '© 高德地图 | 高德开放平台',
+    gcj02: true,
   ),
   MapStyle.amapSatellite => const _MapSource(
     label: '高德卫星地图',
@@ -59,6 +69,7 @@ _MapSource _sourceFor(MapStyle style) => switch (style) {
     subdomains: ['1', '2', '3', '4'],
     attribution:
         '© 高德地图 | Image© DigitalGlobe & China Siwei | Airbus & EastDawn',
+    gcj02: true,
   ),
   MapStyle.amapSatelliteHybrid => _MapSource(
     label: '高德卫星 + 路网',
@@ -67,6 +78,7 @@ _MapSource _sourceFor(MapStyle style) => switch (style) {
     subdomains: const ['1', '2', '3', '4'],
     attribution:
         '© 高德地图 | Image© DigitalGlobe & China Siwei | Airbus & EastDawn',
+    gcj02: true,
     overlay: const _MapSource(
       label: '高德卫星路网标注',
       url:
@@ -76,8 +88,6 @@ _MapSource _sourceFor(MapStyle style) => switch (style) {
     ),
   ),
 };
-
-const _defaultCenter = LatLng(31.2304, 121.4737); // Shanghai, GCJ-02.
 
 class AMapMapView extends StatefulWidget {
   const AMapMapView({
@@ -96,8 +106,140 @@ class AMapMapView extends StatefulWidget {
 class _AMapMapViewState extends State<AMapMapView> {
   final _controller = MapController();
   MapStyle _style = MapStyle.amap;
+  double _zoom = kDefaultMapZoom;
+  LatLng _center = kDefaultMapCenter;
+
+  /// 偏好读完之前不写盘，否则会把默认值覆盖掉用户上次的选择。
+  bool _preferencesLoaded = false;
+  Timer? _saveTimer;
   bool _showConnectionPanel = false;
   bool _showMissionPlanning = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_restorePreferences());
+  }
+
+  Future<void> _restorePreferences() async {
+    final preferences = await MapPreferences.load();
+    if (!mounted) return;
+    setState(() {
+      _preferencesLoaded = true;
+      _zoom = preferences.zoom;
+      _center = preferences.center;
+      _style = MapStyle.values.firstWhere(
+        (value) => value.name == preferences.styleName,
+        orElse: () => MapStyle.amap,
+      );
+    });
+    // 地图可能已经用默认中心建好了，读完偏好再挪一次。
+    // `_center` 存的是 WGS-84，落位时要转到当前瓦片的坐标系。
+    _controller.move(_toTileFrame(_center.latitude, _center.longitude), _zoom);
+  }
+
+  /// 缩放/中心变化很密集，合并成一次写盘。
+  void _scheduleSave(LatLng center, double zoom) {
+    _center = _toWgs84(center);
+    _zoom = zoom;
+    if (!_preferencesLoaded) return;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 600), () {
+      unawaited(
+        MapPreferences(
+          styleName: _style.name,
+          zoom: _zoom,
+          center: _center,
+        ).save(),
+      );
+    });
+  }
+
+  void _selectStyle(MapStyle style) {
+    setState(() => _style = style);
+    // 坐标系可能变了（高德 GCJ-02 ↔ OSM WGS-84），按同一地理位置重新定位，
+    // 否则切一次地图源画面会整体平移几百米。
+    _controller.move(_toTileFrame(_center.latitude, _center.longitude), _zoom);
+    if (!_preferencesLoaded) return;
+    unawaited(
+      MapPreferences(
+        styleName: style.name,
+        zoom: _zoom,
+        center: _center,
+      ).save(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Home 点与飞机当前位置。
+  ///
+  /// 坐标一律先转到当前瓦片所在的坐标系：飞控给的是 WGS-84，高德瓦片是
+  /// GCJ-02，不转换会整体偏 100–700 米（Mission Planner 也是这么处理的）。
+  LatLng _toTileFrame(double latitude, double longitude) {
+    if (!_sourceFor(_style).gcj02) return LatLng(latitude, longitude);
+    final (lat, lon) = GcjCoordinates.wgs84ToGcj02(latitude, longitude);
+    return LatLng(lat, lon);
+  }
+
+  /// 反向：把瓦片坐标系里的点还原成 WGS-84。
+  ///
+  /// 相机中心始终按 WGS-84 保存，这样切换地图源、重启后恢复视图都不会平移。
+  LatLng _toWgs84(LatLng point) {
+    if (!_sourceFor(_style).gcj02) return point;
+    final (lat, lon) = GcjCoordinates.gcj02ToWgs84(
+      point.latitude,
+      point.longitude,
+    );
+    return LatLng(lat, lon);
+  }
+
+  ///
+  /// 数据来自后端缓存的 `HOME_POSITION` / `GLOBAL_POSITION_INT`，两个都是
+  /// `valid` 才画——定位还没锁定时不画一个假的点在地图中心。
+  List<Marker> _buildMarkers(MgColors colors) {
+    final connection = widget.connectionController;
+    final markers = <Marker>[];
+    final home = connection.homePosition;
+    if (connection.homePositionValid && home != null) {
+      markers.add(
+        Marker(
+          point: _toTileFrame(home.latitude, home.longitude),
+          width: 28,
+          height: 28,
+          child: _MapMarker(
+            icon: CupertinoIcons.house_fill,
+            // Home 用成功色，飞机用强调色，和界面其它状态色保持同一套语义。
+            fill: colors.surface,
+            border: colors.success,
+            iconColor: colors.success,
+          ),
+        ),
+      );
+    }
+    final fix = connection.vehiclePosition;
+    if (connection.vehiclePositionValid && fix != null) {
+      markers.add(
+        Marker(
+          point: _toTileFrame(fix.latitude, fix.longitude),
+          width: 36,
+          height: 36,
+          child: _MapMarker(
+            icon: CupertinoIcons.paperplane_fill,
+            fill: colors.accent,
+            border: colors.surface,
+            iconColor: colors.onAccent,
+            headingDegrees: fix.headingDegrees,
+          ),
+        ),
+      );
+    }
+    return markers;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -107,11 +249,13 @@ class _AMapMapViewState extends State<AMapMapView> {
       children: [
         FlutterMap(
           mapController: _controller,
-          options: const MapOptions(
-            initialCenter: _defaultCenter,
-            initialZoom: 11,
-            minZoom: 3,
-            maxZoom: 19,
+          options: MapOptions(
+            initialCenter: _center,
+            initialZoom: _zoom,
+            minZoom: kMinMapZoom,
+            maxZoom: kMaxMapZoom,
+            onPositionChanged: (camera, hasGesture) =>
+                _scheduleSave(camera.center, camera.zoom),
           ),
           children: [
             TileLayer(
@@ -128,6 +272,12 @@ class _AMapMapViewState extends State<AMapMapView> {
                 maxNativeZoom: source.overlay!.maxNativeZoom,
                 userAgentPackageName: 'com.mgcs.frontend',
               ),
+            // 位置每 100ms 更新一次，只重画标记层，不重建整张地图。
+            AnimatedBuilder(
+              animation: widget.connectionController.telemetryChanges,
+              builder: (context, _) =>
+                  MarkerLayer(markers: _buildMarkers(context.mgColors)),
+            ),
           ],
         ),
         Positioned(
@@ -144,7 +294,7 @@ class _AMapMapViewState extends State<AMapMapView> {
                     MacosPulldownMenuItem(
                       label: _sourceFor(style).label,
                       title: Text(_sourceFor(style).label),
-                      onTap: () => setState(() => _style = style),
+                      onTap: () => _selectStyle(style),
                     ),
                 ],
               ),
@@ -168,7 +318,20 @@ class _AMapMapViewState extends State<AMapMapView> {
               _controller.camera.center,
               _controller.camera.zoom - 1,
             ),
-            onReset: () => _controller.move(_defaultCenter, 11),
+            // 有机上定位就回到飞机，否则回默认中心。
+            onReset: () {
+              final fix = widget.connectionController.vehiclePosition;
+              final valid = widget.connectionController.vehiclePositionValid;
+              _controller.move(
+                valid && fix != null
+                    ? _toTileFrame(fix.latitude, fix.longitude)
+                    : _toTileFrame(
+                        kDefaultMapCenter.latitude,
+                        kDefaultMapCenter.longitude,
+                      ),
+                valid ? 15 : kDefaultMapZoom,
+              );
+            },
             onOpenConfiguration: widget.onOpenConfiguration,
             onOpenConnection: () => setState(() {
               _showMissionPlanning = false;
@@ -225,6 +388,45 @@ class _AMapMapViewState extends State<AMapMapView> {
           child: const Text('好'),
         ),
       ),
+    );
+  }
+}
+
+/// 地图上的圆点标记：Home 点用房子图标，飞机用按航向旋转的纸飞机。
+///
+/// 与 Mission Planner / QGC 的做法一致——Home 是静态图标，飞机标记跟随航向旋转，
+/// 这样不用看数字也能判断机头朝向。
+class _MapMarker extends StatelessWidget {
+  const _MapMarker({
+    required this.icon,
+    required this.fill,
+    required this.border,
+    required this.iconColor,
+    this.headingDegrees,
+  });
+
+  final IconData icon;
+  final Color fill;
+  final Color border;
+  final Color iconColor;
+  final double? headingDegrees;
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = Container(
+      decoration: BoxDecoration(
+        color: fill,
+        shape: BoxShape.circle,
+        border: Border.all(color: border, width: 2),
+      ),
+      child: Center(child: Icon(icon, size: 15, color: iconColor)),
+    );
+    final heading = headingDegrees;
+    if (heading == null || !heading.isFinite) return badge;
+    // 纸飞机图标默认朝右，而航向 0° 是正北，所以额外减 90°。
+    return Transform.rotate(
+      angle: (heading - 90) * math.pi / 180,
+      child: badge,
     );
   }
 }

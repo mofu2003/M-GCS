@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.0.10 - 2026-09-29
+
+### Added
+
+- Map now draws the flight controller's Home point and the aircraft's current
+  position, fed by the existing `mg_vehicle_get_global_position` and
+  `mg_vehicle_get_home_position` caches at the regular telemetry rate. The
+  aircraft marker rotates with heading; neither marker is drawn while the fix is
+  invalid.
+- Map view preferences are persisted (tile source, zoom, centre) under the app
+  support directory, so the map reopens where it was left. New dependency:
+  `path_provider` (BSD-3-Clause).
+- Per-compass magnetometer calibration progress. `mg_calibration_get_status` now
+  carries `compass_progress: [{compass_id, completion_pct}]` alongside the
+  aggregate `progress`, and the calibration card draws one bar per detected
+  compass.
+- `docs/FONT_ALTERNATIVES_RESEARCH.md` and ADR 0007 record how the UI font stack
+  was chosen, with per-glyph similarity measurements.
+
+### Changed
+
+- UI font is now a single bundled family, `MiSans`, on every platform, so macOS
+  and Windows render identically. The previous stack silently resolved to
+  Helvetica Neue / PingFang SC / Menlo on macOS because `SF Pro Text` is not a
+  resolvable family name.
+- Only titles are bold. Numeric readouts, status labels, badges, sensor models,
+  firmware names and sidebar entries all use `w400`; the sidebar selection is
+  expressed by its accent background instead of font weight.
+- The sidebar is collapsible from a chevron next to the (now removed) search box
+  and collapses to icons only.
+- Waveform polling runs at 10 Hz instead of 1 Hz, matching the requested stream
+  rate; `MgAnimatedNumber` tweens in 100 ms so the readout keeps up.
+- Waveform window is 40 s.
+- Motor output PWM bars are 18 px tall and use a smaller numeric size; the same
+  widget is reused for RC calibration.
+- Flight mode cards highlight the slot selected by the live `FLTMODE_CH` PWM, and
+  RC5-16 cards highlight only when the channel sits in its high band.
+- All-parameters page is a divider-separated table with Chinese display names and
+  descriptions where the descriptor database provides them, plus unit labels.
+- Empty pages keep their widget skeleton with a status strip instead of showing a
+  blank page and a few lines of text.
+- Arming checks use `ARMING_SKIPCHK` on current firmware with `ARMING_CHECK` as a
+  fallback, rendered as a divided grid.
+- Compass orientation and calibration tolerance are bound to real parameters
+  (`COMPASS_ORIENT`, `COMPASS_CAL_FIT`) instead of the previous dead controls.
+- Magnetometer field strength is refreshed for every compass instance, not only
+  the selected one.
+
+### Fixed
+
+- Map coordinates: the flight controller reports WGS-84 while AMap tiles use
+  GCJ-02, so markers were offset by 100-700 m. Conversion now follows Mission
+  Planner's `MercatorProjectionGCJ`, with a three-step inverse that converges to
+  centimetres.
+- Calibration failures no longer discard the flight controller's own message.
+  Both the STATUSTEXT and COMMAND_ACK paths previously replaced it with generic
+  guidance, which is why every failure looked like "move away from magnetic
+  interference".
+- Accelerometer quality thresholds were an order of magnitude too strict for
+  ArduPilot's `INS_ACCOFFS_*` range (+/-3.5 m/s2), so successful calibrations
+  were reported as failed.
+- Compass quality now trusts ArduPilot's own fitness score when available instead
+  of taking the worse of fitness and an offset-magnitude heuristic.
+- `DO_START_MAG_CAL` now sends `param2=1` (retry on failure) like Mission
+  Planner, instead of disabling the flight controller's own retry.
+- Motor output table width follows the panel; it previously stayed at 1040 px, so
+  widening the window left blank space and narrowing it overpainted the border.
+- `copy_points` with `max_points=1` returns zero points; the "latest sample"
+  lookup now uses a 1 ms window instead, with a regression test pinning both
+  behaviours.
+
+### Verification
+
+- Backend offline/simulation gate: 33 passed.
+- Flutter static analysis: passed.
+- Flutter widget tests: 12 passed.
+- UI token check: passed.
+- macOS debug build: passed.
+
 ## 0.0.9 - 2026-09-29
 
 ### Added

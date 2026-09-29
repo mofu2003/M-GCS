@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:macos_ui/macos_ui.dart';
+import 'package:mgcs_frontend/theme/mg_typography.dart';
 import 'package:mgcs_frontend/widgets/mg_motor_output_bar.dart';
 
 void main() {
@@ -30,7 +31,11 @@ void main() {
     expect(find.text('1500'), findsOneWidget);
     final progress = tester.widget<ProgressBar>(find.byType(ProgressBar));
     expect(progress.value, closeTo(50, 0.001));
-    expect(tester.getSize(find.byType(ProgressBar)).height, 24);
+    // 高度取自 token，调数值不该让测试假失败。
+    expect(
+      tester.getSize(find.byType(ProgressBar)).height,
+      MgMetrics.motorBarHeight,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -59,7 +64,10 @@ void main() {
     expect(find.text('—'), findsOneWidget);
     final progress = tester.widget<ProgressBar>(find.byType(ProgressBar));
     expect(progress.value, 0);
-    expect(tester.getSize(find.byType(ProgressBar)).height, 24);
+    expect(
+      tester.getSize(find.byType(ProgressBar)).height,
+      MgMetrics.motorBarHeight,
+    );
     expect(tester.takeException(), isNull);
   });
 }

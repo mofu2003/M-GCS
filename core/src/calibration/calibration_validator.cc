@@ -292,19 +292,20 @@ CalibrationQuality CalibrationValidator::assess_compass(float ox, float oy, floa
     else if (mag < thresholds_.mag_marginal) offset_quality = CalibrationQuality::Marginal;
     else offset_quality = CalibrationQuality::Poor;
 
-    // Secondary metric: fitness score (if available)
+    // 飞控给了 fitness 就以它为准：这是 ArduPilot 自己的判定指标
+    // （COMPASS_CAL_FIT 就是拿它比），准确度高于"偏移量模长"这种启发式。
+    // 取两者中更差的那个会把正常校准误判成 Poor —— 因为 INS/COMPASS 偏置
+    // 量程本身就有 ±400 mGauss，装机后偏置合起来几百是常态。
     if (fitness > 0.0f) {
         CalibrationQuality fitness_quality;
         if (fitness < thresholds_.mag_fitness_excellent) fitness_quality = CalibrationQuality::Excellent;
         else if (fitness < thresholds_.mag_fitness_good) fitness_quality = CalibrationQuality::Good;
         else if (fitness < thresholds_.mag_fitness_marginal) fitness_quality = CalibrationQuality::Marginal;
         else fitness_quality = CalibrationQuality::Poor;
-
-        // Return the worse of the two assessments
-        return static_cast<CalibrationQuality>(
-            std::max(static_cast<int>(offset_quality), static_cast<int>(fitness_quality)));
+        return fitness_quality;
     }
 
+    // 没有 fitness 时才退回偏移量启发式。
     return offset_quality;
 }
 

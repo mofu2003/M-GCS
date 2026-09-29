@@ -233,6 +233,12 @@ class _CalibrationPageState extends State<_CalibrationPage> {
     super.initState();
     _tabs.addListener(_handleTabChanged);
     _syncWaveformPolling();
+    // 磁力计标签页的两个下拉（安装方向、容差等级）选项来自飞控描述库，
+    // 不登记元数据的话下拉里连一个选项都没有。
+    widget.controller.loadParameterMetadata([
+      'COMPASS_ORIENT',
+      'COMPASS_CAL_FIT',
+    ]);
   }
 
   void _handleTabChanged() {
@@ -555,8 +561,10 @@ class _MagnetometerOptionsCard extends StatelessWidget {
             width: 260,
             child: AdaptivePopupButton<int>(
               value: orientation?.value.round() ?? 0,
-              options: _orientationOptionsFor(orientation),
-              labelOf: (value) => _orientationLabelFor(orientation, value),
+              options: _enumOptionsFor(orientation, const [0]),
+              labelOf: (value) => _enumLabelFor(orientation, value),
+              // 自动检测安装方向打开时飞控会自己改写 COMPASS_ORIENT，
+              // 手动选择没有意义，所以置灰。
               onChanged: autoRotation || !controller.isConnected
                   ? null
                   : (value) => controller.setParameter(
@@ -603,19 +611,44 @@ class _MagnetometerToggle extends StatelessWidget {
   );
 }
 
-String _orientationLabelFor(VehicleParameter? parameter, int value) {
-  for (final option in parameter?.options ?? const <ParameterOption>[]) {
-    if (option.value.round() == value) return option.label;
-  }
-  return value == 0 ? 'None' : '$value';
-}
-
-List<int> _orientationOptionsFor(VehicleParameter? parameter) {
+/// 枚举参数的选项：优先用飞控描述库给出的 options，取不到时用调用方兜底。
+///
+/// Mission Planner 的罗盘朝向/容差下拉也是这么取的
+/// （`ParameterMetaDataRepository.GetParameterOptionsInt("COMPASS_ORIENT" | "COMPASS_CAL_FIT", ...)`），
+/// 不自己维护一份枚举表。
+List<int> _enumOptionsFor(VehicleParameter? parameter, List<int> fallback) {
   final options =
       parameter?.options.map((option) => option.value.round()).toList() ??
       const <int>[];
-  if (options.contains(0)) return options;
-  return [0, ...options];
+  return options.isEmpty ? fallback : options;
+}
+
+String _enumLabelFor(VehicleParameter? parameter, int value) {
+  for (final option in parameter?.options ?? const <ParameterOption>[]) {
+    if (option.value.round() == value) return option.label;
+  }
+  return '$value';
+}
+
+/// 判断某个遥控通道当前是否处在"高档"，即该档位的选项已经被拨起来。
+///
+/// 只有高档算亮：中档和低档都不亮。阈值取自这个通道自己的 `RCn_TRIM` /
+/// `RCn_MAX`，不用固定数字，重做行程校准后自动跟着变。
+bool _rcSwitchActive(ConnectionController controller, int channel) {
+  if (!controller.rcChannelsValid) return false;
+  if (channel < 1 || channel > controller.rcChannels.length) return false;
+  final pwm = controller.rcChannels[channel - 1];
+  final trim = _parameterNumeric(
+    controller,
+    'RC${channel}_TRIM',
+    fallback: 1500,
+  );
+  final maximum = _parameterNumeric(
+    controller,
+    'RC${channel}_MAX',
+    fallback: 1900,
+  );
+  return pwm > (trim + maximum) / 2;
 }
 
 class _MagnetometerCalibrationCard extends StatelessWidget {
@@ -629,55 +662,172 @@ class _MagnetometerCalibrationCard extends StatelessWidget {
     final calibrating =
         status.active && status.type == CalibrationType.magnetometer;
     final instances = controller.waveformMagInstances;
+    final tolerance = controller.parameter('COMPASS_CAL_FIT');
+    // 失败原因优先用控制器里的一次性错误，其次用飞控回传的原因。
+    final failure = controller.calibrationError ?? status.failureReason;
     return MacPanel(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('容差等级', style: MacosTheme.of(context).typography.callout),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 140,
-            child: AdaptivePopupButton<String>(
-              value: '默认',
-              options: const ['默认', '严格', '宽松'],
-              labelOf: (value) => value,
-              onChanged: null,
-            ),
-          ),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Wrap(
-              spacing: 18,
-              runSpacing: 4,
-              children: [
-                for (final instance in instances)
-                  _MagneticFieldStrength(
-                    controller: controller,
-                    instance: instance,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text('容差等级', style: MacosTheme.of(context).typography.callout),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 150,
+                // 容差等级就是 COMPASS_CAL_FIT：4 = 最严、8 = 严格、16 = 默认、32 = 宽松。
+                // 选项同样来自飞控描述库，与 MP 的 mavlinkComboBoxfitness 一致。
+                child: AdaptivePopupButton<int>(
+                  value: tolerance?.value.round() ?? 16,
+                  options: _enumOptionsFor(tolerance, const [4, 8, 16, 32]),
+                  labelOf: (value) => _enumLabelFor(tolerance, value),
+                  onChanged: controller.isConnected
+                      ? (value) => controller.setParameter(
+                          'COMPASS_CAL_FIT',
+                          value.toDouble(),
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Wrap(
+                  spacing: 18,
+                  runSpacing: 4,
+                  children: [
+                    for (final instance in instances)
+                      _MagneticFieldStrength(
+                        controller: controller,
+                        instance: instance,
+                      ),
+                  ],
+                ),
+              ),
+              // 两个按钮作为一组，整体和行内其它控件居中对齐。
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  PushButton(
+                    controlSize: ControlSize.large,
+                    onPressed: controller.isConnected && !status.active
+                        ? () => controller.startCalibration(
+                            CalibrationType.magnetometer,
+                          )
+                        : null,
+                    child: const Text('开始校准'),
                   ),
-              ],
+                  const SizedBox(width: 8),
+                  PushButton(
+                    controlSize: ControlSize.large,
+                    secondary: true,
+                    onPressed: calibrating
+                        ? () => controller.cancelCalibration()
+                        : null,
+                    child: const Text('取消'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          // 失败原因必须显式显示：以前这里什么都不提示，用户只看到"按钮没反应"。
+          if (!calibrating && failure.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              failure,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: MgTypography.sans(
+                MgTypography.caption.copyWith(color: context.mgColors.danger),
+              ),
             ),
-          ),
-          const Spacer(),
-          PushButton(
-            controlSize: ControlSize.large,
-            onPressed: controller.isConnected && !status.active
-                ? () =>
-                      controller.startCalibration(CalibrationType.magnetometer)
-                : null,
-            child: const Text('开始校准'),
-          ),
-          const SizedBox(width: 8),
-          PushButton(
-            controlSize: ControlSize.large,
-            secondary: true,
-            onPressed: calibrating
-                ? () => controller.cancelCalibration()
-                : null,
-            child: const Text('取消'),
-          ),
+          ],
+          // 校准进行中才出现：进度来自飞控的 MAG_CAL_PROGRESS。
+          if (calibrating) ...[
+            const SizedBox(height: 10),
+            _MagnetometerCalibrationProgress(
+              instances: instances,
+              progressByCompass: status.compassProgress,
+              fallbackProgress: status.progress,
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// 磁力计校准进度条：识别到几个罗盘就画几条。
+///
+/// 进度来自飞控的 `MAG_CAL_PROGRESS`（msg 191）：后端按 compass_id 分开记录
+/// （`CalibrationService::process_mag_cal_progress` → `status_.compass_progress`），
+/// 前端只负责显示，不自己推算。Mission Planner 的 ConfigHWCompass 同样是
+/// 按 compass_id 各画一条（horizontalProgressBar1/2/3），这里保持一致。
+class _MagnetometerCalibrationProgress extends StatelessWidget {
+  const _MagnetometerCalibrationProgress({
+    required this.instances,
+    required this.progressByCompass,
+    required this.fallbackProgress,
+  });
+
+  /// 已识别到的罗盘实例，决定画几条。
+  final List<WaveformInstance> instances;
+
+  /// compass_id → completion_pct。还没收到某个罗盘的进度时按 0 处理。
+  final Map<int, int> progressByCompass;
+
+  /// 一个罗盘都还没识别出来时，退化成一条整体进度。
+  final int fallbackProgress;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    final caption = MgTypography.sans(
+      MgTypography.caption.copyWith(color: colors.textSecondary),
+    );
+    final bars = instances.isEmpty
+        ? [(label: '磁力计', progress: fallbackProgress)]
+        : [
+            for (final instance in instances)
+              (
+                label: instance.name.isEmpty
+                    ? '罗盘 ${instance.index + 1}'
+                    : '罗盘 ${instance.index + 1} · ${instance.name}',
+                progress: progressByCompass[instance.index] ?? 0,
+              ),
+          ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('磁力计校准中，请绕各轴缓慢转动', maxLines: 1, style: caption),
+        const SizedBox(height: 6),
+        for (var index = 0; index < bars.length; index++) ...[
+          if (index > 0) const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  bars[index].label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: caption,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text('${bars[index].progress.clamp(0, 100)}%', style: caption),
+            ],
+          ),
+          const SizedBox(height: 3),
+          ProgressBar(
+            value: bars[index].progress.clamp(0, 100).toDouble(),
+            semanticLabel:
+                '${bars[index].label} 校准进度 '
+                '${bars[index].progress.clamp(0, 100)}%',
+          ),
+        ],
+      ],
     );
   }
 }
@@ -823,7 +973,6 @@ class _AccelerometerCalibrationCard extends StatelessWidget {
                   orientation?.label ?? '水平放置',
                   style: theme.typography.caption1.copyWith(
                     color: colors.accent,
-                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -1100,30 +1249,55 @@ class _PidParametersPageState extends State<_PidParametersPage> {
       ]),
       builder: (context, _) {
         final controller = widget.controller;
-        if (!controller.isConnected) {
-          return _ParameterEmptyState(
-            scrollController: _scrollController,
-            message: '连接飞控后读取 PID 参数',
-          );
-        }
-        if (!controller.parametersLoaded) {
-          return _ParameterLoadingState(
-            scrollController: _scrollController,
-            controller: controller,
-            title: 'PID 参数',
-          );
-        }
         final profile = controller.controlProfile;
-        if (profile == VehicleControlProfile.unknown) {
-          return _ParameterEmptyState(
-            scrollController: _scrollController,
-            message: '暂不支持当前固件或机型的 PID 页面',
-          );
-        }
-        final sections = _pidSections(profile, widget.vtol, _level);
+        // 机型未识别时先按多旋翼渲染骨架，参数仍然全部可编辑，避免整页空白。
+        final resolved = profile == VehicleControlProfile.unknown
+            ? VehicleControlProfile.copter
+            : profile;
+        final sections = _pidSections(resolved, widget.vtol, _level);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (!controller.isConnected)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  _tabBodyInset,
+                  8,
+                  _tabBodyInset,
+                  0,
+                ),
+                child: _PageDataNotice(
+                  controller: controller,
+                  message: '连接飞控后读取 PID 参数',
+                ),
+              )
+            else if (!controller.parametersLoaded)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  _tabBodyInset,
+                  8,
+                  _tabBodyInset,
+                  0,
+                ),
+                child: _PageDataNotice(
+                  controller: controller,
+                  message: '正在读取飞控参数…',
+                  showProgress: true,
+                ),
+              )
+            else if (profile == VehicleControlProfile.unknown)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  _tabBodyInset,
+                  8,
+                  _tabBodyInset,
+                  0,
+                ),
+                child: _PageDataNotice(
+                  controller: controller,
+                  message: '暂未识别机型，先按多旋翼显示',
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(
                 _tabBodyInset,
@@ -1549,11 +1723,13 @@ class _ArmingChecksPage extends StatefulWidget {
 class _ArmingChecksPageState extends State<_ArmingChecksPage> {
   Future<void> _write(
     ConnectionController controller,
-    String parameterName,
+    String? parameterName,
     bool inverted,
     List<_ArmingCheck> checks,
     bool Function(_ArmingCheck) enabled,
-  ) {
+  ) async {
+    // 固件没有解锁检查参数时开关是置灰的，这里再兜一层，避免空写入。
+    if (parameterName == null) return;
     final current = controller.parameters[parameterName]?.value.round() ?? 0;
     var mask = current;
     for (final check in checks) {
@@ -1561,7 +1737,7 @@ class _ArmingChecksPageState extends State<_ArmingChecksPage> {
       final bitSet = inverted ? !enabled(check) : enabled(check);
       mask = bitSet ? (mask | check.bit) : (mask & ~check.bit);
     }
-    return controller.setParameter(parameterName, mask.toDouble());
+    await controller.setParameter(parameterName, mask.toDouble());
   }
 
   @override
@@ -1572,33 +1748,26 @@ class _ArmingChecksPageState extends State<_ArmingChecksPage> {
     ]),
     builder: (context, _) {
       final controller = widget.controller;
-      if (!controller.isConnected) {
-        return _ParameterEmptyState(
-          scrollController: widget.scrollController,
-          message: '连接飞控后读取解锁检查项',
-        );
-      }
-      if (!controller.parametersLoaded) {
-        return _ParameterLoadingState(
-          scrollController: widget.scrollController,
-          controller: controller,
-          title: '解锁检查项',
-        );
-      }
       final parameterName = _armingParameterName(controller);
-      if (parameterName == null) {
-        return _ParameterEmptyState(
-          scrollController: widget.scrollController,
-          message: '当前固件未提供解锁检查参数',
-        );
-      }
       final inverted = parameterName == 'ARMING_SKIPCHK';
-      final mask = controller.parameters[parameterName]?.value.round() ?? 0;
+      final mask = parameterName == null
+          ? 0
+          : controller.parameters[parameterName]?.value.round() ?? 0;
       final checks = _armingChecksFor(controller.controlProfile);
-      final busy = controller.isParameterWriting(parameterName);
+      // 拿不到参数（未连接、未读完或固件没有该参数）时开关置灰，但清单照常显示。
+      final writable =
+          parameterName != null &&
+          !controller.isParameterWriting(parameterName);
       bool enabled(_ArmingCheck check) =>
           inverted ? (mask & check.bit) == 0 : (mask & check.bit) != 0;
       final allEnabled = checks.every(enabled);
+      final notice = !controller.isConnected
+          ? '连接飞控后读取解锁检查项'
+          : !controller.parametersLoaded
+          ? '正在读取飞控参数…'
+          : parameterName == null
+          ? '当前固件未提供解锁检查参数（ARMING_SKIPCHK / ARMING_CHECK）'
+          : null;
 
       return SingleChildScrollView(
         controller: widget.scrollController,
@@ -1606,6 +1775,13 @@ class _ArmingChecksPageState extends State<_ArmingChecksPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (notice != null)
+              _PageDataNotice(
+                controller: controller,
+                message: notice,
+                showProgress:
+                    controller.isConnected && !controller.parametersLoaded,
+              ),
             if (controller.parameterWriteError != null) ...[
               _ParameterWriteStatus(controller: controller),
               const SizedBox(height: _headerGap),
@@ -1630,7 +1806,7 @@ class _ArmingChecksPageState extends State<_ArmingChecksPage> {
                       child: _ArmingToggle(
                         label: '全部',
                         value: allEnabled,
-                        enabled: !busy,
+                        enabled: writable,
                         onChanged: (value) => unawaited(
                           _write(
                             controller,
@@ -1701,7 +1877,7 @@ class _ArmingChecksPageState extends State<_ArmingChecksPage> {
                                                 value: enabled(
                                                   rows[row][column],
                                                 ),
-                                                enabled: !busy,
+                                                enabled: writable,
                                                 onChanged: (value) => unawaited(
                                                   _write(
                                                     controller,
@@ -1798,6 +1974,9 @@ class _MotorOutputPage extends StatefulWidget {
 }
 
 class _MotorOutputPageState extends State<_MotorOutputPage> {
+  /// 表格能排开所有固定列所需的最小宽度；窄于它就横向滚动。
+  static const double _motorTableMinWidth = 1040;
+
   static const _headers = [
     '序号',
     'PWM 值',
@@ -1829,22 +2008,24 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
       widget.controller.telemetryChanges,
     ]),
     builder: (context, _) {
-      // 参数未读完时所有输出通道都是空值，先给出加载进度而不是空表格。
-      if (!widget.controller.parametersLoaded) {
-        return _ParameterLoadingState(
-          scrollController: widget.scrollController,
-          controller: widget.controller,
-          title: '电机输出参数',
-        );
-      }
+      final controller = widget.controller;
       return SingleChildScrollView(
         controller: widget.scrollController,
         padding: const EdgeInsets.fromLTRB(_pageMargin, 22, _pageMargin, 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (widget.controller.parameterWriteError != null) ...[
-              _ParameterWriteStatus(controller: widget.controller),
+            // 没有数据也照常显示整张表，数值是「—」，只用状态条说明原因。
+            if (!controller.isConnected)
+              _PageDataNotice(controller: controller, message: '连接飞控后读取电机输出参数')
+            else if (!controller.parametersLoaded)
+              _PageDataNotice(
+                controller: controller,
+                message: '正在读取飞控参数…',
+                showProgress: true,
+              ),
+            if (controller.parameterWriteError != null) ...[
+              _ParameterWriteStatus(controller: controller),
               const SizedBox(height: 10),
             ],
             DecoratedBox(
@@ -1855,128 +2036,136 @@ class _MotorOutputPageState extends State<_MotorOutputPage> {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 1040),
-                    child: Table(
-                      columnWidths: const {
-                        0: FixedColumnWidth(76),
-                        1: FixedColumnWidth(220),
-                        2: FixedColumnWidth(90),
-                        3: FlexColumnWidth(1.5),
-                        4: FixedColumnWidth(132),
-                        5: FixedColumnWidth(132),
-                        6: FixedColumnWidth(132),
-                      },
-                      children: [
-                        TableRow(
-                          decoration: BoxDecoration(
-                            color: context.mgColors.accentSurface,
-                          ),
-                          children: [
-                            for (final header in _headers)
-                              _HeaderCell(label: header),
-                          ],
-                        ),
-                        for (var channel = 1; channel <= 16; channel++)
+                // 表格宽度跟着面板走：面板比 1040 宽就铺满，窄于 1040 才横向滚动。
+                // 之前子项被写死成"至少 1040"，窗口变宽时表格不跟着变宽，右侧留白。
+                child: LayoutBuilder(
+                  builder: (context, constraints) => SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: math.max(
+                        _motorTableMinWidth,
+                        constraints.maxWidth,
+                      ),
+                      child: Table(
+                        columnWidths: const {
+                          0: FixedColumnWidth(76),
+                          1: FixedColumnWidth(220),
+                          2: FixedColumnWidth(90),
+                          3: FlexColumnWidth(1.5),
+                          4: FixedColumnWidth(132),
+                          5: FixedColumnWidth(132),
+                          6: FixedColumnWidth(132),
+                        },
+                        children: [
                           TableRow(
                             decoration: BoxDecoration(
-                              border: Border(
-                                bottom: BorderSide(
-                                  color: context.mgColors.divider,
-                                  width: 0.6,
-                                ),
-                              ),
+                              color: context.mgColors.accentSurface,
                             ),
                             children: [
-                              TableCell(
-                                verticalAlignment:
-                                    TableCellVerticalAlignment.middle,
-                                child: _ChannelNumberCell(number: channel),
-                              ),
-                              TableCell(
-                                verticalAlignment:
-                                    TableCellVerticalAlignment.middle,
-                                child: _LiveOutputCell(
-                                  value:
-                                      widget.controller.servoOutputsValid &&
-                                          channel <=
-                                              widget
-                                                  .controller
-                                                  .servoOutputs
-                                                  .length
-                                      ? widget.controller.servoOutputs[channel -
-                                            1]
-                                      : null,
-                                  minimum: _parameterNumeric(
-                                    widget.controller,
-                                    'SERVO${channel}_MIN',
-                                    fallback: 1100,
-                                  ),
-                                  maximum: _parameterNumeric(
-                                    widget.controller,
-                                    'SERVO${channel}_MAX',
-                                    fallback: 1900,
-                                  ),
-                                ),
-                              ),
-                              TableCell(
-                                verticalAlignment:
-                                    TableCellVerticalAlignment.middle,
-                                child: _ReverseCell(
-                                  parameter: widget
-                                      .controller
-                                      .parameters['SERVO${channel}_REVERSED'],
-                                  controller: widget.controller,
-                                ),
-                              ),
-                              TableCell(
-                                verticalAlignment:
-                                    TableCellVerticalAlignment.middle,
-                                child: _FunctionCell(
-                                  parameter: widget
-                                      .controller
-                                      .parameters['SERVO${channel}_FUNCTION'],
-                                  controller: widget.controller,
-                                ),
-                              ),
-                              TableCell(
-                                verticalAlignment:
-                                    TableCellVerticalAlignment.middle,
-                                child: _LimitCell(
-                                  parameter: widget
-                                      .controller
-                                      .parameters['SERVO${channel}_MIN'],
-                                  tone: _LimitTone.min,
-                                  controller: widget.controller,
-                                ),
-                              ),
-                              TableCell(
-                                verticalAlignment:
-                                    TableCellVerticalAlignment.middle,
-                                child: _LimitCell(
-                                  parameter: widget
-                                      .controller
-                                      .parameters['SERVO${channel}_TRIM'],
-                                  tone: _LimitTone.mid,
-                                  controller: widget.controller,
-                                ),
-                              ),
-                              TableCell(
-                                verticalAlignment:
-                                    TableCellVerticalAlignment.middle,
-                                child: _LimitCell(
-                                  parameter: widget
-                                      .controller
-                                      .parameters['SERVO${channel}_MAX'],
-                                  tone: _LimitTone.max,
-                                  controller: widget.controller,
-                                ),
-                              ),
+                              for (final header in _headers)
+                                _HeaderCell(label: header),
                             ],
                           ),
-                      ],
+                          for (var channel = 1; channel <= 16; channel++)
+                            TableRow(
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  bottom: BorderSide(
+                                    color: context.mgColors.divider,
+                                    width: 0.6,
+                                  ),
+                                ),
+                              ),
+                              children: [
+                                TableCell(
+                                  verticalAlignment:
+                                      TableCellVerticalAlignment.middle,
+                                  child: _ChannelNumberCell(number: channel),
+                                ),
+                                TableCell(
+                                  verticalAlignment:
+                                      TableCellVerticalAlignment.middle,
+                                  child: _LiveOutputCell(
+                                    value:
+                                        widget.controller.servoOutputsValid &&
+                                            channel <=
+                                                widget
+                                                    .controller
+                                                    .servoOutputs
+                                                    .length
+                                        ? widget
+                                              .controller
+                                              .servoOutputs[channel - 1]
+                                        : null,
+                                    minimum: _parameterNumeric(
+                                      widget.controller,
+                                      'SERVO${channel}_MIN',
+                                      fallback: 1100,
+                                    ),
+                                    maximum: _parameterNumeric(
+                                      widget.controller,
+                                      'SERVO${channel}_MAX',
+                                      fallback: 1900,
+                                    ),
+                                  ),
+                                ),
+                                TableCell(
+                                  verticalAlignment:
+                                      TableCellVerticalAlignment.middle,
+                                  child: _ReverseCell(
+                                    parameter: widget
+                                        .controller
+                                        .parameters['SERVO${channel}_REVERSED'],
+                                    controller: widget.controller,
+                                  ),
+                                ),
+                                TableCell(
+                                  verticalAlignment:
+                                      TableCellVerticalAlignment.middle,
+                                  child: _FunctionCell(
+                                    parameter: widget
+                                        .controller
+                                        .parameters['SERVO${channel}_FUNCTION'],
+                                    controller: widget.controller,
+                                  ),
+                                ),
+                                TableCell(
+                                  verticalAlignment:
+                                      TableCellVerticalAlignment.middle,
+                                  child: _LimitCell(
+                                    parameter: widget
+                                        .controller
+                                        .parameters['SERVO${channel}_MIN'],
+                                    tone: _LimitTone.min,
+                                    controller: widget.controller,
+                                  ),
+                                ),
+                                TableCell(
+                                  verticalAlignment:
+                                      TableCellVerticalAlignment.middle,
+                                  child: _LimitCell(
+                                    parameter: widget
+                                        .controller
+                                        .parameters['SERVO${channel}_TRIM'],
+                                    tone: _LimitTone.mid,
+                                    controller: widget.controller,
+                                  ),
+                                ),
+                                TableCell(
+                                  verticalAlignment:
+                                      TableCellVerticalAlignment.middle,
+                                  child: _LimitCell(
+                                    parameter: widget
+                                        .controller
+                                        .parameters['SERVO${channel}_MAX'],
+                                    tone: _LimitTone.max,
+                                    controller: widget.controller,
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -2031,7 +2220,7 @@ class _ChannelNumberCell extends StatelessWidget {
         child: Text(
           '$number',
           style: MgTypography.sans(
-            MgTypography.captionStrong.copyWith(color: context.mgColors.accent),
+            MgTypography.caption.copyWith(color: context.mgColors.accent),
           ),
         ),
       ),
@@ -2395,14 +2584,36 @@ class _FlightModesPage extends StatefulWidget {
 }
 
 class _FlightModesPageState extends State<_FlightModesPage> {
-  static const _pwmRanges = [
-    '≤ 1230',
-    '1231–1360',
-    '1361–1490',
-    '1491–1620',
-    '1621–1749',
-    '≥ 1750',
+  /// 模式通道的 PWM 分档。
+  ///
+  /// ArduPilot 的档位边界是固定的（FLTMODE1..6 各对应一段 PWM），所以标签和判定
+  /// 区间放在同一张表里，避免"显示一套、判定另一套"。
+  static const _pwmRanges = <({String label, int min, int max})>[
+    (label: '≤ 1230', min: 0, max: 1230),
+    (label: '1231–1360', min: 1231, max: 1360),
+    (label: '1361–1490', min: 1361, max: 1490),
+    (label: '1491–1620', min: 1491, max: 1620),
+    (label: '1621–1749', min: 1621, max: 1749),
+    (label: '≥ 1750', min: 1750, max: 1 << 30),
   ];
+
+  /// 当前模式通道的实时 PWM；通道未知或没有遥控数据时返回 null。
+  int? _modeChannelPwm(ConnectionController controller) {
+    if (!controller.rcChannelsValid) return null;
+    final channel = controller.parameter('FLTMODE_CH')?.value.round();
+    if (channel == null || channel < 1) return null;
+    if (channel > controller.rcChannels.length) return null;
+    return controller.rcChannels[channel - 1];
+  }
+
+  /// PWM 落在第几档；超出量程返回 -1。
+  static int _modeIndexForPwm(int pwm) {
+    for (var index = 0; index < _pwmRanges.length; index++) {
+      final range = _pwmRanges[index];
+      if (pwm >= range.min && pwm <= range.max) return index;
+    }
+    return -1;
+  }
 
   @override
   void initState() {
@@ -2424,6 +2635,10 @@ class _FlightModesPageState extends State<_FlightModesPage> {
       final colors = context.mgColors;
       final liveMode =
           widget.controller.vehicleIdentity?['flight_mode'] as String?;
+      final channelPwm = _modeChannelPwm(widget.controller);
+      final activeIndex = channelPwm == null
+          ? -1
+          : _modeIndexForPwm(channelPwm);
       return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(_pageMargin, 22, _pageMargin, 32),
         child: Column(
@@ -2473,7 +2688,8 @@ class _FlightModesPageState extends State<_FlightModesPage> {
                 final position = index + 1;
                 return _FlightModeCard(
                   position: position,
-                  pwmRange: _pwmRanges[index],
+                  pwmRange: _pwmRanges[index].label,
+                  active: index == activeIndex,
                   parameter: widget.controller.parameters['FLTMODE$position'],
                   controller: widget.controller,
                 );
@@ -2506,6 +2722,7 @@ class _FlightModesPageState extends State<_FlightModesPage> {
                       widget.controller.parameters['RC${channel}_OPTION'],
                   controller: widget.controller,
                   dividerColor: colors.divider,
+                  active: _rcSwitchActive(widget.controller, channel),
                 );
               },
             ),
@@ -2520,22 +2737,30 @@ class _FlightModeCard extends StatelessWidget {
   const _FlightModeCard({
     required this.position,
     required this.pwmRange,
+    required this.active,
     required this.parameter,
     required this.controller,
   });
 
   final int position;
   final String pwmRange;
+
+  /// 遥控器当前拨到这个档位时为 true，用于高亮。
+  final bool active;
   final VehicleParameter? parameter;
   final ConnectionController controller;
 
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
+    final colors = context.mgColors;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: context.mgColors.surfaceMuted,
-        border: Border.all(color: context.mgColors.divider),
+        color: active ? colors.accentSurface : colors.surfaceMuted,
+        border: Border.all(
+          color: active ? colors.accent : colors.divider,
+          width: active ? 1.5 : 1,
+        ),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Padding(
@@ -2568,6 +2793,7 @@ class _AuxChannelCard extends StatelessWidget {
     required this.parameter,
     required this.controller,
     required this.dividerColor,
+    required this.active,
   });
 
   final int channel;
@@ -2575,11 +2801,19 @@ class _AuxChannelCard extends StatelessWidget {
   final ConnectionController controller;
   final Color dividerColor;
 
+  /// 拨杆当前是否处在这一档的激活位置，用于高亮。
+  final bool active;
+
   @override
   Widget build(BuildContext context) => DecoratedBox(
     decoration: BoxDecoration(
-      color: context.mgColors.surfaceMuted,
-      border: Border.all(color: dividerColor),
+      color: active
+          ? context.mgColors.accentSurface
+          : context.mgColors.surfaceMuted,
+      border: Border.all(
+        color: active ? context.mgColors.accent : dividerColor,
+        width: active ? 1.5 : 1,
+      ),
       borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
     ),
     child: Padding(
@@ -2618,102 +2852,70 @@ class _FlightModeBadge extends StatelessWidget {
     text: Text(
       mode,
       style: MgTypography.sans(
-        MgTypography.bodyStrong.copyWith(color: context.mgColors.accent),
+        MgTypography.body.copyWith(color: context.mgColors.accent),
       ),
     ),
   );
 }
 
-class _ParameterLoadingState extends StatelessWidget {
-  const _ParameterLoadingState({
-    required this.scrollController,
+/// 页面顶部的数据状态条。
+///
+/// 没有数据时页面照常渲染组件骨架（数值显示「—」、控件置灰），只用这一条说明
+/// 原因，避免出现"整页空白 + 中间几行字"。
+class _PageDataNotice extends StatelessWidget {
+  const _PageDataNotice({
     required this.controller,
-    required this.title,
+    required this.message,
+    this.showProgress = false,
   });
 
-  final ScrollController scrollController;
   final ConnectionController controller;
-  final String title;
+  final String message;
+
+  /// 参数正在下载时在右侧显示进度条。
+  final bool showProgress;
 
   @override
   Widget build(BuildContext context) {
-    final theme = MacosTheme.of(context);
     final colors = context.mgColors;
     final error = controller.parameterError;
-    return SingleChildScrollView(
-      controller: scrollController,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(64),
-          child: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(title, style: theme.typography.title2),
-                const SizedBox(height: 16),
-                if (error != null) ...[
-                  Text(
-                    error,
-                    textAlign: TextAlign.center,
-                    style: theme.typography.callout.copyWith(
-                      color: colors.danger,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  PushButton(
-                    controlSize: ControlSize.regular,
-                    onPressed: controller.isConnected
-                        ? () => controller.requestParameters(force: true)
-                        : null,
-                    child: const Text('重试读取'),
-                  ),
-                ] else if (controller.isConnected)
-                  ParameterLoadProgress(
-                    received: controller.parameterReceived,
-                    total: controller.parameterTotal,
-                  )
-                else
-                  Text(
-                    '连接飞控后自动读取参数',
-                    textAlign: TextAlign.center,
-                    style: theme.typography.callout.copyWith(
-                      color: colors.textSecondary,
-                    ),
-                  ),
-              ],
+    final isError = error != null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          MacosIcon(
+            isError
+                ? CupertinoIcons.exclamationmark_circle
+                : CupertinoIcons.info_circle,
+            size: 14,
+            color: isError ? colors.danger : colors.textSecondary,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              error ?? message,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: MacosTheme.of(context).typography.caption1.copyWith(
+                color: isError ? colors.danger : colors.textSecondary,
+              ),
             ),
           ),
-        ),
+          if (showProgress && !isError) ...[
+            const SizedBox(width: 16),
+            SizedBox(
+              width: 220,
+              child: ParameterLoadProgress(
+                received: controller.parameterReceived,
+                total: controller.parameterTotal,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
-}
-
-class _ParameterEmptyState extends StatelessWidget {
-  const _ParameterEmptyState({
-    required this.scrollController,
-    required this.message,
-  });
-
-  final ScrollController scrollController;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-    controller: scrollController,
-    child: Center(
-      child: Padding(
-        padding: const EdgeInsets.all(64),
-        child: Text(
-          message,
-          style: MacosTheme.of(
-            context,
-          ).typography.callout.copyWith(color: context.mgColors.textSecondary),
-        ),
-      ),
-    ),
-  );
 }
 
 class _ParameterSummaryRow extends StatelessWidget {
@@ -2729,50 +2931,88 @@ class _ParameterSummaryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
     final colors = context.mgColors;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: context.mgColors.surface,
-        border: Border.all(color: context.mgColors.divider),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  parameter.displayName ?? parameter.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.typography.body.copyWith(
-                    color: _adaptiveLabelColor(context),
-                    fontWeight: FontWeight.w600,
+    final description = parameter.description;
+    final unit = parameter.unit;
+    // 参数键和状态标记合成一行小字，避免每项单独占一行。
+    final meta = [
+      parameter.name,
+      if (parameter.requiresReboot) '需重启',
+      if (parameter.readOnly) '只读',
+    ].join(' · ');
+    final caption = MgTypography.sans(
+      MgTypography.caption.copyWith(color: colors.textSecondary),
+    );
+    final note = MgTypography.sans(
+      MgTypography.caption.copyWith(color: colors.textTertiary),
+    );
+
+    // 表格行：左边中英文名称与说明，右边数值与单位，行与行之间用横线分隔。
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      parameter.displayName ?? parameter.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.typography.body.copyWith(
+                        color: _adaptiveLabelColor(context),
+                      ),
+                    ),
+                    Text(
+                      meta,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: caption,
+                    ),
+                    if (description != null && description.isNotEmpty)
+                      Tooltip(
+                        message: description,
+                        waitDuration: const Duration(milliseconds: 400),
+                        child: Text(
+                          description,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: note,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              SizedBox(
+                width: 200,
+                child: _ParameterValueControl(
+                  parameter: parameter,
+                  controller: controller,
+                ),
+              ),
+              // 单位紧贴数值，空单位时留白保持一致。
+              SizedBox(
+                width: 52,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: Text(
+                    unit == null || unit.isEmpty ? '' : unit,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: caption,
                   ),
                 ),
-                Text(
-                  parameter.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: MgTypography.sans(
-                    MgTypography.caption.copyWith(color: colors.textSecondary),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(width: 16),
-          SizedBox(
-            width: 220,
-            child: _ParameterValueControl(
-              parameter: parameter,
-              controller: controller,
-            ),
-          ),
-        ],
-      ),
+        ),
+        Divider(height: 1, thickness: 1, color: colors.divider),
+      ],
     );
   }
 }
@@ -2820,25 +3060,30 @@ class _PortConfigurationPageState extends State<_PortConfigurationPage> {
       final controller = widget.controller;
       final serialPorts = controller.serialParameterPorts;
       final theme = MacosTheme.of(context);
-      if (!controller.parametersLoaded) {
-        return _ParameterLoadingState(
-          scrollController: widget.scrollController,
-          controller: controller,
-          title: '串口参数',
-        );
-      }
-      if (serialPorts.isEmpty) {
-        return _ParameterEmptyState(
-          scrollController: widget.scrollController,
-          message: '飞控未返回串口配置参数',
-        );
-      }
+      // 参数还没到时不空着：先用标准 SERIAL0..7 渲染骨架，数值是「—」、控件置灰。
+      final ports = serialPorts.isEmpty
+          ? [for (var port = 0; port <= 7; port++) 'SERIAL$port']
+          : serialPorts;
+      final notice = !controller.isConnected
+          ? '连接飞控后读取串口配置'
+          : !controller.parametersLoaded
+          ? '正在读取飞控参数…'
+          : serialPorts.isEmpty
+          ? '飞控未返回串口配置参数，以下为占位'
+          : null;
       return SingleChildScrollView(
         controller: widget.scrollController,
         padding: const EdgeInsets.fromLTRB(_pageMargin, 22, _pageMargin, 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (notice != null)
+              _PageDataNotice(
+                controller: controller,
+                message: notice,
+                showProgress:
+                    controller.isConnected && !controller.parametersLoaded,
+              ),
             if (controller.parameterWriteError != null) ...[
               _ParameterWriteStatus(controller: controller),
               const SizedBox(height: 10),
@@ -2872,7 +3117,7 @@ class _PortConfigurationPageState extends State<_PortConfigurationPage> {
                   spacing: 14,
                   runSpacing: 14,
                   children: [
-                    for (final port in serialPorts)
+                    for (final port in ports)
                       SizedBox(
                         width: cardWidth,
                         child: _SerialParameterCard(
@@ -2974,7 +3219,7 @@ class _SerialParameterCardState extends State<_SerialParameterCard> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: MgTypography.sans(
-                        MgTypography.bodyStrong.copyWith(
+                        MgTypography.body.copyWith(
                           color: context.mgColors.accent,
                         ),
                       ),
@@ -3108,13 +3353,14 @@ class _AllParametersPageState extends State<_AllParametersPage> {
     animation: widget.controller.parameterChanges,
     builder: (context, _) {
       final controller = widget.controller;
-      if (!controller.parametersLoaded) {
-        return _ParameterLoadingState(
-          scrollController: widget.scrollController,
-          controller: controller,
-          title: '飞控参数',
-        );
-      }
+      // 没数据时也保留搜索框与分组骨架，只用状态条说明原因。
+      final notice = !controller.isConnected
+          ? '连接飞控后读取参数'
+          : !controller.parametersLoaded
+          ? '正在读取飞控参数…'
+          : controller.parameters.isEmpty
+          ? '飞控没有返回参数'
+          : null;
 
       final query = _query.trim().toLowerCase();
       final grouped = <String, List<VehicleParameter>>{};
@@ -3142,39 +3388,44 @@ class _AllParametersPageState extends State<_AllParametersPage> {
         }
       }
 
-      if (controller.parameters.isEmpty) {
-        return _ParameterEmptyState(
-          scrollController: widget.scrollController,
-          message: '飞控没有返回参数',
-        );
-      }
-      if (entries.isEmpty) {
-        return _ParameterEmptyState(
-          scrollController: widget.scrollController,
-          message: '没有找到匹配的参数',
-        );
-      }
-
       return ListView.builder(
         controller: widget.scrollController,
         padding: const EdgeInsets.fromLTRB(_pageMargin, 18, _pageMargin, 32),
         itemCount: entries.length + 1,
         itemBuilder: (context, index) {
           if (index == 0) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: MacosSearchField(
-                placeholder: '搜索参数名称或说明',
-                onChanged: (value) => setState(() {
-                  _query = value;
-                  _expandedGroups.clear();
-                }),
-                style: MgTypography.sans(
-                  MgTypography.body.copyWith(
-                    color: _adaptiveLabelColor(context),
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                MacosSearchField(
+                  placeholder: '搜索参数名称或说明',
+                  onChanged: (value) => setState(() {
+                    _query = value;
+                    _expandedGroups.clear();
+                  }),
+                  style: MgTypography.sans(
+                    MgTypography.body.copyWith(
+                      color: _adaptiveLabelColor(context),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(height: 12),
+                if (notice != null)
+                  _PageDataNotice(
+                    controller: controller,
+                    message: notice,
+                    showProgress:
+                        controller.isConnected && !controller.parametersLoaded,
+                  )
+                else if (entries.isEmpty)
+                  Text(
+                    '没有找到匹配的参数',
+                    style: MacosTheme.of(context).typography.caption1.copyWith(
+                      color: context.mgColors.textSecondary,
+                    ),
+                  ),
+                const SizedBox(height: 4),
+              ],
             );
           }
           final entry = entries[index - 1];
@@ -3185,50 +3436,66 @@ class _AllParametersPageState extends State<_AllParametersPage> {
               setState(() => _expandedGroups[group] = !isExpanded);
             }
 
-            return Padding(
-              padding: const EdgeInsets.only(top: 8, bottom: 2),
-              child: Semantics(
-                button: true,
-                expanded: isExpanded,
-                label: '$group，${entry.parameterCount} 个参数',
-                child: Material(
-                  color: context.mgColors.transparent,
-                  child: InkWell(
-                    onTap: toggleGroup,
-                    borderRadius: BorderRadius.circular(
-                      MgMetrics.controlRadius,
-                    ),
-                    child: SizedBox(
-                      height: 34,
-                      child: Row(
-                        children: [
-                          MacosDisclosureButton(
-                            isPressed: isExpanded,
-                            semanticLabel: isExpanded ? '收起$group' : '展开$group',
-                            onPressed: toggleGroup,
-                          ),
-                          const SizedBox(width: 7),
-                          Expanded(
-                            child: Text(
-                              group,
-                              style: MacosTheme.of(context).typography.callout
-                                  .copyWith(fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                          Text(
-                            '${entry.parameterCount}',
-                            style: MacosTheme.of(context).typography.caption1
-                                .copyWith(
-                                  color: context.mgColors.textSecondary,
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 2),
+                  child: Semantics(
+                    button: true,
+                    expanded: isExpanded,
+                    label: '$group，${entry.parameterCount} 个参数',
+                    child: Material(
+                      color: context.mgColors.transparent,
+                      child: InkWell(
+                        onTap: toggleGroup,
+                        borderRadius: BorderRadius.circular(
+                          MgMetrics.controlRadius,
+                        ),
+                        child: SizedBox(
+                          height: 34,
+                          child: Row(
+                            children: [
+                              MacosDisclosureButton(
+                                isPressed: isExpanded,
+                                semanticLabel: isExpanded
+                                    ? '收起$group'
+                                    : '展开$group',
+                                onPressed: toggleGroup,
+                              ),
+                              const SizedBox(width: 7),
+                              Expanded(
+                                child: Text(
+                                  group,
+                                  style: MacosTheme.of(
+                                    context,
+                                  ).typography.callout,
                                 ),
+                              ),
+                              Text(
+                                '${entry.parameterCount}',
+                                style: MacosTheme.of(context)
+                                    .typography
+                                    .caption1
+                                    .copyWith(
+                                      color: context.mgColors.textSecondary,
+                                    ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
                           ),
-                          const SizedBox(width: 8),
-                        ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
+                // 分组标题下也画横线，展开后首行参数与标题不会糊在一起。
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: context.mgColors.divider,
+                ),
+              ],
             );
           }
           final parameter = entry.parameter!;
@@ -3600,9 +3867,9 @@ class _OverviewValue extends StatelessWidget {
                 value,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
+                // 值（如 ArduPilot、FixedWing）不是标题，不加粗。
                 style: typography.body.copyWith(
                   color: valueColor ?? _adaptiveLabelColor(context),
-                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -3649,9 +3916,7 @@ class _HealthSummary extends StatelessWidget {
     final color = faults > 0 ? colors.danger : colors.success;
     return Text(
       label,
-      style: MacosTheme.of(
-        context,
-      ).typography.callout.copyWith(color: color, fontWeight: FontWeight.w600),
+      style: MacosTheme.of(context).typography.callout.copyWith(color: color),
     );
   }
 }
@@ -3737,10 +4002,9 @@ class _SensorStatusCard extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             label,
-            style: MacosTheme.of(context).typography.callout.copyWith(
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
+            style: MacosTheme.of(
+              context,
+            ).typography.callout.copyWith(color: color),
           ),
         ],
       ),
@@ -3791,7 +4055,6 @@ class _TelemetryStatusCard extends StatelessWidget {
                   color: fresh
                       ? _adaptiveLabelColor(context)
                       : context.mgColors.textSecondary,
-                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 2),

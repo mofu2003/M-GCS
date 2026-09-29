@@ -43,6 +43,11 @@ class MgFonts {
 ///
 /// 铁律：页面里不要再出现裸 `TextStyle(fontSize: ...)`。字号只能从下面取值，
 /// 行高必须显式给出，这样中英文混排时行盒高度稳定，控件不会忽高忽低。
+///
+/// 字重规则：**只有标题加粗**。页面标题、区块标题、卡片标题用 [title] /
+/// [section] / [bodyStrong]；其余一切——正文、数值、状态、标签、徽标、传感器型号、
+/// 固件名、机型名——都用 [body] / [caption]。语义层级靠字号与颜色承担，
+/// 不靠字重堆叠，否则整页都在喊。
 class MgTypography {
   const MgTypography._();
 
@@ -84,13 +89,6 @@ class MgTypography {
     fontSize: 11,
     height: 1.40,
     fontWeight: FontWeight.w400,
-  );
-
-  /// 说明文字的重音版本。
-  static const TextStyle captionStrong = TextStyle(
-    fontSize: 11,
-    height: 1.40,
-    fontWeight: FontWeight.w600,
   );
 
   /// 数字读数：与界面同一套字体，靠 tabularFigures 保证位数变化时不抖动。
@@ -143,7 +141,8 @@ class MgTypography {
       subheadline: style(const TextStyle(), caption),
       footnote: style(const TextStyle(), caption),
       caption1: style(const TextStyle(), caption),
-      caption2: style(const TextStyle(), captionStrong),
+      // caption2 是小号说明文字，不是标题，保持常规字重。
+      caption2: style(const TextStyle(), caption),
     );
   }
 }
@@ -181,6 +180,9 @@ class MgMetrics {
   /// 控件圆角。
   static const double controlRadius = 7;
 
-  /// 电机输出进度条高度。
-  static const double motorBarHeight = 24;
+  /// 电机输出 / 遥控器校准的 PWM 进度条高度。
+  ///
+  /// PWM 读数就叠在条中间，而 [MgTypography.data] 的行盒是 13 × 1.30 ≈ 17，
+  /// 所以这是"读数留在条内"前提下的下限；再矮就得把读数挪到条外。
+  static const double motorBarHeight = 18;
 }

@@ -4,8 +4,11 @@ import '../theme/mg_typography.dart';
 
 /// 平滑过渡的数字读数。
 ///
-/// 遥测按 1–2Hz 刷新，直接替换文本会一格一格地跳。这里用一个短补间把旧值
-/// 过渡到新值，并强制等宽数字，位数变化时不会左右抖动。
+/// 直接替换文本在低刷新率下会一格一格地跳，这里用一个短补间过渡，并强制等宽
+/// 数字，位数变化时不会左右抖动。
+///
+/// 补间时长必须远小于取数间隔：波形页按 10Hz（100ms）取数，如果补间比这个还长，
+/// 读数会永远追着真实值跑，表现为"动作结束了数值还在动"。这里与取数间隔对齐。
 ///
 /// 非有限值（NaN/Infinity）显示占位符，不参与动画。
 class MgAnimatedNumber extends StatelessWidget {
@@ -14,7 +17,7 @@ class MgAnimatedNumber extends StatelessWidget {
     required this.value,
     this.style,
     this.textAlign = TextAlign.right,
-    this.duration = const Duration(milliseconds: 260),
+    this.duration = const Duration(milliseconds: 100),
     this.placeholder = '—',
     this.fractionDigits,
     this.color,

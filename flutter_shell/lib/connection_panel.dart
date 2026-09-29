@@ -472,9 +472,7 @@ class _ConnectionStateLabel extends StatelessWidget {
     };
     return Text(
       label,
-      style: MacosTheme.of(
-        context,
-      ).typography.callout.copyWith(color: color, fontWeight: FontWeight.w600),
+      style: MacosTheme.of(context).typography.callout.copyWith(color: color),
     );
   }
 }

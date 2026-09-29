@@ -53,6 +53,26 @@ int main() {
     std::cout << "=== WaveformBuffer Unit Tests ===" << std::endl;
 
     {
+        // 界面按实例平铺磁场强度时，只需要"最新一帧"。取最新帧的正确方式是
+        // 把时间窗口压到比采样间隔还小，而不是把 max_points 设成 1：
+        // 点数少于可用点数时会走 min/max 降采样分支，而该分支要求
+        // written + 2 <= max_points，max_points=1 时一个点都不返回。
+        std::cout << "\n[Group] 只取最新一帧" << std::endl;
+        WaveformBuffer buffer(100, 0);
+        push_imu(buffer, 1.0f, 1000);
+        push_imu(buffer, 2.0f, 1100);
+        push_imu(buffer, 3.0f, 1200);
+
+        auto by_points = read(buffer, 1);
+        TEST("max_points=1 走降采样分支，返回 0 点", by_points.count == 0);
+
+        auto by_window = read(buffer, 100, 1);
+        TEST("1ms 窗口返回 1 点", by_window.count == 1);
+        TEST("1ms 窗口拿到的是最新一帧",
+             by_window.count == 1 && std::abs(by_window.at(0, 0) - 3.0f) < 1e-6f);
+    }
+
+    {
         std::cout << "\n[Group] 采样限流" << std::endl;
         WaveformBuffer buffer(100, 20);
 

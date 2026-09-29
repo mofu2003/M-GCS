@@ -83,6 +83,7 @@ bool CalibrationService::start(CalibrationType type,
     status_.current_type = type;
     status_.stage = CalibrationStage::WaitingForStart;
     status_.progress = 0;
+    status_.compass_progress.clear();
     status_.current_step = 0;
     status_.total_steps = type == CalibrationType::Accelerometer &&
             accel_mode_ != AccelCalMode::Full
@@ -195,6 +196,12 @@ void CalibrationService::process_statustext(const std::string& text, uint8_t sev
 
     // Handle stage transition
     if (parse_result.stage_changed) {
+        // 失败时把飞控原文带进结果，否则 handle_failure 会退回 describe_failure
+        // 的通用文案，真正的失败原因（飞控原话）就丢了。
+        if (parse_result.new_stage == CalibrationStage::Failed &&
+            !parse_result.user_message.empty()) {
+            current_result_.failure_reason = parse_result.user_message;
+        }
         transition_to(parse_result.new_stage);
     } else {
         // Even without stage change, fire event for progress updates
@@ -229,6 +236,13 @@ void CalibrationService::process_command_ack(uint16_t command, uint8_t result,
         current_result_.progress = progress;
     }
 
+    // 飞控拒绝时把 MAV_RESULT 原文带出来，不然界面只会看到通用文案，
+    // 无法区分"被拒绝"和"校准过程中失败"。
+    if (new_stage == CalibrationStage::Failed) {
+        current_result_.failure_reason =
+            "Flight controller rejected the calibration command (MAV_RESULT " +
+            std::to_string(static_cast<unsigned>(result)) + ")";
+    }
     transition_to(new_stage);
 }
 
@@ -243,6 +257,12 @@ void CalibrationService::process_mag_cal_progress(
 
     status_.progress = progress.completion_pct;
     current_result_.progress = progress.completion_pct;
+    // 分罗盘记录：界面按识别到的罗盘数量各画一条进度条。
+    status_.compass_progress[progress.compass_id] = progress.completion_pct;
+    for (const auto& [id, pct] : status_.compass_progress) {
+        (void)id;
+        if (pct > status_.progress) status_.progress = pct;
+    }
     status_.user_message = "Magnetometer calibration: compass " +
         std::to_string(static_cast<unsigned>(progress.compass_id) + 1) + " " +
         std::to_string(static_cast<unsigned>(progress.completion_pct)) + "%";

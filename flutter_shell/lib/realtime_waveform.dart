@@ -632,7 +632,7 @@ class _SignalCard extends StatelessWidget {
                 text: Text(
                   group.unit,
                   style: MgTypography.sans(
-                    MgTypography.captionStrong.copyWith(color: colors.accent),
+                    MgTypography.caption.copyWith(color: colors.accent),
                   ),
                 ),
               ),
@@ -700,10 +700,8 @@ class _SensorBadge extends StatelessWidget {
       ),
       child: Text(
         name,
-        style: typography.caption1.copyWith(
-          color: colors.accent,
-          fontWeight: FontWeight.w600,
-        ),
+        // 传感器型号（如 BMI088）是读数不是标题，不加粗。
+        style: typography.caption1.copyWith(color: colors.accent),
       ),
     );
   }
@@ -737,7 +735,7 @@ class _CurrentValueTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(label, style: MgTypography.bodyStrong),
+              Text(label, style: MgTypography.body),
               const SizedBox(width: 8),
               Expanded(
                 child: MgAnimatedNumber(

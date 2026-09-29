@@ -68,10 +68,14 @@ struct QualityThresholds {
     float gyro_good      = 0.05f;
     float gyro_marginal  = 0.1f;
 
-    // 加速度计：偏移量单位 m/s²，重力约为 9.81。
-    float accel_excellent = 0.1f;
-    float accel_good      = 0.3f;
-    float accel_marginal  = 0.5f;
+    // 加速度计：偏移量单位 m/s²，这里比的是三轴偏移量的模长。
+    //
+    // ArduPilot 的 INS_ACCOFFS_* 量程是 ±3.5 m/s²；实测一块校准正常的板子，
+    // 三轴偏置合起来常在 0.2–1.0 之间。原来 0.1/0.3/0.5 的阈值会把正常校准
+    // 判成 Poor，进而在 handle_success 里把飞控已经成功的校准报成失败。
+    float accel_excellent = 0.5f;
+    float accel_good      = 1.0f;
+    float accel_marginal  = 2.0f;
 
     // 磁力计：偏移量单位 mGauss，地磁场约 250-650 mGauss。
     float mag_excellent = 50.0f;

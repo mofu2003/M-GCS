@@ -27,13 +27,14 @@ bool CompassCalibration::send_calibration_command(
                  target_sys, target_comp);
     // Match Mission Planner's modern MAV_CAL workflow.  It supports multiple
     // compasses and returns MAG_CAL_PROGRESS/MAG_CAL_REPORT messages.
-    // param1=0: all detected compasses; param2=0: do not auto-retry in the FC;
-    // param3=1: auto-save a successful result.
+    // 参数与 Mission Planner 的 ConfigHWCompass 保持一致：
+    // param1=0 校准所有检测到的罗盘；param2=1 飞控内部失败自动重试；
+    // param3=1 成功后自动保存。之前 param2 写成 0，等于替飞控关掉了重试。
     return mav->send_command_long(target_sys, target_comp,
                                   42424,  // MAV_CMD_DO_START_MAG_CAL
                                   0,
                                   0.0f,            // param1: all compasses
-                                  0.0f,            // param2: retry on failure disabled
+                                  1.0f,            // param2: retry on failure enabled
                                   1.0f,            // param3: autosave
                                   0.0f,            // param4: unused
                                   0.0f,            // param5: unused

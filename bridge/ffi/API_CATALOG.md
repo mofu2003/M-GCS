@@ -25,11 +25,12 @@ and a migration note have been published.
 | Connection | `mg_connection_open`, `mg_connection_get_session_state`, `mg_connection_close`, `mg_vehicle_select`, `mg_connection_get_diagnostics` |
 | Session telemetry | `mg_vehicle_get_session_status` |
 | Dashboard | `mg_telemetry_get_dashboard_snapshot`, `mg_system_get_diagnostics` |
+| Map position | `mg_vehicle_get_global_position`（WGS84 经纬度/海拔/航向）、`mg_vehicle_get_home_position`（Home 点）。地图用它画 Home 与飞机标记 |
 | Sensor waveform | `mg_waveform_poll`, `mg_waveform_clear`, `mg_waveform_get_instances` |
 | Long operations | `mg_operations_get_snapshot`, `mg_operations_cancel` |
 | Parameters | `mg_params_request_all`, `mg_params_get_progress`, `mg_params_get_all`, `mg_params_get_by_name`, `mg_params_set`, `mg_params_prepare_change_set`, `mg_params_commit_change_set` |
 | Parameter metadata/files | `mg_config_get_groups`, `mg_config_get_group_descriptor`, `mg_param_file_export`, `mg_param_file_import` |
-| Calibration | `mg_calibration_start`, `mg_calibration_cancel`, `mg_calibration_get_status`, `mg_calibration_accel_confirm`, `mg_calibration_start_airspeed`. `mg_calibration_start` 的 `type` 取 0=gyro、1=accel、2=compass、3=baro、4=radio（遥控器行程校准，MAV_CMD_PREFLIGHT_CALIBRATION param4=1） |
+| Calibration | `mg_calibration_start`, `mg_calibration_cancel`, `mg_calibration_get_status`, `mg_calibration_accel_confirm`, `mg_calibration_start_airspeed`. `mg_calibration_start` 的 `type` 取 0=gyro、1=accel、2=compass、3=baro、4=radio（遥控器行程校准，MAV_CMD_PREFLIGHT_CALIBRATION param4=1）。`mg_calibration_get_status` 的返回里 `progress` 是所有罗盘的最大值，`compass_progress` 是分罗盘数组 `[{compass_id, completion_pct}]`，供界面按识别到的罗盘数量各画一条进度条 |
 | Flight commands | `mg_command_*` |
 | Logging | `mg_log_request_list`, `mg_log_get_entries`, `mg_log_record_*` |
 | Mission planning document | `mg_mission_doc_create`, `mg_mission_doc_apply`, `mg_mission_doc_validate`, `mg_mission_doc_compile`, `mg_mission_doc_upload`, `mg_mission_doc_verify` |

@@ -42,20 +42,22 @@ class AppWorkspaceShell extends StatefulWidget {
 }
 
 class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
-  final _search = TextEditingController();
+  /// 折叠按钮宽度，用于把它和下方导航图标对齐到同一条竖轴。
+  static const double _collapseButtonWidth = 26;
+
+  /// 展开态下按钮的左偏移：与导航项结构对齐——列表内边距 12 + 图标前留白 12
+  /// + 图标半径 − 按钮半径。
+  static const double _collapseButtonLeft =
+      12 + 12 + MgMetrics.navIconSize / 2 - _collapseButtonWidth / 2;
+
   final _sidebarScroll = ScrollController();
   final _contentScroll = ScrollController();
-  String _query = '';
 
-  @override
-  void initState() {
-    super.initState();
-    _search.addListener(() => setState(() => _query = _search.text.trim()));
-  }
+  /// 手动折叠侧栏。窄窗口本来就只留图标，这里让用户在任意宽度下也能收起。
+  bool _collapsed = false;
 
   @override
   void dispose() {
-    _search.dispose();
     _sidebarScroll.dispose();
     _contentScroll.dispose();
     super.dispose();
@@ -68,11 +70,9 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
       (item) => item.id == widget.selectedId,
       orElse: () => widget.items.first,
     );
-    final shown = widget.items.where((item) => item.label.contains(_query));
-
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxWidth < 720;
+        final compact = _collapsed || constraints.maxWidth < 720;
         final topInset = Platform.isMacOS ? 28.0 : 0.0;
         return Material(
           color: colors.workspace,
@@ -89,59 +89,28 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        SizedBox(height: topInset + 50),
-                        if (compact)
-                          const Padding(
-                            padding: EdgeInsets.only(bottom: 12),
-                            child: Icon(Icons.search, size: 18),
-                          )
-                        else
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 18),
-                            child: SizedBox(
-                              height: MgMetrics.controlHeight,
-                              child: TextField(
-                                controller: _search,
-                                style: MgTypography.sans(
-                                  MgTypography.body.copyWith(
-                                    color: colors.textPrimary,
-                                  ),
-                                ),
-                                decoration: InputDecoration(
-                                  hintText: '搜索配置',
-                                  hintStyle: MgTypography.sans(
-                                    MgTypography.body.copyWith(
-                                      color: colors.textSecondary,
-                                    ),
-                                  ),
-                                  prefixIcon: Icon(
-                                    Icons.search,
-                                    size: 18,
-                                    color: colors.textSecondary,
-                                  ),
-                                  prefixIconConstraints: const BoxConstraints(
-                                    minWidth: 34,
-                                  ),
-                                  filled: true,
-                                  fillColor: colors.surface,
-                                  isDense: true,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    vertical: 8,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                ),
-                              ),
+                        SizedBox(height: topInset + 46),
+                        // 折叠按钮是这里唯一的控件：展开时也把它放在与导航图标
+                        // 同一条竖轴上，收起时随侧栏整体居中。
+                        Row(
+                          children: [
+                            SizedBox(width: compact ? 0 : _collapseButtonLeft),
+                            if (compact) const Spacer(),
+                            _SidebarCollapseButton(
+                              collapsed: compact,
+                              onPressed: () =>
+                                  setState(() => _collapsed = !_collapsed),
                             ),
-                          ),
+                            if (compact) const Spacer(),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
                         Expanded(
                           child: ListView(
                             controller: _sidebarScroll,
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             children: [
-                              for (final item in shown)
+                              for (final item in widget.items)
                                 _SidebarEntry(
                                   item: item,
                                   selected: item.id == selected.id,
@@ -233,6 +202,44 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
   }
 }
 
+/// 侧栏折叠按钮：展开时指向左（收起），收起时指向右（展开）。
+///
+/// 位置固定在搜索栏左侧，收起后搜索栏一并让位，只留这一枚小箭头。
+class _SidebarCollapseButton extends StatelessWidget {
+  const _SidebarCollapseButton({
+    required this.collapsed,
+    required this.onPressed,
+  });
+
+  final bool collapsed;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    return Tooltip(
+      message: collapsed ? '展开侧栏' : '折叠侧栏',
+      child: Material(
+        color: colors.transparent,
+        borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+          child: SizedBox(
+            width: _AppWorkspaceShellState._collapseButtonWidth,
+            height: MgMetrics.controlHeight,
+            child: Icon(
+              collapsed ? Icons.chevron_right : Icons.chevron_left,
+              size: 18,
+              color: colors.textSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SidebarEntry extends StatelessWidget {
   const _SidebarEntry({
     required this.item,
@@ -287,9 +294,7 @@ class _SidebarEntry extends StatelessWidget {
                           style: MgTypography.sans(
                             MgTypography.body.copyWith(
                               color: foreground,
-                              fontWeight: selected
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
+                              // 选中态已经有强调色底，不用再加粗（非标题不加粗）。
                             ),
                           ),
                         ),

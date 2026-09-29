@@ -64,8 +64,12 @@ class MgMotorOutputBar extends StatelessWidget {
               alignment: Alignment.center,
               child: Text(
                 label,
+                // 条内读数比表格里的数值小一档：进度条只有 18 高，用 13 会塞满整条，
+                // 看起来比最小值/最大值那些 30 高的格子里的同样字号更大。
                 style: MgTypography.sans(
-                  MgTypography.data,
+                  MgTypography.caption.copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ).copyWith(color: textColor),
               ),
             ),

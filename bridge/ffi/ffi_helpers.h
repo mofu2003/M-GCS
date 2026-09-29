@@ -30,6 +30,22 @@ inline std::string cal_status_json(const mg::core::calibration::CalibrationStatu
     jb.field("retry_count",    s.retry_count);
     jb.field("max_retries",    s.max_retries);
     jb.field("timestamp_ms",   (int64_t)s.start_time_ms);
+    // 分罗盘进度：元素为 {compass_id, completion_pct}，界面按识别到的罗盘数量
+    // 各画一条进度条。
+    {
+        mg::bridge::JsonBuilder arr;
+        arr.begin_array();
+        for (const auto& [compass_id, pct] : s.compass_progress) {
+            mg::bridge::JsonBuilder item;
+            item.begin_object();
+            item.field("compass_id", (int)compass_id);
+            item.field("completion_pct", (int)pct);
+            item.end_object();
+            arr.append_json(item.str());
+        }
+        arr.end_array();
+        jb.raw_field("compass_progress", arr.str());
+    }
     if (s.current_type == mg::core::calibration::CalibrationType::Accelerometer) {
         jb.field("accelerometer_mode", s.accel_mode == mg::core::calibration::AccelCalMode::Trim
             ? "level"

@@ -147,6 +147,30 @@ static void test_mag_cal_progress_reaches_calibration_service() {
     if (status) mg_free_string(status);
     CHECK(json.find("\"progress\":63") != std::string::npos,
           "MAG_CAL_PROGRESS reaches the calibration service");
+    CHECK(json.find("\"compass_progress\":[{\"compass_id\":0,\"completion_pct\":63}]")
+              != std::string::npos,
+          "per-compass progress is reported for the UI");
+
+    // 第二个罗盘的进度必须单独记一条，而不是覆盖第一个。
+    mavlink_message_t progress2{};
+    mavlink_msg_mag_cal_progress_pack(
+        1, MAV_COMP_ID_AUTOPILOT1, &progress2,
+        1, 1, MAG_CAL_RUNNING_STEP_ONE, 1, 12, completion_mask,
+        0.0f, 0.0f, 1.0f);
+    const uint16_t length2 = mavlink_msg_to_send_buffer(bytes, &progress2);
+    env.link->inject_incoming(bytes, length2);
+
+    char* status2 = mg_calibration_get_status(env.core);
+    std::string json2 = status2 ? status2 : "";
+    if (status2) mg_free_string(status2);
+    CHECK(
+        json2.find("\"compass_id\":0,\"completion_pct\":63") !=
+                std::string::npos &&
+            json2.find("\"compass_id\":1,\"completion_pct\":12") !=
+                std::string::npos,
+        "each compass keeps its own progress entry");
+    CHECK(json2.find("\"progress\":63") != std::string::npos,
+          "aggregate progress stays at the max across compasses");
 }
 
 static void test_cal_start_uses_heartbeat_target() {
@@ -394,6 +418,28 @@ static void test_statustext_failure() {
     }
 }
 
+/// 飞控报失败时，失败原因必须是飞控原话，不能被通用文案顶掉。
+static void test_failure_reason_keeps_flight_controller_text() {
+    fprintf(stderr, "\n[Group] failure reason keeps FC text\n");
+    TestEnv env;
+
+    for (int i = 0; i < 15; i++) env.tick(100);
+    char* start = mg_calibration_start(env.core, 2, 0);
+    if (start) mg_free_string(start);
+    for (int i = 0; i < 20; i++) env.tick(50);
+
+    // 注入一条飞控的失败文本。
+    mg_calibration_process_statustext(env.core, "Compass 1 calibration failed", 6);
+
+    char* status = mg_calibration_get_status(env.core);
+    std::string json = status ? status : "";
+    if (status) mg_free_string(status);
+    CHECK(json.find("Compass 1 calibration failed") != std::string::npos,
+          "failure reason keeps the flight controller's own text");
+    CHECK(json.find("Move away from magnetic interference") == std::string::npos,
+          "generic guidance does not overwrite the real reason");
+}
+
 static void test_parse_statustext_edge_cases() {
     fprintf(stderr, "\n[Group] parse_statustext edge cases\n");
     CompassCalibration cal;
@@ -465,6 +511,7 @@ int main() {
     test_statustext_progress();
     test_statustext_success();
     test_statustext_failure();
+    test_failure_reason_keeps_flight_controller_text();
     test_parse_statustext_edge_cases();
     test_interpret_ack();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);

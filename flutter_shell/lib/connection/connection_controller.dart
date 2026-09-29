@@ -46,6 +46,7 @@ final class CalibrationStatus {
     this.message = '',
     this.failureReason = '',
     this.accelerometerMode = '',
+    this.compassProgress = const {},
   });
 
   final bool active;
@@ -57,6 +58,11 @@ final class CalibrationStatus {
   final String message;
   final String failureReason;
   final String accelerometerMode;
+
+  /// 分罗盘进度：compass_id（0 起）→ completion_pct。
+  ///
+  /// [progress] 是所有罗盘的最大值；界面要按罗盘各画一条进度条时读这张表。
+  final Map<int, int> compassProgress;
 
   bool get isAccelerometer => type == CalibrationType.accelerometer;
   bool get isWaitingOrientation => stage == 'waiting_orientation';
@@ -71,6 +77,7 @@ final class CalibrationStatus {
     'message': message,
     'failureReason': failureReason,
     'accelerometerMode': accelerometerMode,
+    'compassProgress': compassProgress,
   };
 }
 
@@ -110,6 +117,28 @@ final class ParameterOption {
 
   final double value;
   final String label;
+}
+
+/// 飞控上报的一个位置点：WGS84 经纬度 + 海拔，航向可选（Home 点没有）。
+final class VehicleFix {
+  const VehicleFix({
+    required this.latitude,
+    required this.longitude,
+    this.altitudeMeters,
+    this.headingDegrees,
+  });
+
+  final double latitude;
+  final double longitude;
+  final double? altitudeMeters;
+  final double? headingDegrees;
+
+  Map<String, Object?> toJson() => {
+    'latitude': latitude,
+    'longitude': longitude,
+    'altitudeMeters': altitudeMeters,
+    'headingDegrees': headingDegrees,
+  };
 }
 
 final class VehicleParameter {
@@ -277,6 +306,8 @@ final class ConnectionController extends ChangeNotifier
   _calibrationAccelConfirm;
   late final Pointer<Utf8> Function(Pointer<Void>) _getServoOutputs;
   late final Pointer<Utf8> Function(Pointer<Void>) _getRcChannels;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getGlobalPosition;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getHomePosition;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _close;
@@ -319,11 +350,16 @@ final class ConnectionController extends ChangeNotifier
   static const int _waveformFloatsPerPoint = 10;
 
   /// 波形页面默认显示的时间窗口（毫秒）。
-  static const int _waveformDefaultWindowMs = 50000;
+  ///
+  /// 这个值同时决定曲线的横坐标范围：后端按它裁出返回的点，图表用它算 maxX。
+  static const int _waveformDefaultWindowMs = 40000;
 
-  /// 波形页面取数间隔。传感器校准看的是趋势，1Hz 足够；
-  /// 后端仍按 10Hz 采样，所以窗口里的曲线细节不会丢。
-  static const Duration _waveformPollInterval = Duration(seconds: 1);
+  /// 波形页面取数间隔。
+  ///
+  /// 必须跟后端的 10Hz 采样对齐：这里曾经是 1 秒一次，结果飞控在持续采集，
+  /// 界面却每秒才读一次缓冲，读数会在动作结束后成批跳出，表现为"摇完才变"。
+  /// 与 `docs/CONSTRAINTS.md` 性能约束"波形/曲线 10Hz"一致。
+  static const Duration _waveformPollInterval = Duration(milliseconds: 100);
 
   /// 波形页面可见时请求的采样间隔（10Hz）。SCALED_IMU/2/3 各请求一次，
   /// 按显示需要取数，把串口带宽和缓冲写入量压到常规链路水平。
@@ -409,6 +445,15 @@ final class ConnectionController extends ChangeNotifier
   bool servoOutputsValid = false;
   List<int> rcChannels = const [];
   bool rcChannelsValid = false;
+
+  /// 飞控上报的当前位置（有
+  /// `WGS84` 经纬度、海拔与航向）。[vehiclePositionValid] 为 false 时地图不画。
+  VehicleFix? vehiclePosition;
+  bool vehiclePositionValid = false;
+
+  /// 飞控上报的 Home 点，用于任务规划时显示起飞位置。
+  VehicleFix? homePosition;
+  bool homePositionValid = false;
   final Map<String, String> serialHardwareMappings = {};
   bool serialHardwareMappingLoading = false;
   String? serialHardwareMappingError;
@@ -586,6 +631,14 @@ final class ConnectionController extends ChangeNotifier
         message: raw['message']?.toString() ?? '',
         failureReason: raw['failure_reason']?.toString() ?? '',
         accelerometerMode: raw['accelerometer_mode']?.toString() ?? '',
+        compassProgress: {
+          for (final entry
+              in (raw['compass_progress'] as List<Object?>? ?? const [])
+                  .whereType<Map<String, Object?>>())
+            if (entry['compass_id'] is num && entry['completion_pct'] is num)
+              (entry['compass_id'] as num).toInt():
+                  (entry['completion_pct'] as num).toInt(),
+        },
       );
       final changed =
           jsonEncode(next.toJson()) != jsonEncode(calibrationStatus.toJson());
@@ -1145,6 +1198,16 @@ final class ConnectionController extends ChangeNotifier
       _getRcChannels = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
             'mg_rc_get_channels',
+          )
+          .asFunction();
+      _getGlobalPosition = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_vehicle_get_global_position',
+          )
+          .asFunction();
+      _getHomePosition = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_vehicle_get_home_position',
           )
           .asFunction();
       _getSerialUartNames = _library
@@ -1799,6 +1862,7 @@ final class ConnectionController extends ChangeNotifier
       }
       changed = _pollServoOutputs() || changed;
       changed = _pollRcChannels() || changed;
+      changed = _pollVehicleFix() || changed;
       if (changed) {
         _notifyTelemetryChanges();
         notifyListeners();
@@ -1904,10 +1968,47 @@ final class ConnectionController extends ChangeNotifier
     if (!isConnected || sessionId != id || _disposed) return;
     _readWaveformKind(WaveformInstanceKind.imu);
     _readWaveformKind(WaveformInstanceKind.mag);
+    // 磁场强度要同时显示所有罗盘，而整窗取数只覆盖当前选中的实例，
+    // 所以给其余实例各补一次"只要最新一点"的取数。
+    _refreshMagLatestValues();
     // 实例数量随"最近有没有收到数据"变化，和取数同一个周期刷新，
     // 只有真的变了才通知界面，避免选择器每秒闪一下。
     _refreshWaveformInstances();
     _notifyWaveformChanges();
+  }
+
+  /// 刷新所有罗盘实例的最新磁场值，而不只是当前选中的那个。
+  ///
+  /// 磁场强度卡片是按实例平铺的，只更新选中实例会导致别的罗盘一直空着，
+  /// 直到用户手动切过去。
+  ///
+  /// 这里用**时间窗口**而不是点数来裁剪：`copy_points` 在"可用点数多于
+  /// max_points"时会走 min/max 降采样分支，而那个分支要求 `written + 2 <=
+  /// max_points`，所以传 `target_points = 1` 会一个点都不返回。改成把窗口压到
+  /// 1ms，缓冲里的点数是 1，走的是直通分支，拿到的就是真正的最新一帧。
+  void _refreshMagLatestValues() {
+    for (final instance in waveformMagInstances) {
+      if (instance.index == waveformMagInstance) continue; // 整窗取数已经顺手更新过
+      try {
+        final written = _readWaveform(
+          _core,
+          _waveformBuffer,
+          _waveformMaxPoints,
+          _waveformMaxPoints,
+          1, // window_ms = 1：只保留最新一帧
+          instance.index,
+        );
+        if (written <= 0) continue;
+        final base = (written - 1) * _waveformFloatsPerPoint + 7;
+        waveformMagLatestByInstance[instance.index] = [
+          _waveformBuffer[base].toDouble(),
+          _waveformBuffer[base + 1].toDouble(),
+          _waveformBuffer[base + 2].toDouble(),
+        ];
+      } on Object {
+        // 单个实例取不到数据不影响其它实例。
+      }
+    }
   }
 
   /// 取一类实例的波形。任何一个实例取不到数据都只是把点数清零，
@@ -2085,6 +2186,63 @@ final class ConnectionController extends ChangeNotifier
     return oldValid != rcChannelsValid || !_sameIntList(oldValues, rcChannels);
   }
 
+  /// 读取当前位置与 Home 点。
+  ///
+  /// 后端已经缓存了 GLOBAL_POSITION_INT / HOME_POSITION，这里只做取数和比较，
+  /// 位置变化很小也照常通知，地图标记才跟得上。
+  bool _pollVehicleFix() {
+    final oldPosition = vehiclePosition == null
+        ? ''
+        : jsonEncode(vehiclePosition!.toJson());
+    final oldPositionValid = vehiclePositionValid;
+    final oldHome = homePosition == null
+        ? ''
+        : jsonEncode(homePosition!.toJson());
+    final oldHomeValid = homePositionValid;
+    try {
+      final envelope =
+          _readJson(_getGlobalPosition(_core)) as Map<String, Object?>;
+      final data = envelope['data'] as Map<String, Object?>?;
+      vehiclePositionValid =
+          envelope['success'] == true && data?['valid'] == true;
+      vehiclePosition = data == null
+          ? null
+          : VehicleFix(
+              latitude: (data['lat_deg'] as num?)?.toDouble() ?? 0,
+              longitude: (data['lon_deg'] as num?)?.toDouble() ?? 0,
+              altitudeMeters: (data['alt_msl_m'] as num?)?.toDouble(),
+              headingDegrees: (data['heading_deg'] as num?)?.toDouble(),
+            );
+    } on Object {
+      vehiclePosition = null;
+      vehiclePositionValid = false;
+    }
+    try {
+      final envelope =
+          _readJson(_getHomePosition(_core)) as Map<String, Object?>;
+      final data = envelope['data'] as Map<String, Object?>?;
+      homePositionValid = envelope['success'] == true && data?['valid'] == true;
+      homePosition = data == null
+          ? null
+          : VehicleFix(
+              latitude: (data['lat_deg'] as num?)?.toDouble() ?? 0,
+              longitude: (data['lon_deg'] as num?)?.toDouble() ?? 0,
+              altitudeMeters: (data['alt_m'] as num?)?.toDouble(),
+            );
+    } on Object {
+      homePosition = null;
+      homePositionValid = false;
+    }
+    return oldPosition !=
+            (vehiclePosition == null
+                ? ''
+                : jsonEncode(vehiclePosition!.toJson())) ||
+        oldPositionValid != vehiclePositionValid ||
+        oldHome !=
+            (homePosition == null ? '' : jsonEncode(homePosition!.toJson())) ||
+        oldHomeValid != homePositionValid;
+  }
+
   bool _pollSystemStatus() {
     final oldFirmware = jsonEncode(firmwareInfo);
     final oldIdentity = jsonEncode(vehicleIdentity);
@@ -2156,6 +2314,10 @@ final class ConnectionController extends ChangeNotifier
     servoOutputsValid = false;
     rcChannels = const [];
     rcChannelsValid = false;
+    vehiclePosition = null;
+    vehiclePositionValid = false;
+    homePosition = null;
+    homePositionValid = false;
     serialHardwareMappings.clear();
     serialHardwareMappingLoading = false;
     serialHardwareMappingError = null;
@@ -2186,6 +2348,10 @@ final class ConnectionController extends ChangeNotifier
     servoOutputsValid = false;
     rcChannels = const [];
     rcChannelsValid = false;
+    vehiclePosition = null;
+    vehiclePositionValid = false;
+    homePosition = null;
+    homePositionValid = false;
   }
 
   String _openFailureMessage(int code, String endpoint) => switch (code) {

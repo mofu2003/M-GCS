@@ -33,6 +33,7 @@
 #include <memory>
 #include <array>
 #include <vector>
+#include <map>
 #include <functional>
 
 namespace mg::core::mavlink {
@@ -57,6 +58,12 @@ struct CalibrationStatus {
     int         max_retries = 0;
     uint64_t    start_time_ms = 0;
     AccelCalMode accel_mode = AccelCalMode::Full;
+
+    /// 磁力计校准的分罗盘进度：compass_id（0 起）→ completion_pct。
+    ///
+    /// `progress` 仍然是所有罗盘的最大值，供单条进度条的界面使用；需要按罗盘
+    /// 分别显示时读这张表（Mission Planner 就是按 compass_id 各画一条）。
+    std::map<uint8_t, uint8_t> compass_progress;
 };
 
 /// 校准状态变化回调。
