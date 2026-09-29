@@ -67,18 +67,23 @@ Menlo）降为两套（西文 + 中文回退）。
 
 拟采用的字体（实施时以本文件为准并回填版本号）：
 
-| 用途 | 字体 | 许可 |
-| --- | --- | --- |
-| 西文 UI + 数字 | Inter | SIL OFL 1.1 |
-| 中文回退 | Noto Sans SC | SIL OFL 1.1 |
+| 用途 | 字体 | 许可 | 体积 |
+| --- | --- | --- | --- |
+| 西文 UI + 数字 | Arimo | SIL OFL 1.1 | 变量字体 496 KB |
+| 中文回退 | Noto Sans SC | SIL OFL 1.1 | 变量字体 17.7 MB |
 
-选型理由：Inter 的字面气质最接近 SF / Segoe UI，小字号清晰，且自带 tabular figures，
-PWM、坐标、参数值这类读数可以直接复用它；Noto Sans SC 中性，与 Inter 混排不冲突。
-两套即可覆盖全部界面，不再需要单独的等宽字体。
+选型依据见 [字体替代方案调研](../FONT_ALTERNATIVES_RESEARCH.md)。要点：
+
+- 社区（Graphic Design Stack Exchange 两个高票问题）公认最接近 Helvetica Neue 的免费方案
+  是 Liberation Sans；Arimo 与它同源，但提供可变字重，且体积只有 496 KB。
+- 初稿选的 Inter 属于 SF 系而非 Helvetica 系，在上述社区讨论里从未出现，作为"高相似"
+  替代不成立。若后续更看重现代 UI 观感而非贴近当前 mac 观感，可换回 Inter，成本只是替换文件。
+- 中文侧 Noto Sans SC 是唯一许可无附加条件的选项；MiSans、HarmonyOS Sans 许可自定义
+  且 MiSans 写明授权**可撤销**，LXGW Neo XiHei 使用 IPA Font License 并在 README 中提示
+  嵌入式使用需自评合规成本，均不优先。
 
 注意：macOS 当前实际渲染用的 Helvetica Neue、PingFang SC、Menlo 都是 Apple 系统字体，
-**不可打包再分发**，所以"沿用当前字体"只能取其观感、不能取其文件。Inter 是开放许可里
-最接近的一套替代。
+**不可打包再分发**，所以"沿用当前字体"只能取其观感、不能取其文件。
 
 ## 影响
 
@@ -91,7 +96,8 @@ PWM、坐标、参数值这类读数可以直接复用它；Noto Sans SC 中性�
 
 成本：
 
-- 安装包体积增加约 11 MB（Inter ~0.8 MB、Noto Sans SC ~10 MB、JetBrains Mono ~0.2 MB）。
+- 安装包体积增加约 18 MB（Arimo 0.5 MB + Noto Sans SC 17.7 MB），中文占绝大部分；
+  若无法接受，需要评估子集化或改用自定义许可的 MiSans / HarmonyOS Sans 的代价。
 - 失去系统字体在中英文混排上的本地化细节。
 - macOS 的 CoreText 灰度抗锯齿与 Windows 的 ClearType 属于系统级光栅化差异，
   打包字体消不掉，同一款字在 Windows 上仍会略微更细更锐。
