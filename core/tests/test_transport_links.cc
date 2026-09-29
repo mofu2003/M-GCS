@@ -7,6 +7,8 @@
 #include "core/transport/tcp_link.h"
 #include "core/transport/udp_link.h"
 #include "core/transport/serial_link.h"
+#include "core/transport/link_config.h"
+#include "core/transport/serial_port_discovery.h"
 #include "core/platform/platform_socket.h"
 #include <cstdio>
 #include <cstring>
@@ -172,6 +174,33 @@ static void test_serial_link() {
     CHECK(!sent, "send on closed serial returns false");
 }
 
+static void test_windows_serial_configuration() {
+    fprintf(stderr, "\n[Group] Windows serial configuration\n");
+
+    const auto config = LinkConfig::from_uri("serial://COM12?baud=230400");
+    CHECK(config.type == LinkType::Serial, "COM URI selects serial transport");
+    CHECK(config.endpoint == "COM12", "COM URI preserves the port name");
+    CHECK(config.baud_rate == 230400, "COM URI preserves baud rate");
+
+    SerialPortDiscovery discovery;
+    bool discovery_ok = true;
+    try {
+        (void)discovery.enumerate_ports();
+    } catch (...) {
+        discovery_ok = false;
+    }
+    CHECK(discovery_ok, "serial discovery is safe when no device is present");
+
+    LinkDescriptor descriptor;
+    descriptor.id = "COM999";
+    descriptor.type = "serial";
+    descriptor.endpoint = "COM999";
+    descriptor.baud_rate = 115200;
+    SerialLink link(descriptor);
+    CHECK(!link.open(), "invalid COM port fails cleanly");
+    link.close();
+}
+
 static void test_tcp_reconnect() {
     fprintf(stderr, "\n[Group] TCP Reconnect\n");
 
@@ -203,6 +232,7 @@ int main() {
     test_tcp_link();
     test_udp_link();
     test_serial_link();
+    test_windows_serial_configuration();
     test_tcp_reconnect();
 
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);

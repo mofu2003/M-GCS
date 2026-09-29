@@ -1,5 +1,5 @@
 # Project-level configuration.
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.20)
 project(mgcs_frontend LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
@@ -56,10 +56,20 @@ add_subdirectory("runner")
 # Flutter shell can then use the same FFI contract on Windows as on macOS.
 set(MGCORE_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(MGCORE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/mgcore_backend")
+set(MGCORE_CMAKE_ARGS
+  -S "${MGCORE_ROOT_DIR}"
+  -B "${MGCORE_BUILD_DIR}"
+  -DMGCORE_BUILD_SHARED=ON
+  -DMGCORE_BUILD_TESTS=OFF
+)
+if(CMAKE_GENERATOR)
+  list(APPEND MGCORE_CMAKE_ARGS -G "${CMAKE_GENERATOR}")
+endif()
+if(CMAKE_GENERATOR_PLATFORM)
+  list(APPEND MGCORE_CMAKE_ARGS -A "${CMAKE_GENERATOR_PLATFORM}")
+endif()
 add_custom_target(mgcore_backend ALL
-  COMMAND ${CMAKE_COMMAND} -S "${MGCORE_ROOT_DIR}" -B "${MGCORE_BUILD_DIR}"
-    -DMGCORE_BUILD_SHARED=ON
-    -DMGCORE_BUILD_TESTS=OFF
+  COMMAND ${CMAKE_COMMAND} ${MGCORE_CMAKE_ARGS}
   COMMAND ${CMAKE_COMMAND} --build "${MGCORE_BUILD_DIR}"
     --target mgcore
     --config $<CONFIG>
@@ -113,6 +123,18 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+
+install(FILES "${MGCORE_ROOT_DIR}/build/mgcore.dll"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+
+install(FILES
+  "${MGCORE_ROOT_DIR}/core/src/transport/USBBoardInfo.json"
+  "${MGCORE_ROOT_DIR}/core/src/sensor/SensorDeviceInfo.json"
+  "${MGCORE_ROOT_DIR}/core/src/config/ParameterDescriptors.json"
+  "${MGCORE_ROOT_DIR}/core/src/config/ParameterTranslations.zh-CN.json"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
 if(PLUGIN_BUNDLED_LIBRARIES)

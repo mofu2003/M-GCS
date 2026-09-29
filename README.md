@@ -24,6 +24,10 @@ M-GCS/
 
 仓库不包含旧的完整 Flutter 应用；当前只保留 `flutter_shell/` 中的精简外壳（地图、连接、遥测、传感器波形和校准工作区）。macOS 已完成本地构建验证；Windows、Linux 和 Android 仍需真机验收。旧的完整前端保留在历史提交和 `v0.0.5` 标签中。
 
+Windows 桌面构建会同时生成并嵌入 `mgcore.dll`，串口入口使用
+`serial://COMx?baud=115200`。本地 Windows 预检见
+[开发指南](docs/DEVELOPMENT.md#windows-桌面运行)。
+
 ## 前端如何接入
 
 前端不直接依赖 `core/` 的 C++ 类型，只通过：

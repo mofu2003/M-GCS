@@ -100,6 +100,14 @@ tools/preflight.sh --no-macos-build
 
 提交前必须运行完整预检。仓库 hook 可通过 `tools/install-hooks.sh` 启用。
 
+需要复核 FFI 消费面、测试触达和无人区统计时，运行：
+
+```bash
+tools/audit_status.sh
+```
+
+脚本只读取本地仓库，不访问远端。
+
 ## 测试标签
 
 - `offline`：不依赖真实链路。
@@ -136,6 +144,40 @@ cmake --build build --config Release --target mgcore
 Windows 和 Linux 的串口发现、打开和读写由 MgCore 原生实现负责。Windows 使用
 SetupDi 枚举 `COM*` 并用 Win32 `CreateFile`/`ReadFile`，Linux 使用 `/dev/ttyUSB*`、
 `/dev/ttyACM*` 和 termios。
+
+### Windows 桌面运行
+
+Windows 下先完成 Python/MAVLink 头和 CMake 初始化，再构建并运行 Flutter 外壳：
+
+```powershell
+.\tools\generate-mavlink.ps1
+cmake -S . -B build_check -DMGCORE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build_check --config Release --parallel
+
+cd flutter_shell
+flutter pub get
+flutter build windows --debug
+flutter run -d windows
+```
+
+Flutter Windows 构建会调用根 CMake 构建 `mgcore.dll`，并把 DLL 与运行数据文件
+放到 `flutter_shell\build\windows\x64\runner\Debug\`。运行时 Flutter 从可执行文件
+同目录加载 `mgcore.dll`。
+
+Windows 前后端和打包预检：
+
+```powershell
+.\tools\preflight-windows.ps1
+```
+
+发布构建追加 `-Release`。需要手工连接飞控时，使用 `COM*` 端口，例如：
+
+```text
+serial://COM7?baud=115200
+```
+
+Windows 串口为排他资源，连接前必须确认设备管理器中的 COM 端口没有其他 GCS、
+Mission Planner 或串口工具占用。
 
 Android 的 USB 串口和桌面串口不是同一套系统接口。Android 需要通过 USB Host
 权限和设备驱动（CDC ACM、FTDI、CH34 等）取得设备，再把端点读写桥接给 MgCore；

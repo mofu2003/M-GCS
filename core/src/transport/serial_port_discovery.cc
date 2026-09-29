@@ -39,19 +39,21 @@ static const GUID GUID_DEVCLASS_PORTS = {
 // them via the Windows Unicode (UTF-16) intermediate representation.
 static std::string ansi_to_utf8(const char* ansi_str) {
     if (!ansi_str || ansi_str[0] == '\0') return "";
-    
+
     // Step 1: ANSI (system codepage) -> UTF-16
     int wlen = MultiByteToWideChar(CP_ACP, 0, ansi_str, -1, nullptr, 0);
-    if (wlen <= 0) return std::string(ansi_str); // fallback: return as-is
-    std::wstring wstr(wlen - 1, L'\0');
+    if (wlen <= 1) return std::string(ansi_str); // fallback: return as-is
+    std::wstring wstr(static_cast<size_t>(wlen), L'\0');
     MultiByteToWideChar(CP_ACP, 0, ansi_str, -1, &wstr[0], wlen);
-    
+    wstr.resize(static_cast<size_t>(wlen - 1));
+
     // Step 2: UTF-16 -> UTF-8
     int ulen = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    if (ulen <= 0) return std::string(ansi_str);
-    std::string utf8(ulen - 1, '\0');
+    if (ulen <= 1) return std::string(ansi_str);
+    std::string utf8(static_cast<size_t>(ulen), '\0');
     WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &utf8[0], ulen, nullptr, nullptr);
-    
+    utf8.resize(static_cast<size_t>(ulen - 1));
+
     return utf8;
 }
 #endif
@@ -70,6 +72,16 @@ static std::string ansi_to_utf8(const char* ansi_str) {
 #endif
 
 namespace mg::core::transport {
+
+namespace {
+
+bool is_flight_controller_board_class(const std::string& board_class) {
+    return board_class == "Pixhawk" ||
+           board_class == "OpenPilot" ||
+           board_class == "SiK Radio";
+}
+
+} // namespace
 
 #ifdef __APPLE__
 
@@ -529,7 +541,7 @@ std::vector<SerialPortInfo> SerialPortDiscovery::enumerate_ports_impl() {
         if (get_board_info(port, board_class, board_name)) {
             port.board_class = board_class;
             port.board_name  = board_name;
-            port.is_likely_fc = (board_class == "Pixhawk" || board_class == "OpenPilot");
+            port.is_likely_fc = is_flight_controller_board_class(board_class);
         }
 
         // Filter system ports
@@ -603,7 +615,7 @@ std::vector<SerialPortInfo> SerialPortDiscovery::enumerate_ports_impl() {
         if (get_board_info(port, board_class, board_name)) {
             port.board_class = board_class;
             port.board_name  = board_name;
-            port.is_likely_fc = (board_class == "Pixhawk" || board_class == "OpenPilot");
+            port.is_likely_fc = is_flight_controller_board_class(board_class);
         }
 
 #ifdef __APPLE__

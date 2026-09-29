@@ -15,6 +15,9 @@
 9. [协作流程](COLLABORATION.md)：worktree、任务卡、独占资源和本地预检。
 10. [更新日志](../CHANGELOG.md)：版本发布内容与迁移说明。
 11. [FFI API Catalog](../bridge/ffi/API_CATALOG.md)：公开 C ABI 分组、兼容入口和弃用规则。
+12. [架构图](architecture-diagrams.html)：整体、前端详细、后端详细三张图。
+13. [现状审计](STATUS_AUDIT.md)：当前滚动审计、问题 ID、FFI 消费统计和复现命令。
+14. [历史审计](audits/)：按 commit/tag 冻结的审计快照。
 
 ## ADR
 

@@ -16,6 +16,8 @@
 #include "core/transport/serial_link.h"
 #include "core/log/logging.h"
 
+#include <algorithm>
+
 #ifndef _WIN32
 #include <cerrno>
 #include <chrono>
@@ -64,6 +66,9 @@ bool SerialLink::open() {
 
 #ifdef _WIN32
     std::string port_path = "\\\\.\\" + descriptor_.endpoint;
+    if (descriptor_.endpoint.rfind("\\\\.\\", 0) == 0) {
+        port_path = descriptor_.endpoint;
+    }
 
     handle_ = CreateFileA(
         port_path.c_str(),
@@ -80,6 +85,9 @@ bool SerialLink::open() {
         return false;
     }
 
+    SetupComm(handle_, 4096, 4096);
+    PurgeComm(handle_, PURGE_RXCLEAR | PURGE_TXCLEAR | PURGE_RXABORT | PURGE_TXABORT);
+
     // 配置串口参数：波特率、8 数据位、1 停止位、无校验
     DCB dcb = {};
     dcb.DCBlength = sizeof(dcb);
@@ -92,6 +100,19 @@ bool SerialLink::open() {
     }
 
     dcb.BaudRate = descriptor_.baud_rate;
+    dcb.fBinary = TRUE;
+    dcb.fParity = FALSE;
+    dcb.fOutxCtsFlow = FALSE;
+    dcb.fOutxDsrFlow = FALSE;
+    dcb.fDtrControl = DTR_CONTROL_ENABLE;
+    dcb.fDsrSensitivity = FALSE;
+    dcb.fTXContinueOnXoff = TRUE;
+    dcb.fOutX = FALSE;
+    dcb.fInX = FALSE;
+    dcb.fErrorChar = FALSE;
+    dcb.fNull = FALSE;
+    dcb.fRtsControl = RTS_CONTROL_ENABLE;
+    dcb.fAbortOnError = FALSE;
     dcb.ByteSize = 8;
     dcb.StopBits = ONESTOPBIT;
     dcb.Parity   = NOPARITY;
@@ -124,6 +145,13 @@ bool SerialLink::open() {
     // 启动后台读取线程
     if (receive_cb_) {
         read_thread_ = CreateThread(nullptr, 0, read_thread_proc, this, 0, nullptr);
+        if (!read_thread_) {
+            MGC_LOG_ERROR("[SerialLink] CreateThread failed for %s", descriptor_.endpoint.c_str());
+            CloseHandle(handle_);
+            handle_ = INVALID_HANDLE_VALUE;
+            opened_.store(false);
+            return false;
+        }
     }
 
     MGC_LOG_INFO("[SerialLink] Opened %s @ %u baud", descriptor_.endpoint.c_str(), descriptor_.baud_rate);
@@ -185,10 +213,16 @@ void SerialLink::join_read_thread() {
     if (handle_ != INVALID_HANDLE_VALUE) {
         CancelIoEx(handle_, nullptr);
     }
+    CancelSynchronousIo(read_thread_);
 
-    // 等待读取线程退出（5 秒超时）
+    // 等待读取线程退出（5 秒超时）。旧版 USB 串口驱动可能忽略
+    // CancelIoEx；最后使用 TerminateThread，避免 close() 释放对象后
+    // 读取线程仍访问 this。
     if (WaitForSingleObject(read_thread_, 5000) == WAIT_TIMEOUT) {
-        MGC_LOG_ERROR("[SerialLink] Read thread did not stop for %s", descriptor_.endpoint.c_str());
+        MGC_LOG_ERROR(
+            "[SerialLink] Read thread did not stop for %s; terminating",
+            descriptor_.endpoint.c_str());
+        TerminateThread(read_thread_, ERROR_OPERATION_ABORTED);
     }
     CloseHandle(read_thread_);
     read_thread_ = nullptr;
@@ -239,10 +273,23 @@ bool SerialLink::send(const uint8_t* data, size_t size) {
     if (!opened_.load()) return false;
 
 #ifdef _WIN32
-    DWORD bytes_written = 0;
-    BOOL result = WriteFile(handle_, data, static_cast<DWORD>(size), &bytes_written, nullptr);
-
-    return result && bytes_written == size;
+    size_t written_total = 0;
+    while (written_total < size) {
+        DWORD bytes_written = 0;
+        const DWORD request = static_cast<DWORD>(
+            std::min<size_t>(size - written_total, MAXDWORD));
+        if (!WriteFile(
+                handle_,
+                data + written_total,
+                request,
+                &bytes_written,
+                nullptr) ||
+            bytes_written == 0) {
+            return false;
+        }
+        written_total += bytes_written;
+    }
+    return true;
 #else
     ssize_t bytes_written = ::write(fd_, data, size);
     return bytes_written == static_cast<ssize_t>(size);
@@ -261,6 +308,11 @@ void SerialLink::set_receive_callback(ReceiveCallback cb) {
 #ifdef _WIN32
     if (opened_.load() && should_start && !read_thread_) {
         read_thread_ = CreateThread(nullptr, 0, read_thread_proc, this, 0, nullptr);
+        if (!read_thread_) {
+            MGC_LOG_ERROR(
+                "[SerialLink] Failed to start read thread for %s",
+                descriptor_.endpoint.c_str());
+        }
     }
 #else
     if (opened_.load() && should_start && !read_thread_.joinable()) {

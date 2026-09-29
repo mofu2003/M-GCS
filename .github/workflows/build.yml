@@ -61,3 +61,40 @@ jobs:
 
     - name: 运行外壳测试
       run: flutter test
+
+  windows-shell:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: flutter_shell
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: subosito/flutter-action@v2
+      with:
+        channel: stable
+
+    - name: 获取依赖
+      run: flutter pub get
+
+    - name: 检查 UI 设计 token
+      run: dart ../tools/check_ui_tokens.dart
+
+    - name: 静态分析
+      run: flutter analyze
+
+    - name: 运行外壳测试
+      run: flutter test
+
+    - name: 构建 Windows debug 应用
+      run: flutter build windows --debug
+
+    - name: 检查 Windows 后端桥接产物
+      run: dart ../tools/check_windows_bundle.dart build/windows/x64/runner/Debug
+
+    - name: 上传 Windows 构建产物
+      uses: actions/upload-artifact@v4
+      with:
+        name: mgcs-windows-debug
+        path: flutter_shell/build/windows/x64/runner/Debug
