@@ -217,79 +217,61 @@ class _MissionPlanningFloatingPanelState
           _buildMissionActions(context, document),
           const SizedBox(height: 8),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _HomeCard(
-                  controller: widget.controller,
-                  home: document?.home,
-                  enabled: enabled,
-                  onChanged: _updateHome,
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: entities.isEmpty
-                      ? Center(child: _buildEmptyHint(context))
-                      : ReorderableListView.builder(
-                          buildDefaultDragHandles: false,
-                          itemCount: entities.length,
-                          onReorderItem: (oldIndex, newIndex) => unawaited(
-                            _mutate(
-                              () => _mission.reorderEntity(oldIndex, newIndex),
+            child: entities.isEmpty
+                ? const _MissionEmptyState()
+                : ReorderableListView.builder(
+                    buildDefaultDragHandles: false,
+                    itemCount: entities.length,
+                    onReorderItem: (oldIndex, newIndex) => unawaited(
+                      _mutate(() => _mission.reorderEntity(oldIndex, newIndex)),
+                    ),
+                    itemBuilder: (context, index) {
+                      final entity = entities[index];
+                      return Padding(
+                        key: _entityKeys.putIfAbsent(entity.id, GlobalKey.new),
+                        padding: const EdgeInsets.only(bottom: 7),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _mission.selectEntity(index),
+                          child: _MissionEntityCard(
+                            position: index + 1,
+                            reorderIndex: index,
+                            selected: _mission.selectedEntityIndex == index,
+                            enabled: enabled,
+                            entity: entity,
+                            catalog: _mission.commandCatalog,
+                            distanceLabel: _distanceFromPrevious(
+                              entities,
+                              index,
                             ),
-                          ),
-                          itemBuilder: (context, index) {
-                            final entity = entities[index];
-                            return Padding(
-                              key: _entityKeys.putIfAbsent(
-                                entity.id,
-                                GlobalKey.new,
-                              ),
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () => _mission.selectEntity(index),
-                                child: _MissionEntityCard(
-                                  position: index + 1,
-                                  reorderIndex: index,
-                                  selected:
-                                      _mission.selectedEntityIndex == index,
-                                  enabled: enabled,
-                                  entity: entity,
-                                  catalog: _mission.commandCatalog,
-                                  onCommandChanged: (command) => _mutate(
-                                    () => _mission.updateEntity(
-                                      entity.copyWith(
-                                        command: command,
-                                        type: _typeForCommand(command),
-                                      ),
-                                    ),
-                                  ),
-                                  onDelete: () => _mutate(
-                                    () => _mission.removeEntity(entity.id),
-                                  ),
-                                  onAltitudeChanged: (altitude) => _mutate(
-                                    () => _mission.updateEntity(
-                                      entity.copyWith(altitudeMeters: altitude),
-                                    ),
-                                  ),
-                                  onEdit: () => showMissionEntityDialog(
-                                    context,
-                                    controller: widget.controller,
-                                    catalog: _mission.commandCatalog,
-                                    entity: entity,
-                                    onSave: (updated) => _mutate(
-                                      () => _mission.updateEntity(updated),
-                                    ),
-                                  ),
+                            onCommandChanged: (command) => _mutate(
+                              () => _mission.updateEntity(
+                                entity.copyWith(
+                                  command: command,
+                                  type: _typeForCommand(command),
                                 ),
                               ),
-                            );
-                          },
+                            ),
+                            onDelete: () =>
+                                _mutate(() => _mission.removeEntity(entity.id)),
+                            onAltitudeChanged: (altitude) => _mutate(
+                              () => _mission.updateEntity(
+                                entity.copyWith(altitudeMeters: altitude),
+                              ),
+                            ),
+                            onEdit: () => showMissionEntityDialog(
+                              context,
+                              controller: widget.controller,
+                              catalog: _mission.commandCatalog,
+                              entity: entity,
+                              onSave: (updated) =>
+                                  _mutate(() => _mission.updateEntity(updated)),
+                            ),
+                          ),
                         ),
-                ),
-              ],
-            ),
+                      );
+                    },
+                  ),
           ),
         ],
       );
@@ -301,7 +283,9 @@ class _MissionPlanningFloatingPanelState
     final busy = _mission.busy;
     final transfer = _mission.transfer;
     final transferring = transfer?.active ?? false;
+    final connected = widget.controller.isConnected;
     final status = _mission.status ?? _mission.error;
+    final showStatus = status != null && !_isRoutineStatus(status);
     final diagnostics = (_mission.validation?.diagnostics ?? const [])
         .where(
           (diagnostic) => diagnostic.severity != MissionDiagnosticSeverity.info,
@@ -314,9 +298,11 @@ class _MissionPlanningFloatingPanelState
         Row(
           children: [
             PushButton(
-              controlSize: ControlSize.regular,
+              controlSize: ControlSize.small,
               secondary: true,
-              onPressed: busy || transferring ? null : _downloadFromVehicle,
+              onPressed: busy || transferring || !connected
+                  ? null
+                  : _downloadFromVehicle,
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -328,9 +314,9 @@ class _MissionPlanningFloatingPanelState
             ),
             const SizedBox(width: 8),
             PushButton(
-              controlSize: ControlSize.regular,
+              controlSize: ControlSize.small,
               secondary: true,
-              onPressed: busy || transferring || document == null
+              onPressed: busy || transferring || !connected || document == null
                   ? null
                   : _uploadToVehicle,
               child: const Row(
@@ -384,7 +370,7 @@ class _MissionPlanningFloatingPanelState
             ).typography.caption1.copyWith(color: colors.textSecondary),
           ),
         ],
-        if (status != null) ...[
+        if (showStatus) ...[
           const SizedBox(height: 6),
           Text(
             status,
@@ -429,6 +415,13 @@ class _MissionPlanningFloatingPanelState
     };
   }
 
+  bool _isRoutineStatus(String status) =>
+      status.startsWith('正在初始化任务文档') ||
+      status.startsWith('正在更新任务') ||
+      status.startsWith('任务已更新') ||
+      status.startsWith('正在估算任务') ||
+      status.startsWith('正在校验任务');
+
   String _estimateSummary() {
     final estimate = _mission.estimate;
     final count = _mission.document?.entities.length ?? 0;
@@ -438,17 +431,6 @@ class _MissionPlanningFloatingPanelState
     return '$count 个任务项 · ${distanceKm.toStringAsFixed(2)} km · '
         '${minutes.toStringAsFixed(1)} min';
   }
-
-  Widget _buildEmptyHint(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 14),
-    child: Text(
-      '点击地图添加航点',
-      textAlign: TextAlign.center,
-      style: MacosTheme.of(
-        context,
-      ).typography.caption1.copyWith(color: context.mgColors.textSecondary),
-    ),
-  );
 
   String _typeForCommand(int command) {
     for (final descriptor in _mission.commandCatalog) {
@@ -513,21 +495,78 @@ class _MissionPlanningFloatingPanelState
           ).typography.callout.copyWith(color: context.mgColors.textSecondary),
         );
       }
-      return _MissionDefaultsForm(
-        defaults: document.defaults,
-        enabled: !_mission.busy && !_mission.transferActive,
-        onSubmit: (defaults) async {
-          try {
-            await _mission.replaceDocument(
-              document.copyWith(defaults: defaults),
-            );
-          } on Object {
-            // 错误走 status。
-          }
-        },
+      final enabled = !_mission.busy && !_mission.transferActive;
+      return SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _MissionSectionTitle('Home / 返航基准'),
+            const SizedBox(height: 6),
+            _HomeCard(
+              controller: widget.controller,
+              home: document.home,
+              enabled: enabled,
+              onChanged: _updateHome,
+            ),
+            const SizedBox(height: 14),
+            const _MissionSectionTitle('任务默认值'),
+            const SizedBox(height: 6),
+            _MissionDefaultsForm(
+              defaults: document.defaults,
+              enabled: enabled,
+              onSubmit: (defaults) async {
+                try {
+                  await _mission.replaceDocument(
+                    document.copyWith(defaults: defaults),
+                  );
+                } on Object {
+                  // 错误走 status。
+                }
+              },
+            ),
+          ],
+        ),
       );
     },
   );
+
+  String? _distanceFromPrevious(List<MissionEntity> entities, int index) {
+    if (index <= 0) return null;
+    final current = entities[index];
+    if (!current.enabled) return null;
+    MissionEntity? previous;
+    for (var cursor = index - 1; cursor >= 0; cursor--) {
+      final candidate = entities[cursor];
+      if (candidate.enabled) {
+        previous = candidate;
+        break;
+      }
+    }
+    if (previous == null) return null;
+    final lat1 = previous.latitude;
+    final lon1 = previous.longitude;
+    final lat2 = current.latitude;
+    final lon2 = current.longitude;
+    if (lat1 == null ||
+        lon1 == null ||
+        lat2 == null ||
+        lon2 == null ||
+        !lat1.isFinite ||
+        !lon1.isFinite ||
+        !lat2.isFinite ||
+        !lon2.isFinite) {
+      return null;
+    }
+    final meters = const Distance().as(
+      LengthUnit.Meter,
+      LatLng(lat1, lon1),
+      LatLng(lat2, lon2),
+    );
+    if (meters >= 1000) {
+      return '距上一点 ${(meters / 1000).toStringAsFixed(meters >= 10000 ? 1 : 2)} km';
+    }
+    return '距上一点 ${meters.round()} m';
+  }
 }
 
 /// Home 卡片：编辑文档 home，并可把它设为飞控 home（影响 RTL 基准）。
@@ -585,6 +624,16 @@ class _HomeCardState extends State<_HomeCard> {
     );
   }
 
+  Future<void> _useVehiclePosition() async {
+    final fix = widget.controller.vehiclePosition;
+    if (!widget.controller.vehiclePositionValid || fix == null) return;
+    final currentAltitude = double.tryParse(_altitude.text) ?? 0;
+    _latitude.text = fix.latitude.toStringAsFixed(7);
+    _longitude.text = fix.longitude.toStringAsFixed(7);
+    _altitude.text = (fix.altitudeMeters ?? currentAltitude).toStringAsFixed(1);
+    await _save();
+  }
+
   /// 设为飞控 home：QGC 会先弹确认，因为这会改返航基准。
   Future<void> _setVehicleHome() async {
     final latitude = double.tryParse(_latitude.text.trim());
@@ -619,6 +668,17 @@ class _HomeCardState extends State<_HomeCard> {
               const SizedBox(width: 10),
               Text('设置 Home', style: MacosTheme.of(context).typography.body),
               const Spacer(),
+              if (widget.controller.vehiclePositionValid)
+                Tooltip(
+                  message: '使用飞机当前位置',
+                  child: MacosIconButton(
+                    icon: const MacosIcon(CupertinoIcons.location, size: 13),
+                    semanticLabel: '使用飞机当前位置',
+                    onPressed: widget.enabled
+                        ? () => unawaited(_useVehiclePosition())
+                        : null,
+                  ),
+                ),
               PushButton(
                 controlSize: ControlSize.small,
                 secondary: true,
@@ -686,6 +746,54 @@ class _HomeCardState extends State<_HomeCard> {
 }
 
 /// 任务项卡片：编号徽标 + 命令下拉 + 编辑 / 排序 / 删除 + 高度与位置。
+class _MissionSectionTitle extends StatelessWidget {
+  const _MissionSectionTitle(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    text,
+    style: MacosTheme.of(
+      context,
+    ).typography.body.copyWith(color: context.mgColors.textSecondary),
+  );
+}
+
+class _MissionEmptyState extends StatelessWidget {
+  const _MissionEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            MacosIcon(
+              CupertinoIcons.map_pin_ellipse,
+              size: 30,
+              color: colors.textTertiary,
+            ),
+            const SizedBox(height: 8),
+            Text('还没有任务项', style: MacosTheme.of(context).typography.body),
+            const SizedBox(height: 4),
+            Text(
+              '保持规划面板打开，单击地图即可添加航点',
+              textAlign: TextAlign.center,
+              style: MacosTheme.of(
+                context,
+              ).typography.caption1.copyWith(color: colors.textSecondary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _MissionEntityCard extends StatelessWidget {
   const _MissionEntityCard({
     required this.position,
@@ -693,6 +801,7 @@ class _MissionEntityCard extends StatelessWidget {
     required this.selected,
     required this.entity,
     required this.catalog,
+    required this.distanceLabel,
     required this.onCommandChanged,
     required this.onAltitudeChanged,
     required this.onEdit,
@@ -706,6 +815,7 @@ class _MissionEntityCard extends StatelessWidget {
   final bool enabled;
   final MissionEntity entity;
   final List<MissionCommandDescriptor> catalog;
+  final String? distanceLabel;
   final ValueChanged<int> onCommandChanged;
   final ValueChanged<double> onAltitudeChanged;
   final VoidCallback onEdit;
@@ -767,11 +877,12 @@ class _MissionEntityCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Expanded(
-                flex: 2,
+              SizedBox(
+                width: 74,
                 child: _LabeledField(
                   label: 'H(m)',
                   child: _NumberField(
@@ -782,16 +893,28 @@ class _MissionEntityCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
-                flex: 3,
-                child: _LabeledField(
-                  label: '位置',
-                  child: MacosTextField(
-                    enabled: false,
-                    placeholder: _positionLabel(),
-                    padding: _fieldPadding,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      distanceLabel ?? '起点',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: MacosTheme.of(context).typography.caption1
+                          .copyWith(color: colors.textTertiary),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _positionLabel(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: MacosTheme.of(context).typography.caption1
+                          .copyWith(color: colors.textSecondary),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -863,40 +986,38 @@ class _MissionDefaultsFormState extends State<_MissionDefaultsForm> {
   }
 
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _LabeledField(
-          label: '默认高度 (m)',
-          child: MacosTextField(
-            controller: _altitude,
-            enabled: widget.enabled,
-            padding: _fieldPadding,
-            onSubmitted: (_) => _submit(),
-          ),
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _LabeledField(
+        label: '默认高度 (m)',
+        child: MacosTextField(
+          controller: _altitude,
+          enabled: widget.enabled,
+          padding: _fieldPadding,
+          onSubmitted: (_) => _submit(),
         ),
-        const SizedBox(height: 10),
-        _LabeledField(
-          label: '默认速度 (m/s)',
-          child: MacosTextField(
-            controller: _speed,
-            enabled: widget.enabled,
-            padding: _fieldPadding,
-            onSubmitted: (_) => _submit(),
-          ),
+      ),
+      const SizedBox(height: 10),
+      _LabeledField(
+        label: '默认速度 (m/s)',
+        child: MacosTextField(
+          controller: _speed,
+          enabled: widget.enabled,
+          padding: _fieldPadding,
+          onSubmitted: (_) => _submit(),
         ),
-        const SizedBox(height: 12),
-        Align(
-          alignment: Alignment.centerRight,
-          child: PushButton(
-            controlSize: ControlSize.regular,
-            onPressed: widget.enabled ? _submit : null,
-            child: const Text('应用'),
-          ),
+      ),
+      const SizedBox(height: 12),
+      Align(
+        alignment: Alignment.centerRight,
+        child: PushButton(
+          controlSize: ControlSize.regular,
+          onPressed: widget.enabled ? _submit : null,
+          child: const Text('应用'),
         ),
-      ],
-    ),
+      ),
+    ],
   );
 }
 
@@ -933,7 +1054,7 @@ class _MissionDiagnosticRow extends StatelessWidget {
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                diagnostic.message,
+                _message(),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: MacosTheme.of(
@@ -946,6 +1067,30 @@ class _MissionDiagnosticRow extends StatelessWidget {
       ),
     );
   }
+
+  String _message() => switch (diagnostic.code) {
+    'schema.unsupported' => '任务文档版本不受支持',
+    'document.id_missing' => '任务文档缺少 ID',
+    'defaults.altitude' => '默认高度必须大于 0',
+    'defaults.speed' => '默认速度必须大于 0',
+    'home.missing' => '未设置 Home，相对高度预览不可靠',
+    'home.latitude' || 'home.longitude' => 'Home 坐标无效',
+    'entity.id_missing' => '任务项缺少 ID',
+    'entity.id_duplicate' => '任务项 ID 重复',
+    'entity.order' => '任务项顺序已重新整理',
+    'entity.command_missing' => '任务项缺少命令',
+    'entity.command_unsupported' => '命令不在支持列表中',
+    'entity.frame_unsupported' => '不支持该坐标帧',
+    'entity.autocontinue' => '自动继续值无效',
+    'entity.parameter_non_finite' => '参数值不是有效数字',
+    'entity.latitude' || 'entity.longitude' => '航点坐标无效或缺失',
+    'entity.altitude' => '高度必须大于等于 0',
+    'entity.altitude_high' => '高度异常偏高',
+    'mission.empty' => '任务中没有启用的任务项',
+    'mission.first_item' => '第一项建议为起飞或航点',
+    'mission.last_item' => '最后一项建议为降落或返航',
+    _ => diagnostic.message,
+  };
 }
 
 /// 面板内的卡片外观：只包裹「重复的任务项」，避免卡片套卡片。

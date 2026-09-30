@@ -401,9 +401,7 @@ class _AMapMapViewState extends State<AMapMapView> {
           width: 86,
           height: 22,
           child: IgnorePointer(
-            child: _DistanceLabel(
-              text: _formatRouteDistance(distance),
-            ),
+            child: _DistanceLabel(text: _formatRouteDistance(distance)),
           ),
         ),
       );
@@ -471,9 +469,8 @@ class _AMapMapViewState extends State<AMapMapView> {
             // 位置每 100ms 更新一次，只重画标记层，不重建整张地图。
             AnimatedBuilder(
               animation: _markerSources,
-              builder: (context, _) => PolylineLayer(
-                polylines: _buildMissionRouteLines(context),
-              ),
+              builder: (context, _) =>
+                  PolylineLayer(polylines: _buildMissionRouteLines(context)),
             ),
             AnimatedBuilder(
               animation: _markerSources,
@@ -716,10 +713,7 @@ class _TransientMapMessageState extends State<_TransientMapMessage>
 }
 
 class _MissionRouteVertex {
-  const _MissionRouteVertex({
-    required this.wgs84,
-    required this.tileFrame,
-  });
+  const _MissionRouteVertex({required this.wgs84, required this.tileFrame});
 
   final LatLng wgs84;
   final LatLng tileFrame;
