@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <limits>
 #include <string>
+#include <vector>
 
 using namespace mg::core::mission;
 using namespace mg::core::mission::cad;
@@ -647,6 +648,195 @@ static void test_ffi_waypoints_interchange() {
     mg_destroy(core);
 }
 
+static void test_qgc_plan_interchange() {
+    fprintf(stderr, "\n[Group] QGC .plan interchange\n");
+    const MissionDocument document = valid_document();
+    std::vector<std::string> warnings;
+    std::string error;
+    const std::string text = export_qgc_plan_json(document, warnings, error);
+    CHECK(error.empty(), "QGC plan export reports no error");
+    CHECK(text.find("\"fileType\"") != std::string::npos,
+          "QGC plan export writes fileType");
+    CHECK(text.find("\"Plan\"") != std::string::npos,
+          "QGC plan export marks the file as Plan");
+    CHECK(text.find("\"params\"") != std::string::npos,
+          "QGC plan export writes SimpleItem params");
+    CHECK(text.find("\"plannedHomePosition\"") != std::string::npos,
+          "QGC plan export writes the planned home position");
+
+    MissionDocument imported;
+    imported.metadata.name = "Imported QGC Plan";
+    warnings.clear();
+    error.clear();
+    CHECK(import_qgc_plan_json(text, imported, warnings, error),
+          "exported QGC plan re-imports");
+    CHECK(imported.metadata.name == "Imported QGC Plan",
+          "QGC plan import preserves the local document name");
+    CHECK(imported.home.set && std::fabs(imported.home.latitude - 39.9) < 1e-6,
+          "QGC plan import restores the planned home position");
+    CHECK(imported.entities.size() == document.entities.size(),
+          "QGC plan import restores every simple entity");
+    CHECK(imported.entities[0].command == static_cast<uint16_t>(NavCommand::NavTakeoff),
+          "QGC plan import restores the command order");
+    CHECK(imported.entities[1].params[1] == 2.0f,
+          "QGC plan import restores command parameters");
+    CHECK(!MissionDocumentService::validate_document(imported).has_errors(),
+          "round-tripped QGC plan validates");
+
+    const std::string legacy_plan = R"({
+        "fileType": "Plan",
+        "mission": {
+            "version": 2,
+            "firmwareType": 3,
+            "vehicleType": 2,
+            "plannedHomePosition": [39.9, 116.4, 20],
+            "items": [{
+                "type": "SimpleItem",
+                "frame": 3,
+                "command": 16,
+                "autoContinue": true,
+                "doJumpId": 1,
+                "coordinate": [39.905, 116.405, 50],
+                "params": [0, 2, 0, 0]
+            }]
+        }
+    })";
+    MissionDocument legacy;
+    warnings.clear();
+    error.clear();
+    CHECK(import_qgc_plan_json(legacy_plan, legacy, warnings, error),
+          "legacy QGC coordinate-style plan imports");
+    CHECK(legacy.entities.size() == 1 &&
+              std::fabs(legacy.entities[0].latitude - 39.905) < 1e-6,
+          "legacy QGC coordinate is preserved");
+
+    const std::string complex_plan = R"({
+        "fileType": "Plan",
+        "mission": {
+            "version": 2,
+            "firmwareType": 3,
+            "vehicleType": 2,
+            "plannedHomePosition": [39.9, 116.4, 20],
+            "items": [{"type": "Survey", "params": [0, 0, 0, 0]}]
+        }
+    })";
+    MissionDocument complex;
+    warnings.clear();
+    error.clear();
+    CHECK(!import_qgc_plan_json(complex_plan, complex, warnings, error),
+          "unsupported complex QGC item is rejected");
+    CHECK(error.find("unsupported") != std::string::npos,
+          "complex QGC item rejection explains the reason");
+
+    const std::string fence_plan = R"({
+        "fileType": "Plan",
+        "geoFence": {"polygon": [[39.9, 116.4], [39.91, 116.41]], "version": 1},
+        "mission": {
+            "version": 2,
+            "firmwareType": 3,
+            "vehicleType": 2,
+            "plannedHomePosition": [39.9, 116.4, 20],
+            "items": []
+        }
+    })";
+    MissionDocument fenced;
+    warnings.clear();
+    error.clear();
+    CHECK(!import_qgc_plan_json(fence_plan, fenced, warnings, error),
+          "non-empty QGC GeoFence is not silently dropped");
+    CHECK(error.find("GeoFence") != std::string::npos,
+          "GeoFence rejection explains the unsupported section");
+
+    MissionDocument survey_document;
+    MissionEntity survey;
+    survey.id = "survey-1";
+    survey.type = "survey_grid";
+    survey.command = 0;
+    survey_document.entities.push_back(survey);
+    warnings.clear();
+    error.clear();
+    CHECK(export_qgc_plan_json(survey_document, warnings, error).empty() &&
+              !error.empty(),
+          "parameterized survey export is rejected instead of flattened");
+}
+
+static void test_mission_format_recommendation() {
+    fprintf(stderr, "\n[Group] Mission file format recommendation\n");
+    MissionDocument ardupilot = valid_document();
+    CHECK(
+        recommended_mission_interchange_format(ardupilot) == "waypoints",
+        "ArduPilot simple missions recommend waypoints");
+
+    ardupilot.metadata.firmware_profile = "px4";
+    CHECK(
+        recommended_mission_interchange_format(ardupilot) == "plan",
+        "PX4 missions recommend plan");
+
+    MissionDocument survey = valid_document();
+    MissionEntity complex;
+    complex.id = "survey-recommendation";
+    complex.type = "survey_grid";
+    complex.command = 0;
+    survey.entities.push_back(std::move(complex));
+    CHECK(
+        recommended_mission_interchange_format(survey) == "plan",
+        "parameterized survey missions recommend plan");
+
+    MissionDocument unknown = valid_document();
+    unknown.metadata.firmware_profile = "unknown";
+    CHECK(
+        recommended_mission_interchange_format(unknown) == "waypoints",
+        "unknown firmware defaults to waypoints");
+}
+
+static void test_ffi_qgc_plan_interchange() {
+    fprintf(stderr, "\n[Group] QGC .plan interchange through FFI\n");
+    mg_core_t* core = mg_create();
+    CHECK(core != nullptr, "mg_create succeeds (QGC plan)");
+
+    char* result = mg_mission_doc_create(
+        core, R"({"metadata":{"name":"QGC Plan"}})");
+    if (result) mg_free_string(result);
+    result = mg_mission_doc_apply(
+        core,
+        R"({"operation":"add","expected_revision":1,"entity":{"type":"waypoint","command":16,"lat":39.9,"lon":116.4,"alt_m":50}})");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_export_format(core, "plan");
+    CHECK(result && strstr(result, "\"format\":\"plan\""),
+          "FFI QGC plan export reports plan format");
+    CHECK(result && strstr(result, "\\\"fileType\\\""),
+          "FFI QGC plan export returns Plan JSON");
+    if (result) mg_free_string(result);
+
+    const char* import_text = R"({
+        "fileType": "Plan",
+        "mission": {
+            "version": 2,
+            "firmwareType": 3,
+            "vehicleType": 2,
+            "plannedHomePosition": [39.9, 116.4, 20],
+            "items": [{
+                "type": "SimpleItem",
+                "frame": 3,
+                "command": 16,
+                "autoContinue": true,
+                "params": [0, 2, 0, 0, 39.905, 116.405, 50]
+            }]
+        }
+    })";
+    result = mg_mission_doc_import_format(core, "plan", import_text);
+    CHECK(result && strstr(result, "\"success\":true"),
+          "FFI QGC plan import succeeds");
+    CHECK(result && strstr(result, "\"plan-item-1\""),
+          "FFI QGC plan import creates stable item ids");
+    CHECK(result && strstr(result, "\"warnings\""),
+          "FFI QGC plan import reports warnings envelope");
+    if (result) mg_free_string(result);
+
+    mg_destroy(core);
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Tests ===\n");
     test_document_editing_history();
@@ -657,6 +847,9 @@ int main() {
     test_ffi_survey_entity_roundtrip();
     test_waypoints_interchange();
     test_ffi_waypoints_interchange();
+    test_qgc_plan_interchange();
+    test_mission_format_recommendation();
+    test_ffi_qgc_plan_interchange();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

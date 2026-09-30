@@ -80,7 +80,9 @@ Flutter 通过 `ConnectionController` 绑定 FFI。地图坐标按地图源在 G
 - macOS：POSIX 串口，`build/mgcore.dylib`，Flutter debug 构建已验证。
 - Windows：Win32 串口，`mgcore.dll`，Windows bundle/preflight 已提供，仍需真机验收。
 - Linux：POSIX 串口，`libmgcore.so`。
-- Android：JNI 动态库加载和 USB Host 基础工程存在；通用 USB-serial 驱动仍需单独验收。
+- Android：Gradle/CMake 构建并打包 `libmgcore.so`，data JSON 走 AssetManager 解压；
+  USB Host 串口按 QGC 的 `usb-serial-for-android` + `SerialInputOutputManager` +
+  JNI 回调结构接入，权限交互和真机 USB 仍需设备验收。
 
 ## 约束
 

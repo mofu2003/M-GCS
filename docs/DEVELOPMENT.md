@@ -135,6 +135,9 @@ tools/release.sh 0.0.13
 
 ## 变更规则
 
+- 实现前先查 QGC、MP 和现有成熟依赖，并按 `docs/UPSTREAM_CODE_SELECTION.md` 比较
+  模块质量；能引用就引用，不能直接引用就按质量更高的实现和 ArduPilot 真实语义
+  落地，不重复造轮子，也不按项目整体站队。
 - FFI 契约变更必须同时改头文件、实现、测试、API Catalog、文档和前端绑定。
 - 任务/参数/校准/连接/命令变更必须有聚焦 C++ 测试。
 - UI 只使用 `MgTypography`、`MgColors`、`MgMetrics` 和现有 macos_ui 组件。

@@ -514,6 +514,11 @@ struct MavlinkAdapter::Impl {
         auto write_it = pc.pending_writes.find(info.name);
         if (write_it != pc.pending_writes.end()) {
             bool accepted = (std::abs(write_it->second.value - info.value) < 1e-6f);
+            pc.complete_write(
+                write_it->second.history_id,
+                accepted,
+                info.value,
+                accepted ? std::string() : "readback value does not match requested value");
             if (write_it->second.result_cb) {
                 auto cb = write_it->second.result_cb;
                 deferred_cbs.push_back([cb, accepted]() { cb(accepted); });
@@ -533,6 +538,9 @@ struct MavlinkAdapter::Impl {
             // 检查是否全部收到
             if (pc.param_map.size() >= pc.expected_param_count) {
                 pc.download_state = ParamCache::DownloadState::Complete;
+                pc.download_cancelled = false;
+                pc.download_failed = false;
+                pc.download_error.clear();
             }
         }
 
@@ -1132,8 +1140,10 @@ struct MavlinkAdapter::Impl {
             }
         } else {
             const char* label = (ack.mission_type == MAV_MISSION_TYPE_RALLY) ? "Rally" :
-                                (ack.mission_type == MAV_MISSION_TYPE_FENCE) ? "Fence" : "Mission";
-            state.progress.error = std::string(label) + " rejected: result=" + std::to_string(ack.type);
+                                (ack.mission_type == MAV_MISSION_TYPE_FENCE) ? "Fence" : "Task";
+            state.progress.error =
+                std::string(label) + " rejected: " +
+                mg::core::mission::mission_result_message(ack.type);
         }
     }
     

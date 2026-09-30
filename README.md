@@ -3,7 +3,7 @@
 M-GCS 是一款面向 ArduPilot / PX4 的跨平台地面站工程，当前由 C++ 后端、C FFI
 契约和 Flutter 外壳组成。
 
-当前版本：`0.0.12`
+当前版本：`0.0.13`
 
 ## 仓库范围
 
@@ -25,7 +25,7 @@ third_party/          MAVLink 定义、cJSON 等第三方源码
 - macOS / Windows / Linux 的 C++ 后端与 FFI 构建路径。
 - 串口、TCP、UDP、内存链路和 session ID 连接模型。
 - ArduPilot-first、PX4-compatible 的 heartbeat、遥测、参数、校准、日志和命令。
-- 任务文档编辑、undo/redo、命令目录、参数化测绘、上传、下载、验证和 `.waypoints` 互操作。
+- 任务文档编辑、undo/redo、命令目录、参数化测绘、上传、下载、验证，以及 `.waypoints` / QGC `.plan` 互操作。
 - Flutter 地图、Home/飞机标记、引导操作、任务规划面板、配置和校准页面。
 - 统一 MiSans 字体、macOS 风格组件和设计 token 检查。
 

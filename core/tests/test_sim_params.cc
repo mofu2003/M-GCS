@@ -32,6 +32,8 @@ static int parse_progress_total(const char* json) {
     return atoi(p + 8);
 }
 
+static bool load_all_params(TestEnv& env);
+
 static void test_full_download() {
     fprintf(stderr, "\n[Group] Full parameter download\n");
     TestEnv env;
@@ -58,6 +60,46 @@ static void test_full_download() {
     CHECK("received == total (download complete)", total > 0 && received >= total);
 
     fprintf(stderr, "  (params: received=%d total=%d)\n", received, total);
+}
+
+static void test_cancel_download() {
+    fprintf(stderr, "\n[Group] Parameter download cancellation\n");
+    TestEnv env;
+    env.tick(1100);
+
+    char* res = mg_params_request_all(env.core);
+    CHECK("cancel test request starts",
+          res != nullptr && strstr(res, "\"success\":true") != nullptr);
+    if (res) mg_free_string(res);
+
+    char* cancel = mg_operations_cancel(env.core, "params");
+    CHECK("active parameter download can be cancelled through operations",
+          cancel != nullptr && strstr(cancel, "\"canceled\":true") != nullptr);
+    if (cancel) mg_free_string(cancel);
+
+    char* snapshot = mg_operations_get_snapshot(env.core);
+    CHECK("parameter operation reports cancelled terminal state",
+          snapshot != nullptr && strstr(snapshot, "\"state\":\"cancelled\"") != nullptr);
+    CHECK("parameter cancellation keeps its reason",
+          snapshot != nullptr && strstr(snapshot, "parameter download cancelled") != nullptr);
+    if (snapshot) mg_free_string(snapshot);
+
+    res = mg_params_request_all(env.core);
+    CHECK("parameter download can restart after cancellation",
+          res != nullptr && strstr(res, "\"success\":true") != nullptr);
+    if (res) mg_free_string(res);
+
+    int received = 0;
+    int total = 0;
+    for (int i = 0; i < 50; ++i) {
+        env.tick(50);
+        char* progress = mg_params_get_progress(env.core);
+        received = parse_progress_received(progress);
+        total = parse_progress_total(progress);
+        if (progress) mg_free_string(progress);
+        if (total > 0 && received >= total) break;
+    }
+    CHECK("parameter download completes after restart", total > 0 && received >= total);
 }
 
 static void test_param_get() {
@@ -137,6 +179,15 @@ static void test_param_set() {
         fprintf(stderr, "  (WPNAV_SPEED = %g after set)\n", val);
     }
     mg_free_string(json);
+
+    char* diagnostics = mg_system_get_diagnostics(env.core);
+    CHECK("system diagnostics exposes parameter_history",
+          diagnostics != nullptr && strstr(diagnostics, "\"parameter_history\"") != nullptr);
+    CHECK("parameter history records the requested parameter",
+          diagnostics != nullptr && strstr(diagnostics, "\"name\":\"WPNAV_SPEED\"") != nullptr);
+    CHECK("parameter history marks a readback as confirmed",
+          diagnostics != nullptr && strstr(diagnostics, "\"state\":\"confirmed\"") != nullptr);
+    if (diagnostics) mg_free_string(diagnostics);
 }
 
 static void test_config_uses_ardupilot_profile_metadata() {
@@ -333,6 +384,7 @@ static void test_change_set_commit_orders_enable_last() {
 int main() {
     fprintf(stderr, "=== Parameter Simulation Tests ===\n");
     test_full_download();
+    test_cancel_download();
     test_param_get();
     test_param_set();
     test_change_set_requires_loaded_params();

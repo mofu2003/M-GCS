@@ -405,6 +405,76 @@ size_t MavlinkAdapter::params_received() const {
     return impl_->pc.param_map.size();
 }
 
+size_t MavlinkAdapter::params_download_received() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->pc.received_indices.size();
+}
+
+bool MavlinkAdapter::param_download_active() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    switch (impl_->pc.download_state) {
+        case ParamCache::DownloadState::WaitingList:
+        case ParamCache::DownloadState::Receiving:
+        case ParamCache::DownloadState::Recovering:
+            return true;
+        case ParamCache::DownloadState::Idle:
+        case ParamCache::DownloadState::Complete:
+        case ParamCache::DownloadState::Failed:
+            return false;
+    }
+    return false;
+}
+
+bool MavlinkAdapter::param_download_cancelled() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->pc.download_cancelled;
+}
+
+bool MavlinkAdapter::param_download_failed() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->pc.download_failed;
+}
+
+std::string MavlinkAdapter::param_download_error() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->pc.download_error;
+}
+
+bool MavlinkAdapter::cancel_param_download() {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->pc.cancel_download();
+}
+
+std::vector<MavlinkAdapter::ParamChangeRecord> MavlinkAdapter::param_change_history() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    std::vector<ParamChangeRecord> records;
+    records.reserve(impl_->pc.write_history.size());
+    for (const auto& record : impl_->pc.write_history) {
+        ParamChangeRecord output;
+        output.id = record.id;
+        output.name = record.name;
+        output.requested_value = record.requested_value;
+        output.actual_value = record.actual_value;
+        output.type = record.type;
+        switch (record.state) {
+            case ParamCache::WriteState::Pending:
+                output.state = "pending";
+                break;
+            case ParamCache::WriteState::Confirmed:
+                output.state = "confirmed";
+                break;
+            case ParamCache::WriteState::Failed:
+                output.state = "failed";
+                break;
+        }
+        output.error = record.error;
+        output.requested_at_ms = record.requested_at_ms;
+        output.completed_at_ms = record.completed_at_ms;
+        records.push_back(std::move(output));
+    }
+    return records;
+}
+
 uint64_t MavlinkAdapter::message_count() const {
     mg::core::platform::LockGuard lk(impl_->mtx);
     return impl_->msg_count;

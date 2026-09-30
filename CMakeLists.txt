@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mgcore VERSION 0.0.12 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
+project(mgcore VERSION 0.0.13 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -217,6 +217,7 @@ elseif(MGCORE_PLATFORM STREQUAL "linux" OR MGCORE_PLATFORM STREQUAL "macos")
     list(APPEND MGCORE_SOURCES core/src/platform/platform_filesystem_posix.cc)
 elseif(MGCORE_PLATFORM STREQUAL "android")
     list(APPEND MGCORE_SOURCES core/src/platform/platform_filesystem_android.cc)
+    list(APPEND MGCORE_SOURCES core/src/transport/android_usb_serial_link.cc)
 endif()
 
 # Build library

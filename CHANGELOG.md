@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.0.13 - 2026-09-30
+
+### Added
+
+- 统一 operations 快照和取消入口覆盖参数、任务、校准与日志。前端可通过同一套
+  `mg_operations_get_snapshot` / `mg_operations_cancel` 读取进度、失败原因和终态，
+  不再为每一类长任务维护互不一致的状态语义。
+- 参数写入历史加入 `mg_system_get_diagnostics`，记录 requested/actual 值、pending/
+  confirmed/failed 状态、错误和时间戳，便于定位参数写入未确认或失败的问题。
+- QGC `.plan` 基础互操作：支持 SimpleItem、Home、巡航速度、固件/机型元数据和旧版
+  `coordinate` 格式导入导出；复杂项、非空 GeoFence/Rally 和不可无损字段会明确报错
+  或返回 warnings，不再静默丢弃。
+- 新增任务文件格式策略和 ADR 0008：`MissionDocument` 是唯一内部主状态，ArduPilot/
+  MP 默认使用 `.waypoints`，PX4/QGC 默认使用 `.plan`，复杂规划数据保留 `.plan`。
+- Android USB 串口桥接改为 QGC 路线：使用 `usb-serial-for-android`、
+  `SerialInputOutputManager` 和 JNI 回调接入 native `ILink`，并补充 Android APK、
+  Windows 和 Linux bundle 的 CI/预检脚本。
+- 新增 MP/QGC 上游实现择优准则和质量审计文档，明确按模块比较，而不是按项目整体站队。
+
+### Changed
+
+- 任务 ACK 错误增加 QGC 风格的稳定 `result_text`，覆盖 unsupported frame/command、
+  invalid parameters、no space、denied 和 cancellation 等结果。
+- 命令目录补充中文标签、实体类型和参数元数据，任务编辑界面直接从后端目录生成
+  命令和参数表单。
+- Flutter 任务规划、地图、连接状态和长任务交互与新的 operations/diagnostics 契约
+  对齐；前端测试更新到当前 16 项。
+- 文档索引、任务规划契约、架构说明和开发准则同步到当前实现，并记录 MP/QGC 的
+  分项质量归属和复用边界。
+
+### Fixed
+
+- 参数、任务、校准和日志的取消入口现在返回真实终态；没有活动操作时不会把已完成
+  的操作追认为取消。
+- `.plan` 导入不会静默忽略复杂项或非空 GeoFence/Rally；无法无损表达时返回明确错误，
+  可继续但会降级的字段通过 warnings 暴露。
+- Android 平台数据文件通过 JNI 和 AssetManager 解压到缓存目录，native Core 不再依赖
+  自定义文件描述符接管方案。
+
+### Verification
+
+- `tools/preflight.sh` 通过：UI token 检查、`flutter analyze lib test`、Flutter
+  test 16/16、后端 offline/simulation 34/34、macOS debug 构建通过。
+- `git diff --check` 通过；版本号已同步到 CMake、pubspec、README 和 CHANGELOG。
+- Windows、Linux、Android 构建由 CI 路径验证；本机未替代真机串口和权限验收。
+
 ## 0.0.12 - 2026-09-30
 
 ### Added

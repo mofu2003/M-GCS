@@ -72,6 +72,29 @@ static void test_cal_start_compass() {
     CHECK(sent_modern_mag_cal_command, "mock received DO_START_MAG_CAL command");
 }
 
+static void test_calibration_operation_cancel() {
+    fprintf(stderr, "\n[Group] Calibration operation cancellation\n");
+    TestEnv env;
+    for (int i = 0; i < 15; ++i) env.tick(100);
+
+    char* start = mg_calibration_start(env.core, 2, 0);
+    CHECK(start && strstr(start, "\"success\":true") != nullptr,
+          "calibration starts before operation cancellation");
+    if (start) mg_free_string(start);
+
+    char* cancel = mg_operations_cancel(env.core, "calibration");
+    CHECK(cancel && strstr(cancel, "\"canceled\":true") != nullptr,
+          "calibration can be cancelled through operations");
+    if (cancel) mg_free_string(cancel);
+
+    char* snapshot = mg_operations_get_snapshot(env.core);
+    CHECK(snapshot && strstr(snapshot, "\"id\":\"calibration\"") != nullptr,
+          "operations snapshot exposes calibration id");
+    CHECK(snapshot && strstr(snapshot, "\"state\":\"cancelled\"") != nullptr,
+          "calibration operation reports cancelled state");
+    if (snapshot) mg_free_string(snapshot);
+}
+
 static void test_mag_cal_report_completes_calibration() {
     fprintf(stderr, "\n[Group] MAG_CAL_REPORT completion\n");
     TestEnv env;
@@ -570,6 +593,7 @@ static void test_interpret_ack() {
 int main() {
     fprintf(stderr, "=== Calibration Simulation Tests ===\n");
     test_cal_start_compass();
+    test_calibration_operation_cancel();
     test_mag_cal_report_completes_calibration();
     test_mag_cal_report_failure_does_not_auto_retry();
     test_mag_cal_progress_reaches_calibration_service();

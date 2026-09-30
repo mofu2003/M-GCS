@@ -7,6 +7,7 @@
 #include "command_queue.h"
 #include "param_cache.h"
 #include "mission_transfer.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <chrono>
@@ -195,6 +196,15 @@ static void test_mission_transfer() {
     rally.progress.state = mg::core::mission::MissionState::Uploading;
     found = find_uploading(mission, rally, fence);
     CHECK(found == &rally, "find_uploading returns rally when uploading");
+
+    CHECK(
+        std::string(mg::core::mission::mission_result_message(2)) ==
+            "飞控不支持该坐标帧",
+        "mission result 2 maps to unsupported frame");
+    CHECK(
+        std::string(mg::core::mission::mission_result_message(14)) ==
+            "飞控拒绝任务命令",
+        "mission result 14 maps to denied");
 }
 
 // ================================================================
@@ -256,6 +266,48 @@ static void test_param_cache() {
     pc.on_param_received(2);
     CHECK(pc.missing_indices.count(2) == 0, "index 2 removed from missing");
     CHECK(pc.missing_indices.count(4) == 1, "index 4 still in missing");
+
+    pc.start_download(1, 1);
+    pc.expected_param_count = 5;
+    pc.download_state = ParamCache::DownloadState::Receiving;
+    CHECK(pc.cancel_download(), "active parameter download can be cancelled");
+    CHECK(pc.download_state == ParamCache::DownloadState::Idle,
+          "cancelled parameter download returns to Idle");
+    CHECK(pc.download_cancelled, "cancelled parameter download keeps terminal flag");
+    CHECK(pc.download_error == "parameter download cancelled",
+          "cancelled parameter download keeps reason");
+    CHECK(!pc.cancel_download(), "idle parameter download cannot be cancelled again");
+
+    pc.start_download(1, 1);
+    CHECK(!pc.download_cancelled, "restart clears cancelled terminal state");
+
+    const uint64_t history_id = pc.record_write_request("TEST_PARAM", 3.5f, 9);
+    CHECK(pc.write_history.size() == 1, "parameter write request enters history");
+    CHECK(pc.write_history.back().state == ParamCache::WriteState::Pending,
+          "parameter write history starts pending");
+    CHECK(pc.complete_write(history_id, true, 3.5f),
+          "parameter write history records confirmation");
+    CHECK(pc.write_history.back().state == ParamCache::WriteState::Confirmed,
+          "confirmed parameter write is marked confirmed");
+
+    const uint64_t timeout_id = pc.record_write_request("TIMEOUT_PARAM", 1.0f, 9);
+    pc.pending_writes["TIMEOUT_PARAM"].retry_count = PARAM_WRITE_MAX_RETRIES;
+    pc.pending_writes["TIMEOUT_PARAM"].send_time =
+        std::chrono::steady_clock::now() - std::chrono::seconds(2);
+    cbs.clear();
+    pc.check_timeouts(cbs);
+    const auto timeout_record = std::find_if(
+        pc.write_history.begin(),
+        pc.write_history.end(),
+        [timeout_id](const ParamCache::WriteRecord& record) {
+            return record.id == timeout_id;
+        });
+    CHECK(timeout_record != pc.write_history.end() &&
+              timeout_record->state == ParamCache::WriteState::Failed,
+          "timed-out parameter write is marked failed");
+    CHECK(timeout_record != pc.write_history.end() &&
+              timeout_record->error == "parameter write timed out",
+          "timed-out parameter write keeps the reason");
 }
 
 // ================================================================

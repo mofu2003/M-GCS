@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <memory>
+#include <vector>
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
@@ -57,9 +58,23 @@ std::string severity_name(DiagnosticSeverity severity) {
     return "error";
 }
 
+std::string string_array_json(const std::vector<std::string>& values) {
+    cJSON* array = cJSON_CreateArray();
+    for (const std::string& value : values) {
+        cJSON_AddItemToArray(array, cJSON_CreateString(value.c_str()));
+    }
+    char* text = cJSON_PrintUnformatted(array);
+    cJSON_Delete(array);
+    if (!text) return "[]";
+    std::string json(text);
+    cJSON_free(text);
+    return json;
+}
+
 std::string document_snapshot_json(
     const std::shared_ptr<MissionDocumentService>& service,
-    bool include_operation_state) {
+    bool include_operation_state,
+    const std::vector<std::string>& warnings = {}) {
     const auto document = service->snapshot();
     const std::string document_json =
         mg::core::mission::cad::serialize_mission_document(document);
@@ -73,6 +88,7 @@ std::string document_snapshot_json(
         jb.field("can_redo", service->can_redo());
     }
     jb.raw_field("document", document_json);
+    jb.raw_field("warnings", string_array_json(warnings));
     jb.end_object();
     return jb.str();
 }
@@ -664,22 +680,40 @@ MGCORE_API char* mg_mission_doc_export_format(mg_core_t* core, const char* forma
     }
     if (!mg::core::mission::cad::is_supported_interchange_format(format)) {
         return fail(MG_ERROR_INVALID_PARAM,
-                    "unsupported interchange format (supported: waypoints)");
+                    "unsupported interchange format (supported: waypoints, plan)");
     }
 
-    // 导出用编译结果，保证写出的文件就是会上传的那份任务。
     const auto service = ensure_document(core);
     const MissionDocument document = service->snapshot();
-    const auto compiled = service->compile();
-    if (compiled.report.has_errors()) {
-        return validation_failure_json(
-            "mission document cannot be exported because validation failed",
-            compiled.report);
-    }
-
+    const std::string format_name(format);
+    const bool qgc_plan =
+        format_name == "plan" || format_name == "qgc_plan" || format_name == "qgc.plan";
     std::string error;
-    const std::string text = mg::core::mission::cad::export_waypoints_text(
-        document, compiled.plan, error);
+    std::vector<std::string> warnings;
+    std::string text;
+    int item_count = 0;
+    if (qgc_plan) {
+        const auto validation = service->validate();
+        if (validation.has_errors()) {
+            return validation_failure_json(
+                "mission document cannot be exported because validation failed",
+                validation);
+        }
+        text = mg::core::mission::cad::export_qgc_plan_json(
+            document, warnings, error);
+        item_count = static_cast<int>(document.entities.size());
+    } else {
+        // 导出用编译结果，保证写出的文件就是会上传的那份任务。
+        const auto compiled = service->compile();
+        if (compiled.report.has_errors()) {
+            return validation_failure_json(
+                "mission document cannot be exported because validation failed",
+                compiled.report);
+        }
+        text = mg::core::mission::cad::export_waypoints_text(
+            document, compiled.plan, error);
+        item_count = static_cast<int>(compiled.plan.items.size());
+    }
     if (!error.empty()) {
         return fail(MG_ERROR_INTERNAL, error.c_str());
     }
@@ -687,9 +721,10 @@ MGCORE_API char* mg_mission_doc_export_format(mg_core_t* core, const char* forma
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
-    jb.field("format", "waypoints");
-    jb.field("item_count", static_cast<int>(compiled.plan.items.size()));
+    jb.field("format", qgc_plan ? "plan" : "waypoints");
+    jb.field("item_count", item_count);
     jb.field("text", text);
+    jb.raw_field("warnings", string_array_json(warnings));
     jb.end_object();
     return to_cstr(jb.str());
 }
@@ -704,7 +739,7 @@ MGCORE_API char* mg_mission_doc_import_format(
     }
     if (!mg::core::mission::cad::is_supported_interchange_format(format)) {
         return fail(MG_ERROR_INVALID_PARAM,
-                    "unsupported interchange format (supported: waypoints)");
+                    "unsupported interchange format (supported: waypoints, plan)");
     }
     if (!text || text[0] == '\0') {
         return fail(MG_ERROR_INVALID_PARAM, "empty mission file text");
@@ -712,8 +747,16 @@ MGCORE_API char* mg_mission_doc_import_format(
 
     // 在现有文档上导入，保留 metadata / defaults / revision。
     MissionDocument document = ensure_document(core)->snapshot();
+    std::vector<std::string> warnings;
     std::string error;
-    if (!mg::core::mission::cad::import_waypoints_text(text, document, error)) {
+    const std::string format_name(format);
+    const bool qgc_plan =
+        format_name == "plan" || format_name == "qgc_plan" || format_name == "qgc.plan";
+    const bool imported = qgc_plan
+        ? mg::core::mission::cad::import_qgc_plan_json(
+              text, document, warnings, error)
+        : mg::core::mission::cad::import_waypoints_text(text, document, error);
+    if (!imported) {
         return fail(MG_ERROR_INVALID_PARAM, error.c_str());
     }
 
@@ -722,7 +765,7 @@ MGCORE_API char* mg_mission_doc_import_format(
         mg::core::platform::LockGuard lock(core->mission_mtx);
         core->mission_document = service;
     }
-    return to_cstr(document_snapshot_json(service, true));
+    return to_cstr(document_snapshot_json(service, true, warnings));
 }
 
 MGCORE_API char* mg_mission_doc_import(mg_core_t* core, const char* json_document) {

@@ -214,6 +214,8 @@ static void test_backend_hardening_contracts() {
     check(is_success(ops), "operations snapshot success envelope");
     check(contains(ops, "\"id\":\"params\""), "operations snapshot includes params");
     check(contains(ops, "\"id\":\"mission\""), "operations snapshot includes mission");
+    check(contains(ops, "\"id\":\"calibration\""), "operations snapshot includes calibration");
+    check(contains(ops, "\"id\":\"log\""), "operations snapshot includes log download");
     check(contains(ops, "\"state\":\"idle\""), "operations snapshot starts idle");
     mg_free_string(ops);
 
@@ -342,5 +344,4 @@ int main() {
     fprintf(stderr, "========================================\n");
     return g_fail > 0 ? 1 : 0;
 }
-
 

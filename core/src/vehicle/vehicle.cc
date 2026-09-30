@@ -110,6 +110,14 @@ bool Vehicle::connect(const std::string& endpoint) {
         return false;
     }
 
+    finish_connect();
+    MGC_LOG_INFO("[Vehicle %d] Connected to %s", id_, info_.endpoint.c_str());
+    return true;
+}
+
+void Vehicle::finish_connect() {
+    if (state_.load() != VehicleState::Connecting) return;
+
     init_subsystems();
 
     wire_telemetry_callbacks();
@@ -137,9 +145,6 @@ bool Vehicle::connect(const std::string& endpoint) {
         }
     });
     state_.store(VehicleState::WaitingHeartbeat);
-
-    MGC_LOG_INFO("[Vehicle %d] Connected to %s", id_, info_.endpoint.c_str());
-    return true;
 }
 
 void Vehicle::disconnect() {

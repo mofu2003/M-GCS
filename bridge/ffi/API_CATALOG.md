@@ -24,10 +24,10 @@ and a migration note have been published.
 | Lifecycle | `mg_create`, `mg_destroy`, `mg_free_string` |
 | Connection | `mg_connection_open`, `mg_connection_get_session_state`, `mg_connection_close`, `mg_vehicle_select`, `mg_connection_get_diagnostics` |
 | Session telemetry | `mg_vehicle_get_session_status` |
-| Dashboard | `mg_telemetry_get_dashboard_snapshot`, `mg_system_get_diagnostics` |
+| Dashboard | `mg_telemetry_get_dashboard_snapshot`, `mg_system_get_diagnostics`。后者还包含最近的 `parameter_history` 写入结果（requested/actual/state/error/timestamps） |
 | Map position | `mg_vehicle_get_global_position`（WGS84 经纬度/海拔/航向）、`mg_vehicle_get_home_position`（Home 点）。地图用它画 Home 与飞机标记 |
 | Sensor waveform | `mg_waveform_poll`, `mg_waveform_clear`, `mg_waveform_get_instances` |
-| Long operations | `mg_operations_get_snapshot`, `mg_operations_cancel` |
+| Long operations | `mg_operations_get_snapshot`, `mg_operations_cancel`。快照统一包含 `params`、`mission`、`calibration`、`log`；已接入的取消操作分别为参数流下载、任务上传/下载、校准和日志下载。空闲或已完成操作返回 `canceled:false` |
 | Parameters | `mg_params_request_all`, `mg_params_get_progress`, `mg_params_get_all`, `mg_params_get_by_name`, `mg_params_set`, `mg_params_prepare_change_set`, `mg_params_commit_change_set` |
 | Parameter write (UI) | `mg_config_write_param`, `mg_config_write_params`。带描述库校验的前端写入入口；数值越界或不合法会返回 `success:false`。相比 `mg_params_set` 的差别是不要求参数表已完整下载，缺失的类型回退到 REAL32 |
 | Parameter metadata/files | `mg_config_read_param`, `mg_config_get_groups`, `mg_config_get_group_descriptor`, `mg_param_file_export`, `mg_param_file_import` |
@@ -35,8 +35,18 @@ and a migration note have been published.
 | Flight commands | `mg_command_*`。注意 `mg_command_set_home` 会改变返航（RTL）基准，调用方必须先向用户确认；参数与 QGC 的 `doSetHome` 一致（`param1=0`、`param5/6` 用「度」、`param7` 米），越界经纬度会被本地拒绝 |
 | Logging | `mg_log_request_list`, `mg_log_get_entries`, `mg_log_record_*` |
 | Mission planning document | `mg_mission_doc_create`, `mg_mission_doc_apply`, `mg_mission_doc_validate`, `mg_mission_doc_compile`, `mg_mission_doc_upload`, `mg_mission_doc_verify`, `mg_mission_doc_import_from_vehicle` |
-| Mission file interchange | `mg_mission_doc_export_format`, `mg_mission_doc_import_format`（当前支持 `"waypoints"`，即 Mission Planner / QGC 的 `QGC WPL 110` 文本） |
+| Mission file interchange | `mg_mission_doc_export_format`, `mg_mission_doc_import_format`（支持 `"waypoints"` 的 `QGC WPL 110` 文本和 `"plan"` 的 QGroundControl `.plan` JSON） |
 | Mission command metadata | `mg_mission_get_command_catalog` |
+
+Parameter full-list downloads expose their state through
+`mg_operations_get_snapshot().params`. `mg_operations_cancel("params")` aborts
+the active list/recovery transaction, keeps a `cancelled` terminal state with a
+reason, and can be followed by a fresh `mg_params_request_all` call.
+
+The same snapshot shape is used for `mission`, `calibration`, and `log`
+operations. Calibration cancellation reuses the existing MAVLink cancel command
+path and preserves the calibration service's `cancelled` stage. Log download
+cancellation sends `LOG_REQUEST_END` and keeps the adapter's terminal status.
 
 Existing first-party bindings deliberately cover connection, dashboard,
 parameters, servo/RC telemetry, serial mapping, calibration, and the
@@ -132,9 +142,22 @@ degrees and compiles back to degE7 itself.
 Upload is start-only, for both `mg_mission_doc_upload` and the compatibility
 entry `mg_mission_upload`: a successful return means the transfer was started,
 not that the flight controller finished receiving it. `mg_mission_doc_upload`
-reports `state: "uploading"` for that reason. Poll `mg_mission_get_progress`
-until it reports completion, then call `mg_mission_doc_verify` to compare the
-readback. Treating the upload return value as completion is a bug.
+reports `state: "uploading"` for that reason. Poll `mg_operations_get_snapshot`
+(or `mg_mission_get_progress`) until it reports completion. Verification also
+requires a completed full download, so the safe sequence is upload -> poll ->
+download -> poll -> `mg_mission_doc_verify`. Treating the upload return value
+as completion is a bug.
+
+`mg_operations_cancel("mission")` aborts an active mission read/write. The
+backend resets the transfer state, marks it with
+`MAV_MISSION_OPERATION_CANCELLED`, and sends a matching `MISSION_ACK` to the
+vehicle. It returns `canceled:false` when no mission transfer is active; a
+completed or failed transfer is not retroactively cancelled.
+
+Mission operation snapshots include both `result` and QGC-style `result_text`.
+The text mapping follows QGC `PlanManager::_missionResultToString`, so a
+rejected mission reports unsupported frame/command, invalid parameters, no
+space, denied, or cancellation instead of only a numeric MAV_MISSION_RESULT.
 
 `mg_mission_get_command_catalog` exposes command names, a Chinese `label`, the
 document `entity_type` for each command, categories, whether a
@@ -142,6 +165,14 @@ position or altitude is required, and per-parameter MAVLink index, labels,
 units, types, defaults, ranges, required flags, and enum options. Parameter
 `index` maps directly to `params[index - 1]`. Frontends should render command
 forms from this catalog rather than hard-coding MAV_CMD parameter semantics.
+
+`mg_mission_doc_export_format` / `mg_mission_doc_import_format` accept
+`"waypoints"` and `"plan"`. The `.plan` implementation maps QGC `SimpleItem`
+entries and supports both current seven-value `params` items and legacy
+`coordinate` arrays. It does not silently discard complex items, disabled
+entities, parameterized survey entities, non-empty GeoFence/Rally sections, or
+unrepresentable altitude fields: such cases fail or return entries in the
+`warnings` array. Import/export responses include `warnings` even when empty.
 
 `survey_grid` and `corridor` entities are parameterized: the document stores the
 intent (`survey.width_m`, `survey.length_m`, `survey.angle_deg`,

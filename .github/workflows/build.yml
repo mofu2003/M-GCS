@@ -46,9 +46,22 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
     - uses: subosito/flutter-action@v2
       with:
         channel: stable
+
+    - name: 安装 Linux Flutter 构建依赖
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+    - name: 生成 MAVLink C 头
+      working-directory: .
+      run: ./tools/generate-mavlink.sh
 
     - name: 获取依赖
       run: flutter pub get
@@ -62,39 +75,66 @@ jobs:
     - name: 运行外壳测试
       run: flutter test
 
+    - name: 构建 Linux debug 应用
+      run: flutter build linux --debug
+
+    - name: 检查 Linux 后端桥接产物
+      run: dart ../tools/check_linux_bundle.dart build/linux/x64/debug/bundle
+
   windows-shell:
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: flutter_shell
 
     steps:
     - uses: actions/checkout@v4
 
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
     - uses: subosito/flutter-action@v2
       with:
         channel: stable
 
-    - name: 获取依赖
-      run: flutter pub get
-
-    - name: 检查 UI 设计 token
-      run: dart ../tools/check_ui_tokens.dart
-
-    - name: 静态分析
-      run: flutter analyze
-
-    - name: 运行外壳测试
-      run: flutter test
-
-    - name: 构建 Windows debug 应用
-      run: flutter build windows --debug
-
-    - name: 检查 Windows 后端桥接产物
-      run: dart ../tools/check_windows_bundle.dart build/windows/x64/runner/Debug
+    - name: 运行 Windows 完整预检
+      shell: pwsh
+      run: ./tools/preflight-windows.ps1
 
     - name: 上传 Windows 构建产物
       uses: actions/upload-artifact@v4
       with:
         name: mgcs-windows-debug
         path: flutter_shell/build/windows/x64/runner/Debug
+
+  android-shell:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - uses: subosito/flutter-action@v2
+      with:
+        channel: stable
+
+    - name: 生成 MAVLink C 头
+      run: ./tools/generate-mavlink.sh
+
+    - name: 获取依赖
+      working-directory: flutter_shell
+      run: flutter pub get
+
+    - name: 构建 Android debug APK
+      working-directory: flutter_shell
+      run: flutter build apk --debug
+
+    - name: 检查 Android 后端桥接产物
+      shell: bash
+      run: |
+        apk="flutter_shell/build/app/outputs/flutter-apk/app-debug.apk"
+        unzip -l "$apk" | grep -E 'lib/[^/]+/libmgcore\.so' >/dev/null
+        unzip -l "$apk" | grep 'assets/mgcore/USBBoardInfo.json' >/dev/null
+        unzip -l "$apk" | grep 'assets/mgcore/ParameterDescriptors.json' >/dev/null
+        echo "[android-bundle] APK contains libmgcore.so and core data assets"

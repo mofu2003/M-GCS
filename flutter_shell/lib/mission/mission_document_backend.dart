@@ -23,7 +23,17 @@ abstract interface class MissionDocumentBackend {
 
   Future<JsonMap> uploadMissionDocument(int expectedRevision);
 
-  Future<JsonMap> verifyMissionDocument({double toleranceMeters = 0.1});
+  Future<void> startMissionDownload();
+
+  Future<MissionTransferProgress> getMissionTransferProgress();
+
+  Future<void> cancelMissionTransfer();
+
+  Future<MissionDocument> importMissionDocumentFromVehicle();
+
+  Future<MissionVerificationResult> verifyMissionDocument({
+    double toleranceMeters = 0.1,
+  });
 
   Future<MissionDocument> importMissionDocument(String json);
 

@@ -134,6 +134,7 @@ public:
     void load_sensor_decoder(const std::string& json_path);
 
 private:
+    void finish_connect();
     void fire_event(int event_type, const std::string& json);
     void update_and_fire(mg::core::telemetry::TelemetryType type, int event_id);
     /// 清空所有 IMU 实例的波形缓冲与活跃时间。

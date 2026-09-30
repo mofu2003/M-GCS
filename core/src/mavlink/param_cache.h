@@ -53,6 +53,9 @@ struct ParamCache {
         Failed,         // 重试耗尽，下载失败
     };
     DownloadState download_state = DownloadState::Idle;
+    bool download_cancelled = false;
+    bool download_failed = false;
+    std::string download_error;
     int list_retry_count = 0;
     std::chrono::steady_clock::time_point last_send_time;
     std::chrono::steady_clock::time_point last_receive_time;
@@ -71,14 +74,53 @@ struct ParamCache {
         std::string name;
         float value;
         uint8_t type;
+        uint64_t history_id = 0;
         int retry_count = 0;
         std::chrono::steady_clock::time_point send_time;
         std::function<void(bool success)> result_cb;
     };
     std::unordered_map<std::string, PendingWrite> pending_writes;
 
+    enum class WriteState : uint8_t {
+        Pending = 0,
+        Confirmed = 1,
+        Failed = 2,
+    };
+
+    struct WriteRecord {
+        uint64_t id = 0;
+        std::string name;
+        float requested_value = 0.0f;
+        float actual_value = 0.0f;
+        uint8_t type = 0;
+        WriteState state = WriteState::Pending;
+        std::string error;
+        int64_t requested_at_ms = 0;
+        int64_t completed_at_ms = 0;
+    };
+
+    static constexpr size_t kMaxWriteHistory = 100;
+    std::vector<WriteRecord> write_history;
+    uint64_t next_write_id = 1;
+
     /// 启动下载
     void start_download(uint8_t sys, uint8_t comp);
+
+    /// 取消当前下载；没有活动下载时返回 false。
+    bool cancel_download();
+
+    /// 记录一次参数写入请求并进入 pending 状态。
+    uint64_t record_write_request(
+        const std::string& name,
+        float value,
+        uint8_t type);
+
+    /// 更新参数写入终态；找不到记录时返回 false。
+    bool complete_write(
+        uint64_t history_id,
+        bool success,
+        float actual_value,
+        const std::string& error = {});
 
     /// 收到 PARAM_VALUE 后更新状态
     void on_param_received(uint16_t index);

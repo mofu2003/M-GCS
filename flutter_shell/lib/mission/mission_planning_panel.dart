@@ -51,6 +51,8 @@ class _MissionPlanningFloatingPanelState
   );
 
   bool _collapsed = false;
+  String? _lastSelectedEntityId;
+  final Map<String, GlobalKey> _entityKeys = {};
 
   MissionDocumentController get _mission => widget.controller.missionPlanning;
 
@@ -58,6 +60,7 @@ class _MissionPlanningFloatingPanelState
   void initState() {
     super.initState();
     _tabs.addListener(_handleTabChanged);
+    _mission.addListener(_handleMissionChanged);
     unawaited(_mission.initialize());
   }
 
@@ -65,9 +68,35 @@ class _MissionPlanningFloatingPanelState
     if (mounted) setState(() {});
   }
 
+  void _handleMissionChanged() {
+    final selectedIndex = _mission.selectedEntityIndex;
+    final entities = _mission.document?.entities ?? const <MissionEntity>[];
+    if (selectedIndex == null ||
+        selectedIndex < 0 ||
+        selectedIndex >= entities.length) {
+      _lastSelectedEntityId = null;
+      return;
+    }
+    final selectedId = entities[selectedIndex].id;
+    if (selectedId == _lastSelectedEntityId) return;
+    _lastSelectedEntityId = selectedId;
+    final entityKey = _entityKeys.putIfAbsent(selectedId, GlobalKey.new);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = entityKey.currentContext;
+      if (target != null) {
+        Scrollable.ensureVisible(
+          target,
+          duration: const Duration(milliseconds: 180),
+          alignment: 0.1,
+        );
+      }
+    });
+  }
+
   @override
   void dispose() {
     _tabs.removeListener(_handleTabChanged);
+    _mission.removeListener(_handleMissionChanged);
     _tabs.dispose();
     super.dispose();
   }
@@ -179,78 +208,85 @@ class _MissionPlanningFloatingPanelState
     builder: (context, _) {
       final document = _mission.document;
       final entities = document?.entities ?? const <MissionEntity>[];
+      final enabled = !_mission.busy && !_mission.transferActive;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildMissionActions(context, document),
           const SizedBox(height: 8),
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _HomeCard(
-                    controller: widget.controller,
-                    home: document?.home,
-                    onChanged: _updateHome,
-                  ),
-                  const SizedBox(height: 8),
-                  if (entities.isEmpty)
-                    _buildEmptyHint(context)
-                  else
-                    for (var index = 0; index < entities.length; index++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _MissionEntityCard(
-                          position: index + 1,
-                          entity: entities[index],
-                          catalog: _mission.commandCatalog,
-                          onCommandChanged: (command) => _mutate(
-                            () => _mission.updateEntity(
-                              entities[index].copyWith(
-                                command: command,
-                                type: _typeForCommand(command),
-                              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _HomeCard(
+                  controller: widget.controller,
+                  home: document?.home,
+                  enabled: enabled,
+                  onChanged: _updateHome,
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: entities.isEmpty
+                      ? Center(child: _buildEmptyHint(context))
+                      : ReorderableListView.builder(
+                          buildDefaultDragHandles: false,
+                          itemCount: entities.length,
+                          onReorderItem: (oldIndex, newIndex) => unawaited(
+                            _mutate(
+                              () => _mission.reorderEntity(oldIndex, newIndex),
                             ),
                           ),
-                          onMoveUp: index == 0
-                              ? null
-                              : () => _mutate(
-                                  () => _mission.moveEntity(
-                                    entities[index].id,
-                                    index - 1,
-                                  ),
-                                ),
-                          onMoveDown: index == entities.length - 1
-                              ? null
-                              : () => _mutate(
-                                  () => _mission.moveEntity(
-                                    entities[index].id,
-                                    index + 1,
-                                  ),
-                                ),
-                          onDelete: () => _mutate(
-                            () => _mission.removeEntity(entities[index].id),
-                          ),
-                          onAltitudeChanged: (altitude) => _mutate(
-                            () => _mission.updateEntity(
-                              entities[index].copyWith(
-                                altitudeMeters: altitude,
+                          itemBuilder: (context, index) {
+                            final entity = entities[index];
+                            return Padding(
+                              key: _entityKeys.putIfAbsent(
+                                entity.id,
+                                GlobalKey.new,
                               ),
-                            ),
-                          ),
-                          onEdit: () => showMissionEntityDialog(
-                            context,
-                            controller: widget.controller,
-                            catalog: _mission.commandCatalog,
-                            entity: entities[index],
-                            onSave: (entity) =>
-                                _mutate(() => _mission.updateEntity(entity)),
-                          ),
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => _mission.selectEntity(index),
+                                child: _MissionEntityCard(
+                                  position: index + 1,
+                                  reorderIndex: index,
+                                  selected:
+                                      _mission.selectedEntityIndex == index,
+                                  enabled: enabled,
+                                  entity: entity,
+                                  catalog: _mission.commandCatalog,
+                                  onCommandChanged: (command) => _mutate(
+                                    () => _mission.updateEntity(
+                                      entity.copyWith(
+                                        command: command,
+                                        type: _typeForCommand(command),
+                                      ),
+                                    ),
+                                  ),
+                                  onDelete: () => _mutate(
+                                    () => _mission.removeEntity(entity.id),
+                                  ),
+                                  onAltitudeChanged: (altitude) => _mutate(
+                                    () => _mission.updateEntity(
+                                      entity.copyWith(altitudeMeters: altitude),
+                                    ),
+                                  ),
+                                  onEdit: () => showMissionEntityDialog(
+                                    context,
+                                    controller: widget.controller,
+                                    catalog: _mission.commandCatalog,
+                                    entity: entity,
+                                    onSave: (updated) => _mutate(
+                                      () => _mission.updateEntity(updated),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
                         ),
-                      ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
@@ -261,7 +297,15 @@ class _MissionPlanningFloatingPanelState
   Widget _buildMissionActions(BuildContext context, MissionDocument? document) {
     final colors = context.mgColors;
     final busy = _mission.busy;
+    final transfer = _mission.transfer;
+    final transferring = transfer?.active ?? false;
     final status = _mission.status ?? _mission.error;
+    final diagnostics = (_mission.validation?.diagnostics ?? const [])
+        .where(
+          (diagnostic) => diagnostic.severity != MissionDiagnosticSeverity.info,
+        )
+        .take(3)
+        .toList(growable: false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -270,7 +314,7 @@ class _MissionPlanningFloatingPanelState
             PushButton(
               controlSize: ControlSize.regular,
               secondary: true,
-              onPressed: busy ? null : _downloadFromVehicle,
+              onPressed: busy || transferring ? null : _downloadFromVehicle,
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -284,7 +328,9 @@ class _MissionPlanningFloatingPanelState
             PushButton(
               controlSize: ControlSize.regular,
               secondary: true,
-              onPressed: busy || document == null ? null : _uploadToVehicle,
+              onPressed: busy || transferring || document == null
+                  ? null
+                  : _uploadToVehicle,
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -295,9 +341,47 @@ class _MissionPlanningFloatingPanelState
               ),
             ),
             const Spacer(),
-            if (busy) const ProgressCircle(radius: 7),
+            if (_mission.dirty)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Text(
+                  '未上传',
+                  style: MacosTheme.of(
+                    context,
+                  ).typography.caption1.copyWith(color: colors.warning),
+                ),
+              ),
+            if (transferring)
+              PushButton(
+                controlSize: ControlSize.small,
+                secondary: true,
+                onPressed: _mission.cancelTransfer,
+                child: const Text('取消'),
+              )
+            else if (busy)
+              const ProgressCircle(radius: 7),
           ],
         ),
+        if (transfer != null &&
+            (transfer.active ||
+                transfer.cancelled ||
+                transfer.error.isNotEmpty)) ...[
+          const SizedBox(height: 8),
+          ProgressBar(
+            value: transfer.progressPercent.toDouble(),
+            height: 6,
+            semanticLabel: _transferLabel(transfer),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _transferLabel(transfer),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: MacosTheme.of(
+              context,
+            ).typography.caption1.copyWith(color: colors.textSecondary),
+          ),
+        ],
         if (status != null) ...[
           const SizedBox(height: 6),
           Text(
@@ -309,6 +393,16 @@ class _MissionPlanningFloatingPanelState
             ).typography.caption1.copyWith(color: colors.textSecondary),
           ),
         ],
+        if (diagnostics.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          for (final diagnostic in diagnostics)
+            _MissionDiagnosticRow(
+              diagnostic: diagnostic,
+              onTap: diagnostic.entityId.isEmpty
+                  ? null
+                  : () => _mission.selectEntityById(diagnostic.entityId),
+            ),
+        ],
         const SizedBox(height: 4),
         Text(
           _estimateSummary(),
@@ -318,6 +412,19 @@ class _MissionPlanningFloatingPanelState
         ),
       ],
     );
+  }
+
+  String _transferLabel(MissionTransferProgress transfer) {
+    if (transfer.cancelled) return '任务传输已取消';
+    if (transfer.error.isNotEmpty) return transfer.error;
+    return switch (transfer.state) {
+      MissionTransferState.downloading =>
+        '正在读取 ${transfer.received}/${transfer.total}',
+      MissionTransferState.uploading =>
+        '正在上传 ${transfer.sent}/${transfer.total}',
+      MissionTransferState.waitingAck => '正在等待飞控确认',
+      MissionTransferState.idle => '传输完成 ${transfer.progressPercent}%',
+    };
   }
 
   String _estimateSummary() {
@@ -351,7 +458,6 @@ class _MissionPlanningFloatingPanelState
   Future<void> _mutate(Future<void> Function() operation) async {
     try {
       await operation();
-      await _mission.refreshEstimate();
     } on Object {
       // 失败信息由 controller 的 status / error 呈现。
     }
@@ -371,24 +477,22 @@ class _MissionPlanningFloatingPanelState
   /// “This will clear your existing points, Continue?” 与 QGC 的下载前提示）。
   Future<void> _downloadFromVehicle() async {
     final localCount = _mission.document?.entities.length ?? 0;
-    if (localCount > 0) {
+    if (_mission.dirty) {
       final confirmed = await confirmMissionAction(
         context,
         title: '从飞控读取任务',
-        message: '本地已有 $localCount 个任务项，读取会覆盖它们。是否继续？',
+        message: '本地有未上传的修改（$localCount 个任务项），读取会覆盖它们。是否继续？',
         confirmLabel: '继续读取',
       );
       if (!confirmed) return;
     }
-    await _mutate(() => widget.controller.importMissionFromVehicle());
+    await _mutate(_mission.downloadFromVehicle);
   }
 
   Future<void> _uploadToVehicle() async {
-    final document = _mission.document;
-    if (document == null) return;
-    await _mutate(
-      () => widget.controller.uploadMissionToVehicle(document.revision),
-    );
+    await _mutate(() async {
+      await _mission.upload();
+    });
   }
 
   // ================================================================
@@ -409,12 +513,12 @@ class _MissionPlanningFloatingPanelState
       }
       return _MissionDefaultsForm(
         defaults: document.defaults,
+        enabled: !_mission.busy && !_mission.transferActive,
         onSubmit: (defaults) async {
           try {
             await _mission.replaceDocument(
               document.copyWith(defaults: defaults),
             );
-            await _mission.refreshEstimate();
           } on Object {
             // 错误走 status。
           }
@@ -430,10 +534,12 @@ class _HomeCard extends StatefulWidget {
     required this.controller,
     required this.home,
     required this.onChanged,
+    this.enabled = true,
   });
 
   final ConnectionController controller;
   final MissionHome? home;
+  final bool enabled;
   final Future<void> Function(MissionHome home) onChanged;
 
   @override
@@ -514,7 +620,7 @@ class _HomeCardState extends State<_HomeCard> {
               PushButton(
                 controlSize: ControlSize.small,
                 secondary: true,
-                onPressed: widget.controller.isConnected
+                onPressed: widget.controller.isConnected && widget.enabled
                     ? _setVehicleHome
                     : null,
                 child: const Text('设为飞控 Home'),
@@ -529,6 +635,7 @@ class _HomeCardState extends State<_HomeCard> {
                   label: '纬度',
                   child: MacosTextField(
                     controller: _latitude,
+                    enabled: widget.enabled,
                     padding: _fieldPadding,
                     onSubmitted: (_) => _save(),
                   ),
@@ -540,6 +647,7 @@ class _HomeCardState extends State<_HomeCard> {
                   label: '经度',
                   child: MacosTextField(
                     controller: _longitude,
+                    enabled: widget.enabled,
                     padding: _fieldPadding,
                     onSubmitted: (_) => _save(),
                   ),
@@ -551,6 +659,7 @@ class _HomeCardState extends State<_HomeCard> {
                   label: 'H(m)',
                   child: MacosTextField(
                     controller: _altitude,
+                    enabled: widget.enabled,
                     padding: _fieldPadding,
                     onSubmitted: (_) => _save(),
                   ),
@@ -564,7 +673,7 @@ class _HomeCardState extends State<_HomeCard> {
             child: PushButton(
               controlSize: ControlSize.small,
               secondary: true,
-              onPressed: _save,
+              onPressed: widget.enabled ? _save : null,
               child: const Text('保存'),
             ),
           ),
@@ -578,34 +687,37 @@ class _HomeCardState extends State<_HomeCard> {
 class _MissionEntityCard extends StatelessWidget {
   const _MissionEntityCard({
     required this.position,
+    required this.reorderIndex,
+    required this.selected,
     required this.entity,
     required this.catalog,
     required this.onCommandChanged,
     required this.onAltitudeChanged,
     required this.onEdit,
-    this.onMoveUp,
-    this.onMoveDown,
+    this.enabled = true,
     this.onDelete,
   });
 
   final int position;
+  final int reorderIndex;
+  final bool selected;
+  final bool enabled;
   final MissionEntity entity;
   final List<MissionCommandDescriptor> catalog;
   final ValueChanged<int> onCommandChanged;
   final ValueChanged<double> onAltitudeChanged;
   final VoidCallback onEdit;
-  final VoidCallback? onMoveUp;
-  final VoidCallback? onMoveDown;
   final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
     final commands = catalog.map((descriptor) => descriptor.command).toList();
-    final selected = commands.contains(entity.command)
+    final selectedCommand = commands.contains(entity.command)
         ? entity.command
         : (commands.isEmpty ? null : commands.first);
     return MissionCardFrame(
+      selected: selected,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -615,10 +727,18 @@ class _MissionEntityCard extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: AdaptivePopupButton<int>(
-                  value: selected,
+                  value: selectedCommand,
                   options: commands,
                   labelOf: _labelFor,
-                  onChanged: onCommandChanged,
+                  onChanged: enabled ? onCommandChanged : null,
+                ),
+              ),
+              Tooltip(
+                message: '拖动排序',
+                child: ReorderableDragStartListener(
+                  index: reorderIndex,
+                  enabled: enabled,
+                  child: const MacosIcon(CupertinoIcons.bars, size: 13),
                 ),
               ),
               Tooltip(
@@ -626,23 +746,7 @@ class _MissionEntityCard extends StatelessWidget {
                 child: MacosIconButton(
                   icon: const MacosIcon(CupertinoIcons.pencil, size: 13),
                   semanticLabel: '编辑航点',
-                  onPressed: onEdit,
-                ),
-              ),
-              Tooltip(
-                message: '上移',
-                child: MacosIconButton(
-                  icon: const MacosIcon(CupertinoIcons.arrow_up, size: 13),
-                  semanticLabel: '上移',
-                  onPressed: onMoveUp,
-                ),
-              ),
-              Tooltip(
-                message: '下移',
-                child: MacosIconButton(
-                  icon: const MacosIcon(CupertinoIcons.arrow_down, size: 13),
-                  semanticLabel: '下移',
-                  onPressed: onMoveDown,
+                  onPressed: enabled ? onEdit : null,
                 ),
               ),
               Tooltip(
@@ -651,12 +755,12 @@ class _MissionEntityCard extends StatelessWidget {
                   icon: MacosIcon(
                     CupertinoIcons.trash,
                     size: 13,
-                    color: onDelete == null
+                    color: !enabled || onDelete == null
                         ? colors.textTertiary
                         : colors.danger,
                   ),
                   semanticLabel: '删除',
-                  onPressed: onDelete,
+                  onPressed: enabled ? onDelete : null,
                 ),
               ),
             ],
@@ -671,6 +775,7 @@ class _MissionEntityCard extends StatelessWidget {
                   child: _NumberField(
                     key: ValueKey('entity-alt-${entity.id}'),
                     initial: entity.altitudeMeters,
+                    enabled: enabled,
                     onSubmitted: onAltitudeChanged,
                   ),
                 ),
@@ -713,10 +818,15 @@ class _MissionEntityCard extends StatelessWidget {
 
 /// 任务默认参数（整份任务共用）。
 class _MissionDefaultsForm extends StatefulWidget {
-  const _MissionDefaultsForm({required this.defaults, required this.onSubmit});
+  const _MissionDefaultsForm({
+    required this.defaults,
+    required this.onSubmit,
+    this.enabled = true,
+  });
 
   final MissionDefaults defaults;
   final Future<void> Function(MissionDefaults defaults) onSubmit;
+  final bool enabled;
 
   @override
   State<_MissionDefaultsForm> createState() => _MissionDefaultsFormState();
@@ -759,6 +869,7 @@ class _MissionDefaultsFormState extends State<_MissionDefaultsForm> {
           label: '默认高度 (m)',
           child: MacosTextField(
             controller: _altitude,
+            enabled: widget.enabled,
             padding: _fieldPadding,
             onSubmitted: (_) => _submit(),
           ),
@@ -768,6 +879,7 @@ class _MissionDefaultsFormState extends State<_MissionDefaultsForm> {
           label: '默认速度 (m/s)',
           child: MacosTextField(
             controller: _speed,
+            enabled: widget.enabled,
             padding: _fieldPadding,
             onSubmitted: (_) => _submit(),
           ),
@@ -777,7 +889,7 @@ class _MissionDefaultsFormState extends State<_MissionDefaultsForm> {
           alignment: Alignment.centerRight,
           child: PushButton(
             controlSize: ControlSize.regular,
-            onPressed: _submit,
+            onPressed: widget.enabled ? _submit : null,
             child: const Text('应用'),
           ),
         ),
@@ -786,11 +898,64 @@ class _MissionDefaultsFormState extends State<_MissionDefaultsForm> {
   );
 }
 
+class _MissionDiagnosticRow extends StatelessWidget {
+  const _MissionDiagnosticRow({required this.diagnostic, required this.onTap});
+
+  final MissionDiagnostic diagnostic;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    final color = diagnostic.severity == MissionDiagnosticSeverity.error
+        ? colors.danger
+        : colors.warning;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: MacosIcon(
+                diagnostic.severity == MissionDiagnosticSeverity.error
+                    ? CupertinoIcons.xmark_circle_fill
+                    : CupertinoIcons.exclamationmark_triangle_fill,
+                size: 12,
+                color: color,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                diagnostic.message,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: MacosTheme.of(
+                  context,
+                ).typography.caption1.copyWith(color: color),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// 面板内的卡片外观：只包裹「重复的任务项」，避免卡片套卡片。
 class MissionCardFrame extends StatelessWidget {
-  const MissionCardFrame({super.key, required this.child});
+  const MissionCardFrame({
+    super.key,
+    required this.child,
+    this.selected = false,
+  });
 
   final Widget child;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -798,9 +963,12 @@ class MissionCardFrame extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: selected ? colors.surfaceMuted : colors.surface,
         borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
-        border: Border.all(color: colors.divider),
+        border: Border.all(
+          color: selected ? colors.accent : colors.divider,
+          width: selected ? 1.5 : 1,
+        ),
       ),
       child: child,
     );
@@ -858,10 +1026,12 @@ class _NumberField extends StatefulWidget {
     super.key,
     required this.initial,
     required this.onSubmitted,
+    this.enabled = true,
   });
 
   final double? initial;
   final ValueChanged<double> onSubmitted;
+  final bool enabled;
 
   @override
   State<_NumberField> createState() => _NumberFieldState();
@@ -887,6 +1057,7 @@ class _NumberFieldState extends State<_NumberField> {
   @override
   Widget build(BuildContext context) => MacosTextField(
     controller: _controller,
+    enabled: widget.enabled,
     padding: _fieldPadding,
     onSubmitted: (_) => _submit(),
   );
@@ -938,9 +1109,9 @@ Future<void> showMissionEntityDialog(
   final mission = controller.missionPlanning;
   await mission.initialize();
   if (!context.mounted) return;
-  await showMacosSheet<void>(
+  await _showFadeDialog<void>(
     context: context,
-    builder: (sheetContext) => _MissionEntitySheet(
+    builder: (dialogContext) => _MissionEntitySheet(
       catalog: mission.commandCatalog.isEmpty
           ? catalog
           : mission.commandCatalog,
@@ -949,6 +1120,30 @@ Future<void> showMissionEntityDialog(
       initialPosition: initialPosition,
       onSave: onSave,
     ),
+  );
+}
+
+/// 无弹跳的淡入对话框。
+///
+/// macos_ui 的 `showMacosSheet` 入场使用弹簧缩放曲线（`_SubtleBounceCurve`），
+/// 这里改为纯淡入，保留 `MacosSheet` 的外观但去掉弹跳。
+Future<T?> _showFadeDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+}) {
+  return showGeneralDialog<T>(
+    context: context,
+    barrierDismissible: false,
+    barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+    barrierColor: MgColors.of(context).shadow,
+    transitionDuration: const Duration(milliseconds: 150),
+    pageBuilder: (dialogContext, animation, secondaryAnimation) =>
+        builder(dialogContext),
+    transitionBuilder: (dialogContext, animation, secondaryAnimation, child) =>
+        FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
+        ),
   );
 }
 
@@ -1094,20 +1289,32 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
     final commands = widget.catalog
         .map((descriptor) => descriptor.command)
         .toList();
-    return MacosSheet(
-      child: SizedBox(
-        width: 420,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
-          child: SingleChildScrollView(
+    return Center(
+      child: MacosSheet(
+        insetPadding: EdgeInsets.zero,
+        child: SizedBox(
+          width: 360,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  widget.entity == null ? '添加航点' : '编辑航点',
-                  style: MacosTheme.of(context).typography.title3,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.entity == null ? '添加航点' : '编辑航点',
+                        style: MacosTheme.of(context).typography.title3,
+                      ),
+                    ),
+                    MacosIconButton(
+                      icon: const MacosIcon(CupertinoIcons.xmark, size: 13),
+                      semanticLabel: '关闭',
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 6),
                 _LabeledField(
                   label: '命令类型',
                   child: AdaptivePopupButton<int>(
@@ -1121,86 +1328,81 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
                         setState(() => _descriptor = _descriptorFor(command)),
                   ),
                 ),
-                if (_descriptor.requiresPosition) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    '位置',
-                    style: MacosTheme.of(
-                      context,
-                    ).typography.caption1.copyWith(color: colors.textSecondary),
-                  ),
-                  const SizedBox(height: 6),
+                if (_descriptor.requiresPosition ||
+                    _descriptor.requiresAltitude) ...[
+                  const SizedBox(height: 8),
                   Row(
                     children: [
-                      Expanded(
-                        child: _LabeledField(
-                          label: '纬度',
-                          child: MacosTextField(
-                            controller: _latitude,
-                            padding: _fieldPadding,
+                      if (_descriptor.requiresPosition) ...[
+                        Expanded(
+                          child: _LabeledField(
+                            label: '纬度',
+                            child: MacosTextField(
+                              controller: _latitude,
+                              padding: _fieldPadding,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _LabeledField(
-                          label: '经度',
-                          child: MacosTextField(
-                            controller: _longitude,
-                            padding: _fieldPadding,
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _LabeledField(
+                            label: '经度',
+                            child: MacosTextField(
+                              controller: _longitude,
+                              padding: _fieldPadding,
+                            ),
                           ),
                         ),
-                      ),
+                      ],
+                      if (_descriptor.requiresPosition &&
+                          _descriptor.requiresAltitude)
+                        const SizedBox(width: 8),
+                      if (_descriptor.requiresAltitude)
+                        Expanded(
+                          child: _LabeledField(
+                            label: '高度 (m)',
+                            child: MacosTextField(
+                              controller: _altitude,
+                              padding: _fieldPadding,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ],
-                if (_descriptor.requiresAltitude) ...[
-                  const SizedBox(height: 12),
-                  _LabeledField(
-                    label: '高度 (m)',
-                    child: MacosTextField(
-                      controller: _altitude,
-                      padding: _fieldPadding,
-                    ),
-                  ),
-                ],
                 if (_descriptor.parameters.isNotEmpty) ...[
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
                   Text(
                     '参数',
                     style: MacosTheme.of(
                       context,
                     ).typography.caption1.copyWith(color: colors.textSecondary),
                   ),
-                  const SizedBox(height: 6),
-                  for (final parameter in _descriptor.parameters)
+                  const SizedBox(height: 4),
+                  for (
+                    var index = 0;
+                    index < _descriptor.parameters.length;
+                    index += 2
+                  )
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _LabeledField(
-                        label: parameter.unit.isEmpty
-                            ? parameter.label
-                            : '${parameter.label} (${parameter.unit})',
-                        child:
-                            parameter.type ==
-                                    MissionParameterType.enumeration &&
-                                parameter.options.isNotEmpty
-                            ? AdaptivePopupButton<double>(
-                                value: _parameterValue(parameter),
-                                options: [
-                                  for (final option in parameter.options)
-                                    option.value,
-                                ],
-                                labelOf: (value) =>
-                                    _optionLabel(parameter, value),
-                                onChanged: (value) => setState(
-                                  () => _parameterController(parameter).text =
-                                      formatMissionParameter(value),
-                                ),
-                              )
-                            : MacosTextField(
-                                controller: _parameterController(parameter),
-                                padding: _fieldPadding,
+                      padding: const EdgeInsets.only(bottom: 7),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _buildParameterField(
+                              _descriptor.parameters[index],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (index + 1 < _descriptor.parameters.length)
+                            Expanded(
+                              child: _buildParameterField(
+                                _descriptor.parameters[index + 1],
                               ),
+                            )
+                          else
+                            const Spacer(),
+                        ],
                       ),
                     ),
                 ],
@@ -1213,29 +1415,44 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
                     ).typography.caption1.copyWith(color: colors.danger),
                   ),
                 ],
-                const SizedBox(height: 18),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    PushButton(
-                      controlSize: ControlSize.large,
-                      secondary: true,
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('取消'),
-                    ),
-                    const SizedBox(width: 10),
-                    PushButton(
-                      controlSize: ControlSize.large,
-                      onPressed: _save,
-                      child: const Text('保存'),
-                    ),
-                  ],
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: PushButton(
+                    controlSize: ControlSize.regular,
+                    onPressed: _save,
+                    child: const Text('保存'),
+                  ),
                 ),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildParameterField(MissionCommandParameter parameter) {
+    return _LabeledField(
+      label: parameter.unit.isEmpty
+          ? parameter.label
+          : '${parameter.label} (${parameter.unit})',
+      child:
+          parameter.type == MissionParameterType.enumeration &&
+              parameter.options.isNotEmpty
+          ? AdaptivePopupButton<double>(
+              value: _parameterValue(parameter),
+              options: [for (final option in parameter.options) option.value],
+              labelOf: (value) => _optionLabel(parameter, value),
+              onChanged: (value) => setState(
+                () => _parameterController(parameter).text =
+                    formatMissionParameter(value),
+              ),
+            )
+          : MacosTextField(
+              controller: _parameterController(parameter),
+              padding: _fieldPadding,
+            ),
     );
   }
 
@@ -1258,9 +1475,9 @@ Future<void> showGuidedActionsDialog(
   required ConnectionController controller,
   required LatLng position,
 }) async {
-  await showMacosSheet<void>(
+  await _showFadeDialog<void>(
     context: context,
-    builder: (sheetContext) =>
+    builder: (dialogContext) =>
         _GuidedActionsSheet(controller: controller, position: position),
   );
 }
@@ -1268,7 +1485,6 @@ Future<void> showGuidedActionsDialog(
 class _GuidedAction {
   const _GuidedAction({
     required this.label,
-    required this.icon,
     required this.enabled,
     required this.confirmMessage,
     required this.run,
@@ -1276,7 +1492,6 @@ class _GuidedAction {
   });
 
   final String label;
-  final IconData icon;
   final bool enabled;
   final String confirmMessage;
   final bool needsAltitude;
@@ -1302,6 +1517,7 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
   late final TextEditingController _altitude = TextEditingController(
     text: _defaultAltitude().toStringAsFixed(1),
   );
+  String? _selectedActionLabel;
   String? _error;
 
   double _defaultAltitude() {
@@ -1328,7 +1544,6 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
     return [
       _GuidedAction(
         label: '移动到此处',
-        icon: CupertinoIcons.location_fill,
         enabled: connected && flying,
         needsAltitude: true,
         confirmMessage: '飞机会飞往该坐标并保持高度。',
@@ -1337,7 +1552,6 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
       ),
       _GuidedAction(
         label: '返航 (RTL)',
-        icon: CupertinoIcons.house_fill,
         enabled: connected && armed && flying && !mode.contains('RTL'),
         confirmMessage: '飞机将返回起飞点（Home）并自动降落。',
         run: ({required latitude, required longitude, required altitude}) =>
@@ -1345,7 +1559,6 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
       ),
       _GuidedAction(
         label: '降落',
-        icon: CupertinoIcons.arrow_down_to_line,
         enabled: connected && armed && !fixedWing && !mode.contains('LAND'),
         confirmMessage: '飞机将在当前位置直接降落。',
         run: ({required latitude, required longitude, required altitude}) =>
@@ -1353,7 +1566,6 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
       ),
       _GuidedAction(
         label: '起飞',
-        icon: CupertinoIcons.arrow_up_to_line,
         enabled: connected && !flying,
         needsAltitude: true,
         confirmMessage: '飞控将以该高度起飞并悬停。',
@@ -1362,7 +1574,6 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
       ),
       _GuidedAction(
         label: '暂停/继续',
-        icon: CupertinoIcons.pause_circle,
         enabled: connected && armed && flying,
         confirmMessage: '飞控会暂停当前动作并原地悬停。',
         run: ({required latitude, required longitude, required altitude}) =>
@@ -1370,7 +1581,6 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
       ),
       _GuidedAction(
         label: '环绕飞行',
-        icon: CupertinoIcons.arrow_counterclockwise,
         enabled: connected && flying,
         needsAltitude: true,
         confirmMessage: '飞控会绕该点盘旋（半径 50 m）。',
@@ -1410,116 +1620,106 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
   Widget build(BuildContext context) {
     final colors = context.mgColors;
     final actions = _actions();
-    return MacosSheet(
-      child: SizedBox(
-        width: 420,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('引导模式选项', style: MacosTheme.of(context).typography.title3),
-              const SizedBox(height: 10),
-              Text(
-                '位置',
-                style: MacosTheme.of(
-                  context,
-                ).typography.caption1.copyWith(color: colors.textSecondary),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${widget.position.latitude.toStringAsFixed(6)}, '
-                '${widget.position.longitude.toStringAsFixed(6)}',
-                style: MacosTheme.of(context).typography.body,
-              ),
-              const SizedBox(height: 14),
-              Text('选择操作：', style: MacosTheme.of(context).typography.body),
-              const SizedBox(height: 8),
-              GridView.count(
-                crossAxisCount: 3,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                childAspectRatio: 1.15,
-                children: [
-                  for (final action in actions)
-                    _GuidedActionTile(
-                      action: action,
-                      onPressed: action.enabled ? () => _execute(action) : null,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _LabeledField(
-                label: '高度 (m) · 仅“移动到此处 / 起飞 / 环绕”使用',
-                child: MacosTextField(
-                  controller: _altitude,
-                  padding: _fieldPadding,
-                ),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 8),
+    _GuidedAction? selectedAction;
+    for (final action in actions) {
+      if (action.label == _selectedActionLabel) {
+        selectedAction = action;
+        break;
+      }
+    }
+    selectedAction ??= actions.isEmpty ? null : actions.first;
+
+    return Center(
+      child: MacosSheet(
+        insetPadding: EdgeInsets.zero,
+        child: SizedBox(
+          width: 280,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('引导模式选项', style: MacosTheme.of(context).typography.title3),
+                const SizedBox(height: 2),
                 Text(
-                  _error!,
+                  '${widget.position.latitude.toStringAsFixed(5)}, '
+                  '${widget.position.longitude.toStringAsFixed(5)}',
                   style: MacosTheme.of(
                     context,
-                  ).typography.caption1.copyWith(color: colors.danger),
+                  ).typography.caption1.copyWith(color: colors.textSecondary),
+                ),
+                const SizedBox(height: 10),
+                _LabeledField(
+                  label: '操作',
+                  child: AdaptivePopupButton<String>(
+                    value: selectedAction?.label,
+                    options: [for (final action in actions) action.label],
+                    labelOf: (label) => label,
+                    onChanged: actions.isEmpty
+                        ? null
+                        : (label) =>
+                              setState(() => _selectedActionLabel = label),
+                  ),
+                ),
+                if (actions.isEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '当前飞行状态没有可用的引导操作。',
+                    style: MacosTheme.of(
+                      context,
+                    ).typography.caption1.copyWith(color: colors.textSecondary),
+                  ),
+                ] else if (selectedAction?.enabled != true) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '当前飞行状态下不能执行该操作。',
+                    style: MacosTheme.of(
+                      context,
+                    ).typography.caption1.copyWith(color: colors.warning),
+                  ),
+                ],
+                if (selectedAction?.needsAltitude == true) ...[
+                  const SizedBox(height: 8),
+                  _LabeledField(
+                    label: '高度 (m)',
+                    child: MacosTextField(
+                      controller: _altitude,
+                      padding: _fieldPadding,
+                    ),
+                  ),
+                ],
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: MacosTheme.of(
+                      context,
+                    ).typography.caption1.copyWith(color: colors.danger),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    PushButton(
+                      controlSize: ControlSize.regular,
+                      secondary: true,
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('取消'),
+                    ),
+                    const SizedBox(width: 8),
+                    PushButton(
+                      controlSize: ControlSize.regular,
+                      onPressed: selectedAction?.enabled != true
+                          ? null
+                          : () => _execute(selectedAction!),
+                      child: const Text('执行'),
+                    ),
+                  ],
                 ),
               ],
-              const SizedBox(height: 16),
-              Align(
-                alignment: Alignment.centerRight,
-                child: PushButton(
-                  controlSize: ControlSize.large,
-                  secondary: true,
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('取消'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GuidedActionTile extends StatelessWidget {
-  const _GuidedActionTile({required this.action, this.onPressed});
-
-  final _GuidedAction action;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.mgColors;
-    final enabled = onPressed != null;
-    final contentColor = enabled ? colors.textPrimary : colors.textTertiary;
-    return Material(
-      color: colors.surface,
-      borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
-            border: Border.all(color: colors.divider),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(action.icon, size: 20, color: contentColor),
-              const SizedBox(height: 6),
-              Text(
-                action.label,
-                textAlign: TextAlign.center,
-                style: MacosTheme.of(
-                  context,
-                ).typography.caption1.copyWith(color: contentColor),
-              ),
-            ],
+            ),
           ),
         ),
       ),

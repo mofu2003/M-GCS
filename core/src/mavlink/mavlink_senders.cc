@@ -308,6 +308,44 @@ bool MavlinkAdapter::mission_upload(uint8_t target_system, uint8_t target_compon
     return ok;
 }
 
+bool MavlinkAdapter::mission_cancel() {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    auto& state = impl_->mission;
+    using State = mg::core::mission::MissionState;
+    if (state.progress.state == State::Idle) return false;
+
+    const bool was_downloading = state.progress.state == State::Downloading;
+    const uint8_t target_system = state.target_sys;
+    const uint8_t target_component = state.target_comp;
+
+    state.resend_fn = nullptr;
+    state.retry_count = 0;
+    state.download_seq = 0;
+    state.upload_seq = 0;
+    state.progress.state = State::Idle;
+    state.progress.result = MAV_MISSION_OPERATION_CANCELLED;
+    state.progress.error = "mission transfer cancelled";
+
+    // A partial download must never be treated as a valid vehicle mission.
+    if (was_downloading) {
+        state.plan.clear();
+    }
+
+    if (target_system != 0) {
+        mavlink_msg_mission_ack_pack(
+            255,
+            0,
+            &impl_->msg,
+            target_system,
+            target_component,
+            MAV_MISSION_OPERATION_CANCELLED,
+            MAV_MISSION_TYPE_MISSION,
+            0);
+        impl_->send_msg();
+    }
+    return true;
+}
+
 // 清除飞控上所有任务
 bool MavlinkAdapter::mission_clear(uint8_t target_system, uint8_t target_component) {
     mg::core::platform::LockGuard lk(impl_->mtx);
@@ -518,11 +556,18 @@ Status MavlinkAdapter::set_param_status(uint8_t target_system, uint8_t target_co
     if (!param_id) return Status::error(ErrorCode::InvalidParam, "null param_id");
     mg::core::platform::LockGuard lk(impl_->mtx);
     if (!impl_->send_cb) { return Status::error(ErrorCode::NotConnected, "no send callback registered"); }
+    const uint64_t history_id = impl_->pc.record_write_request(
+        param_id, param_value, param_type);
     mavlink_msg_param_set_pack(
         255, 0, &impl_->msg,
         target_system, target_component,
         param_id, param_value, param_type);
     if (!impl_->send_msg()) {
+        impl_->pc.complete_write(
+            history_id,
+            false,
+            param_value,
+            "send_msg failed for PARAM_SET");
         return Status::error(ErrorCode::SendFailed, "send_msg failed for PARAM_SET");
     }
     return Status::ok();

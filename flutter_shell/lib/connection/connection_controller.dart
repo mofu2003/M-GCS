@@ -335,7 +335,9 @@ final class ConnectionController extends ChangeNotifier
   late final Pointer<Utf8> Function(Pointer<Void>) _getVehicleSummary;
   late final Pointer<Utf8> Function(Pointer<Void>) _getExtendedSysState;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDownload;
-  late final Pointer<Utf8> Function(Pointer<Void>) _missionGetProgress;
+  late final Pointer<Utf8> Function(Pointer<Void>) _operationsGetSnapshot;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _operationsCancel;
   late final Pointer<Utf8> Function(Pointer<Void>) _commandRtl;
   late final Pointer<Utf8> Function(Pointer<Void>) _commandLand;
   late final Pointer<Utf8> Function(Pointer<Void>, double) _commandTakeoff;
@@ -1351,10 +1353,15 @@ final class ConnectionController extends ChangeNotifier
             'mg_mission_download',
           )
           .asFunction();
-      _missionGetProgress = _library
+      _operationsGetSnapshot = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_mission_get_progress',
+            'mg_operations_get_snapshot',
           )
+          .asFunction();
+      _operationsCancel = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+          >('mg_operations_cancel')
           .asFunction();
       _commandRtl = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
@@ -1511,6 +1518,45 @@ final class ConnectionController extends ChangeNotifier
     return response;
   }
 
+  @override
+  Future<void> startMissionDownload() async {
+    _requireConnected('读取飞控任务');
+    _ensureMissionBackend();
+    _requireMissionSuccess(_readJson(_missionDownload(_core)) as JsonMap);
+  }
+
+  @override
+  Future<MissionTransferProgress> getMissionTransferProgress() async {
+    _ensureMissionBackend();
+    final response = _readJson(_operationsGetSnapshot(_core)) as JsonMap;
+    _requireMissionSuccess(response);
+    final mission = response['mission'];
+    if (mission is! Map) {
+      throw const FormatException('任务 operation 响应格式无效');
+    }
+    return MissionTransferProgress.fromJson(Map<String, Object?>.from(mission));
+  }
+
+  @override
+  Future<void> cancelMissionTransfer() async {
+    _ensureMissionBackend();
+    final nativeId = 'mission'.toNativeUtf8();
+    try {
+      final response = _readJson(_operationsCancel(_core, nativeId)) as JsonMap;
+      _requireMissionSuccess(response);
+    } finally {
+      malloc.free(nativeId);
+    }
+  }
+
+  @override
+  Future<MissionDocument> importMissionDocumentFromVehicle() async {
+    _ensureMissionBackend();
+    return _documentFromEnvelope(
+      _readJson(_missionDocImportFromVehicle(_core)),
+    );
+  }
+
   // ================================================================
   // 引导操作与任务读取（对标 QGC GuidedActionsController / PlanView）
   // ================================================================
@@ -1599,60 +1645,15 @@ final class ConnectionController extends ChangeNotifier
     );
   }
 
-  /// 轮询任务传输进度直到结束（MP/QGC 的传输都是异步的，返回即完成是误解）。
-  Future<void> _waitForMissionTransfer(String action) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 20));
-    while (DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      final progress = _readJson(_missionGetProgress(_core)) as JsonMap;
-      final state = progress['state'] as String? ?? 'idle';
-      if (state == 'downloading' ||
-          state == 'uploading' ||
-          state == 'waiting_ack') {
-        continue;
-      }
-      final total = progress['total'] as int? ?? 0;
-      final result = progress['result'] as int? ?? 0;
-      if (total <= 0 || result != 0) {
-        throw StateError('$action失败：total=$total result=$result');
-      }
-      return;
-    }
-    throw StateError('$action超时');
-  }
-
-  /// 从飞控读取任务并替换文档实体。
-  ///
-  /// 与 QGC 的 Download / MP 的 Read 一致：先启动下载，等它完成，再把结果
-  /// 导进文档。覆盖本地改动前请自行确认。
-  Future<void> importMissionFromVehicle() async {
-    _requireConnected('读取飞控任务');
-    _ensureMissionBackend();
-    _requireMissionSuccess(_readJson(_missionDownload(_core)) as JsonMap);
-    await _waitForMissionTransfer('读取飞控任务');
-
-    final response =
-        _readJson(_missionDocImportFromVehicle(_core)) as Map<String, Object?>;
-    _requireMissionSuccess(response);
-  }
-
-  /// 把任务文档上传到飞控，并等到传输结束。
-  Future<void> uploadMissionToVehicle(int expectedRevision) async {
-    _requireConnected('上传任务');
-    _ensureMissionBackend();
-    _requireMissionSuccess(
-      _readJson(_missionDocUpload(_core, expectedRevision)) as JsonMap,
-    );
-    await _waitForMissionTransfer('上传任务');
-  }
-
   @override
-  Future<JsonMap> verifyMissionDocument({double toleranceMeters = 0.1}) async {
+  Future<MissionVerificationResult> verifyMissionDocument({
+    double toleranceMeters = 0.1,
+  }) async {
     _ensureMissionBackend();
     final response =
         _readJson(_missionDocVerify(_core, toleranceMeters)) as JsonMap;
     _requireMissionSuccess(response);
-    return response;
+    return MissionVerificationResult.fromJson(response);
   }
 
   @override
@@ -1873,46 +1874,8 @@ final class ConnectionController extends ChangeNotifier
         throw StateError(_openFailureMessage(result, uri));
       }
       openedSessionId = result;
-      final selection =
-          _readJson(_selectVehicle(_core, result)) as Map<String, Object?>;
-      if (selection['success'] != true) {
-        final error = selection['error'];
-        throw StateError(
-          error is Map<String, Object?>
-              ? error['message'] as String? ?? '无法选择当前飞控'
-              : '无法选择当前飞控',
-        );
-      }
-      sessionId = result;
-      _firmwareVersionRequested = false;
-      _parameterRequestStarted = false;
-      parametersLoaded = false;
-      parametersLoading = false;
-      parameterReceived = 0;
-      parameterTotal = 0;
-      parameterError = null;
-      parameters.clear();
-      _parameterMetadataLoaded.clear();
-      _parameterMetadataAttempts.clear();
-      phase = SerialConnectionPhase.waitingForHeartbeat;
-      message = '$selectedTransportLabel 链路已打开，正在等待飞控心跳…';
-      _notifyConnectionChanges();
-      _lastSystemStatusPollMs = 0;
-      _stateTimer?.cancel();
-      _stateTimer = Timer.periodic(
-        const Duration(milliseconds: 750),
-        (_) => unawaited(_pollSession()),
-      );
-      _telemetryTimer?.cancel();
-      _telemetryTimer = Timer.periodic(
-        _telemetryPollInterval,
-        (_) => _pollTelemetry(result),
-      );
-      _restartWaveformTimer();
-      // The connected session and its timers now own the opened backend handle.
+      await _attachSession(result, transportLabel: selectedTransportLabel);
       openedSessionId = null;
-      _notifyParameterChanges();
-      await _pollSession();
     } on Object catch (error) {
       message = _friendlyError(error);
       final openedId = openedSessionId;
@@ -1938,6 +1901,51 @@ final class ConnectionController extends ChangeNotifier
       _notifyConnectionChanges();
       notifyListeners();
     }
+  }
+
+  /// Attach the controller to a native session returned by a connection API.
+  Future<void> _attachSession(
+    int result, {
+    required String transportLabel,
+  }) async {
+    final selection =
+        _readJson(_selectVehicle(_core, result)) as Map<String, Object?>;
+    if (selection['success'] != true) {
+      final error = selection['error'];
+      throw StateError(
+        error is Map<String, Object?>
+            ? error['message'] as String? ?? '无法选择当前飞控'
+            : '无法选择当前飞控',
+      );
+    }
+    sessionId = result;
+    _firmwareVersionRequested = false;
+    _parameterRequestStarted = false;
+    parametersLoaded = false;
+    parametersLoading = false;
+    parameterReceived = 0;
+    parameterTotal = 0;
+    parameterError = null;
+    parameters.clear();
+    _parameterMetadataLoaded.clear();
+    _parameterMetadataAttempts.clear();
+    phase = SerialConnectionPhase.waitingForHeartbeat;
+    message = '$transportLabel 链路已打开，正在等待飞控心跳…';
+    _notifyConnectionChanges();
+    _lastSystemStatusPollMs = 0;
+    _stateTimer?.cancel();
+    _stateTimer = Timer.periodic(
+      const Duration(milliseconds: 750),
+      (_) => unawaited(_pollSession()),
+    );
+    _telemetryTimer?.cancel();
+    _telemetryTimer = Timer.periodic(
+      _telemetryPollInterval,
+      (_) => _pollTelemetry(result),
+    );
+    _restartWaveformTimer();
+    _notifyParameterChanges();
+    await _pollSession();
   }
 
   Future<void> _pollSession() async {

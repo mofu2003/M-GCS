@@ -139,7 +139,7 @@ MGCORE_API char* mg_params_get_progress(mg_core_t* core) {
     auto* mav = get_active_mavlink(core);
     if (!mav) return to_cstr(R"({"received":0,"total":0})");
     return to_cstr(mg::bridge::param_progress_json(
-        static_cast<uint16_t>(mav->params_received()), mav->param_count()));
+        static_cast<uint16_t>(mav->params_download_received()), mav->param_count()));
 }
 
 MGCORE_API char* mg_params_get_by_name(mg_core_t* core, const char* param_name) {

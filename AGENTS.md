@@ -105,6 +105,41 @@ cmake --build build_check --config Release
 - 硬件测试串行执行，不要并行
 - 校准、解锁、电机测试前确认机体安全（拆桨、未解锁）
 
+## 上游实现择优准则：先查 QGC / MP / 成熟依赖
+
+M-GCS 首先服务 ArduPilot，同时保持 PX4 兼容。实现上游已有能力时，不按项目整体
+站队，而要按模块比较 MP、QGC、官方协议和成熟第三方库的质量，再选择引用、参考或
+模仿对象。
+
+**实现任何连接、MAVLink、任务、参数、校准、日志、地图或平台功能前，必须先查
+QGroundControl 和 Mission Planner 的本地源码，以及项目已经采用的第三方库。**
+
+- 先确定该能力的质量归属：ArduPilot 专用命令、参数、校准、固件和飞行行为通常优先
+  参考 MP；任务模型、链路生命周期、跨平台结构、状态机完整性和测试治理通常优先
+  参考 QGC。具体模块的默认归属见 `docs/UPSTREAM_CODE_SELECTION.md`。
+- 能直接引用或复用官方 MAVLink、许可证兼容的成熟上游库或 QGC/MP 实现时，优先复用，
+  不要自己另写一套。MAVLink 消息、协议流程和生成代码一律复用官方定义。
+- 不能直接复用时，也必须以质量更高的上游实现的字段、状态机、错误语义、能力门控
+  和交互顺序为参考，再按 M-GCS 的 `flutter_shell -> bridge/ffi -> core -> third_party`
+  边界实现。
+- QGC 和 MP 冲突时不能凭偏好选择。要记录比较依据；如果两者各有所长，可以明确采用
+  “QGC 负责结构，MP 负责 ArduPilot 语义”的组合，但必须说明边界。
+- 不允许在没有查过 QGC / MP 对应模块、也没有复用成熟依赖的情况下，凭个人习惯从零设计。
+- UI 只借工作流、状态和信息层级，不照搬 QGC/MP 的 Qt/QML/WinForms 布局或控件。
+- QGC 和 MP 都是 GPL 系项目，M-GCS 当前是 MIT。大段源码不能直接复制；优先复用的是
+  协议事实、算法、字段、流程和允许再分发的第三方库。直接移植前必须核对许可证。
+- 设计说明、提交说明或代码注释中要能指出所参考的 QGC / MP 模块、选择理由或引用的
+  上游库。
+
+## 任务文件格式策略
+
+- `MissionDocument` JSON 是唯一内部主状态；`.waypoints` 和 `.plan` 都是交换格式。
+- ArduPilot / Mission Planner 工作流默认推荐 `.waypoints`。
+- PX4 / QGroundControl 工作流默认推荐 `.plan`。
+- `.waypoints` 不能无损表达的 Survey、Corridor、GeoFence、Rally 等复杂任务，必须推荐 `.plan` 或明确警告。
+- `.plan` 不删除；它承担 PX4/QGC 兼容和复杂任务保留。
+- 不得根据格式或飞控静默覆盖用户文件；上传飞控始终从 `MissionDocument` 编译 `MissionPlan`。
+
 ## 构建与运行
 
 ```bash

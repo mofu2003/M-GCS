@@ -21,6 +21,32 @@
 7. 任务文档、测绘参数、编译、校验和持久化归后端任务领域；前端不得复制几何或编译。
 8. `MissionPlan` 是面向飞控的派生模型，不是可编辑任务文档的唯一事实来源。
 
+## 实现复用
+
+1. M-GCS 首先服务 ArduPilot，同时保持 PX4 兼容；实现前先查本地 QGroundControl、
+   Mission Planner 源码和已经采用的第三方库。
+2. 同一能力不能按项目整体站队。先按协议正确性、状态机、分层、错误语义、测试、
+   平台覆盖、数据覆盖和许可证比较 MP/QGC，选择质量更高的实现作为引用或参考对象。
+3. 默认分工见 `docs/UPSTREAM_CODE_SELECTION.md`：ArduPilot 专用命令、参数、校准、
+   固件和飞行行为优先参考 MP；任务模型、链路生命周期、跨平台结构和测试治理优先
+   参考 QGC。两者各有所长时必须写明组合边界。
+4. 能引用官方 MAVLink、许可证兼容的成熟上游库或 QGC/MP 已有实现时优先引用，
+   不重复造轮子。
+5. 不能直接复用时，按质量更高的上游实现的协议字段、状态机、错误语义和能力门控
+   实现；不得在没有参考来源和比较依据的情况下自行发明流程。
+6. UI 只复用工作流和状态约定，不照搬 Qt/QML/WinForms 控件和布局。
+7. QGC/MP 为 GPL 系项目，M-GCS 当前为 MIT。大段源码复制必须先核对许可证；
+   默认只复用协议事实、算法、字段和流程，在 M-GCS 边界内重写。
+8. 新模块设计说明要记录参考来源、选择理由或引用的上游库。
+
+## 任务文件
+
+1. `MissionDocument` JSON 是 M-GCS 编辑、保存、revision 和 undo/redo 的唯一主状态。
+2. `.waypoints` 是 ArduPilot / Mission Planner 工作流的默认交换格式。
+3. `.plan` 是 PX4 / QGroundControl 工作流的默认交换格式，不删除。
+4. 复杂 Survey、Corridor、GeoFence、Rally 等不能由 `.waypoints` 无损表达时，必须推荐 `.plan` 或明确警告。
+5. 文件格式选择不能改变飞控固件，也不能静默覆盖已有任务文件；上传任务必须走 `MissionDocument -> MissionPlan` 编译链。
+
 ## FFI
 
 1. FFI 只使用 C 兼容类型，不暴露 C++ 类、模板、异常和所有权细节。

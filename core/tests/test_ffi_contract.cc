@@ -357,6 +357,8 @@ int main() {
         CHECK(json_has(ops, "operations"), "operations snapshot has operations");
         CHECK(json_has(ops, "params"), "operations snapshot has params operation");
         CHECK(json_has(ops, "mission"), "operations snapshot has mission operation");
+        CHECK(json_has(ops, "calibration"), "operations snapshot has calibration operation");
+        CHECK(json_has(ops, "log"), "operations snapshot has log operation");
         mg_free_string(ops);
 
         char* cancel = mg_operations_cancel(core, "params");

@@ -59,12 +59,139 @@ void main() {
     expect(restored.altitudeMeters, 30);
     expect(restored.params, [15, 0, 0, 0]);
   });
+
+  test(
+    'upload performs readback verification and clears dirty state',
+    () async {
+      final backend = _FakeMissionBackend();
+      final controller = MissionDocumentController(backend: backend);
+
+      await controller.initialize();
+      await controller.addEntity(
+        const MissionEntity(
+          id: 'entity-1',
+          latitude: 31.2,
+          longitude: 121.4,
+          altitudeMeters: 50,
+        ),
+      );
+      expect(controller.dirty, isTrue);
+
+      final verification = await controller.upload();
+
+      expect(verification?.matches, isTrue);
+      expect(controller.dirty, isFalse);
+      expect(backend.downloadStarts, 1);
+      expect(controller.status, '上传并回读核对通过');
+    },
+  );
+
+  test(
+    'download from vehicle replaces the draft and clears dirty state',
+    () async {
+      final backend = _FakeMissionBackend();
+      final controller = MissionDocumentController(backend: backend);
+
+      await controller.initialize();
+      await controller.addEntity(
+        const MissionEntity(
+          id: 'entity-1',
+          latitude: 31.2,
+          longitude: 121.4,
+          altitudeMeters: 50,
+        ),
+      );
+      expect(controller.dirty, isTrue);
+
+      await controller.downloadFromVehicle();
+
+      expect(controller.dirty, isFalse);
+      expect(backend.downloadStarts, 1);
+      expect(controller.status, startsWith('已从飞控读取'));
+    },
+  );
+
+  test(
+    'cancel aborts an active upload without clearing local changes',
+    () async {
+      final backend = _FakeMissionBackend()..transferCompletionPolls = 100;
+      final controller = MissionDocumentController(backend: backend);
+
+      await controller.initialize();
+      await controller.addEntity(
+        const MissionEntity(
+          id: 'entity-1',
+          latitude: 31.2,
+          longitude: 121.4,
+          altitudeMeters: 50,
+        ),
+      );
+
+      final upload = controller.upload();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(controller.transferActive, isTrue);
+
+      await controller.cancelTransfer();
+      await upload;
+
+      expect(backend.cancelCalled, isTrue);
+      expect(controller.transferActive, isFalse);
+      expect(controller.dirty, isTrue);
+      expect(controller.status, contains('取消'));
+    },
+  );
+
+  test('readback mismatch keeps the local mission dirty', () async {
+    final backend = _FakeMissionBackend()
+      ..verificationResult = const MissionVerificationResult(
+        differenceCount: 1,
+        expectedCount: 1,
+        vehicleCount: 1,
+      );
+    final controller = MissionDocumentController(backend: backend);
+
+    await controller.initialize();
+    await controller.addEntity(
+      const MissionEntity(
+        id: 'entity-1',
+        latitude: 31.2,
+        longitude: 121.4,
+        altitudeMeters: 50,
+      ),
+    );
+
+    final verification = await controller.upload();
+
+    expect(verification?.matches, isFalse);
+    expect(controller.dirty, isTrue);
+    expect(controller.status, contains('1 处差异'));
+  });
 }
 
 final class _FakeMissionBackend implements MissionDocumentBackend {
   MissionDocument _document = const MissionDocument(
     metadata: MissionDocumentMetadata(id: 'fake-mission'),
   );
+  MissionTransferProgress _transfer = const MissionTransferProgress();
+  int _transferPolls = 0;
+  int transferCompletionPolls = 2;
+  int downloadStarts = 0;
+  bool cancelCalled = false;
+  MissionVerificationResult verificationResult =
+      const MissionVerificationResult(
+        matches: true,
+        expectedCount: 1,
+        vehicleCount: 1,
+      );
+
+  void _startTransfer(MissionTransferState state) {
+    _transferPolls = 0;
+    _transfer = MissionTransferProgress(
+      state: state,
+      total: 1,
+      cancellable: true,
+    );
+  }
 
   @override
   Future<MissionCompileResult> compileMissionDocument() async =>
@@ -124,6 +251,9 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
   }
 
   @override
+  Future<MissionDocument> importMissionDocumentFromVehicle() async => _document;
+
+  @override
   Future<MissionDocument> loadMissionDocument(String filePath) async =>
       _document;
 
@@ -159,18 +289,55 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
   }
 
   @override
-  Future<JsonMap> uploadMissionDocument(int expectedRevision) async => {
-    'success': true,
-    'revision': expectedRevision,
-  };
+  Future<JsonMap> uploadMissionDocument(int expectedRevision) async {
+    _startTransfer(MissionTransferState.uploading);
+    return {
+      'success': true,
+      'revision': expectedRevision,
+      'state': 'uploading',
+    };
+  }
 
   @override
   Future<MissionValidationReport> validateMissionDocument() async =>
       const MissionValidationReport(valid: true);
 
   @override
-  Future<JsonMap> verifyMissionDocument({double toleranceMeters = 0.1}) async =>
-      const {'success': true, 'matches': true};
+  Future<MissionVerificationResult> verifyMissionDocument({
+    double toleranceMeters = 0.1,
+  }) async => verificationResult;
+
+  @override
+  Future<void> startMissionDownload() async {
+    downloadStarts++;
+    _startTransfer(MissionTransferState.downloading);
+  }
+
+  @override
+  Future<MissionTransferProgress> getMissionTransferProgress() async {
+    if (_transfer.active) {
+      _transferPolls++;
+      if (_transferPolls >= transferCompletionPolls) {
+        _transfer = MissionTransferProgress(
+          progressPercent: 100,
+          total: _transfer.total,
+          received: _transfer.total,
+          sent: _transfer.total,
+        );
+      }
+    }
+    return _transfer;
+  }
+
+  @override
+  Future<void> cancelMissionTransfer() async {
+    cancelCalled = true;
+    _transfer = const MissionTransferProgress(
+      result: 15,
+      cancelled: true,
+      error: 'mission transfer cancelled',
+    );
+  }
 
   @override
   Future<MissionDocumentOperationResult> applyMissionDocumentCommand(

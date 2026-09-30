@@ -40,7 +40,9 @@
 - Windows：保留 Win32 串口、Winsock 和硬件测试脚本入口。
 - Linux：使用 POSIX filesystem、BSD sockets 和 POSIX 串口路径。
 - macOS：串口使用 POSIX `termios`；较早环境通过过完整构建和默认测试，当前 checkout 需先生成 MAVLink C 头再重新验证。
-- Android：filesystem 当前仍是占位实现，需要 JNI/AssetManager 上下文。
+- Android：Gradle/CMake 构建 `libmgcore.so`；filesystem 通过 JNI + AssetManager
+  提取随 APK 分发的 JSON 数据；USB Host 串口按 QGC 的
+  `usb-serial-for-android` + `SerialInputOutputManager` + JNI 回调接入。
 
 ## 开发原则
 

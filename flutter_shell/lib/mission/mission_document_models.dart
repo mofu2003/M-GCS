@@ -364,6 +364,107 @@ final class MissionDocumentOperationResult {
   final int revision;
 }
 
+enum MissionTransferState { idle, downloading, uploading, waitingAck }
+
+final class MissionTransferProgress {
+  const MissionTransferProgress({
+    this.state = MissionTransferState.idle,
+    this.progressPercent = 0,
+    this.received = 0,
+    this.sent = 0,
+    this.total = 0,
+    this.cancellable = false,
+    this.result = 0,
+    this.cancelled = false,
+    this.error = '',
+  });
+
+  final MissionTransferState state;
+  final int progressPercent;
+  final int received;
+  final int sent;
+  final int total;
+  final bool cancellable;
+  final int result;
+  final bool cancelled;
+  final String error;
+
+  bool get active => switch (state) {
+    MissionTransferState.downloading ||
+    MissionTransferState.uploading ||
+    MissionTransferState.waitingAck => true,
+    MissionTransferState.idle => false,
+  };
+
+  factory MissionTransferProgress.fromJson(JsonMap json) =>
+      MissionTransferProgress(
+        state: switch (json['state']) {
+          'downloading' => MissionTransferState.downloading,
+          'uploading' => MissionTransferState.uploading,
+          'waiting_ack' => MissionTransferState.waitingAck,
+          _ => MissionTransferState.idle,
+        },
+        progressPercent: (json['progress_pct'] as num?)?.toInt() ?? 0,
+        received: (json['received'] as num?)?.toInt() ?? 0,
+        sent: (json['sent'] as num?)?.toInt() ?? 0,
+        total: (json['total'] as num?)?.toInt() ?? 0,
+        cancellable: json['cancellable'] == true,
+        result: (json['result'] as num?)?.toInt() ?? 0,
+        cancelled: json['cancelled'] == true,
+        error: json['error'] as String? ?? '',
+      );
+}
+
+final class MissionVerificationDifference {
+  const MissionVerificationDifference({
+    required this.index,
+    required this.field,
+    required this.expected,
+    required this.actual,
+  });
+
+  final int index;
+  final String field;
+  final String expected;
+  final String actual;
+
+  factory MissionVerificationDifference.fromJson(JsonMap json) =>
+      MissionVerificationDifference(
+        index: (json['index'] as num?)?.toInt() ?? -1,
+        field: json['field'] as String? ?? '',
+        expected: json['expected']?.toString() ?? '',
+        actual: json['actual']?.toString() ?? '',
+      );
+}
+
+final class MissionVerificationResult {
+  const MissionVerificationResult({
+    this.matches = false,
+    this.differenceCount = 0,
+    this.expectedCount = 0,
+    this.vehicleCount = 0,
+    this.differences = const [],
+  });
+
+  final bool matches;
+  final int differenceCount;
+  final int expectedCount;
+  final int vehicleCount;
+  final List<MissionVerificationDifference> differences;
+
+  factory MissionVerificationResult.fromJson(JsonMap json) =>
+      MissionVerificationResult(
+        matches: json['matches'] == true,
+        differenceCount: (json['difference_count'] as num?)?.toInt() ?? 0,
+        expectedCount: (json['expected_count'] as num?)?.toInt() ?? 0,
+        vehicleCount: (json['vehicle_count'] as num?)?.toInt() ?? 0,
+        differences: (json['differences'] as List<Object?>? ?? const [])
+            .whereType<JsonMap>()
+            .map(MissionVerificationDifference.fromJson)
+            .toList(growable: false),
+      );
+}
+
 enum MissionParameterType { float, integer, boolean, enumeration }
 
 final class MissionCommandOption {

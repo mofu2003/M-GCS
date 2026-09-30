@@ -131,6 +131,31 @@ inline const char* command_name(uint16_t cmd) {
     }
 }
 
+/// QGC PlanManager-compatible text for MAV_MISSION_RESULT.
+/// Values follow the MAVLink common enum and are kept local so this public
+/// model header does not depend on generated MAVLink headers.
+inline const char* mission_result_message(uint8_t result) {
+    switch (result) {
+        case 0:  return "飞控接受任务";
+        case 1:  return "飞控返回未指定错误";
+        case 2:  return "飞控不支持该坐标帧";
+        case 3:  return "飞控不支持该任务命令";
+        case 4:  return "飞控任务存储空间不足";
+        case 5:  return "任务参数包含无效值";
+        case 6:  return "任务参数 1 无效";
+        case 7:  return "任务参数 2 无效";
+        case 8:  return "任务参数 3 无效";
+        case 9:  return "任务参数 4 无效";
+        case 10: return "任务参数 5（X/纬度）无效";
+        case 11: return "任务参数 6（Y/经度）无效";
+        case 12: return "任务参数 7（Z/高度）无效";
+        case 13: return "收到乱序任务项";
+        case 14: return "飞控拒绝任务命令";
+        case 15: return "任务操作已取消";
+        default: return "未知任务错误";
+    }
+}
+
 /// Helper: get human-readable frame name
 inline const char* frame_name(uint8_t frame) {
     switch (frame) {

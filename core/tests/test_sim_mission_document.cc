@@ -129,6 +129,28 @@ int main() {
     CHECK(result && strstr(result, "\"difference_count\":1"), "verify reports altitude difference");
     if (result) mg_free_string(result);
 
+    // 主动取消：新下载尚未收到 MISSION_COUNT 时必须能终止，并保留可查询终态。
+    MockVehicleTestEnv cancel_env;
+    for (int i = 0; i < 15; ++i) cancel_env.tick(100);
+    result = mg_mission_download(cancel_env.core);
+    CHECK(result && strstr(result, "\"success\":true"), "cancel test download starts");
+    if (result) mg_free_string(result);
+
+    result = mg_operations_cancel(cancel_env.core, "mission");
+    CHECK(result && strstr(result, "\"canceled\":true"), "active mission transfer can be cancelled");
+    if (result) mg_free_string(result);
+
+    result = mg_operations_get_snapshot(cancel_env.core);
+    CHECK(result && strstr(result, "\"state\":\"idle\""), "cancelled transfer returns to idle");
+    CHECK(result && strstr(result, "\"cancelled\":true"), "cancelled transfer keeps terminal state");
+    CHECK(result && strstr(result, "mission transfer cancelled"), "cancelled transfer keeps reason");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_download(cancel_env.core);
+    CHECK(result && strstr(result, "\"success\":true"), "download can restart after cancellation");
+    if (result) mg_free_string(result);
+    for (int i = 0; i < 80; ++i) cancel_env.tick(50);
+
     fprintf(
         stderr,
         "\n=== Results: %d passed, %d failed ===\n",

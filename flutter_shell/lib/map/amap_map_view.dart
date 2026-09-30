@@ -122,6 +122,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   Timer? _saveTimer;
   bool _showConnectionPanel = false;
   bool _showMissionPlanning = false;
+  OverlayEntry? _transientMessage;
 
   /// 地图标记要同时跟着遥测和任务文档变化重画。
   late final Listenable _markerSources = Listenable.merge([
@@ -187,7 +188,29 @@ class _AMapMapViewState extends State<AMapMapView> {
   @override
   void dispose() {
     _saveTimer?.cancel();
+    _transientMessage?.remove();
+    _transientMessage = null;
     super.dispose();
+  }
+
+  void _showTransientMessage(String message) {
+    final overlay = Overlay.of(context, rootOverlay: true);
+    _transientMessage?.remove();
+
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (overlayContext) => _TransientMapMessage(
+        message: message,
+        onDismissed: () {
+          if (_transientMessage == entry) {
+            _transientMessage?.remove();
+            _transientMessage = null;
+          }
+        },
+      ),
+    );
+    _transientMessage = entry;
+    overlay.insert(entry);
   }
 
   /// Home 点与飞机当前位置。
@@ -213,30 +236,13 @@ class _AMapMapViewState extends State<AMapMapView> {
         initialPosition: wgs84,
         onSave: (entity) async {
           await mission.addEntity(entity);
-          await mission.refreshEstimate();
         },
       );
       return;
     }
 
     if (!controller.isConnected) {
-      await showMacosAlertDialog<void>(
-        context: context,
-        builder: (dialogContext) => MacosAlertDialog(
-          appIcon: MacosIcon(
-            CupertinoIcons.bolt_horizontal_circle,
-            size: 44,
-            color: dialogContext.mgColors.warning,
-          ),
-          title: const Text('未连接飞控'),
-          message: const Text('连接飞控后才能在这里发送引导指令。'),
-          primaryButton: PushButton(
-            controlSize: ControlSize.large,
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('好'),
-          ),
-        ),
-      );
+      _showTransientMessage('连接飞控后才能在这里发送引导指令。');
       return;
     }
 
@@ -319,8 +325,13 @@ class _AMapMapViewState extends State<AMapMapView> {
           width: 26,
           height: 26,
           child: GestureDetector(
-            onTap: () => unawaited(_editEntity(mission, entity)),
-            child: _WaypointMarker(position: index + 1, color: colors.accent),
+            onTap: () => mission.selectEntity(index),
+            onDoubleTap: () => unawaited(_editEntity(mission, entity)),
+            child: _WaypointMarker(
+              position: index + 1,
+              color: colors.accent,
+              selected: mission.selectedEntityIndex == index,
+            ),
           ),
         ),
       );
@@ -341,7 +352,6 @@ class _AMapMapViewState extends State<AMapMapView> {
       entity: entity,
       onSave: (updated) async {
         await mission.updateEntity(updated);
-        await mission.refreshEstimate();
       },
     );
   }
@@ -504,6 +514,119 @@ class _AMapMapViewState extends State<AMapMapView> {
   }
 }
 
+class _TransientMapMessage extends StatefulWidget {
+  const _TransientMapMessage({
+    required this.message,
+    required this.onDismissed,
+  });
+
+  final String message;
+  final VoidCallback onDismissed;
+
+  @override
+  State<_TransientMapMessage> createState() => _TransientMapMessageState();
+}
+
+class _TransientMapMessageState extends State<_TransientMapMessage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 180),
+  );
+  late final Animation<double> _opacity = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOut,
+  );
+  late final Animation<Offset> _offset = Tween<Offset>(
+    begin: const Offset(0, 0.18),
+    end: Offset.zero,
+  ).animate(_opacity);
+  Timer? _dismissTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.forward();
+    _dismissTimer = Timer(const Duration(seconds: 2), _dismiss);
+  }
+
+  Future<void> _dismiss() async {
+    if (!mounted) return;
+    await _controller.reverse();
+    if (mounted) widget.onDismissed();
+  }
+
+  @override
+  void dispose() {
+    _dismissTimer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: MediaQuery.of(context).padding.bottom + 82,
+      child: IgnorePointer(
+        child: Center(
+          child: FadeTransition(
+            opacity: _opacity,
+            child: SlideTransition(
+              position: _offset,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 18),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    border: Border.all(color: colors.divider),
+                    borderRadius: BorderRadius.circular(
+                      MgMetrics.controlRadius,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: colors.shadow,
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      MacosIcon(
+                        CupertinoIcons.bolt_horizontal_circle,
+                        size: 15,
+                        color: colors.warning,
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          widget.message,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: MacosTheme.of(context).typography.caption1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 地图上的圆点标记：Home 点用房子图标，飞机用按航向旋转的纸飞机。
 ///
 /// 与 Mission Planner / QGC 的做法一致——Home 是静态图标，飞机标记跟随航向旋转，
@@ -643,24 +766,35 @@ class _MapIconButton extends StatelessWidget {
 
 /// 地图上的航点标记：一个带编号的小圆点。
 class _WaypointMarker extends StatelessWidget {
-  const _WaypointMarker({required this.position, required this.color});
+  const _WaypointMarker({
+    required this.position,
+    required this.color,
+    this.selected = false,
+  });
 
   final int position;
   final Color color;
+  final bool selected;
 
   @override
-  Widget build(BuildContext context) => Container(
-    alignment: Alignment.center,
-    decoration: BoxDecoration(
-      color: color,
-      shape: BoxShape.circle,
-      border: Border.all(color: context.mgColors.surface, width: 1.5),
-    ),
-    child: Text(
-      '$position',
-      style: MacosTheme.of(
-        context,
-      ).typography.caption1.copyWith(color: context.mgColors.onAccent),
+  Widget build(BuildContext context) => Transform.scale(
+    scale: selected ? 1.18 : 1,
+    child: Container(
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: selected ? context.mgColors.warning : context.mgColors.surface,
+          width: selected ? 2.5 : 1.5,
+        ),
+      ),
+      child: Text(
+        '$position',
+        style: MacosTheme.of(
+          context,
+        ).typography.caption1.copyWith(color: context.mgColors.onAccent),
+      ),
     ),
   );
 }

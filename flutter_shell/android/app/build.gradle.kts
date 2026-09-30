@@ -4,6 +4,10 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val repoRoot = rootProject.projectDir.parentFile?.parentFile
+    ?: error("Unable to locate repository root from Android project")
+val mgcoreAssetsDir = layout.buildDirectory.dir("generated/mgcoreAssets").get().asFile
+
 android {
     namespace = "com.mgcs.mgcs_frontend"
     compileSdk = flutter.compileSdkVersion
@@ -12,6 +16,19 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            assets.srcDir(mgcoreAssetsDir)
+        }
     }
 
     defaultConfig {
@@ -23,6 +40,17 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DMGCORE_ROOT_DIR=${repoRoot.absolutePath}",
+                    "-DMGCORE_BUILD_SHARED=ON",
+                    "-DMGCORE_BUILD_TESTS=OFF",
+                    "-DANDROID_STL=c++_shared",
+                )
+            }
+        }
     }
 
     buildTypes {
@@ -31,6 +59,24 @@ android {
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
         }
+    }
+}
+
+dependencies {
+    implementation("com.github.mik3y:usb-serial-for-android:3.10.0")
+}
+
+val syncMgcoreAssets by tasks.registering(Copy::class) {
+    from(repoRoot.resolve("core/src/transport/USBBoardInfo.json"))
+    from(repoRoot.resolve("core/src/sensor/SensorDeviceInfo.json"))
+    from(repoRoot.resolve("core/src/config/ParameterDescriptors.json"))
+    from(repoRoot.resolve("core/src/config/ParameterTranslations.zh-CN.json"))
+    into(File(mgcoreAssetsDir, "mgcore"))
+}
+
+tasks.configureEach {
+    if (name == "preBuild") {
+        dependsOn(syncMgcoreAssets)
     }
 }
 

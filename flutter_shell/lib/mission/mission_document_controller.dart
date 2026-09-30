@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -14,19 +15,27 @@ final class MissionDocumentController extends ChangeNotifier {
   MissionValidationReport? validation;
   MissionCompileResult? compileResult;
   MissionEstimate? estimate;
+  MissionTransferProgress? transfer;
+  MissionVerificationResult? verification;
   List<MissionCommandDescriptor> commandCatalog = const [];
   String? status;
   String? error;
   bool busy = false;
+  bool dirty = false;
   bool initialized = false;
   int? selectedEntityIndex;
+
+  bool get transferActive => transfer?.active ?? false;
 
   Future<void> initialize() async {
     if (initialized || busy) return;
     await _run('正在初始化任务文档…', () async {
       commandCatalog = await backend.getMissionCommandCatalog();
       document = await backend.getMissionDocument();
+      dirty = false;
       initialized = true;
+      await _refreshDerived();
+      await _refreshTransfer();
     });
   }
 
@@ -36,7 +45,9 @@ final class MissionDocumentController extends ChangeNotifier {
         validation = null;
         compileResult = null;
         estimate = null;
+        verification = null;
         selectedEntityIndex = null;
+        dirty = true;
         initialized = true;
       });
 
@@ -70,6 +81,17 @@ final class MissionDocumentController extends ChangeNotifier {
     'to_index': toIndex,
   });
 
+  Future<void> reorderEntity(int oldIndex, int newIndex) async {
+    final entities = document?.entities;
+    if (entities == null || oldIndex < 0 || oldIndex >= entities.length) return;
+    if (newIndex < 0 || newIndex >= entities.length || newIndex == oldIndex) {
+      return;
+    }
+    final entityId = entities[oldIndex].id;
+    await moveEntity(entityId, newIndex);
+    selectEntityById(entityId);
+  }
+
   Future<void> clear() => _apply({
     'operation': 'clear',
     if (document != null) 'expected_revision': document!.revision,
@@ -100,26 +122,83 @@ final class MissionDocumentController extends ChangeNotifier {
     estimate = await backend.estimateMissionDocument();
   });
 
-  Future<JsonMap> upload() async {
+  /// 上传后必须回读核对；一次上传返回只代表传输已开始。
+  Future<MissionVerificationResult?> upload({
+    double toleranceMeters = 0.1,
+  }) async {
     final current = document;
     if (current == null) {
       throw StateError('任务文档尚未初始化');
     }
-    JsonMap response = const {};
-    await _run('正在写入飞控…', () async {
-      response = await backend.uploadMissionDocument(current.revision);
-    });
-    return response;
-  }
+    final currentRevision = current.revision;
+    verification = null;
+    await _run('正在上传任务…', rethrowErrors: true, () async {
+      await backend.uploadMissionDocument(currentRevision);
+      await _waitForTransfer('上传任务');
 
-  Future<JsonMap> verify({double toleranceMeters = 0.1}) async {
-    JsonMap response = const {};
-    await _run('正在核对飞控任务…', () async {
-      response = await backend.verifyMissionDocument(
+      status = '上传完成，正在从飞控回读核对…';
+      notifyListeners();
+      await backend.startMissionDownload();
+      await _waitForTransfer('回读任务');
+
+      verification = await backend.verifyMissionDocument(
         toleranceMeters: toleranceMeters,
       );
+      final result = verification!;
+      if (result.matches) {
+        dirty = false;
+        status = '上传并回读核对通过';
+      } else {
+        dirty = true;
+        status = '上传完成，但回读发现 ${result.differenceCount} 处差异';
+      }
     });
-    return response;
+    return verification;
+  }
+
+  Future<void> downloadFromVehicle() =>
+      _run('正在从飞控读取任务…', rethrowErrors: true, () async {
+        verification = null;
+        await backend.startMissionDownload();
+        await _waitForTransfer('读取飞控任务');
+        document = await backend.importMissionDocumentFromVehicle();
+        validation = null;
+        compileResult = null;
+        estimate = null;
+        verification = null;
+        selectedEntityIndex = null;
+        dirty = false;
+        await _refreshDerived();
+        status = '已从飞控读取 ${document?.entities.length ?? 0} 个任务项';
+      });
+
+  Future<void> cancelTransfer() async {
+    if (!transferActive) return;
+    try {
+      await backend.cancelMissionTransfer();
+      await _refreshTransfer();
+      if (transfer?.cancelled == true) {
+        error = null;
+        status = '已取消任务传输';
+      }
+    } on Object catch (exception) {
+      error = _friendlyError(exception);
+      status = error;
+    }
+    notifyListeners();
+  }
+
+  Future<MissionVerificationResult> verify({
+    double toleranceMeters = 0.1,
+  }) async {
+    MissionVerificationResult? result;
+    await _run('正在核对飞控任务…', rethrowErrors: true, () async {
+      result = await backend.verifyMissionDocument(
+        toleranceMeters: toleranceMeters,
+      );
+      verification = result;
+    });
+    return result!;
   }
 
   Future<void> importJson(String json) => _run('正在导入任务…', () async {
@@ -127,7 +206,9 @@ final class MissionDocumentController extends ChangeNotifier {
     validation = null;
     compileResult = null;
     estimate = null;
+    verification = null;
     selectedEntityIndex = null;
+    dirty = true;
   });
 
   Future<String> exportJson() => backend.exportMissionDocument();
@@ -140,13 +221,51 @@ final class MissionDocumentController extends ChangeNotifier {
     validation = null;
     compileResult = null;
     estimate = null;
+    verification = null;
     selectedEntityIndex = null;
+    dirty = true;
   });
 
   void selectEntity(int? index) {
     if (selectedEntityIndex == index) return;
     selectedEntityIndex = index;
     notifyListeners();
+  }
+
+  void selectEntityById(String entityId) {
+    final entities = document?.entities ?? const <MissionEntity>[];
+    final index = entities.indexWhere((entity) => entity.id == entityId);
+    if (index >= 0) selectEntity(index);
+  }
+
+  Future<void> _waitForTransfer(String action) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    while (DateTime.now().isBefore(deadline)) {
+      await _refreshTransfer();
+      final current = transfer;
+      if (current == null || current.active) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        continue;
+      }
+      if (current.cancelled) throw const _MissionTransferCancelled();
+      if (current.error.isNotEmpty || current.result != 0) {
+        throw StateError(
+          '$action失败：${current.error.isEmpty ? 'result=${current.result}' : current.error}',
+        );
+      }
+      return;
+    }
+    throw StateError('$action超时');
+  }
+
+  Future<void> _refreshTransfer() async {
+    transfer = await backend.getMissionTransferProgress();
+    notifyListeners();
+  }
+
+  Future<void> _refreshDerived() async {
+    validation = await backend.validateMissionDocument();
+    estimate = await backend.estimateMissionDocument();
   }
 
   Future<void> _apply(JsonMap command) => _operation(
@@ -162,9 +281,10 @@ final class MissionDocumentController extends ChangeNotifier {
   ) => _run(initialStatus, () async {
     final result = await action();
     document = result.document;
-    validation = null;
     compileResult = null;
-    estimate = null;
+    verification = null;
+    dirty = true;
+    await _refreshDerived();
     status = switch (operation) {
       'undo' => '已撤销',
       'redo' => '已重做',
@@ -174,8 +294,9 @@ final class MissionDocumentController extends ChangeNotifier {
 
   Future<void> _run(
     String initialStatus,
-    Future<void> Function() action,
-  ) async {
+    Future<void> Function() action, {
+    bool rethrowErrors = false,
+  }) async {
     if (busy) return;
     busy = true;
     status = initialStatus;
@@ -183,9 +304,13 @@ final class MissionDocumentController extends ChangeNotifier {
     notifyListeners();
     try {
       await action();
+    } on _MissionTransferCancelled {
+      error = null;
+      status = '任务传输已取消';
     } on Object catch (exception) {
       error = _friendlyError(exception);
       status = error;
+      if (rethrowErrors) rethrow;
     } finally {
       busy = false;
       notifyListeners();
@@ -205,4 +330,8 @@ final class MissionDocumentController extends ChangeNotifier {
   String exportDebugJson() => const JsonEncoder.withIndent(
     '  ',
   ).convert(document?.toJson() ?? const <String, Object?>{});
+}
+
+final class _MissionTransferCancelled implements Exception {
+  const _MissionTransferCancelled();
 }

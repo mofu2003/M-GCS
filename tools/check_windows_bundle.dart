@@ -1,6 +1,8 @@
 import 'dart:ffi';
 import 'dart:io';
 
+import 'ffi_bundle_symbols.dart';
+
 const _requiredFiles = [
   'mgcs_frontend.exe',
   'mgcore.dll',
@@ -9,25 +11,6 @@ const _requiredFiles = [
   'SensorDeviceInfo.json',
   'ParameterDescriptors.json',
   'ParameterTranslations.zh-CN.json',
-];
-
-const _requiredSymbols = [
-  'mg_create',
-  'mg_destroy',
-  'mg_connection_open',
-  'mg_connection_get_session_state',
-  'mg_vehicle_select',
-  'mg_mission_doc_create',
-  'mg_mission_doc_get',
-  'mg_mission_doc_apply',
-  'mg_mission_doc_validate',
-  'mg_mission_doc_compile',
-  'mg_mission_doc_upload',
-  'mg_mission_doc_verify',
-  'mg_mission_get_command_catalog',
-  'mg_system_get_diagnostics',
-  'mg_operations_get_snapshot',
-  'mg_operations_cancel',
 ];
 
 void main(List<String> args) {
@@ -64,7 +47,7 @@ void main(List<String> args) {
     final library = DynamicLibrary.open(
       '${bundle.path}${Platform.pathSeparator}mgcore.dll',
     );
-    for (final symbol in _requiredSymbols) {
+    for (final symbol in requiredFfiSymbols) {
       try {
         library.lookup<NativeFunction<Void Function()>>(symbol);
       } on ArgumentError {
@@ -80,6 +63,6 @@ void main(List<String> args) {
   }
   stdout.writeln(
     '[windows-bundle] 通过：${_requiredFiles.length} 个文件和 '
-    '${_requiredSymbols.length} 个 FFI 导出可用。',
+    '${requiredFfiSymbols.length} 个 FFI 导出可用。',
   );
 }

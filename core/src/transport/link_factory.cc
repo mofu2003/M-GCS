@@ -4,6 +4,9 @@
 #include "core/transport/udp_link.h"
 #include "core/transport/in_memory_link.h"
 #include "core/transport/serial_port_discovery.h"
+#ifdef __ANDROID__
+#include "core/transport/android_usb_serial_link.h"
+#endif
 #include "core/log/logging.h"
 
 namespace mg::core::transport {
@@ -17,7 +20,11 @@ std::unique_ptr<ILink> LinkFactory::create(const LinkConfig& config) {
 
     switch (config.type) {
         case LinkType::Serial:
+#ifdef __ANDROID__
+            return std::make_unique<AndroidUsbSerialLink>(desc);
+#else
             return std::make_unique<SerialLink>(desc);
+#endif
         case LinkType::TCP:
             return std::make_unique<TcpLink>(desc);
         case LinkType::UDP:
@@ -34,6 +41,12 @@ std::vector<DiscoveredDevice> LinkFactory::discover(LinkType type) {
     std::vector<DiscoveredDevice> devices;
 
     if (type == LinkType::Serial || type == LinkType::InMemory) {
+#ifdef __ANDROID__
+        if (type == LinkType::Serial) {
+            AndroidUsbSerialLink::discover(devices);
+            return devices;
+        }
+#endif
         SerialPortDiscovery discovery;
         auto ports = discovery.enumerate_ports();
         for (auto& p : ports) {

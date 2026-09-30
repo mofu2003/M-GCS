@@ -519,6 +519,11 @@ public:
     /// Upload local mission plan to FC (async - check mission_progress())
     bool mission_upload(uint8_t target_system, uint8_t target_component,
                         const mg::core::mission::MissionPlan& plan);
+
+    /// Cancel the active mission read/write transaction.
+    /// The local transfer state is reset, and an explicit
+    /// MAV_MISSION_OPERATION_CANCELLED ACK is sent to the vehicle.
+    bool mission_cancel();
     
     /// Clear all mission items on FC
     bool mission_clear(uint8_t target_system, uint8_t target_component);
@@ -750,6 +755,31 @@ public:
     uint16_t param_count() const;
     // 已接收参数数量
     size_t params_received() const;
+    // 参数下载状态机实际确认过的索引数量（取消后不再增长）
+    size_t params_download_received() const;
+    /// 参数下载是否仍在进行。
+    bool param_download_active() const;
+    /// 最近一次参数下载是否被用户取消。
+    bool param_download_cancelled() const;
+    /// 最近一次参数下载是否因超时/缺失失败。
+    bool param_download_failed() const;
+    /// 最近一次参数下载的终态错误文本。
+    std::string param_download_error() const;
+    /// 取消当前参数下载；没有活动下载时返回 false。
+    bool cancel_param_download();
+    /// 最近一批参数写入的结果，按请求顺序从旧到新返回。
+    struct ParamChangeRecord {
+        uint64_t id = 0;
+        std::string name;
+        float requested_value = 0.0f;
+        float actual_value = 0.0f;
+        uint8_t type = 0;
+        std::string state;
+        std::string error;
+        int64_t requested_at_ms = 0;
+        int64_t completed_at_ms = 0;
+    };
+    std::vector<ParamChangeRecord> param_change_history() const;
     // 已处理消息总数
     uint64_t message_count() const;
     LinkQualityInfo link_quality() const;

@@ -10,10 +10,12 @@
 | `git diff --check` | 通过 |
 | `dart tools/check_ui_tokens.dart` | 通过 |
 | Flutter analyze | 通过 |
-| Flutter test | 12/12 |
+| Flutter test | 16/16 |
 | 后端 offline/simulation | 34/34 |
 | macOS debug 构建 | 通过 |
-| Windows build/preflight | 有 workflow 和脚本，未在本机复核 |
+| Windows build/preflight | workflow 统一调用预检脚本；脚本会先生成 MAVLink 头，再构建 bundle 并校验关键 FFI 导出。未在本机 Windows 复核 |
+| Linux Flutter bundle | CI 安装 GTK/CMake/Ninja，生成 MAVLink 头，构建 debug bundle，并校验 `libmgcore.so`、数据文件和关键 FFI 导出。未在本机 Linux 复核 |
+| Android APK bridge | Gradle/CMake 构建 `libmgcore.so`，数据 JSON 作为 APK assets 打包；Java USB manager 按 QGC 结构使用 `usb-serial-for-android`，native 侧通过 JNI 回调接入 `ILink`。CI 构建 debug APK 并检查产物；权限交互和真机 USB 仍需 Android 设备验证 |
 | 远端 CI | 不跟踪（用户要求 `CI-001` WONTFIX） |
 
 可重复命令：
@@ -30,7 +32,7 @@ bash tools/audit_status.sh
 | 项目 | 数量 |
 | --- | ---: |
 | FFI exports | 285 |
-| Flutter 使用 | 60 |
+| Flutter 使用 | 61 |
 | 测试触达 | 198 |
 | 前端和测试都未触达 | 86 |
 
@@ -63,10 +65,13 @@ bash tools/audit_status.sh
 后端已有 `mg_connection_get_diagnostics`、`mg_telemetry_get_dashboard_snapshot`、
 `mg_system_get_diagnostics`。当前 Flutter 仍以多个快照拼接状态，后续可统一接入。
 
-### `UI-002`：长任务取消尚未接入 Flutter
+### `UI-002`：参数同步的长任务取消尚未接入 Flutter
 
-后端已有 `mg_operations_get_snapshot` / `mg_operations_cancel`。参数同步、任务上传
-目前仍由各页面等待，后续统一接入取消和进度显示。
+任务上传、下载已经通过 `mg_operations_get_snapshot` 显示进度并支持真实取消；参数同步
+后端也已支持 `mg_operations_cancel("params")` 和 cancelled/failed 终态，但 Flutter
+页面仍由各页等待。operations 快照现在还包含 `calibration` 和 `log`，对应的校准与日志
+下载取消也已接入；`mg_system_get_diagnostics` 还包含最近参数写入的 requested/actual/
+state/error 历史。前端后续可统一消费同一套 operation 状态。
 
 ### `DEAD-001`：固件刷写占位
 
@@ -80,8 +85,10 @@ bash tools/audit_status.sh
 
 ### 任务规划边界
 
-QGC `.plan`、地理围栏/Rally 的统一文档尚未实现；当前 `.waypoints`、任务实体、survey
-编译、上传/下载/验证已可用。任务规划页面已接后端，但拖拽排序尚未实现，当前使用上移/下移。
+`.waypoints` 与 QGC `.plan` 的任务文件互操作已可用：`.plan` 支持普通 SimpleItem、
+Home、默认速度和固件/机型元数据，并对复杂项、非空 GeoFence/Rally 和无法无损表达
+的字段返回明确错误或 warnings。地理围栏/Rally 的统一文档仍未实现；任务规划页面已
+接入回读验证、脏状态提示、校验诊断定位、地图/列表选中和拖动排序。
 
 ## 当前工作区
 

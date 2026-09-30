@@ -524,7 +524,7 @@
     <div class="t">平台抽象 <code>core/src/platform/</code></div>
     <div class="m">
       <code>platform_mutex</code> · <code>platform_socket</code> · <code>platform_filesystem</code><br>
-      POSIX 45 / Win32 33 / Android 18（Android filesystem 仍是占位实现，需 JNI/AssetManager 上下文）
+      POSIX 45 / Win32 33 / Android 18（Android 使用 JNI + AssetManager 提取 APK data；USB Host FD 移交仍需真机验证）
     </div>
   </div>
   <div class="box b-tp">

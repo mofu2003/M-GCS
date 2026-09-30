@@ -20,6 +20,9 @@ function Require-Command {
 Require-Command "flutter"
 Require-Command "dart"
 
+Write-Host "[windows-preflight] 生成 MAVLink C 头"
+& (Join-Path $PSScriptRoot "generate-mavlink.ps1")
+
 Push-Location $FlutterDir
 try {
     Write-Host "[windows-preflight] flutter pub get"

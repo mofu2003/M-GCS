@@ -10,6 +10,7 @@
 #include <limits>
 #include <stdexcept>
 
+
 namespace {
 
 bool is_supported_connection_uri(const char* endpoint_uri) {
@@ -133,6 +134,7 @@ MGCORE_API int mg_connection_open(mg_core_t* core, const char* endpoint_uri) {
     mg_clear_last_error();
     return result;
 }
+
 
 MGCORE_API char* mg_connection_get_session_state(mg_core_t* core, int session_id) {
     CHECK_CORE(core);

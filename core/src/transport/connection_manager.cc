@@ -17,6 +17,9 @@
 #include "core/transport/connection_manager.h"
 #include "core/transport/tcp_link.h"
 #include "core/transport/udp_link.h"
+#ifdef __ANDROID__
+#include "core/transport/android_usb_serial_link.h"
+#endif
 #include "core/log/logging.h"
 #include <chrono>
 
@@ -222,6 +225,7 @@ bool ConnectionManager::connect(LinkType type, const std::string& endpoint, uint
             desc.baud_rate = baud;
             SerialPortInfo discovered;
             discovered.port_name = endpoint;
+#ifndef __ANDROID__
             SerialPortDiscovery discovery;
             const auto ports = discovery.enumerate_ports();
             for (const auto& candidate : ports) {
@@ -230,8 +234,13 @@ bool ConnectionManager::connect(LinkType type, const std::string& endpoint, uint
                     break;
                 }
             }
+#endif
             port = discovered;
+#ifdef __ANDROID__
+            link = std::make_unique<AndroidUsbSerialLink>(desc);
+#else
             link = std::make_unique<SerialLink>(desc);
+#endif
             break;
         }
         case LinkType::TCP: {
