@@ -107,6 +107,13 @@ ArduPilot 的 mission 传输列表把 Home 放在第 0 项，后续才是可见�
 “未设置”的等价表示，但非零参数仍然严格比较。若仍有差异，结果会返回
 `index/field/expected/actual`，前端任务页应显示这些明细并支持定位到对应任务项。
 
+验证失败后不能静默覆盖任一侧任务。界面应提供两个明确恢复动作：
+
+- **重新上传本地任务**：继续以当前 `MissionDocument` 为准，重新执行上传和回读验证。
+- **采用飞控任务**：在用户确认后，使用最近一次完整回读缓存替换本地文档，并清除本地脏状态。
+
+未点击其中任一动作前，本地文档保持 dirty，启动任务按钮继续禁用。
+
 ## 启动任务
 
 启动任务按 QGC `APMFirmwarePlugin::startMission` / `PX4FirmwarePlugin::startMission`

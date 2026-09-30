@@ -301,6 +301,8 @@ class _MissionPlanningFloatingPanelState
         document != null &&
         document.entities.isNotEmpty &&
         !_mission.dirty;
+    final canRecoverVerification =
+        connected && !busy && !transferring && document != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -419,6 +421,12 @@ class _MissionPlanningFloatingPanelState
               }
             },
             fieldLabel: _verificationFieldLabel,
+            onAdoptVehicle: canRecoverVerification
+                ? () => _adoptVehicleMission(context)
+                : null,
+            onRetryUpload: canRecoverVerification
+                ? () => unawaited(_uploadToVehicle())
+                : null,
           ),
         ],
         if (diagnostics.isNotEmpty) ...[
@@ -534,6 +542,17 @@ class _MissionPlanningFloatingPanelState
     await _mutate(() async {
       await _mission.upload();
     });
+  }
+
+  Future<void> _adoptVehicleMission(BuildContext context) async {
+    final confirmed = await confirmMissionAction(
+      context,
+      title: '采用飞控任务？',
+      message: '这会用最近一次从飞控回读的任务覆盖本地任务修改。',
+      confirmLabel: '采用飞控任务',
+    );
+    if (!confirmed) return;
+    await _mutate(_mission.adoptDownloadedVehicleMission);
   }
 
   Future<void> _startMission() async {
@@ -1180,11 +1199,15 @@ class _MissionVerificationPanel extends StatelessWidget {
     required this.result,
     required this.onSelectIndex,
     required this.fieldLabel,
+    this.onAdoptVehicle,
+    this.onRetryUpload,
   });
 
   final MissionVerificationResult result;
   final ValueChanged<int> onSelectIndex;
   final String Function(String field) fieldLabel;
+  final VoidCallback? onAdoptVehicle;
+  final VoidCallback? onRetryUpload;
 
   @override
   Widget build(BuildContext context) {
@@ -1274,6 +1297,28 @@ class _MissionVerificationPanel extends StatelessWidget {
                 MgTypography.caption.copyWith(color: colors.textSecondary),
               ),
             ),
+          if (onAdoptVehicle != null || onRetryUpload != null) ...[
+            const SizedBox(height: 7),
+            Wrap(
+              spacing: 7,
+              runSpacing: 5,
+              children: [
+                if (onAdoptVehicle != null)
+                  PushButton(
+                    controlSize: ControlSize.small,
+                    onPressed: onAdoptVehicle,
+                    child: const Text('采用飞控任务'),
+                  ),
+                if (onRetryUpload != null)
+                  PushButton(
+                    controlSize: ControlSize.small,
+                    secondary: true,
+                    onPressed: onRetryUpload,
+                    child: const Text('重新上传本地任务'),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );

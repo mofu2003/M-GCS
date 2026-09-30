@@ -166,6 +166,37 @@ void main() {
     expect(controller.dirty, isTrue);
     expect(controller.status, contains('1 处差异'));
   });
+
+  test(
+    'adopting the downloaded vehicle mission clears the local mismatch',
+    () async {
+      final backend = _FakeMissionBackend()
+        ..verificationResult = const MissionVerificationResult(
+          differenceCount: 1,
+          expectedCount: 1,
+          vehicleCount: 1,
+        );
+      final controller = MissionDocumentController(backend: backend);
+
+      await controller.initialize();
+      await controller.addEntity(
+        const MissionEntity(
+          id: 'entity-1',
+          latitude: 31.2,
+          longitude: 121.4,
+          altitudeMeters: 50,
+        ),
+      );
+      await controller.upload();
+      expect(controller.dirty, isTrue);
+
+      await controller.adoptDownloadedVehicleMission();
+
+      expect(controller.dirty, isFalse);
+      expect(controller.verification, isNull);
+      expect(controller.status, contains('已采用飞控任务'));
+    },
+  );
 }
 
 final class _FakeMissionBackend implements MissionDocumentBackend {

@@ -172,6 +172,21 @@ final class MissionDocumentController extends ChangeNotifier {
         status = '已从飞控读取 ${document?.entities.length ?? 0} 个任务项';
       });
 
+  /// 采用最近一次完整回读的飞控任务，覆盖本地文档。
+  /// 上传回读发现差异后复用 transport cache，不重新发起下载。
+  Future<void> adoptDownloadedVehicleMission() =>
+      _run('正在采用飞控回读任务…', rethrowErrors: true, () async {
+        document = await backend.importMissionDocumentFromVehicle();
+        validation = null;
+        compileResult = null;
+        estimate = null;
+        verification = null;
+        selectedEntityIndex = null;
+        dirty = false;
+        await _refreshDerived();
+        status = '已采用飞控任务 ${document?.entities.length ?? 0} 个任务项';
+      });
+
   Future<void> cancelTransfer() async {
     if (!transferActive) return;
     try {
