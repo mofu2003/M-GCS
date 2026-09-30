@@ -61,7 +61,9 @@ class _MissionPlanningFloatingPanelState
     super.initState();
     _tabs.addListener(_handleTabChanged);
     _mission.addListener(_handleMissionChanged);
-    unawaited(_mission.initialize());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_mission.initialize());
+    });
   }
 
   void _handleTabChanged() {
