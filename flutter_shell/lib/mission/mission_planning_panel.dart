@@ -12,6 +12,7 @@ import '../widgets/adaptive_popup_button.dart';
 import '../widgets/mac_panel.dart';
 import 'mission_document_controller.dart';
 import 'mission_document_models.dart';
+import 'mission_geo.dart';
 
 /// 面板宽度：贴地图右边缘悬浮，折叠后只剩一个箭头按钮。
 const double kMissionPanelWidth = 420;
@@ -557,15 +558,8 @@ class _MissionPlanningFloatingPanelState
         !lon2.isFinite) {
       return null;
     }
-    final meters = const Distance().as(
-      LengthUnit.Meter,
-      LatLng(lat1, lon1),
-      LatLng(lat2, lon2),
-    );
-    if (meters >= 1000) {
-      return '距上一点 ${(meters / 1000).toStringAsFixed(meters >= 10000 ? 1 : 2)} km';
-    }
-    return '距上一点 ${meters.round()} m';
+    final meters = wgs84DistanceMeters(LatLng(lat1, lon1), LatLng(lat2, lon2));
+    return '距上一点 ${formatMissionDistance(meters)}';
   }
 }
 
@@ -937,7 +931,7 @@ class _MissionEntityCard extends StatelessWidget {
     final latitude = entity.latitude;
     final longitude = entity.longitude;
     if (latitude == null || longitude == null) return '无位置';
-    return '${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}';
+    return '${latitude.toStringAsFixed(7)}, ${longitude.toStringAsFixed(7)}';
   }
 }
 

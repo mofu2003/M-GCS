@@ -100,6 +100,18 @@
 | ComplexItem / GeoFence / Rally / 保留 QGC 规划意图 | `.plan` |
 | M-GCS 本地主保存 | `MissionDocument` JSON |
 
+## 坐标精度与距离
+
+任务文档内部使用 WGS-84 十进制度 `double` 保存位置。上传/AX 编译时按 ArduPilot 和
+MAVLink `MISSION_ITEM_INT` 的 `degE7` 格式转换为 `int32`，分辨率约为
+`1e-7` 度，纬度方向约 1.1 cm，不是米级取整。地图瓦片使用 GCJ-02 时，只在显示
+和点击换算时做 WGS-84/GCJ-02 转换，文档和距离计算始终使用 WGS-84。
+
+航点连线距离采用 Mission Planner 同类的 Haversine 公式，地球半径取 6371 km。
+这与 MP 的 `PointLatLngAlt.GetDistance` 一致；QGC 使用 Qt
+`QGeoCoordinate::distanceTo` 的大圆距离近似。两者对普通任务航段的差异远小于航线
+精度本身，但 M-GCS 的默认显示值以 MP 公式为准。
+
 `.waypoints` 和 `.plan` 都不作为 M-GCS 的内部主状态。保存草稿必须使用任务文档 JSON；
 文件格式只用于导入、导出和外部地面站交换，不能绕过 `MissionDocument -> MissionPlan`
 编译链直接上传。

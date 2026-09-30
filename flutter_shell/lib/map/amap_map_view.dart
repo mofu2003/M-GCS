@@ -13,6 +13,7 @@ import '../theme/mg_typography.dart';
 import '../connection_panel.dart';
 import '../mission/mission_document_controller.dart';
 import '../mission/mission_document_models.dart';
+import '../mission/mission_geo.dart';
 import '../mission/mission_planning_panel.dart';
 import 'gcj_coordinates.dart';
 import 'map_preferences.dart';
@@ -113,6 +114,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   static const double _missionPanelTopInset = 60;
 
   final _controller = MapController();
+  final _mapKey = GlobalKey();
   MapStyle _style = MapStyle.amap;
   double _zoom = kDefaultMapZoom;
   LatLng _center = kDefaultMapCenter;
@@ -123,6 +125,8 @@ class _AMapMapViewState extends State<AMapMapView> {
   bool _showConnectionPanel = false;
   bool _showMissionPlanning = false;
   OverlayEntry? _transientMessage;
+  String? _draggingEntityId;
+  LatLng? _dragPreviewWgs84;
 
   /// 地图标记要同时跟着遥测和任务文档变化重画。
   late final Listenable _markerSources = Listenable.merge([
@@ -314,23 +318,42 @@ class _AMapMapViewState extends State<AMapMapView> {
     // 任务文档里的航点：画成编号标记，点击打开编辑框。
     final mission = connection.missionPlanning;
     final entities = mission.document?.entities ?? const <MissionEntity>[];
+    final dragEnabled = !mission.busy && !mission.transferActive;
     for (var index = 0; index < entities.length; index++) {
       final entity = entities[index];
-      final latitude = entity.latitude;
-      final longitude = entity.longitude;
+      final dragging = entity.id == _draggingEntityId;
+      final preview = dragging ? _dragPreviewWgs84 : null;
+      final latitude = preview?.latitude ?? entity.latitude;
+      final longitude = preview?.longitude ?? entity.longitude;
       if (latitude == null || longitude == null) continue;
       markers.add(
         Marker(
           point: _toTileFrame(latitude, longitude),
           width: 26,
           height: 26,
-          child: GestureDetector(
-            onTap: () => mission.selectEntity(index),
-            onDoubleTap: () => unawaited(_editEntity(mission, entity)),
-            child: _WaypointMarker(
-              position: index + 1,
-              color: colors.accent,
-              selected: mission.selectedEntityIndex == index,
+          child: MouseRegion(
+            cursor: dragging
+                ? SystemMouseCursors.grabbing
+                : SystemMouseCursors.move,
+            child: GestureDetector(
+              onTap: () => mission.selectEntity(index),
+              onDoubleTap: () => unawaited(_editEntity(mission, entity)),
+              onPanStart: dragEnabled
+                  ? (_) => _beginEntityDrag(index, entity)
+                  : null,
+              onPanUpdate: dragEnabled
+                  ? (details) => _updateEntityDrag(details.globalPosition)
+                  : null,
+              onPanEnd: dragEnabled
+                  ? (_) => unawaited(_finishEntityDrag(mission, entity))
+                  : null,
+              onPanCancel: dragEnabled ? _cancelEntityDrag : null,
+              child: _WaypointMarker(
+                position: index + 1,
+                color: colors.accent,
+                selected: mission.selectedEntityIndex == index,
+                dragging: dragging,
+              ),
             ),
           ),
         ),
@@ -340,14 +363,66 @@ class _AMapMapViewState extends State<AMapMapView> {
     return markers;
   }
 
+  void _beginEntityDrag(int index, MissionEntity entity) {
+    final latitude = entity.latitude;
+    final longitude = entity.longitude;
+    if (latitude == null || longitude == null) return;
+    widget.connectionController.missionPlanning.selectEntity(index);
+    setState(() {
+      _draggingEntityId = entity.id;
+      _dragPreviewWgs84 = LatLng(latitude, longitude);
+    });
+  }
+
+  void _updateEntityDrag(Offset globalPosition) {
+    if (_draggingEntityId == null) return;
+    final mapContext = _mapKey.currentContext;
+    final renderObject = mapContext?.findRenderObject();
+    if (mapContext == null || renderObject is! RenderBox) return;
+    final localPosition = renderObject.globalToLocal(globalPosition);
+    final tilePoint = _controller.camera.screenOffsetToLatLng(localPosition);
+    setState(() => _dragPreviewWgs84 = _toWgs84(tilePoint));
+  }
+
+  Future<void> _finishEntityDrag(
+    MissionDocumentController mission,
+    MissionEntity entity,
+  ) async {
+    final preview = _dragPreviewWgs84;
+    if (_draggingEntityId != entity.id || preview == null) {
+      _cancelEntityDrag();
+      return;
+    }
+    try {
+      await mission.updateEntity(
+        entity.copyWith(
+          latitude: preview.latitude,
+          longitude: preview.longitude,
+        ),
+      );
+    } finally {
+      if (mounted) _cancelEntityDrag();
+    }
+  }
+
+  void _cancelEntityDrag() {
+    if (!mounted) return;
+    setState(() {
+      _draggingEntityId = null;
+      _dragPreviewWgs84 = null;
+    });
+  }
+
   List<_MissionRouteVertex> _missionRouteVertices() {
     final mission = widget.connectionController.missionPlanning;
     final entities = mission.document?.entities ?? const <MissionEntity>[];
     final vertices = <_MissionRouteVertex>[];
     for (final entity in entities) {
       if (!entity.enabled) continue;
-      final latitude = entity.latitude;
-      final longitude = entity.longitude;
+      final dragging = entity.id == _draggingEntityId;
+      final preview = dragging ? _dragPreviewWgs84 : null;
+      final latitude = preview?.latitude ?? entity.latitude;
+      final longitude = preview?.longitude ?? entity.longitude;
       if (latitude == null ||
           longitude == null ||
           !latitude.isFinite ||
@@ -386,11 +461,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     for (var index = 0; index < vertices.length - 1; index++) {
       final start = vertices[index];
       final end = vertices[index + 1];
-      final distance = const Distance().as(
-        LengthUnit.Meter,
-        start.wgs84,
-        end.wgs84,
-      );
+      final distance = wgs84DistanceMeters(start.wgs84, end.wgs84);
       final midpoint = LatLng(
         (start.tileFrame.latitude + end.tileFrame.latitude) / 2,
         (start.tileFrame.longitude + end.tileFrame.longitude) / 2,
@@ -401,20 +472,12 @@ class _AMapMapViewState extends State<AMapMapView> {
           width: 86,
           height: 22,
           child: IgnorePointer(
-            child: _DistanceLabel(text: _formatRouteDistance(distance)),
+            child: _DistanceLabel(text: formatMissionDistance(distance)),
           ),
         ),
       );
     }
     return labels;
-  }
-
-  String _formatRouteDistance(double meters) {
-    if (meters >= 1000) {
-      final decimals = meters >= 10000 ? 1 : 2;
-      return '${(meters / 1000).toStringAsFixed(decimals)} km';
-    }
-    return '${meters.round()} m';
   }
 
   /// 编辑已有航点：与地图单击新增走同一个编辑框。
@@ -440,6 +503,7 @@ class _AMapMapViewState extends State<AMapMapView> {
       fit: StackFit.expand,
       children: [
         FlutterMap(
+          key: _mapKey,
           mapController: _controller,
           options: MapOptions(
             initialCenter: _center,
@@ -893,15 +957,17 @@ class _WaypointMarker extends StatelessWidget {
     required this.position,
     required this.color,
     this.selected = false,
+    this.dragging = false,
   });
 
   final int position;
   final Color color;
   final bool selected;
+  final bool dragging;
 
   @override
   Widget build(BuildContext context) => Transform.scale(
-    scale: selected ? 1.18 : 1,
+    scale: dragging ? 1.28 : (selected ? 1.18 : 1),
     child: Container(
       alignment: Alignment.center,
       decoration: BoxDecoration(
