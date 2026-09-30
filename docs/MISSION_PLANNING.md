@@ -78,6 +78,20 @@
 本地任务前确认。导入会保留 command/frame/参数/位置，但不能还原参数化测绘意图。
 飞控回读的 `_INT` frame 5/6/11 会归一化为文档使用的 0/3/10。
 
+### ArduPilot Home 语义
+
+ArduPilot 的 mission 传输列表把 Home 放在第 0 项，后续才是可见任务项；PX4 不使用
+这个约定。M-GCS 的上传和读取都必须遵守这条边界：
+
+- 上传：`MissionDocument.home` 优先作为第 0 项 Home；没有规划 Home 时，才退回飞控
+  当前 `HOME_POSITION`，最后退回当前位置。Home 不会出现在 `entities` 中。
+- 读取：第 0 项 Home 同步回 `MissionDocument.home`，并从可见实体列表中移除。界面显示
+  的任务数量不包含 Home，验证也要单独核对 Home 坐标和高度。
+
+这一点和 QGC `MissionController` 读取 fake home、Mission Planner 的
+`processToScreen` 读取后删除 Home 行一致。缺少该处理会导致 Home 被当作第一个航点，
+任务数量、距离、高度校验和重新上传的 Home 全部错误。
+
 进度优先通过 `mg_operations_get_snapshot` 的 `mission` 项读取，状态为
 `downloading`、`uploading`、`waiting_ack` 或 `idle`，并包含百分比、计数、错误和取消
 终态。`mg_operations_cancel("mission")` 会终止当前任务传输、把状态标为
@@ -85,7 +99,21 @@
 返回 `canceled:false`，不会把已经完成的传输追认为取消。
 
 `mg_mission_doc_verify` 只接受完成后的全量下载结果，比较数量、command、frame、位置、
-高度、参数、autocontinue 和 mission_type。
+高度、参数、autocontinue 和 mission_type；ArduPilot 任务还会单独比较第 0 项 Home。
+
+## 启动任务
+
+启动任务按 QGC `APMFirmwarePlugin::startMission` / `PX4FirmwarePlugin::startMission`
+实现，入口是前端 `ConnectionController.startMission()`：
+
+- ArduPilot 固定翼和 VTOL：先切 `AUTO`，确认模式已生效，再解锁。
+- ArduPilot 多旋翼：先切 `GUIDED`，解锁后发送 `MAV_CMD_MISSION_START`。
+- 飞行中的 ArduPilot：只切任务模式，不重复解锁。
+- PX4：切 `AUTO_MISSION` 后解锁。
+
+`MAV_CMD_DO_SET_MODE` 必须带 `MAV_MODE_FLAG_CUSTOM_MODE_ENABLED`。模式切换和解锁不能
+只依据 `COMMAND_ACK`，必须轮询心跳摘要确认飞行模式和 `armed` 状态；超时后向上抛出
+真实失败原因，由界面展示。
 
 ## 文件互操作
 

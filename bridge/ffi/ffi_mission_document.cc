@@ -7,6 +7,7 @@
 #include "core/mission/cad/mission_document.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <vector>
@@ -342,6 +343,7 @@ MGCORE_API char* mg_mission_doc_upload(
             "expected_revision is required for mission upload");
     }
 
+    const auto document = service->snapshot();
     std::string revision_error;
     const auto compiled = service->compile_at_revision(
         expected_revision,
@@ -365,7 +367,7 @@ MGCORE_API char* mg_mission_doc_upload(
             compiled.report);
     }
 
-    auto plan = ffi_prepare_mission_upload(core, compiled.plan);
+    auto plan = ffi_prepare_mission_upload(core, compiled.plan, &document.home);
     mg::core::platform::LockGuard lock(core->mission_mtx);
     auto* mavlink = get_active_mavlink(core);
     if (!mavlink ||
@@ -418,11 +420,16 @@ MGCORE_API char* mg_mission_doc_import_from_vehicle(mg_core_t* core) {
         return to_cstr(error.str());
     }
 
-    // 只替换实体，保留 metadata / defaults / home 与 revision 语义。
+    // 只替换实体，保留 metadata / defaults / revision 语义；Home 从原始
+    // ArduPilot 第 0 项同步出来，而不是把它当成普通任务项导入。
     MissionDocument document = ensure_document(core)->snapshot();
+    const auto presented_plan = ffi_present_mission_plan(
+        core,
+        snapshot.plan,
+        &document.home);
     std::string error;
     if (!mg::core::mission::cad::import_mission_plan_into_document(
-            snapshot.plan,
+            presented_plan,
             document,
             error)) {
         return fail(MG_ERROR_INVALID_STATE, error.c_str());
@@ -439,6 +446,7 @@ MGCORE_API char* mg_mission_doc_import_from_vehicle(mg_core_t* core) {
 MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
     CHECK_CORE(core); CHECK_CONNECTED(core);
 
+    const auto document = ensure_document(core)->snapshot();
     const auto compiled = ensure_document(core)->compile();
     if (!compiled.valid || compiled.plan.items.empty()) {
         return validation_failure_json(
@@ -473,8 +481,13 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
         error.end_object();
         return to_cstr(error.str());
     }
-    const auto vehicle_plan =
-        ffi_present_mission_plan(core, snapshot.plan);
+    mg::core::mission::cad::MissionHome vehicle_home;
+    bool vehicle_home_present = false;
+    const auto vehicle_plan = ffi_present_mission_plan(
+        core,
+        snapshot.plan,
+        &vehicle_home,
+        &vehicle_home_present);
     const double tolerance = std::max(0.0, tolerance_m);
 
     mg::bridge::JsonBuilder differences;
@@ -504,6 +517,43 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
             "count",
             std::to_string(count),
             std::to_string(vehicle_count));
+    }
+
+    if (document.home.set && mg::bridge::ffi::mission_uses_home_item(core)) {
+        if (!vehicle_home_present || !vehicle_home.set) {
+            add_difference(-1, "home", "set", "missing");
+        } else {
+            const int expected_lat_e7 = static_cast<int>(
+                std::llround(document.home.latitude * 1e7));
+            const int expected_lon_e7 = static_cast<int>(
+                std::llround(document.home.longitude * 1e7));
+            const int actual_lat_e7 = static_cast<int>(
+                std::llround(vehicle_home.latitude * 1e7));
+            const int actual_lon_e7 = static_cast<int>(
+                std::llround(vehicle_home.longitude * 1e7));
+            if (std::abs(expected_lat_e7 - actual_lat_e7) > 1) {
+                add_difference(
+                    -1,
+                    "home.latitude",
+                    std::to_string(document.home.latitude),
+                    std::to_string(vehicle_home.latitude));
+            }
+            if (std::abs(expected_lon_e7 - actual_lon_e7) > 1) {
+                add_difference(
+                    -1,
+                    "home.longitude",
+                    std::to_string(document.home.longitude),
+                    std::to_string(vehicle_home.longitude));
+            }
+            if (std::abs(document.home.altitude_m - vehicle_home.altitude_m) >
+                static_cast<float>(tolerance)) {
+                add_difference(
+                    -1,
+                    "home.altitude_m",
+                    std::to_string(document.home.altitude_m),
+                    std::to_string(vehicle_home.altitude_m));
+            }
+        }
     }
 
     const int compare_count = std::min(count, vehicle_count);

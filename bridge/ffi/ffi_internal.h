@@ -178,13 +178,16 @@ inline mg::core::telemetry::WaveformBuffer* get_active_waveform(mg_core_t* core,
 }
 
 inline mg::core::mission::MissionPlan ffi_present_mission_plan(mg_core_t* core,
-                                                               const mg::core::mission::MissionPlan& raw_plan) {
-    return mg::bridge::ffi::present_mission_plan(core, raw_plan);
+                                                               const mg::core::mission::MissionPlan& raw_plan,
+                                                               mg::core::mission::cad::MissionHome* home = nullptr,
+                                                               bool* home_present = nullptr) {
+    return mg::bridge::ffi::present_mission_plan(core, raw_plan, home, home_present);
 }
 
 inline mg::core::mission::MissionPlan ffi_prepare_mission_upload(mg_core_t* core,
-                                                                 const mg::core::mission::MissionPlan& client_plan) {
-    return mg::bridge::ffi::prepare_mission_upload(core, client_plan);
+                                                                 const mg::core::mission::MissionPlan& client_plan,
+                                                                 const mg::core::mission::cad::MissionHome* planned_home = nullptr) {
+    return mg::bridge::ffi::prepare_mission_upload(core, client_plan, planned_home);
 }
 
 

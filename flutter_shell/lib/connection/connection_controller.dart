@@ -402,6 +402,16 @@ final class ConnectionController extends ChangeNotifier
 
   /// 常规遥测轮询间隔。顶栏数据是给人看的，10Hz 足够顺滑。
   static const Duration _telemetryPollInterval = Duration(milliseconds: 100);
+
+  /// MAV_CMD_DO_SET_MODE 的 base mode 必须声明 custom mode 有效。
+  /// QGC 在 Vehicle::setFlightMode() 里也是发送这个标志。
+  static const int _mavModeFlagCustomModeEnabled = 1;
+  static const Duration _commandStatePollInterval = Duration(milliseconds: 100);
+  static const Duration _flightModeValidationWindow = Duration(
+    milliseconds: 1300,
+  );
+  static const Duration _armValidationWindow = Duration(milliseconds: 1500);
+
   final ValueNotifier<int> parameterChanges = ValueNotifier(0);
   final ValueNotifier<int> telemetryChanges = ValueNotifier(0);
   final ValueNotifier<int> profileChanges = ValueNotifier(0);
@@ -1668,40 +1678,104 @@ final class ConnectionController extends ChangeNotifier
 
     if (vehicleAutopilotType == 12) {
       const px4AutoMissionMode = 0x04040000;
-      await _setFlightMode(px4AutoMissionMode);
-      if (!vehicleArmed) await _armVehicle();
+      await _setFlightModeAndValidate(px4AutoMissionMode, 'Auto Mission');
+      await _armVehicleAndValidate();
       return;
     }
 
     final autoMode = fixedWing ? 10 : 3;
     final guidedMode = fixedWing ? 15 : 4;
     if (vehicleFlying) {
-      await _setFlightMode(autoMode);
+      await _setFlightModeAndValidate(autoMode, 'Auto');
       return;
     }
 
     if (fixedWing) {
-      await _setFlightMode(autoMode);
-      if (!vehicleArmed) await _armVehicle();
+      await _setFlightModeAndValidate(autoMode, 'Auto');
+      await _armVehicleAndValidate();
       return;
     }
 
     if (!vehicleArmed) {
-      await _setFlightMode(guidedMode);
-      await _armVehicle();
+      await _setFlightModeAndValidate(guidedMode, 'Guided');
+      await _armVehicleAndValidate();
     }
     _requireCommandSuccess(_readJson(_commandMissionStart(_core)), '启动任务');
   }
 
-  Future<void> _setFlightMode(int customMode) async {
-    _requireCommandSuccess(
-      _readJson(_commandSetMode(_core, 0, customMode)),
-      '切换飞行模式',
-    );
+  Future<void> _setFlightModeAndValidate(
+    int customMode,
+    String expectedMode,
+  ) async {
+    if (_flightModeMatches(expectedMode)) return;
+
+    for (var attempt = 0; attempt < 3; attempt++) {
+      _requireCommandSuccess(
+        _readJson(
+          _commandSetMode(_core, _mavModeFlagCustomModeEnabled, customMode),
+        ),
+        '切换飞行模式',
+      );
+      if (await _waitForVehicleState(
+        mode: expectedMode,
+        timeout: _flightModeValidationWindow,
+      )) {
+        return;
+      }
+    }
+    throw StateError('切换飞行模式失败：飞控未进入 $expectedMode');
   }
 
-  Future<void> _armVehicle() async {
+  Future<void> _armVehicleAndValidate() async {
+    if (vehicleArmed) return;
     _requireCommandSuccess(_readJson(_commandArm(_core, 0)), '解锁');
+    if (await _waitForVehicleState(
+      armed: true,
+      timeout: _armValidationWindow,
+    )) {
+      return;
+    }
+    throw StateError('解锁失败：飞控未报告 armed=true');
+  }
+
+  bool _flightModeMatches(String expectedMode) =>
+      vehicleFlightMode.trim().toLowerCase() ==
+      expectedMode.trim().toLowerCase();
+
+  Future<bool> _waitForVehicleState({
+    String? mode,
+    bool? armed,
+    required Duration timeout,
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (!_disposed && DateTime.now().isBefore(deadline)) {
+      if (_readVehicleSummaryForCommand()) {
+        final modeMatches = mode == null || _flightModeMatches(mode);
+        final armedMatches = armed == null || vehicleArmed == armed;
+        if (modeMatches && armedMatches) return true;
+      }
+      await Future<void>.delayed(_commandStatePollInterval);
+    }
+    if (!_readVehicleSummaryForCommand()) return false;
+    return (mode == null || _flightModeMatches(mode)) &&
+        (armed == null || vehicleArmed == armed);
+  }
+
+  bool _readVehicleSummaryForCommand() {
+    try {
+      final envelope =
+          _readJson(_getVehicleSummary(_core)) as Map<String, Object?>;
+      final data = envelope['data'] as Map<String, Object?>? ?? const {};
+      vehicleArmed = data['armed'] == true;
+      vehicleFlightMode = data['flight_mode'] as String? ?? '';
+      vehicleType = data['vehicle_type'] as int? ?? vehicleType;
+      vehicleAutopilotType =
+          data['autopilot_type'] as int? ?? vehicleAutopilotType;
+      notifyListeners();
+      return true;
+    } on Object {
+      return false;
+    }
   }
 
   Future<void> guidedPause() async {
