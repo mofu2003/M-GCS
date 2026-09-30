@@ -1,194 +1,88 @@
 # 架构说明
 
-## 当前架构状态
+## 当前产品结构
 
-当前 `main` 分支包含 **C++ 后端核心 + C FFI 契约 + Flutter 外壳**。
-`flutter_shell/` 只作为 FFI 的消费者存在，后端仍不得依赖任何 UI 框架。
-
-核心原则：
-
-- 飞控协议、连接生命周期、安全敏感命令、任务传输、参数传输和遥测缓存属于后端。
-- C FFI 只暴露稳定、C 兼容、可测试的公共契约。
-- 任何前端都必须通过 FFI 语义契约接入后端能力，不得复制后端状态机。
-- 后端不得依赖任何 UI 框架、前端语言或页面结构。
-- 任何领域功能都不得因前端更换而重写。
-
-## 顶层依赖方向
-
-```mermaid
-flowchart TB
-    Frontend["Flutter Shell<br/>flutter_shell"]
-    FFI["C FFI Bridge<br/>bridge/ffi"]
-    Core["C++ Core<br/>core"]
-    Third["third_party<br/>MAVLink / cJSON"]
-
-    Frontend --> FFI
-    FFI --> Core
-    Core --> Third
-```
-
-依赖必须单向流动。`core/` 不得知道 `bridge/ffi/` 的调用者是谁。
-
-## C++ 后端结构
-
-- `core/src/transport/`：串口、TCP、UDP、内存链路、连接管理和端口发现。
-- `core/src/mavlink/`：MAVLink adapter、发送器、命令队列、参数缓存、任务传输。
-- `core/src/vehicle/`：飞控模型、多机管理、连接状态和当前飞控选择。
-- `core/src/mission/`：MAVLink 航点、围栏、集结点、测绘任务和任务管理；任务文档、几何、约束与编译属于后端领域。
-- `core/src/calibration/`：陀螺仪、加速度计、罗盘、气压计、遥控器校准。
-- `core/src/firmware/`：ArduPilot / PX4 固件插件、模式映射和参数重映射。
-- `core/src/telemetry/`：遥测环形缓冲、ADSB 等遥测能力。
-- `core/src/settings/` 与 `core/src/log/`：飞行日志、MAVLink 日志和日志回放。
-- `core/src/ftp/`：MAVLink FTP 文件传输。
-- `core/src/sitl/`、`core/src/terrain/`、`core/src/geofence/`、`core/src/video/`、`core/src/camera/`：仿真、地形、围栏、视频和相机能力。
-
-高风险路径：
-
-- `core/src/mavlink/command_queue.cc`
-- `core/src/mavlink/mission_transfer.cc`
-- `core/src/mavlink/param_cache.cc`
-- `core/src/transport/connection_manager.cc`
-- `core/src/transport/serial_link.cc`
-- `core/src/transport/tcp_link.cc`
-- `core/src/transport/udp_link.cc`
-- `core/src/vehicle/vehicle.cc`
-- `core/src/vehicle/multi_vehicle_manager.cc`
-- `core/src/calibration/calibration_service.cc`
-
-修改这些路径时必须运行聚焦回归测试和默认门禁。持有内部锁时不得执行阻塞 I/O，也不得在持锁期间调用外部回调。
-
-## 传输层
-
-传输层统一实现 `ILink`：
-
-- `SerialLink`：Windows 使用 Win32 串口 API；macOS/Linux 使用 POSIX `termios`。
-- `TcpLink`：客户端 TCP 链路。
-- `UdpLink`：绑定本地 UDP 端口，并从首个收到的数据包学习远端地址。
-- `InMemoryLink`：测试和模拟链路。
-
-连接生命周期由 `ConnectionManager` 管理，负责：
-
-- 创建传输层。
-- 连接传输层回调和 MAVLink adapter。
-- 心跳记录和心跳丢失检测。
-- 在链路失效后清理会话并暴露明确的断连状态；重连由调用方显式发起。
-- 暴露连接状态。
-
-连接识别成功后，`Vehicle` 会主动请求常用遥测，包括 heartbeat、GPS、姿态、全局位置、VFR HUD、servo output、RC channels 和电池等消息。实时 servo/RC 数据必须以是否收到对应 MAVLink 消息为准，不能把默认缓存值当成真实输出。
-
-## FFI 桥接层
-
-`bridge/ffi/` 是后端对外部消费者暴露的 C ABI。
-
-`ffi_api.h` 是 umbrella header：
+M-GCS 由 C++ 后端、C FFI 契约和 Flutter 外壳组成。前端不能直接依赖 MAVLink、
+飞控状态机、串口实现或任务传输内部类型。
 
 ```text
-ffi_api.h
-|- ffi_api_core.h
-|- ffi_api_connection.h
-|- ffi_api_telemetry.h
-|- ffi_api_firmware.h
-|- ffi_api_params.h
-|- ffi_api_mission.h
-|- ffi_api_flight.h
-|- ffi_api_configuration.h
-|- ffi_api_geofence.h
-|- ffi_api_logging.h
-|- ffi_api_payload.h
-\- ffi_api_environment.h
+Flutter Shell -> bridge/ffi -> core -> third_party
 ```
 
-实现侧按领域拆分：
+依赖只能向右流动。Core 不知道调用方是谁，Bridge 不拥有业务状态，Flutter 不复制
+后端协议和编译逻辑。
 
-- `ffi_vehicle_manager.cc`：多机打开、关闭、选择和设备发现。
-- `ffi_vehicle_session.*`：活动飞控上下文解析。
-- `ffi_mission_bridge.*`、`ffi_mission_commands.cc`、`ffi_mission_management.cc`：任务相关能力。
-- `ffi_flight_mode_state.cc`、`ffi_flight_commands.cc`：飞行模式与飞行命令。
-- `ffi_payload_commands.cc`、`ffi_sitl_commands.cc`、`ffi_survey_commands.cc`、`ffi_terrain_commands.cc`：领域命令。
-- `ffi_sensor_decode.cc`、`sensor_*_json_serializers.h`：传感器解码和健康视图。
-- `mission_json_serializers.h`：任务领域 JSON 序列化。
-- `ffi_diagnostics.cc`：工业化诊断聚合层。
+## 运行时数据流
 
-遥测缓存与通用 JSON 序列化属于 core：`core/include/core/telemetry/` 下有
-`json_builder.h`、`json_serializers.h`、`param_json_serializers.h`、
-`sensor_health_json_serializers.h`、`telemetry_freshness.h` 和
-`telemetry_cache.h`。`bridge/ffi/` 里保留同名转发头，把符号用 `using`
-引入 `mg::bridge`，避免调用点大改；`test_bridge_architecture_guards.cc`
-会断言 core 库不再 include 任何 `bridge/` 路径。
+```text
+ILink
+  -> ConnectionManager
+  -> MavlinkAdapter
+  -> Vehicle / MultiVehicleManager
+  -> domain services and telemetry cache
+  -> FFI JSON/events
+  -> Flutter controller and widgets
+```
 
-FFI 约束：
+一次连接创建一个 Vehicle 会话。`mg_connection_open()` 返回 session ID，不改变 UI
+焦点；`mg_vehicle_select()` 才改变焦点。旧单机连接入口继续作为兼容包装存在。
 
-- 只暴露 C 兼容类型。
-- `mg_create()` / `mg_destroy()` 管理 MgCore 生命周期。
-- 普通返回 `char*` 由调用方通过 `mg_free_string()` 释放。
-- `mg_event_callback_t` 的 `json` 参数也由回调方通过 `mg_free_string()` 释放。
-- 复杂结果使用 JSON envelope，保持 success/error 语义稳定。
-- `mg_vehicle_open()` 只创建独立飞控会话，不改变 active/UI focus；`mg_vehicle_select()` 是显式焦点操作。旧的单机便捷连接入口保持连接后选中会话的兼容行为。新增接口应逐步改为显式 vehicle 目标。
+## Core 领域
 
-## 任务规划领域边界
+### 连接和协议
 
-任务规划是面向航线设计的后端领域子系统。可编辑源模型是 `MissionDocument`，保存任务实体、参数、revision、诊断和编译所需的设计意图；WGS84 仅在地图、导入导出和 MAVLink 编译边界使用。
+`ConnectionManager` 管理链路打开、等待心跳、已连接、断链和清理；
+`MavlinkAdapter` 隔离生成的 MAVLink 头；`CommandQueue` 负责命令 ACK、超时和重试；
+`ParamCache`、`MissionTransfer` 和 `MavlinkFtpClient` 分别负责参数、任务和文件传输。
 
-- `core/mission` 负责任务文档、编辑历史、参数化测绘、编译、校验、估算、诊断和持久化。
-- `bridge/ffi` 负责稳定、版本化、前端无关的 C ABI/JSON 契约。
-- 任何前端和 CLI 只负责编辑交互与渲染，不能拥有第二套权威几何或航线编译逻辑。
-- `MissionPlan` 是编译后的 MAVLink 目标模型；任务上传下载继续由既有 mission transfer 负责。
-- 编辑、校验和编译不写飞控；上传是单独、显式的安全敏感操作。
+### Vehicle
 
-当前已实现的任务文档模型包含稳定实体 ID、revision、undo/redo、结构化诊断、
-命令目录、任务文档 JSON 序列化，以及编译、上传和回读比对链路。编辑动作不写飞控；
-上传必须由调用方显式触发。
+`Vehicle` 组合连接、飞行模式、校准、日志、遥测缓存、波形、围栏和载荷能力。
+多会话由 `MultiVehicleManager` 管理。安全敏感命令必须明确检查连接和目标，并将
+ACK/超时/拒绝传到 FFI。
 
-任务领域边界以本文和 `docs/MISSION_PLANNING.md` 为准；新增实现必须先落在 `core/mission/` 和对应的 FFI 契约中。
+### 任务规划
 
-## 固件 Profile 与能力契约
+任务规划使用 `MissionDocument` 保存可编辑任务实体、revision、Home、默认参数和
+命令参数；`MissionPlan` 是编译后的 MAVLink 目标模型，不是编辑状态的唯一来源。
 
-MGC 当前采用 ArduPilot-first，PX4-compatible 路线：ArduPilot 能力优先做深，PX4 先保持通用 MAVLink 能力稳定兼容，并逐步补齐深度适配。
+任务编译和校验属于后端，前端只提供编辑和渲染。`survey_grid` / `corridor` 由
+`SurveyCalculator` 在后端展开；`.waypoints` 互操作也在后端完成。编辑、校验、保存
+不写飞控，上传和从飞控读取是显式操作。
 
-固件差异必须在后端 profile/capability 层显式表达，调用方不得通过字符串、字段缺失或数值范围猜测飞控行为。可通过 `mg_firmware_get_type()` 获取：
+`mg_mission_doc_*` 是已经发布的兼容 ABI 名称；它们不改变当前产品术语。当前设计概念
+统一称为“任务文档”和“任务规划”。
 
-- `profile`：`ardupilot`、`px4` 或 `unknown`。
-- `vehicle_type`：归一化机型族，例如 `Copter`、`FixedWing`、`Rover`、`Submarine`、`VTOL`。
-- `capabilities`：当前飞控/机型明确支持的工作流能力。
+### 遥测和波形
 
-新增 ArduPilot 或 PX4 差异行为时，优先补 `core/src/firmware/` 下的固件插件和 FFI 契约测试。
+遥测在 Core 中聚合并记录 freshness。高频波形进入后端环形缓冲，前端通过降采样
+接口读取；降采样保留 min/max 包络，不在前端对原始采样做平均或滤波。
 
-## 高语义诊断契约
+### 校准和日志
 
-底层 `mg_vehicle_get_*`、`mg_params_*`、`mg_mission_*` 接口继续保留，供细粒度能力和调试工具使用。前端和现场诊断优先使用以下聚合接口：
+校准由统一服务和策略驱动，终态必须经过参数读回或飞控报告验证。飞行日志的
+STATUSTEXT、连接状态和命令结果在锁外回调；校准历史在锁外写盘。
 
-- `mg_connection_get_diagnostics()`：连接状态、活动飞控、心跳、目标 sysid/component、板卡名称、3 秒 MAVLink 接收链路质量和可重连判断。`link.quality_pct` 只表示活动飞控 MAVLink 包序号统计的成功率；`link.measuring=true` 表示样本不足。
-- `mg_operations_get_snapshot()`：参数同步和任务传输等长任务的统一状态视图。
-- `mg_operations_cancel()`：长任务取消入口；当前对无活动任务返回明确 no-op 结果。
-- `mg_telemetry_get_dashboard_snapshot()`：面向仪表盘的连接、遥测、数据新鲜度和有效性聚合快照。
-- `mg_system_get_diagnostics()`：系统级诊断总入口，聚合连接、操作、仪表盘和 last-error。
+## FFI 设计
 
-这些接口的目标是让调用方不自行拼接多个底层快照，也不猜测 `valid=false`、心跳年龄、参数进度或 mission 状态。
+FFI 只暴露 C 兼容类型和稳定 JSON envelope。新增接口必须同时更新头文件、实现、
+测试、`API_CATALOG.md`、相关文档和前端绑定。兼容接口保留 ABI，但冻结新行为；
+会影响 RTL、起飞、降落、任务和参数的接口必须由 UI 先确认。
 
-完整的公开 API 分组、兼容入口和新增/弃用规则见
-[`bridge/ffi/API_CATALOG.md`](../bridge/ffi/API_CATALOG.md)。
+## Flutter 设计
 
-参数同步使用既有 `mg_params_request_all()` 发出标准 `PARAM_REQUEST_LIST`，并通过 `mg_params_get_progress()` 读取进度。它是只读下载流程，不得与参数写入混用。遥控器信号来自 `mg_rc_get_channels()` 的 `RC_CHANNELS.rssi`，应独立于 `link` 链路质量显示；`0` 和 `255` 表示飞控没有提供有效遥控器信号。
+Flutter 通过 `ConnectionController` 绑定 FFI。地图坐标按地图源在 GCJ-02 与 WGS-84
+之间转换。任务面板使用 `MissionDocumentController`；命令下拉和参数表单来自后端
+命令目录。UI 统一使用 `MgColors`、`MgTypography`、`MgMetrics` 和 `MgFonts`。
 
-批量参数导入与确认写入使用参数变更集：`mg_params_prepare_change_set()` 以飞控完整参数缓存生成去重后的差异预览，`mg_params_commit_change_set()` 统一执行元数据校验、`_ENABLE` 最后写入和逐项结果汇总。调用方只保留尚未确认的草稿，不能自行拥有导入比对、写入排序或失败恢复语义；单参数实时写入仍使用 `mg_params_set()`。
+## 平台
 
-## 当前生产边界
+- macOS：POSIX 串口，`build/mgcore.dylib`，Flutter debug 构建已验证。
+- Windows：Win32 串口，`mgcore.dll`，Windows bundle/preflight 已提供，仍需真机验收。
+- Linux：POSIX 串口，`libmgcore.so`。
+- Android：JNI 动态库加载和 USB Host 基础工程存在；通用 USB-serial 驱动仍需单独验收。
 
-后端具备测试结构，但当前 checkout 缺少 MAVLink C 生成头，恢复可复现构建后仍有以下生产缺口：
+## 约束
 
-- 固件刷写：当前为占位实现。
-- 视频接收/解码：已有元数据管理，完整链路未验收。
-- Android filesystem：当前为占位实现，需要 JNI/AssetManager 上下文。
-- 新增会话入口 `mg_vehicle_open()` 不再改变 active/UI focus；旧命令族仍通过显式 `mg_vehicle_select()` 选择目标，下一阶段将继续补充显式 `vehicle_id` 命令目标。
-- 真实硬件验证：只读连接、参数读取和遥测 dump 已验证；写参数、解锁、切模式、任务执行、校准和电机测试仍不得视为生产验收。
-
-## 架构决策记录
-
-长期架构决策写入 `docs/adr/`：
-
-- ADR 0001：初始架构。
-- ADR 0002：复用官方 MAVLink。
-- ADR 0003：本地 FFI 桥接。
-- ADR 0005：旧任务规划决策的废止记录（仅作历史追溯）。
-- ADR 0006：波形显示管线——采集保真、显示可读。
-- ADR 0007：界面字体跨平台统一，以 macOS 端为设计基准。
+持有 Core 锁时不做阻塞 I/O、不调用外部回调、不等待传输。高风险路径修改后必须
+运行聚焦回归和完整 `tools/preflight.sh`。

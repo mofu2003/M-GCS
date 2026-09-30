@@ -1,273 +1,94 @@
 # 任务规划后端契约
 
-本文描述当前已经实现的 Mission Planning Engine。前端可以把它当作黑盒：
-编辑本地文档、读取诊断、编译后显式上传，不与 MAVLink 消息或 `MissionPlan`
-内部状态直接耦合。
+本文是任务规划的当前权威说明。任务规划由“任务文档”和“编译后的 MissionPlan”两层组成：
 
-## 两层模型
+- `MissionDocument`：前端可编辑、带稳定实体 ID 和 revision 的任务源模型。
+- `MissionPlan`：后端编译出的 MAVLink 任务，只用于传输和回读比较。
 
-- `MissionDocument`：可编辑源文档，保存设计意图、实体顺序和 revision。
-- `MissionPlan`：编译后的 MAVLink 任务，仅供传输和回读比对。
+编辑、校验、保存、撤销和估算不写飞控；上传和从飞控读取必须由用户显式触发。
 
-编辑、校验、保存和撤销永远不会写飞控。`mg_mission_doc_upload` 是唯一的写入入口。
-
-## 文档 JSON
+## 文档结构
 
 ```json
 {
   "schema_version": 1,
-  "metadata": {
-    "id": "mission-1",
-    "name": "Area A",
-    "description": "",
-    "firmware_profile": "ardupilot",
-    "vehicle_type": "copter"
-  },
-  "home": {
-    "set": true,
-    "lat": 39.9,
-    "lon": 116.4,
-    "alt_m": 20
-  },
-  "defaults": {
-    "frame": 3,
-    "altitude_m": 50,
-    "speed_ms": 12
-  },
+  "metadata": {"name": "Area A", "firmware_profile": "ardupilot", "vehicle_type": "copter"},
+  "home": {"set": true, "lat": 39.9, "lon": 116.4, "alt_m": 20},
+  "defaults": {"frame": 3, "altitude_m": 50, "speed_ms": 12},
   "revision": 4,
   "entities": [
     {
-      "id": "takeoff-1",
-      "type": "takeoff",
+      "id": "wp-1",
+      "type": "waypoint",
       "enabled": true,
       "order": 0,
-      "command": 22,
+      "command": 16,
       "frame": 3,
       "autocontinue": 1,
-      "alt_m": 30,
-      "params": [15, 0, 0, 0]
+      "lat": 39.9,
+      "lon": 116.4,
+      "alt_m": 50,
+      "params": [0, 2, 0, 0]
     }
   ]
 }
 ```
 
-实体公共字段：
-
-| 字段 | 含义 |
-| --- | --- |
-| `id` | 稳定实体 ID，编辑和诊断都使用它，不使用数组下标作为身份 |
-| `type` | UI 分类，例如 `waypoint`、`takeoff`、`land`、`rtl`、`loiter` |
-| `enabled` | 编译时是否包含该实体 |
-| `order` | 文档顺序，后端归一化为从零开始的连续值 |
-| `command` | MAV_CMD 数值 |
-| `frame` | MAV_FRAME 数值 |
-| `autocontinue` | 是否自动继续 |
-| `lat`、`lon` | WGS84 经纬度，非位置命令可省略 |
-| `alt_m` | 高度，省略时使用文档默认高度 |
-| `params` | 固定四项命令参数，含义由命令目录定义 |
-
-## 编辑命令
-
-`mg_mission_doc_apply` 每次处理一个 JSON 操作：
-
-```json
-{"operation":"add","expected_revision":1,"entity":{"type":"waypoint","command":16,"lat":39.9,"lon":116.4,"alt_m":50}}
-```
-
-支持的 `operation`：
-
-- `add`：追加实体。
-- `update`：按实体 `id` 更新。
-- `remove`：按 `entity_id` 删除。
-- `move`：按 `entity_id` 和 `to_index` 移动。
-- `clear`：清空实体。
-- `replace`：用 `document` 整体替换源文档。
-
-除 `replace` 外的编辑不会上传飞控。`expected_revision` 不匹配时后端拒绝操作，
-防止前端基于旧快照覆盖新编辑。
-
-## 参数化测绘实体
-
-测绘区域和走廊不是几十个手摆的航点，而是"设计意图"。文档里只存参数，
-`mg_mission_doc_compile` 在编译期调用 `SurveyCalculator` 展开成具体航点，
-所以前端不需要（也不允许）复制测绘几何。
-
-```json
-{
-  "id": "survey-1",
-  "type": "survey_grid",
-  "lat": 39.9,
-  "lon": 116.4,
-  "survey": {
-    "width_m": 200,
-    "length_m": 300,
-    "angle_deg": 30,
-    "cross_grid": false,
-    "alt_m": 80,
-    "speed_ms": 8,
-    "return_to_start": true,
-    "forward_overlap_pct": 70,
-    "side_overlap_pct": 60,
-    "focal_length_mm": 35,
-    "sensor_width_mm": 23.5,
-    "sensor_height_mm": 15.6,
-    "image_width_px": 6000,
-    "image_height_px": 4000
-  }
-}
-```
-
-走廊实体用起点（实体 `lat` / `lon`）+ 终点（`survey.end_lat` / `survey.end_lon`），
-宽度字段是 `survey.corridor_width_m`：
-
-```json
-{
-  "id": "corridor-1",
-  "type": "corridor",
-  "lat": 39.9,
-  "lon": 116.4,
-  "survey": {
-    "end_lat": 39.905,
-    "end_lon": 116.4,
-    "corridor_width_m": 60,
-    "alt_m": 60,
-    "speed_ms": 6
-  }
-}
-```
-
-要点：
-
-- `type` 取 `survey_grid`（含 `cross_grid: true` 的交叉网格）或 `corridor`。
-- 这两个实体的 `command` / `frame` / `params` 不参与编译，展开结果由算法决定；
-  字段留默认值即可。
-- 校验只检查参数自洽：经纬度有效、尺寸为正、高度与速度为正、重叠率在 `[0, 100)`、
-  相机参数为正；走廊还要求起终点不相同。
-- 编译后每个展开项在 `source_entity_ids` 里都指回同一个源实体，前端据此做
-  "一个测绘块 ↔ 多个航点"的映射。
-- `mg_mission_doc_estimate` 用展开结果统计距离、时间、航点数和照片数，
-  不会只按一个实体计数。
+实体支持稳定 `id`、`type`、`command`、`frame`、位置、高度、四个命令参数和 enabled。
+`mg_mission_doc_apply` 支持 `add`、`update`、`remove`、`move`、`clear`、`replace`；
+`expected_revision` 不匹配时拒绝修改，避免旧快照覆盖新编辑。
 
 ## 命令目录
 
+`mg_mission_get_command_catalog` 是唯一的命令语义来源，返回：
 
-前端通过 `mg_mission_get_command_catalog` 获取：
+- MAV_CMD 符号名 `name`。
+- 中文显示名 `label`。
+- 文档实体类型 `entity_type`。
+- 分类、说明、是否需要位置/高度。
+- 参数的 index、label、unit、type、default、范围、required 和 enum options。
 
-- 命令名称（MAV_CMD 符号名）、中文显示名 `label`、以及该命令对应的文档实体类型
-  `entity_type`（前端新建实体时直接用，不要自己维护命令→类型映射）。
-- 命令分类和说明。
-- 是否需要位置和高度。
-- 每个参数的 MAVLink 参数序号 `index`、名称、标签、单位、类型、默认值、
-  范围、必填状态和枚举选项。`index` 直接对应 `params[index - 1]`。
+当前目录覆盖航点、起飞、降落、RTL、盘旋、速度、相机触发、舵机、延时和距离条件。
+前端下拉和编辑表单必须根据目录生成，不复制 MAV_CMD 参数表。
 
-当前目录覆盖航点、起飞、降落、RTL、悬停、速度、相机触发、舵机、延时和距离条件。
-新增命令时只扩展后端目录和校验规则，前端不需要复制参数语义。
+## 参数化测绘
 
-## 校验和编译
+`survey_grid` 和 `corridor` 是任务实体，不是前端专属对象。实体保存设计意图，
+`SurveyCalculator` 在编译期展开为多个任务项；`source_entity_ids` 将每个展开项指回
+源实体。`estimate` 也使用展开结果统计距离、时间、航点和照片数。
 
-`mg_mission_doc_validate` 返回结构化诊断：
+`survey_grid` 的核心字段：`width_m`、`length_m`、`angle_deg`、`cross_grid`、`alt_m`、
+`speed_ms`、`return_to_start`、相机参数和重叠率。
 
-```json
-{
-  "success": true,
-  "valid": false,
-  "diagnostics": [
-    {
-      "severity": "error",
-      "code": "entity.latitude",
-      "message": "Mission latitude is invalid or missing",
-      "entity_id": "waypoint-1",
-      "field": "lat"
-    }
-  ]
-}
-```
+`corridor` 额外使用实体起点与 `survey.end_lat` / `survey.end_lon`、
+`survey.corridor_width_m`。
 
-`mg_mission_doc_compile` 在无 error 时返回：
-
-- `plan`：编译后的 MAVLink 任务。
-- `source_entity_ids`：每个编译任务的源实体映射。
-- `diagnostics`：即使编译成功也保留 warning。
-
-`mg_mission_doc_estimate` 返回总距离、预计时间、高度范围、照片数、航点数和命令数。
-
-## 上传与回读
+## 上传、读取和验证
 
 ```text
-mg_mission_doc_validate
-    -> mg_mission_doc_compile
-    -> mg_mission_doc_upload(expected_revision)
-    -> mg_mission_download
-    -> mg_mission_doc_verify(tolerance_m)
+编辑 -> validate -> compile -> upload -> 轮询 progress
+读取 -> mission_download -> 轮询 progress -> import_from_vehicle
+验证 -> mission_doc_verify
 ```
 
-`mg_mission_doc_upload` 会重新校验并编译，拒绝无效文档和过期 revision。
-返回中的 `document_item_count` 是用户可见任务项数量，`transport_item_count`
-包含传输层为了 ArduPilot 兼容而注入的 home item。
-`mg_mission_doc_verify` 比较飞控回读任务和本地编译任务，返回：
+上传的单次返回只表示传输已启动，必须轮询 `mg_mission_get_progress` 到完成。读取任务
+使用 `mg_mission_doc_import_from_vehicle`，要求一次完整下载已成功完成；调用方应在覆盖
+本地任务前确认。导入会保留 command/frame/参数/位置，但不能还原参数化测绘意图。
+飞控回读的 `_INT` frame 5/6/11 会归一化为文档使用的 0/3/10。
 
-```json
-{
-  "success": true,
-  "matches": false,
-  "difference_count": 1,
-  "expected_count": 3,
-  "vehicle_count": 3,
-  "differences": [
-    {
-      "index": 1,
-      "field": "z",
-      "expected": "50.000000",
-      "actual": "65.000000"
-    }
-  ]
-}
-```
-
-verify 只接受一次成功完成的全量任务下载结果。上传成功后必须先调用
-`mg_mission_download` 并等待下载完成，否则返回 `invalid_state`，避免把上传缓存
-误判为飞控回读结果。
-
-ArduPilot 的 home item 注入仍由现有传输适配层处理，不进入任务规划文档。
-
-## 当前边界
-
-- 已实现单文档、本地编辑、命令目录、校验、编译、估算、上传和 verify。
-- 当前只允许编译命令目录中已经定义语义的命令；未知命令会被校验拒绝。
-- 测绘区域（`survey_grid`）和走廊（`corridor`）已作为参数化实体接入文档，编译期由
-  `SurveyCalculator` 展开；环绕（orbit）仍用命令目录里的参数表达。
+`mg_mission_doc_verify` 只接受完成后的全量下载结果，比较数量、command、frame、位置、
+高度、参数、autocontinue 和 mission_type。
 
 ## 文件互操作
 
-`mg_mission_doc_export_format` / `mg_mission_doc_import_format` 处理外部任务文件。
-目前支持 `"waypoints"`，即 Mission Planner 与 QGroundControl 通用的
-`QGC WPL 110` 文本格式：
+`mg_mission_doc_export_format/import_format` 当前支持 `waypoints`，即 MP/QGC 的
+`QGC WPL 110` 文本：第 0 行为 home，任务项从 seq 1 开始，lat/lon 为十进制度，alt 为米。
+读取端兼容注释和空格/制表符/逗号分隔。导入后的航点不能恢复为参数化测绘实体。
 
-```text
-QGC WPL 110
-seq<TAB>current<TAB>frame<TAB>command<TAB>p1<TAB>p2<TAB>p3<TAB>p4<TAB>lat<TAB>lon<TAB>alt<TAB>autocontinue
-```
+QGC `.plan`、地理围栏和 Rally 的统一文档尚未实现。
 
-约定与 Mission Planner 的写出实现一致：
+## FFI 入口
 
-- 首行固定 `QGC WPL 110`。
-- 第 0 行是 home：`current=1`、`frame=0`、`command=16`、参数全 0，经纬度用十进制度。
-- 任务项从 `seq=1` 开始，`current=0`；lat/lon 十进制度、alt 米。
-- 导出用的是**编译结果**，所以文件内容等于会上传的任务；文档校验不通过时导出会被拒绝。
-- 导入按命令反推实体类型（航点/起飞/降落/RTL/悬停），home 行进 `document.home`，
-  其余行各生成一个实体。导入会**丢弃**参数化测绘的意图——展开后的航点无法还原成
-  `survey_grid`，这是格式本身的限制。
-
-读取端容忍 `#` 注释行与制表符/空格/逗号分隔（与 Mission Planner 一致）。
-
-## 与旧任务的边界
-
-
-- `MissionManager` 和 `mg_mission_add_item/update_item/remove_item/move_item`
-  属于旧兼容路径，会直接读改写 `MissionPlan` 并立即上传飞控。
-- 新前端不得用旧接口维护编辑草稿。编辑统一使用 `mg_mission_doc_apply`，
-  上传统一使用 `mg_mission_doc_upload`。
-- `SurveyCalculator` 是唯一的测绘几何实现，由 `survey_grid` / `corridor` 编译实体调用，
-  前端不得复制它的测绘计算。
-- Mission Planner / QGC 的 `.waypoints`（`QGC WPL 110`）已支持导入导出；
-  QGC `.plan`（JSON）与地理围栏 / Rally 的统一文档尚未实现。
+优先入口：`mg_mission_doc_create/get/apply/validate/compile/estimate/upload/verify`、
+`mg_mission_doc_import_from_vehicle` 和 `mg_mission_get_command_catalog`。
+旧 `mg_mission_*` 直接读改 `MissionPlan` 的兼容入口不用于维护编辑草稿。

@@ -1,66 +1,51 @@
 # 故障排查
 
-本文件只保留当前仍适用的后端排障路径。已经完成的 UI 调整和一次性环境问题不在这里记录。前端侧问题由各前端仓库自行记录。
+## 共享库找不到
 
-## 共享库无法加载
-
-症状：调用方报告 native library 加载失败或找不到符号。
-
-检查顺序：
-
-1. 确认后端已经构建出 `mgcore.dylib`、`mgcore.dll` 或 `libmgcore.so`。
-2. 用绝对路径加载，排除当前工作目录差异。
-3. 确认库架构与宿主进程一致（x86_64 / arm64）。
-4. 用 `nm`/`dumpbin` 确认调用方需要的全部符号都由当前库导出。
-5. 确认调用方在 `mg_destroy()` 之后不再使用任何返回指针。
-
-所有 `char*` 返回值必须由调用方通过 `mg_free_string()` 释放；事件回调的 `json` 参数同样如此。泄漏字符串不会立刻报错，但会在长时间运行中累积。
-
-## 串口列表为空
-
-1. 确认设备已连接且飞控未解锁。
-2. macOS 检查 `/dev/cu.*`，Windows 检查设备管理器中的 COM 端口。
-3. 使用 `build_check/test_scan_connect` 做只读扫描，区分调用方枚举问题和底层发现问题。
-4. 不要为了验证端口而发送解锁、切模式或写参数命令。
+1. 构建 `mgcore.dylib`、`mgcore.dll` 或 `libmgcore.so`。
+2. 用绝对路径确认加载位置和架构（arm64/x86_64）。
+3. macOS 用 `nm`，Windows 用 `dumpbin` 检查符号。
+4. 确认没有在 `mg_destroy()` 后使用返回指针；所有字符串都要释放。
 
 ## 连接后没有遥测
 
-1. 检查 `mg_connection_get_diagnostics()` 中的心跳年龄、目标 sysid/component 和接收计数。
-2. `waiting_heartbeat` 表示链路已打开但尚未识别飞控。
-3. servo output、RC channels 和电池等数据必须以 `valid` 与 freshness 为准，不能把零值当作真实遥测。
-4. 地面站 MAVLink 链路质量与遥控器 RSSI 是不同指标，不能互相替代。
+1. 检查 session state：`waiting_heartbeat` 只表示链路打开，不能表示飞控就绪。
+2. 检查 diagnostics 的心跳年龄、sysid/component、收包计数和最后错误。
+3. servo、RC、电池、Home 和位置都要检查 `valid`/freshness，不能把零值当真值。
+4. 地面站链路质量和遥控器 RSSI 是两个指标。
+5. Home/飞行状态依赖 `HOME_POSITION` 与 `EXTENDED_SYS_STATE`，连接后 Core 会主动请求。
 
-## 参数同步未完成
+## 参数同步失败
 
-1. 确认连接状态已完成 bootstrap，而不只是串口打开成功。
-2. 检查 `mg_params_get_progress()` 的 received、total 和 active 状态。
-3. 参数列表下载是只读流程；不要用写参数操作测试下载是否工作。
-4. 飞控断连后应重新建立会话，不复用旧缓存判断完成状态。
-5. 批量写入使用参数变更集；逐项失败结果必须逐条检查，不能只看整体成功标志。
+1. 等待 `mg_params_get_progress()` 的 received 达到 total。
+2. 断链后重新建立 session，不复用旧缓存。
+3. 批量写入检查每项 succeeded/failed，不只看整体 success。
+4. 参数类型和范围以飞控描述元数据为准。
 
-## 任务传输停滞
+## 任务读取/上传停滞
 
-1. 用 `mg_operations_get_snapshot()` 确认长任务状态，而不是只看单次返回值。
-2. `received` 不再增长通常是链路丢包或飞控未响应，需要先确认心跳和链路质量。
-3. 取消使用 `mg_operations_cancel()`；当前对无活动任务返回明确 no-op 结果。
-4. 任务上传属于安全敏感操作，不要在未确认飞控状态时重试。
+1. 任务上传返回“开始传输”，不是完成；轮询 `mg_mission_get_progress()`。
+2. 从飞控读取先启动 `mg_mission_download()`，等待完成后再调用
+   `mg_mission_doc_import_from_vehicle()`。
+3. 上传/下载前检查本地文档是否有未保存改动，避免覆盖。
+4. 验证必须在一次成功完整下载后调用 `mg_mission_doc_verify()`。
+5. 任务传输不增长时检查心跳、目标 sysid/component、MAVLink 丢包和飞控 ACK。
 
-## 校准流程异常
+## 校准异常
 
-1. 校准状态通过 `mg_calibration_get_status()` 轮询，不要自行推断终态。
-2. 罗盘校准以 `MAG_CAL_PROGRESS` 显示进度，以 `MAG_CAL_REPORT` 判定完成；进度到 100% 不代表已完成。
-3. 截断或畸形的 `MAG_CAL_PROGRESS` 会被丢弃，这是预期行为，不是数据丢失。
-4. 校准回调在释放内部锁之后派发；如果调用方在回调里再次查询状态，是安全且预期的用法。
+1. 轮询 `mg_calibration_get_status()`，不要从进度值自行推断终态。
+2. 磁力计以 progress/report 消息共同判断；100% 不必然等于完成。
+3. 校准历史写盘在锁外；回调可安全查询状态。
+4. 参数读回失败应显示失败，不能当作成功。
 
-## 编码显示异常
+## UI / FFI
 
-先按 [编码规范](ENCODING.md) 检查 UTF-8 和终端代码页。终端乱码不等于文件损坏，不要把显示异常的文本写回仓库。
+- FFI 找不到符号：重新构建共享库，并确认 Flutter app bundle 嵌入了同一版本库。
+- Flutter 页面空白：先确认页面是否有数据状态分支；无数据时也要保留组件骨架。
+- UI token 失败：运行 `dart tools/check_ui_tokens.dart`，不要在页面写裸色/字号。
 
 ## 默认验证
 
 ```bash
-cmake -S . -B build_check -DMGCORE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build_check
-ctest --test-dir build_check --output-on-failure --no-tests=error \
-  -L "offline|simulation" -LE "hardware|manual"
+tools/preflight.sh
 ```
