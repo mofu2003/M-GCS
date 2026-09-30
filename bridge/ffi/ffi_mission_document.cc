@@ -5,6 +5,7 @@
 #include "mission_json_serializers.h"
 
 #include "core/mission/cad/mission_document.h"
+#include "core/mission/cad/mission_command_catalog.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,6 +17,43 @@
 #include "cJSON.h"
 
 namespace {
+
+const mg::core::mission::cad::MissionCommandDescriptor* command_descriptor(
+    uint16_t command) {
+    const auto& catalog = mg::core::mission::cad::mission_command_catalog();
+    const auto it = std::find_if(
+        catalog.begin(),
+        catalog.end(),
+        [command](const auto& descriptor) {
+            return descriptor.command == command;
+        });
+    return it == catalog.end() ? nullptr : &*it;
+}
+
+bool command_has_parameter(
+    const mg::core::mission::cad::MissionCommandDescriptor* descriptor,
+    uint8_t index) {
+    if (!descriptor) return true;
+    return std::any_of(
+        descriptor->parameters.begin(),
+        descriptor->parameters.end(),
+        [index](const auto& parameter) { return parameter.index == index; });
+}
+
+bool mission_float_matches(
+    float expected,
+    float actual,
+    double tolerance,
+    bool unset_matches_zero = false) {
+    const bool expected_finite = std::isfinite(expected);
+    const bool actual_finite = std::isfinite(actual);
+    if (!expected_finite || !actual_finite) {
+        if (!expected_finite && !actual_finite) return true;
+        const auto finite_value = expected_finite ? expected : actual;
+        return unset_matches_zero && std::abs(finite_value) <= tolerance;
+    }
+    return std::abs(expected - actual) <= tolerance;
+}
 
 using mg::core::mission::cad::DiagnosticSeverity;
 using mg::core::mission::cad::MissionDiagnostic;
@@ -560,6 +598,7 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
     for (int index = 0; index < compare_count; ++index) {
         const auto& expected = compiled.plan.items[static_cast<size_t>(index)];
         const auto& actual = vehicle_plan.items[static_cast<size_t>(index)];
+        const auto* descriptor = command_descriptor(expected.command);
         if (expected.command != actual.command) {
             add_difference(
                 index,
@@ -592,21 +631,26 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                 std::to_string(expected.mission_type),
                 std::to_string(actual.mission_type));
         }
-        if (expected.x != actual.x) {
+        // Takeoff/RTL and DO/CONDITION commands do not carry a meaningful
+        // geographic position. ArduPilot may write zero or a placeholder
+        // coordinate back for those items; QGC treats them as non-coordinate
+        // mission items as well.
+        if (descriptor && descriptor->requires_position && expected.x != actual.x) {
             add_difference(
                 index,
                 "x",
                 std::to_string(expected.x),
                 std::to_string(actual.x));
         }
-        if (expected.y != actual.y) {
+        if (descriptor && descriptor->requires_position && expected.y != actual.y) {
             add_difference(
                 index,
                 "y",
                 std::to_string(expected.y),
                 std::to_string(actual.y));
         }
-        if (std::abs(expected.z - actual.z) > tolerance) {
+        if (descriptor && descriptor->requires_altitude &&
+            !mission_float_matches(expected.z, actual.z, tolerance)) {
             add_difference(
                 index,
                 "z",
@@ -624,8 +668,12 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                 : param == 1 ? actual.param2
                 : param == 2 ? actual.param3
                              : actual.param4;
-            if (std::abs(expected_value - actual_value) >
-                static_cast<float>(tolerance)) {
+            if (command_has_parameter(descriptor, static_cast<uint8_t>(param + 1)) &&
+                !mission_float_matches(
+                    expected_value,
+                    actual_value,
+                    tolerance,
+                    true)) {
                 add_difference(
                     index,
                     ("param" + std::to_string(param + 1)).c_str(),

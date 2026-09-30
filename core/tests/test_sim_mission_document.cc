@@ -87,6 +87,9 @@ int main() {
     // normalize that representation difference instead of reporting drift.
     auto normalized_frame_mission = env.mock->stored_mission();
     normalized_frame_mission[1].frame = MAV_FRAME_GLOBAL_RELATIVE_ALT_INT;
+    normalized_frame_mission[1].x = 123;
+    normalized_frame_mission[1].y = 456;
+    normalized_frame_mission[1].param4 = NAN;
     env.mock->set_mission(normalized_frame_mission);
     for (int i = 0; i < 80; ++i) env.tick(50);
 

@@ -129,7 +129,8 @@ vehicle mission after a completed full download. Equivalent MAVLink `_INT`
 coordinate frames are normalized before comparison. Calling verify after upload
 but before download returns `invalid_state`. It returns `matches` plus structured
 differences with `index`, `field`, `expected`, and `actual` for item count, command,
-frame, position, altitude, parameters, `autocontinue`, `mission_type`, and ArduPilot Home.
+frame, meaningful position/altitude fields, declared parameters (including the
+`NaN`/zero unset normalization), `autocontinue`, `mission_type`, and ArduPilot Home.
 
 `mg_mission_doc_import_from_vehicle` replaces the document's entities with the
 vehicle's current mission. It matches Mission Planner's *Read* and QGroundControl's
