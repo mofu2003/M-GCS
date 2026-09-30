@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.0.16 - 2026-09-30
+
+### Added
+
+- 新增 `mission_waypoints.cc` 和 `mission_qgc_plan.cc`，把 MP `.waypoints` 与
+  QGroundControl `.plan` 的读写实现从通用互操作文件中分离。
+
+### Changed
+
+- `mission_interchange.cc` 现在只负责格式识别和按飞控/任务复杂度推荐交换格式。
+- `.waypoints` 的分隔、解析、Home 行和 MAVLink 任务行编码集中在独立模块。
+- `.plan` 的 SimpleItem、Home、固件/机型、速度、warnings 和错误边界集中在独立模块。
+- 公开任务文件 FFI、JSON 字段、warnings 和错误文本保持不变。
+
+### Verification
+
+- 聚焦互操作测试通过：`test_bridge_mission_workflow`、`test_mission_document`、
+  `test_sim_mission_document`。
+- `tools/preflight.sh` 通过：Flutter analyze/test、后端 offline/simulation 34/34、
+  UI token 检查和 macOS debug 构建。
+
 ## 0.0.15 - 2026-09-30
 
 ### Added

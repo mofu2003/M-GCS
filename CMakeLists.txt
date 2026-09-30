@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mgcore VERSION 0.0.15 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
+project(mgcore VERSION 0.0.16 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -133,6 +133,8 @@ set(MGCORE_SOURCES
     core/src/mission/cad/mission_estimate.cc
     core/src/mission/cad/mission_command_catalog.cc
     core/src/mission/cad/mission_interchange.cc
+    core/src/mission/cad/mission_waypoints.cc
+    core/src/mission/cad/mission_qgc_plan.cc
     # Flight mode management
     core/src/flight/flight_mode_manager.cc
     # Configuration management

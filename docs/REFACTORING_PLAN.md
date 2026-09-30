@@ -52,6 +52,13 @@
 - `mission_document.cc` 继续缩小，当前只保留文档服务、历史、序列化、持久化和实体
   辅助逻辑。
 
+`0.0.16` 已完成任务文件互操作拆分：
+
+- `mission_interchange.cc` 只保留格式识别和推荐策略。
+- `mission_waypoints.cc` 负责 `QGC WPL 110` / MP `.waypoints` 读写。
+- `mission_qgc_plan.cc` 负责 QGroundControl `.plan` JSON 读写、字段映射和警告。
+- 公开导入导出函数及 JSON 错误语义保持不变。
+
 ## 非目标
 
 - 不在重构中顺便改 UI 设计或替换状态管理框架。
