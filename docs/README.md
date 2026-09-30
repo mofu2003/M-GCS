@@ -25,6 +25,7 @@ M-GCS 的文档分为三类：
 15. [QGC 代码质量审计](QGC_CODE_QUALITY_AUDIT.md)：M-GCS 与 QGC 的评分、差距和逐步替换策略。
 16. [分阶段重构计划](REFACTORING_PLAN.md)：执行中的模块拆分、版本里程碑和验收条件。
 17. [架构图](architecture-diagrams.html)：可视化结构总览。
+18. [ADR 0009：混合上游实现策略](adr/0009-hybrid-upstream-implementation-strategy.md)：MP、QGC、官方 MAVLink 和 M-GCS 边界的组合规则。
 
 ## 研究参考
 
@@ -41,6 +42,7 @@ M-GCS 的文档分为三类：
 - [ADR 0006：波形显示管线](adr/0006-waveform-display-pipeline.md)
 - [ADR 0007：统一字体栈](adr/0007-unified-font-stack.md)
 - [ADR 0008：任务文件格式按飞控生态分层](adr/0008-mission-file-format-priority.md)
+- [ADR 0009：混合上游实现策略](adr/0009-hybrid-upstream-implementation-strategy.md)
 
 ## 文档维护原则
 

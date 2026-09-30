@@ -4,6 +4,8 @@
 > 本文件规定同一能力同时存在 Mission Planner（MP）和 QGroundControl（QGC）
 > 实现时，默认参考谁、何时组合，以及如何记录依据。
 
+本准则的正式架构决策见 [ADR 0009：混合上游实现策略](adr/0009-hybrid-upstream-implementation-strategy.md)。
+
 ## 目标
 
 M-GCS 不逐项复制某一套地面站，也不因为 QGC 的模块化程度高就忽略 MP 对

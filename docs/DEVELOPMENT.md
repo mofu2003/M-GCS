@@ -2,10 +2,24 @@
 
 ## 当前基线
 
-- 当前版本：`0.0.12`。
+- 当前版本：`0.0.19`。
 - 代码分层：`flutter_shell -> bridge/ffi -> core -> third_party`。
 - 默认测试只包含 `offline` 和 `simulation`；hardware/manual 必须显式运行。
 - 默认预检：`tools/preflight.sh`。
+
+## 上游实现策略
+
+M-GCS 采用“MP 负责 ArduPilot 语义、QGC 负责通用框架、官方 MAVLink 负责协议”的组合策略：
+
+- ArduPilot 的参数、机型差异、校准动作、飞行模式和现场兼容优先参考 Mission Planner。
+- 任务对象模型、链路生命周期、超时/重试/取消、跨平台结构和测试治理优先参考 QGroundControl。
+- MAVLink 消息、枚举、坐标单位和任务协议优先使用官方生成定义，不自行发明协议。
+- 上游实现进入 M-GCS 前，必须改写到 `core -> bridge/ffi -> flutter_shell` 边界内，不能把
+  QGC 的 Qt/QML/QObject 或 MP 的 WinForms/全局单例直接搬入项目。
+- MP 与 QGC 行为冲突时，先回到官方协议和目标飞控行为，再记录选择依据；不能按项目整体站队。
+
+详细规则见 [UPSTREAM_CODE_SELECTION.md](UPSTREAM_CODE_SELECTION.md) 和
+[ADR 0009](adr/0009-hybrid-upstream-implementation-strategy.md)。
 
 ## 第一次构建
 

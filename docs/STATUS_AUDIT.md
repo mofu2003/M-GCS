@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。更新时间：2026-09-30。当前版本：`0.0.12`。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.19`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -10,7 +10,7 @@
 | `git diff --check` | 通过 |
 | `dart tools/check_ui_tokens.dart` | 通过 |
 | Flutter analyze | 通过 |
-| Flutter test | 16/16 |
+| Flutter test | 19/19 |
 | 后端 offline/simulation | 34/34 |
 | macOS debug 构建 | 通过 |
 | Windows build/preflight | workflow 统一调用预检脚本；脚本会先生成 MAVLink 头，再构建 bundle 并校验关键 FFI 导出。未在本机 Windows 复核 |
@@ -32,9 +32,9 @@ bash tools/audit_status.sh
 | 项目 | 数量 |
 | --- | ---: |
 | FFI exports | 285 |
-| Flutter 使用 | 61 |
+| Flutter 使用 | 65 |
 | 测试触达 | 198 |
-| 前端和测试都未触达 | 86 |
+| 前端和测试都未触达 | 85 |
 
 这些数字必须由 `tools/audit_status.sh` 生成，不手工维护。无人区不等于可删除，公开
 兼容 ABI 仍需遵守 API Catalog 的冻结规则。
@@ -103,4 +103,16 @@ git diff --check
 tools/preflight.sh
 ```
 
-不要把 `build/`、`build_check/`、生成头、硬件日志和本地记忆提交。
+不要把 `build/`、`build_check/`、生成头、硬件日志、SITL 生成物和本地记忆提交。
+
+## 架构维护结论
+
+当前架构方向保留，不进行推倒重写。后续维护遵循以下顺序：
+
+1. 先冻结公开 FFI 和 JSON 契约，兼容入口只修正确性，不承载新功能。
+2. 先拆内部职责，再改变协议行为：优先拆 `ConnectionController` 和
+   `MavlinkAdapter::Impl` 的职责，不改变现有调用方契约。
+3. 任务、参数、连接和校准分别记录 MP/QGC 的选择依据；ArduPilot 语义参考 MP，
+   通用状态机参考 QGC。
+4. 新的“支持”必须同时有代码、聚焦测试、文档和实际平台验收记录；只有构建路径
+   不能宣称平台已支持。

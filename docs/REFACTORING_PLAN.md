@@ -21,19 +21,27 @@
 - 兼容入口只修正确性，不再承载新功能。
 - 版本提交必须包含 CHANGELOG、版本号同步和真实门禁结果。
 
-## 里程碑
+## 已完成基线
+
+以下阶段已经在当前代码中完成，后续只修正确性，不重复拆分：
+
+- `0.0.14`：任务校验层拆分。
+- `0.0.15`：任务编译与估算拆分。
+- `0.0.16`：`.waypoints` 与 QGC `.plan` 互操作拆分。
+- `0.0.17`：Mission FFI 拆分。
+- `0.0.18`：operations 与 diagnostics 拆分。
+- `0.0.19`：磁力计校准按 MP/QGC 的 MAV_CAL 流程修复，并完成任务 Home/启动状态对齐。
+
+## 后续里程碑
 
 | 版本 | 重构范围 | 完成标准 |
 | --- | --- | --- |
-| 0.0.14 | 任务文档校验层拆分 | 校验规则从 `mission_document.cc` 分离；行为不变；任务相关测试和全量离线/模拟门禁通过 |
-| 0.0.15 | 任务编译与估算拆分 | Screen 展开、编译、估算各自独立；共享同一套 Survey 展开入口；编译/估算测试通过 |
-| 0.0.16 | 任务文件互操作拆分 | `.waypoints`、QGC `.plan`、格式推荐分别成模块；导入导出测试与 warning/error 语义保持 |
-| 0.0.17 | Mission FFI 拆分 | 编辑、传输、文件互操作按源文件拆分；API Catalog 不变；285 个导出检查保持通过 |
-| 0.0.18 | operations 与诊断收口 | 任务、参数、校准、日志共用进度、终态和取消模型；不保留重复状态源 |
-| 0.0.19 | 磁力计校准真机修复（插队） | 按 QGC/MP 开启 191/192 消息、修正取消收敛，并验证真实 ArduPilot 进度更新 |
-| 0.0.20 | 参数系统分层 | 描述库、缓存、写入事务和诊断历史分开；QGC 状态模型 + MP ArduPilot 元数据 |
-| 0.0.21 | 连接与 session 边界 | 明确 Link、Vehicle session、active focus 的所有权；保留现有 FFI |
-| 后续 | Flutter 大型页面拆分 | 后端契约稳定后拆分配置、连接和任务规划页面，不重新设计视觉风格 |
+| 下一阶段 A | 任务验证与差异诊断 | 回读差异在 Flutter 中显示 `index/field/expected/actual`；归一化 frame、默认参数和 Home；失败时保留本地任务并给出恢复路径 |
+| 下一阶段 B | Flutter 控制器拆分 | 将 `ConnectionController` 内部拆成连接、遥测、参数、校准、飞行命令和任务适配器；保留旧门面，逐步迁移页面 |
+| 下一阶段 C | MAVLink 内部拆分 | 将 `MavlinkAdapter::Impl` 的消息分发、遥测处理、任务协议、参数协议、命令和日志处理拆成内部模块；不改变 FFI |
+| 下一阶段 D | 参数系统增强 | 参考 QGC FactSystem 的 pending/confirmed/failed 语义，参考 MP 的 ArduPilot 元数据和参数覆盖 |
+| 下一阶段 E | 任务领域补齐 | QGC `.plan` ComplexItem 保留、GeoFence/Rally 文档模型、ArduPilot 能力矩阵和往返测试 |
+| 后续 | 平台真实验收 | Windows 串口/任务/参数/校准、Linux 串口、Android USB 生命周期；构建成功不能替代设备验收 |
 
 ## 首轮结果
 
