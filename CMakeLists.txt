@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mgcore VERSION 0.0.16 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
+project(mgcore VERSION 0.0.17 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -191,6 +191,8 @@ set(MGCORE_SOURCES
     bridge/ffi/ffi_sensor_decode.cc
     bridge/ffi/ffi_mission_commands.cc
     bridge/ffi/ffi_mission_document.cc
+    bridge/ffi/ffi_mission_shared.cc
+    bridge/ffi/ffi_mission_interchange.cc
     bridge/ffi/ffi_mission_catalog.cc
     bridge/ffi/ffi_payload_commands.cc
     bridge/ffi/ffi_sitl_commands.cc

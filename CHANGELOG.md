@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.0.17 - 2026-09-30
+
+### Added
+
+- 新增 `ffi_mission_interchange.cc` 和 `ffi_mission_shared.cc`，把任务文件
+  FFI 入口与公共文档快照/校验错误序列化从任务编辑 FFI 中分离。
+
+### Changed
+
+- `ffi_mission_document.cc` 现在只负责任务文档创建、编辑、校验、编译、上传、
+  从飞控导入、回读验证、估算和本地文档保存/读取。
+- `mg_mission_doc_export_format` / `mg_mission_doc_import_format` 的实现移至独立
+  互操作文件，公开 C ABI、JSON 字段、warnings 和错误结果保持不变。
+- FFI 自动审计仍报告 285 个导出；前端使用 61 个，测试触达 198 个。
+
+### Verification
+
+- 聚焦 FFI/任务测试通过：`test_ffi_contract`、`test_ffi_comprehensive`、
+  `test_bridge_mission_workflow`、`test_mission_document`、
+  `test_sim_mission_document`。
+- `tools/preflight.sh` 通过：Flutter analyze/test、后端 offline/simulation 34/34、
+  UI token 检查和 macOS debug 构建。
+
 ## 0.0.16 - 2026-09-30
 
 ### Added

@@ -1,0 +1,108 @@
+#define MGCORE_EXPORTS
+
+#include "ffi_mission_internal.h"
+
+#define CJSON_NESTING_LIMIT 10
+#include "cJSON.h"
+
+namespace mg::bridge::mission_detail {
+
+using mg::core::mission::cad::DiagnosticSeverity;
+using mg::core::mission::cad::MissionDiagnostic;
+using mg::core::mission::cad::MissionDocumentService;
+using mg::core::mission::cad::MissionValidationReport;
+
+namespace {
+
+std::string severity_name(DiagnosticSeverity severity) {
+    switch (severity) {
+        case DiagnosticSeverity::Info: return "info";
+        case DiagnosticSeverity::Warning: return "warning";
+        case DiagnosticSeverity::Error: return "error";
+    }
+    return "error";
+}
+
+std::string diagnostics_array_json(const MissionValidationReport& report) {
+    mg::bridge::JsonBuilder diagnostics;
+    diagnostics.begin_array();
+    for (const MissionDiagnostic& diagnostic : report.diagnostics) {
+        mg::bridge::JsonBuilder item;
+        item.begin_object();
+        item.field("severity", severity_name(diagnostic.severity));
+        item.field("code", diagnostic.code);
+        item.field("message", diagnostic.message);
+        if (!diagnostic.entity_id.empty()) {
+            item.field("entity_id", diagnostic.entity_id);
+        }
+        if (!diagnostic.field.empty()) {
+            item.field("field", diagnostic.field);
+        }
+        item.end_object();
+        diagnostics.append_json(item.str());
+    }
+    diagnostics.end_array();
+    return diagnostics.str();
+}
+
+} // namespace
+
+std::shared_ptr<MissionDocumentService> ensure_document(mg_core_t* core) {
+    mg::core::platform::LockGuard lock(core->mission_mtx);
+    if (!core->mission_document) {
+        core->mission_document = std::make_shared<MissionDocumentService>();
+    }
+    return core->mission_document;
+}
+
+std::string string_array_json(const std::vector<std::string>& values) {
+    cJSON* array = cJSON_CreateArray();
+    for (const std::string& value : values) {
+        cJSON_AddItemToArray(array, cJSON_CreateString(value.c_str()));
+    }
+    char* text = cJSON_PrintUnformatted(array);
+    cJSON_Delete(array);
+    if (!text) return "[]";
+    std::string json(text);
+    cJSON_free(text);
+    return json;
+}
+
+std::string document_snapshot_json(
+    const std::shared_ptr<MissionDocumentService>& service,
+    bool include_operation_state,
+    const std::vector<std::string>& warnings) {
+    const auto document = service->snapshot();
+    const std::string document_json =
+        mg::core::mission::cad::serialize_mission_document(document);
+
+    mg::bridge::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("revision", static_cast<unsigned long long>(document.revision));
+    if (include_operation_state) {
+        jb.field("can_undo", service->can_undo());
+        jb.field("can_redo", service->can_redo());
+    }
+    jb.raw_field("document", document_json);
+    jb.raw_field("warnings", string_array_json(warnings));
+    jb.end_object();
+    return jb.str();
+}
+
+char* validation_failure_json(
+    const char* error,
+    const MissionValidationReport& report) {
+    mg_set_last_error(MG_ERROR_INVALID_PARAM);
+    mg::bridge::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", false);
+    jb.field("error", error ? error : "mission validation failed");
+    jb.field("code", static_cast<int>(MG_ERROR_INVALID_PARAM));
+    jb.field("valid", false);
+    jb.raw_field("diagnostics", diagnostics_array_json(report));
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
+} // namespace mg::bridge::mission_detail

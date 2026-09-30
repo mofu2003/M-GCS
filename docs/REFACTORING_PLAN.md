@@ -59,6 +59,14 @@
 - `mission_qgc_plan.cc` 负责 QGroundControl `.plan` JSON 读写、字段映射和警告。
 - 公开导入导出函数及 JSON 错误语义保持不变。
 
+`0.0.17` 已完成 Mission FFI 拆分：
+
+- `ffi_mission_document.cc` 只保留文档编辑、校验、编译、上传、回读和验证。
+- `ffi_mission_interchange.cc` 负责 `mg_mission_doc_export_format/import_format`。
+- `ffi_mission_shared.cc` 提供 FFI 内部共用的文档快照、warnings、校验错误和
+  operation 状态序列化。
+- FFI 导出总数保持 285，公开 C ABI 和 JSON 响应结构不变。
+
 ## 非目标
 
 - 不在重构中顺便改 UI 设计或替换状态管理框架。
