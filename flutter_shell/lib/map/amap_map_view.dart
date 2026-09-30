@@ -340,6 +340,88 @@ class _AMapMapViewState extends State<AMapMapView> {
     return markers;
   }
 
+  List<_MissionRouteVertex> _missionRouteVertices() {
+    final mission = widget.connectionController.missionPlanning;
+    final entities = mission.document?.entities ?? const <MissionEntity>[];
+    final vertices = <_MissionRouteVertex>[];
+    for (var index = 0; index < entities.length; index++) {
+      final entity = entities[index];
+      if (!entity.enabled) continue;
+      final latitude = entity.latitude;
+      final longitude = entity.longitude;
+      if (latitude == null ||
+          longitude == null ||
+          !latitude.isFinite ||
+          !longitude.isFinite) {
+        continue;
+      }
+      final wgs84 = LatLng(latitude, longitude);
+      vertices.add(
+        _MissionRouteVertex(
+          number: index + 1,
+          wgs84: wgs84,
+          tileFrame: _toTileFrame(latitude, longitude),
+        ),
+      );
+    }
+    return vertices;
+  }
+
+  List<Polyline> _buildMissionRouteLines(BuildContext context) {
+    final vertices = _missionRouteVertices();
+    if (vertices.length < 2) return const [];
+    final colors = context.mgColors;
+    return [
+      Polyline(
+        points: [for (final vertex in vertices) vertex.tileFrame],
+        color: colors.accent.withValues(alpha: 0.82),
+        strokeWidth: 2.2,
+        pattern: StrokePattern.dashed(segments: const [8, 6]),
+      ),
+    ];
+  }
+
+  List<Marker> _buildMissionDistanceLabels(BuildContext context) {
+    final vertices = _missionRouteVertices();
+    if (vertices.length < 2) return const [];
+    final labels = <Marker>[];
+    for (var index = 0; index < vertices.length - 1; index++) {
+      final start = vertices[index];
+      final end = vertices[index + 1];
+      final distance = const Distance().as(
+        LengthUnit.Meter,
+        start.wgs84,
+        end.wgs84,
+      );
+      final midpoint = LatLng(
+        (start.tileFrame.latitude + end.tileFrame.latitude) / 2,
+        (start.tileFrame.longitude + end.tileFrame.longitude) / 2,
+      );
+      labels.add(
+        Marker(
+          point: midpoint,
+          width: 86,
+          height: 22,
+          child: IgnorePointer(
+            child: _DistanceLabel(
+              text: '${start.number}→${end.number} '
+                  '${_formatRouteDistance(distance)}',
+            ),
+          ),
+        ),
+      );
+    }
+    return labels;
+  }
+
+  String _formatRouteDistance(double meters) {
+    if (meters >= 1000) {
+      final decimals = meters >= 10000 ? 1 : 2;
+      return '${(meters / 1000).toStringAsFixed(decimals)} km';
+    }
+    return '${meters.round()} m';
+  }
+
   /// 编辑已有航点：与地图单击新增走同一个编辑框。
   Future<void> _editEntity(
     MissionDocumentController mission,
@@ -392,8 +474,17 @@ class _AMapMapViewState extends State<AMapMapView> {
             // 位置每 100ms 更新一次，只重画标记层，不重建整张地图。
             AnimatedBuilder(
               animation: _markerSources,
+              builder: (context, _) => PolylineLayer(
+                polylines: _buildMissionRouteLines(context),
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _markerSources,
               builder: (context, _) => MarkerLayer(
-                markers: _buildMarkers(context, context.mgColors),
+                markers: [
+                  ..._buildMissionDistanceLabels(context),
+                  ..._buildMarkers(context, context.mgColors),
+                ],
               ),
             ),
           ],
@@ -620,6 +711,49 @@ class _TransientMapMessageState extends State<_TransientMapMessage>
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MissionRouteVertex {
+  const _MissionRouteVertex({
+    required this.number,
+    required this.wgs84,
+    required this.tileFrame,
+  });
+
+  final int number;
+  final LatLng wgs84;
+  final LatLng tileFrame;
+}
+
+class _DistanceLabel extends StatelessWidget {
+  const _DistanceLabel({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    return Center(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surface.withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: colors.divider),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: MacosTheme.of(
+              context,
+            ).typography.caption1.copyWith(color: colors.textPrimary),
           ),
         ),
       ),
