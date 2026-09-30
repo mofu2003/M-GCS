@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.0.14 - 2026-09-30
+
+### Added
+
+- 新增分阶段重构计划，记录任务、互操作、FFI、operations、参数、连接和 Flutter
+  的后续拆分顺序与验收条件。
+
+### Changed
+
+- 将任务文档校验层从 `mission_document.cc` 拆到独立的 `mission_validation.cc`：
+  文档级、任务实体、Survey/Corridor 和 MAV_CMD 参数校验现在集中在单一模块。
+- `mission_document.cc` 只保留文档服务、undo/redo、revision、序列化、持久化和实体
+  辅助逻辑；内部共享类型通过 `mission_document_internal.h` 暴露。
+- 公开任务文档头文件、FFI 名称、JSON 字段和错误语义均未改变。
+
+### Verification
+
+- 任务聚焦测试：`test_bridge_mission_workflow`、`test_mission_document`、
+  `test_sim_mission_document` 全部通过。
+- `tools/preflight.sh` 通过：Flutter analyze/test、后端 offline/simulation 34/34、
+  UI token 检查和 macOS debug 构建。
+
 ## 0.0.13 - 2026-09-30
 
 ### Added

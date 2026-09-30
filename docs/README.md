@@ -23,7 +23,8 @@ M-GCS 的文档分为三类：
 13. [QGC/MP 可借鉴项对照](QGC_MP_BACKPORT_MAP.md)：按 A-D 阶段列出可复用模块、建议改写方式和优先级。
 14. [MP / QGC 上游实现择优准则](UPSTREAM_CODE_SELECTION.md)：按模块选择质量更高的上游实现，不按项目整体站队。
 15. [QGC 代码质量审计](QGC_CODE_QUALITY_AUDIT.md)：M-GCS 与 QGC 的评分、差距和逐步替换策略。
-16. [架构图](architecture-diagrams.html)：可视化结构总览。
+16. [分阶段重构计划](REFACTORING_PLAN.md)：执行中的模块拆分、版本里程碑和验收条件。
+17. [架构图](architecture-diagrams.html)：可视化结构总览。
 
 ## 研究参考
 
