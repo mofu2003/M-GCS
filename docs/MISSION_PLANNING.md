@@ -100,6 +100,9 @@ ArduPilot 的 mission 传输列表把 Home 放在第 0 项，后续才是可见�
 
 `mg_mission_doc_verify` 只接受完成后的全量下载结果，比较数量、command、frame、位置、
 高度、参数、autocontinue 和 mission_type；ArduPilot 任务还会单独比较第 0 项 Home。
+验证时会把 `GLOBAL_INT/GLOBAL_RELATIVE_ALT_INT/GLOBAL_TERRAIN_ALT_INT` 分别归一为
+对应的普通坐标帧，避免飞控使用 `MISSION_ITEM_INT` 表示同一语义时产生误报。若仍有差异，
+结果会返回 `index/field/expected/actual`，前端任务页应显示这些明细并支持定位到对应任务项。
 
 ## 启动任务
 

@@ -125,10 +125,11 @@ errors, and then starts the existing mission transfer. ArduPilot home-item
 injection remains in the existing transport adapter.
 
 `mg_mission_doc_verify` compares the compiled document with the current
-vehicle mission after a completed full download. Calling verify after upload
+vehicle mission after a completed full download. Equivalent MAVLink `_INT`
+coordinate frames are normalized before comparison. Calling verify after upload
 but before download returns `invalid_state`. It returns `matches` plus structured
-differences for item count, command, frame, position, altitude, parameters,
-`autocontinue`, and `mission_type`.
+differences with `index`, `field`, `expected`, and `actual` for item count, command,
+frame, position, altitude, parameters, `autocontinue`, `mission_type`, and ArduPilot Home.
 
 `mg_mission_doc_import_from_vehicle` replaces the document's entities with the
 vehicle's current mission. It matches Mission Planner's *Read* and QGroundControl's

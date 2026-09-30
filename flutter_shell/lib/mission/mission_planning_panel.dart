@@ -287,6 +287,7 @@ class _MissionPlanningFloatingPanelState
     final connected = widget.controller.isConnected;
     final status = _mission.status ?? _mission.error;
     final showStatus = status != null && !_isRoutineStatus(status);
+    final verification = _mission.verification;
     final diagnostics = (_mission.validation?.diagnostics ?? const [])
         .where(
           (diagnostic) => diagnostic.severity != MissionDiagnosticSeverity.info,
@@ -405,6 +406,21 @@ class _MissionPlanningFloatingPanelState
             ).typography.caption1.copyWith(color: colors.textSecondary),
           ),
         ],
+        if (verification != null &&
+            !verification.matches &&
+            verification.differences.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _MissionVerificationPanel(
+            result: verification,
+            onSelectIndex: (index) {
+              final entities = _mission.document?.entities ?? const [];
+              if (index >= 0 && index < entities.length) {
+                _mission.selectEntity(index);
+              }
+            },
+            fieldLabel: _verificationFieldLabel,
+          ),
+        ],
         if (diagnostics.isNotEmpty) ...[
           const SizedBox(height: 6),
           for (final diagnostic in diagnostics)
@@ -455,6 +471,23 @@ class _MissionPlanningFloatingPanelState
     return '$count 个任务项 · ${distanceKm.toStringAsFixed(2)} km · '
         '${minutes.toStringAsFixed(1)} min';
   }
+
+  String _verificationFieldLabel(String field) => switch (field) {
+    'count' => '任务数量',
+    'home' => 'Home',
+    'home.latitude' => 'Home 纬度',
+    'home.longitude' => 'Home 经度',
+    'home.altitude_m' => 'Home 高度',
+    'command' => '命令',
+    'frame' => '坐标帧',
+    'autocontinue' => '自动继续',
+    'mission_type' => '任务类型',
+    'x' => '纬度',
+    'y' => '经度',
+    'z' => '高度',
+    'param1' || 'param2' || 'param3' || 'param4' => field.toUpperCase(),
+    _ => field,
+  };
 
   String _typeForCommand(int command) {
     for (final descriptor in _mission.commandCatalog) {
@@ -1140,6 +1173,111 @@ class _MissionDefaultsFormState extends State<_MissionDefaultsForm> {
       ),
     ],
   );
+}
+
+class _MissionVerificationPanel extends StatelessWidget {
+  const _MissionVerificationPanel({
+    required this.result,
+    required this.onSelectIndex,
+    required this.fieldLabel,
+  });
+
+  final MissionVerificationResult result;
+  final ValueChanged<int> onSelectIndex;
+  final String Function(String field) fieldLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    const maxVisibleDifferences = 6;
+    final visible = result.differences.take(maxVisibleDifferences);
+    final remaining = result.differences.length - visible.length;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
+      decoration: BoxDecoration(
+        color: colors.warning.withValues(alpha: 0.08),
+        border: Border.all(color: colors.warning.withValues(alpha: 0.45)),
+        borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              MacosIcon(
+                CupertinoIcons.exclamationmark_triangle_fill,
+                size: 13,
+                color: colors.warning,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '回读发现 ${result.differenceCount} 处差异',
+                  style: MgTypography.sans(
+                    MgTypography.caption.copyWith(color: colors.warning),
+                  ),
+                ),
+              ),
+              Text(
+                '${result.expectedCount} → ${result.vehicleCount} 项',
+                style: MgTypography.sans(
+                  MgTypography.caption.copyWith(color: colors.textSecondary),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          for (final difference in visible)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: difference.index < 0
+                  ? null
+                  : () => onSelectIndex(difference.index),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 38,
+                      child: Text(
+                        difference.index < 0
+                            ? 'Home'
+                            : '第 ${difference.index + 1} 项',
+                        style: MgTypography.sans(
+                          MgTypography.caption.copyWith(
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        '${fieldLabel(difference.field)}：${difference.expected} → ${difference.actual}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: MgTypography.sans(
+                          MgTypography.caption.copyWith(
+                            color: colors.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (remaining > 0)
+            Text(
+              '还有 $remaining 处差异，点击对应任务项可定位明细。',
+              style: MgTypography.sans(
+                MgTypography.caption.copyWith(color: colors.textSecondary),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _MissionDiagnosticRow extends StatelessWidget {

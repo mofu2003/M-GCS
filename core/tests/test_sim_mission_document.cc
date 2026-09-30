@@ -81,6 +81,13 @@ int main() {
     result = mg_mission_download(env.core);
     CHECK(result && strstr(result, "\"success\":true"), "mission download starts");
     if (result) mg_free_string(result);
+
+    // ArduPilot commonly returns the INT coordinate frame (6) even when the
+    // uploaded document used its semantic equivalent (3). Verification must
+    // normalize that representation difference instead of reporting drift.
+    auto normalized_frame_mission = env.mock->stored_mission();
+    normalized_frame_mission[1].frame = MAV_FRAME_GLOBAL_RELATIVE_ALT_INT;
+    env.mock->set_mission(normalized_frame_mission);
     for (int i = 0; i < 80; ++i) env.tick(50);
 
     result = mg_mission_doc_verify(env.core, 0.1);

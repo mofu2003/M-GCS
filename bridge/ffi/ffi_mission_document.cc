@@ -568,11 +568,15 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                 std::to_string(actual.command));
         }
         if (expected.frame != actual.frame) {
-            add_difference(
-                index,
-                "frame",
-                std::to_string(expected.frame),
-                std::to_string(actual.frame));
+            const auto normalized_actual_frame =
+                mg::core::mission::cad::normalize_mission_frame(actual.frame);
+            if (expected.frame != normalized_actual_frame) {
+                add_difference(
+                    index,
+                    "frame",
+                    std::to_string(expected.frame),
+                    std::to_string(normalized_actual_frame));
+            }
         }
         if (expected.autocontinue != actual.autocontinue) {
             add_difference(
