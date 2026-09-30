@@ -43,6 +43,15 @@
 - `mission_document_internal.h` 只暴露 core 内部共享的数值、位置和诊断辅助函数。
 - 公开头文件、FFI 和外部 JSON 没有任何变化。
 
+`0.0.15` 已完成任务编译与估算拆分：
+
+- `mission_compile.cc` 负责 Survey/Corridor 展开和 `MissionDocument -> MissionPlan`
+  编译。
+- `mission_estimate.cc` 负责距离、时间、航点、高度和拍照数量估算。
+- 编译与估算共用 `expand_survey_entity`，避免参数化任务出现两套展开逻辑。
+- `mission_document.cc` 继续缩小，当前只保留文档服务、历史、序列化、持久化和实体
+  辅助逻辑。
+
 ## 非目标
 
 - 不在重构中顺便改 UI 设计或替换状态管理框架。

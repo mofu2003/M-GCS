@@ -1,7 +1,5 @@
 #include "core/mission/cad/mission_document.h"
 
-#include "core/mission/mission_manager.h"
-#include "core/mission/survey_calculator.h"
 #include "mission_document_internal.h"
 
 #include <algorithm>
@@ -19,66 +17,7 @@ namespace mg::core::mission::cad {
 
 namespace {
 
-using detail::add_diagnostic;
 using detail::finite;
-using detail::position_command;
-
-/// 参数化测绘实体的几何参数来源。展开工作交给 SurveyCalculator，
-/// 文档层只负责校验参数是否自洽。
-CameraSpec survey_camera_spec(const MissionSurveySpec& survey) {
-    CameraSpec camera;
-    camera.focal_length_mm = survey.focal_length_mm;
-    camera.sensor_width_mm = survey.sensor_width_mm;
-    camera.sensor_height_mm = survey.sensor_height_mm;
-    camera.image_width_px = survey.image_width_px;
-    camera.image_height_px = survey.image_height_px;
-    camera.min_overlap_pct = survey.forward_overlap_pct;
-    camera.side_overlap_pct = survey.side_overlap_pct;
-    return camera;
-}
-
-SurveyConfig survey_grid_config(const MissionEntity& entity) {
-    const MissionSurveySpec& spec = entity.survey;
-    SurveyConfig config;
-    config.center_lat_deg = entity.latitude;
-    config.center_lon_deg = entity.longitude;
-    config.width_m = spec.width_m;
-    config.length_m = spec.length_m;
-    config.altitude_m = spec.altitude_m;
-    config.speed_ms = spec.speed_ms;
-    config.angle_deg = spec.angle_deg;
-    config.cross_grid = spec.cross_grid;
-    config.return_to_start = spec.return_to_start;
-    config.camera = survey_camera_spec(spec);
-    return config;
-}
-
-CorridorConfig corridor_config(const MissionEntity& entity) {
-    const MissionSurveySpec& spec = entity.survey;
-    CorridorConfig config;
-    config.center_lat_deg = entity.latitude;
-    config.center_lon_deg = entity.longitude;
-    config.end_lat_deg = spec.end_latitude;
-    config.end_lon_deg = spec.end_longitude;
-    config.width_m = spec.corridor_width_m;
-    config.altitude_m = spec.altitude_m;
-    config.speed_ms = spec.speed_ms;
-    config.side_overlap_pct = spec.side_overlap_pct;
-    config.return_to_start = spec.return_to_start;
-    config.camera = survey_camera_spec(spec);
-    return config;
-}
-
-/// 按实体类型选择测绘算法。compile 和 estimate 共用，避免两处展开不一致。
-SurveyResult expand_survey_entity(const MissionEntity& entity) {
-    if (entity.type == "corridor") {
-        return SurveyCalculator::generate_corridor_scan(corridor_config(entity));
-    }
-    if (entity.survey.cross_grid) {
-        return SurveyCalculator::generate_cross_grid(survey_grid_config(entity));
-    }
-    return SurveyCalculator::generate_grid(survey_grid_config(entity));
-}
 constexpr uint64_t kMaxJsonSafeInteger = 9007199254740991ULL;
 
 int64_t now_ms() {
@@ -579,186 +518,12 @@ MissionValidationReport MissionDocumentService::validate_document(
 
 MissionCompileResult MissionDocumentService::compile_document(
     const MissionDocument& document) {
-    MissionCompileResult result;
-    result.report = validate_document(document);
-    if (result.report.has_errors()) {
-        return result;
-    }
-
-    for (const MissionEntity& entity : document.entities) {
-        if (!entity.enabled) {
-            continue;
-        }
-
-        if (is_parameterized_survey_type(entity.type)) {
-            // 参数化实体在编译期展开成具体航点：文档保存设计意图，
-            // 展开算法集中在 SurveyCalculator，前端不复制几何计算。
-            const SurveyResult generated = expand_survey_entity(entity);
-            if (!generated.valid || generated.items.empty()) {
-                add_diagnostic(
-                    result.report,
-                    DiagnosticSeverity::Error,
-                    "entity.survey_expansion_failed",
-                    generated.error.empty()
-                        ? "Survey entity produced no mission items"
-                        : generated.error,
-                    entity.id,
-                    "survey");
-                result.plan.valid = false;
-                result.valid = false;
-                return result;
-            }
-            for (MissionItem item : generated.items) {
-                item.seq = static_cast<uint16_t>(result.plan.items.size());
-                result.plan.items.push_back(item);
-                // 每个展开出来的任务项都指回同一个源实体。
-                result.source_entity_ids.push_back(entity.id);
-            }
-            continue;
-        }
-
-        MissionItem item{};
-        item.seq = static_cast<uint16_t>(result.plan.items.size());
-        item.frame = entity.frame;
-        item.command = entity.command;
-        item.autocontinue = entity.autocontinue;
-        item.param1 = entity.params[0];
-        item.param2 = entity.params[1];
-        item.param3 = entity.params[2];
-        item.param4 = entity.params[3];
-        if (std::isfinite(entity.latitude)) {
-            item.x = static_cast<int32_t>(std::llround(entity.latitude * 1e7));
-        }
-        if (std::isfinite(entity.longitude)) {
-            item.y = static_cast<int32_t>(std::llround(entity.longitude * 1e7));
-        }
-        item.z = std::isfinite(entity.altitude_m)
-            ? entity.altitude_m
-            : document.defaults.altitude_m;
-        item.mission_type = 0;
-        result.plan.items.push_back(item);
-        result.source_entity_ids.push_back(entity.id);
-    }
-
-    result.plan.valid = !result.plan.items.empty();
-    result.valid = result.plan.valid;
-    return result;
+    return detail::compile_document_impl(document);
 }
 
 MissionEstimate MissionDocumentService::estimate_document(
     const MissionDocument& document) {
-    MissionEstimate estimate;
-    bool has_previous = false;
-    double previous_lat = 0.0;
-    double previous_lon = 0.0;
-    double current_speed = document.defaults.speed_ms;
-    double photo_trigger_distance = 0.0;
-
-    for (const MissionEntity& entity : document.entities) {
-        if (!entity.enabled) {
-            continue;
-        }
-        ++estimate.enabled_entity_count;
-
-        if (is_parameterized_survey_type(entity.type)) {
-            const SurveyResult generated = expand_survey_entity(entity);
-            if (!generated.valid) {
-                continue;
-            }
-            estimate.waypoint_count += generated.waypoint_count;
-            estimate.command_count += static_cast<int>(generated.items.size()) -
-                                      generated.waypoint_count;
-            estimate.total_distance_m += generated.total_distance_m;
-            estimate.estimated_time_s += generated.estimated_time_s;
-            estimate.photo_count += generated.photo_count;
-
-            const double altitude = static_cast<double>(entity.survey.altitude_m);
-            if (altitude >= 0.0) {
-                if (estimate.min_altitude_m == 0.0 ||
-                    altitude < estimate.min_altitude_m) {
-                    estimate.min_altitude_m = altitude;
-                }
-                estimate.max_altitude_m = std::max(estimate.max_altitude_m, altitude);
-            }
-
-            // 展开后的末点作为后续实体的起点，估算才不会在测绘块处断开。
-            has_previous = false;
-            for (const MissionItem& item : generated.items) {
-                if (item.x == 0 && item.y == 0) {
-                    continue;
-                }
-                previous_lat = static_cast<double>(item.x) / 1e7;
-                previous_lon = static_cast<double>(item.y) / 1e7;
-                has_previous = true;
-            }
-            continue;
-        }
-
-        if (entity.command == static_cast<uint16_t>(NavCommand::NavWaypoint)) {
-            ++estimate.waypoint_count;
-        } else {
-            ++estimate.command_count;
-        }
-
-        const float altitude = std::isfinite(entity.altitude_m)
-            ? entity.altitude_m
-            : document.defaults.altitude_m;
-        if (std::isfinite(altitude) && altitude >= 0.0f) {
-            if (estimate.min_altitude_m == 0.0 ||
-                altitude < estimate.min_altitude_m) {
-                estimate.min_altitude_m = altitude;
-            }
-            estimate.max_altitude_m =
-                std::max(estimate.max_altitude_m, static_cast<double>(altitude));
-        }
-
-        if (position_command(entity.command) &&
-            finite(entity.latitude) &&
-            finite(entity.longitude)) {
-            if (has_previous) {
-                const double segment_distance = MissionManager::haversine_distance(
-                    previous_lat,
-                    previous_lon,
-                    entity.latitude,
-                    entity.longitude);
-                estimate.total_distance_m += segment_distance;
-                if (current_speed > 0.0) {
-                    estimate.estimated_time_s +=
-                        segment_distance / current_speed;
-                }
-                if (photo_trigger_distance > 0.0) {
-                    estimate.photo_count += static_cast<int>(
-                        std::floor(segment_distance / photo_trigger_distance));
-                }
-            }
-            previous_lat = entity.latitude;
-            previous_lon = entity.longitude;
-            has_previous = true;
-        }
-
-        if (entity.command == static_cast<uint16_t>(NavCommand::DoSetSpeed) &&
-            entity.params[1] > 0.0f &&
-            (entity.params[0] == 0.0f || entity.params[0] == 1.0f)) {
-            current_speed = entity.params[1];
-        }
-        if (entity.command ==
-                static_cast<uint16_t>(NavCommand::DoSetCamTrigDist) &&
-            entity.params[0] > 0.0f) {
-            photo_trigger_distance = entity.params[0];
-        }
-        if (entity.command == static_cast<uint16_t>(NavCommand::NavWaypoint)) {
-            estimate.estimated_time_s += std::max(0.0f, entity.params[0]);
-        }
-        if (entity.command == static_cast<uint16_t>(NavCommand::NavLoiterTime)) {
-            estimate.estimated_time_s += std::max(0.0f, entity.params[0]);
-        }
-        if (entity.command == static_cast<uint16_t>(NavCommand::NavLoiterTurns)) {
-            estimate.estimated_time_s +=
-                std::max(0.0f, entity.params[0]) * 10.0;
-        }
-    }
-
-    return estimate;
+    return detail::estimate_document_impl(document);
 }
 
 MissionOperationResult MissionDocumentService::commit_locked(

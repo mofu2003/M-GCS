@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.0.15 - 2026-09-30
+
+### Added
+
+- 新增 `mission_compile.cc` 和 `mission_estimate.cc`，把任务编译、Survey 展开和
+  飞行估算从任务文档服务中分离。
+
+### Changed
+
+- Survey/Corridor 展开统一由 `expand_survey_entity` 提供；编译和估算不再各自持有
+  一套调用逻辑。
+- `MissionDocumentService::compile_document` 和 `estimate_document` 保留为稳定入口，
+  内部委托给独立实现，任务编译结果、错误诊断和估算字段保持不变。
+- `mission_document.cc` 在 0.0.14 的基础上继续缩小，当前只保留文档服务、历史、
+  序列化、持久化和实体辅助逻辑。
+
+### Verification
+
+- 聚焦任务测试通过：`test_bridge_mission_workflow`、`test_mission_document`、
+  `test_sim_mission_document`、`test_sim_survey`。
+- `tools/preflight.sh` 通过：Flutter analyze/test、后端 offline/simulation 34/34、
+  UI token 检查和 macOS debug 构建。
+
 ## 0.0.14 - 2026-09-30
 
 ### Added
