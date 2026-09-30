@@ -15,6 +15,7 @@ import '../mission/mission_document_controller.dart';
 import '../mission/mission_document_models.dart';
 import '../mission/mission_geo.dart';
 import '../mission/mission_planning_panel.dart';
+import 'flight_telemetry_overlay.dart';
 import 'gcj_coordinates.dart';
 import 'map_preferences.dart';
 
@@ -546,6 +547,29 @@ class _AMapMapViewState extends State<AMapMapView> {
               ),
             ),
           ],
+        ),
+        Positioned(
+          top: 16,
+          left: 70,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final rightInset = _showMissionPlanning
+                  ? kMissionPanelWidth + 36
+                  : 18;
+              final maxWidth = constraints.maxWidth.isFinite
+                  ? math.min(
+                      680.0,
+                      math.max(260.0, constraints.maxWidth - rightInset),
+                    )
+                  : 680.0;
+              return IgnorePointer(
+                child: FlightTelemetryOverlay(
+                  controller: widget.connectionController,
+                  maxWidth: maxWidth,
+                ),
+              );
+            },
+          ),
         ),
         Positioned(
           right: 18,

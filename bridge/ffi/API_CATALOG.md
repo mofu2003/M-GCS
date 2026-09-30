@@ -25,7 +25,7 @@ and a migration note have been published.
 | Connection | `mg_connection_open`, `mg_connection_get_session_state`, `mg_connection_close`, `mg_vehicle_select`, `mg_connection_get_diagnostics` |
 | Session telemetry | `mg_vehicle_get_session_status` |
 | Dashboard | `mg_telemetry_get_dashboard_snapshot`, `mg_system_get_diagnostics`。后者还包含最近的 `parameter_history` 写入结果（requested/actual/state/error/timestamps） |
-| Map position | `mg_vehicle_get_global_position`（WGS84 经纬度/海拔/航向）、`mg_vehicle_get_home_position`（Home 点）。地图用它画 Home 与飞机标记 |
+| Map position / flight HUD | `mg_vehicle_get_global_position`（WGS84 经纬度/海拔/相对高度/航向）、`mg_vehicle_get_vfr_hud`（空速/地速/海拔/航向）、`mg_vehicle_get_home_position`（Home 点）。地图用它画 Home、飞机标记和飞行读数悬浮窗 |
 | Sensor waveform | `mg_waveform_poll`, `mg_waveform_clear`, `mg_waveform_get_instances` |
 | Long operations | `mg_operations_get_snapshot`, `mg_operations_cancel`。快照统一包含 `params`、`mission`、`calibration`、`log`；已接入的取消操作分别为参数流下载、任务上传/下载、校准和日志下载。空闲或已完成操作返回 `canceled:false` |
 | Parameters | `mg_params_request_all`, `mg_params_get_progress`, `mg_params_get_all`, `mg_params_get_by_name`, `mg_params_set`, `mg_params_prepare_change_set`, `mg_params_commit_change_set` |

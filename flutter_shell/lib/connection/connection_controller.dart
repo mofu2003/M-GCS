@@ -313,6 +313,7 @@ final class ConnectionController extends ChangeNotifier
   late final Pointer<Utf8> Function(Pointer<Void>) _getRcChannels;
   late final Pointer<Utf8> Function(Pointer<Void>) _getGlobalPosition;
   late final Pointer<Utf8> Function(Pointer<Void>) _getHomePosition;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getVfrHud;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _close;
@@ -435,6 +436,10 @@ final class ConnectionController extends ChangeNotifier
   int? satellitesVisible;
   int? gpsFixType;
   double? headingDegrees;
+  double? airspeedMetersPerSecond;
+  double? groundSpeedMetersPerSecond;
+  double? relativeAltitudeMeters;
+  double? absoluteAltitudeMeters;
   int? batteryRemainingPercent;
   double? batteryVoltage;
   Map<String, Object?>? firmwareInfo;
@@ -1292,6 +1297,11 @@ final class ConnectionController extends ChangeNotifier
       _getHomePosition = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
             'mg_vehicle_get_home_position',
+          )
+          .asFunction();
+      _getVfrHud = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_vehicle_get_vfr_hud',
           )
           .asFunction();
       _getSerialUartNames = _library
@@ -2286,6 +2296,7 @@ final class ConnectionController extends ChangeNotifier
       changed = _pollServoOutputs() || changed;
       changed = _pollRcChannels() || changed;
       changed = _pollVehicleFix() || changed;
+      changed = _pollVfrHud() || changed;
       if (changed) {
         _notifyTelemetryChanges();
         notifyListeners();
@@ -2622,6 +2633,8 @@ final class ConnectionController extends ChangeNotifier
         ? ''
         : jsonEncode(homePosition!.toJson());
     final oldHomeValid = homePositionValid;
+    final oldRelativeAltitude = relativeAltitudeMeters;
+    final oldAbsoluteAltitude = absoluteAltitudeMeters;
     try {
       final envelope =
           _readJson(_getGlobalPosition(_core)) as Map<String, Object?>;
@@ -2636,9 +2649,13 @@ final class ConnectionController extends ChangeNotifier
               altitudeMeters: (data['alt_msl_m'] as num?)?.toDouble(),
               headingDegrees: (data['heading_deg'] as num?)?.toDouble(),
             );
+      relativeAltitudeMeters = (data?['alt_rel_m'] as num?)?.toDouble();
+      absoluteAltitudeMeters = (data?['alt_msl_m'] as num?)?.toDouble();
     } on Object {
       vehiclePosition = null;
       vehiclePositionValid = false;
+      relativeAltitudeMeters = null;
+      absoluteAltitudeMeters = null;
     }
     try {
       final envelope =
@@ -2663,7 +2680,28 @@ final class ConnectionController extends ChangeNotifier
         oldPositionValid != vehiclePositionValid ||
         oldHome !=
             (homePosition == null ? '' : jsonEncode(homePosition!.toJson())) ||
-        oldHomeValid != homePositionValid;
+        oldHomeValid != homePositionValid ||
+        oldRelativeAltitude != relativeAltitudeMeters ||
+        oldAbsoluteAltitude != absoluteAltitudeMeters;
+  }
+
+  /// VFR_HUD 是空速 / 地速的直接来源。它和位置 / 姿态一样走 10Hz 前端轮询，
+  /// 不通过 telemetryChanges 以外的路径更新。
+  bool _pollVfrHud() {
+    final oldAirspeed = airspeedMetersPerSecond;
+    final oldGroundSpeed = groundSpeedMetersPerSecond;
+    try {
+      final envelope = _readJson(_getVfrHud(_core)) as Map<String, Object?>;
+      final data = envelope['data'] as Map<String, Object?>? ?? const {};
+      airspeedMetersPerSecond = (data['airspeed_m_s'] as num?)?.toDouble();
+      groundSpeedMetersPerSecond = (data['groundspeed_m_s'] as num?)
+          ?.toDouble();
+    } on Object {
+      airspeedMetersPerSecond = null;
+      groundSpeedMetersPerSecond = null;
+    }
+    return oldAirspeed != airspeedMetersPerSecond ||
+        oldGroundSpeed != groundSpeedMetersPerSecond;
   }
 
   bool _pollSystemStatus() {
@@ -2780,6 +2818,10 @@ final class ConnectionController extends ChangeNotifier
     satellitesVisible = null;
     gpsFixType = null;
     headingDegrees = null;
+    airspeedMetersPerSecond = null;
+    groundSpeedMetersPerSecond = null;
+    relativeAltitudeMeters = null;
+    absoluteAltitudeMeters = null;
     batteryRemainingPercent = null;
     batteryVoltage = null;
     firmwareInfo = null;
