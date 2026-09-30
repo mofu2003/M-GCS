@@ -530,7 +530,10 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
 
     mg::bridge::JsonBuilder differences;
     differences.begin_array();
+    mg::bridge::JsonBuilder normalizations;
+    normalizations.begin_array();
     int difference_count = 0;
+    int normalization_count = 0;
     auto add_difference = [&](
                               int index,
                               const char* field,
@@ -545,6 +548,23 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
         item.field("actual", actual);
         item.end_object();
         differences.append_json(item.str());
+    };
+    auto add_normalization = [&](
+                                  int index,
+                                  const char* field,
+                                  const std::string& expected,
+                                  const std::string& actual,
+                                  const char* reason) {
+        ++normalization_count;
+        mg::bridge::JsonBuilder item;
+        item.begin_object();
+        item.field("index", index);
+        item.field("field", field);
+        item.field("expected", expected);
+        item.field("actual", actual);
+        item.field("reason", reason);
+        item.end_object();
+        normalizations.append_json(item.str());
     };
 
     const int count = static_cast<int>(compiled.plan.items.size());
@@ -615,6 +635,13 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                     "frame",
                     std::to_string(expected.frame),
                     std::to_string(normalized_actual_frame));
+            } else {
+                add_normalization(
+                    index,
+                    "frame",
+                    std::to_string(expected.frame),
+                    std::to_string(actual.frame),
+                    "等价的 MAVLink _INT 坐标帧");
             }
         }
         if (expected.autocontinue != actual.autocontinue) {
@@ -641,6 +668,13 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                 "x",
                 std::to_string(expected.x),
                 std::to_string(actual.x));
+        } else if (descriptor && !descriptor->requires_position && expected.x != actual.x) {
+            add_normalization(
+                index,
+                "x",
+                std::to_string(expected.x),
+                std::to_string(actual.x),
+                "非位置命令的坐标不参与任务执行");
         }
         if (descriptor && descriptor->requires_position && expected.y != actual.y) {
             add_difference(
@@ -648,6 +682,13 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                 "y",
                 std::to_string(expected.y),
                 std::to_string(actual.y));
+        } else if (descriptor && !descriptor->requires_position && expected.y != actual.y) {
+            add_normalization(
+                index,
+                "y",
+                std::to_string(expected.y),
+                std::to_string(actual.y),
+                "非位置命令的坐标不参与任务执行");
         }
         if (descriptor && descriptor->requires_altitude &&
             !mission_float_matches(expected.z, actual.z, tolerance)) {
@@ -679,10 +720,26 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                     ("param" + std::to_string(param + 1)).c_str(),
                     std::to_string(expected_value),
                     std::to_string(actual_value));
+            } else if (command_has_parameter(
+                           descriptor,
+                           static_cast<uint8_t>(param + 1)) &&
+                       ((!std::isfinite(expected_value) &&
+                         std::isfinite(actual_value) &&
+                         std::abs(actual_value) <= tolerance) ||
+                        (std::isfinite(expected_value) &&
+                         !std::isfinite(actual_value) &&
+                         std::abs(expected_value) <= tolerance))) {
+                add_normalization(
+                    index,
+                    ("param" + std::to_string(param + 1)).c_str(),
+                    std::to_string(expected_value),
+                    std::to_string(actual_value),
+                    "NaN 与 0 都表示未设置");
             }
         }
     }
     differences.end_array();
+    normalizations.end_array();
 
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
@@ -692,6 +749,8 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
     jb.field("expected_count", count);
     jb.field("vehicle_count", vehicle_count);
     jb.raw_field("differences", differences.str());
+    jb.field("normalization_count", normalization_count);
+    jb.raw_field("normalizations", normalizations.str());
     jb.end_object();
     return to_cstr(jb.str());
 }

@@ -421,12 +421,14 @@ final class MissionVerificationDifference {
     required this.field,
     required this.expected,
     required this.actual,
+    this.reason = '',
   });
 
   final int index;
   final String field;
   final String expected;
   final String actual;
+  final String reason;
 
   factory MissionVerificationDifference.fromJson(JsonMap json) =>
       MissionVerificationDifference(
@@ -434,6 +436,7 @@ final class MissionVerificationDifference {
         field: json['field'] as String? ?? '',
         expected: json['expected']?.toString() ?? '',
         actual: json['actual']?.toString() ?? '',
+        reason: json['reason']?.toString() ?? '',
       );
 }
 
@@ -444,6 +447,8 @@ final class MissionVerificationResult {
     this.expectedCount = 0,
     this.vehicleCount = 0,
     this.differences = const [],
+    this.normalizationCount = 0,
+    this.normalizations = const [],
   });
 
   final bool matches;
@@ -451,6 +456,8 @@ final class MissionVerificationResult {
   final int expectedCount;
   final int vehicleCount;
   final List<MissionVerificationDifference> differences;
+  final int normalizationCount;
+  final List<MissionVerificationDifference> normalizations;
 
   factory MissionVerificationResult.fromJson(JsonMap json) =>
       MissionVerificationResult(
@@ -459,6 +466,11 @@ final class MissionVerificationResult {
         expectedCount: (json['expected_count'] as num?)?.toInt() ?? 0,
         vehicleCount: (json['vehicle_count'] as num?)?.toInt() ?? 0,
         differences: (json['differences'] as List<Object?>? ?? const [])
+            .whereType<JsonMap>()
+            .map(MissionVerificationDifference.fromJson)
+            .toList(growable: false),
+        normalizationCount: (json['normalization_count'] as num?)?.toInt() ?? 0,
+        normalizations: (json['normalizations'] as List<Object?>? ?? const [])
             .whereType<JsonMap>()
             .map(MissionVerificationDifference.fromJson)
             .toList(growable: false),

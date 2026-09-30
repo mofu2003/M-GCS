@@ -95,6 +95,8 @@ int main() {
 
     result = mg_mission_doc_verify(env.core, 0.1);
     CHECK(result && strstr(result, "\"matches\":true"), "vehicle mission matches compiled document");
+    CHECK(result && strstr(result, "\"normalization_count\":4"),
+          "verification reports accepted frame, coordinate, and unset-value normalizations");
     if (result) mg_free_string(result);
 
     result = mg_mission_doc_apply(

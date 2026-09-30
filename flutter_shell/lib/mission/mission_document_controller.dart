@@ -147,7 +147,9 @@ final class MissionDocumentController extends ChangeNotifier {
       final result = verification!;
       if (result.matches) {
         dirty = false;
-        status = '上传并回读核对通过';
+        status = result.normalizationCount > 0
+            ? '上传并回读核对通过，自动归一化 ${result.normalizationCount} 处飞控表示'
+            : '上传并回读核对通过';
       } else {
         dirty = true;
         status = '上传完成，但回读发现 ${result.differenceCount} 处差异';
