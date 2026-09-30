@@ -1298,6 +1298,7 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
                   children: [
