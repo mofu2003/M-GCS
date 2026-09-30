@@ -30,8 +30,9 @@
 | 0.0.16 | 任务文件互操作拆分 | `.waypoints`、QGC `.plan`、格式推荐分别成模块；导入导出测试与 warning/error 语义保持 |
 | 0.0.17 | Mission FFI 拆分 | 编辑、传输、文件互操作按源文件拆分；API Catalog 不变；285 个导出检查保持通过 |
 | 0.0.18 | operations 与诊断收口 | 任务、参数、校准、日志共用进度、终态和取消模型；不保留重复状态源 |
-| 0.0.19 | 参数系统分层 | 描述库、缓存、写入事务和诊断历史分开；QGC 状态模型 + MP ArduPilot 元数据 |
-| 0.0.20 | 连接与 session 边界 | 明确 Link、Vehicle session、active focus 的所有权；保留现有 FFI |
+| 0.0.19 | 磁力计校准真机修复（插队） | 按 QGC/MP 开启 191/192 消息、修正取消收敛，并验证真实 ArduPilot 进度更新 |
+| 0.0.20 | 参数系统分层 | 描述库、缓存、写入事务和诊断历史分开；QGC 状态模型 + MP ArduPilot 元数据 |
+| 0.0.21 | 连接与 session 边界 | 明确 Link、Vehicle session、active focus 的所有权；保留现有 FFI |
 | 后续 | Flutter 大型页面拆分 | 后端契约稳定后拆分配置、连接和任务规划页面，不重新设计视觉风格 |
 
 ## 首轮结果

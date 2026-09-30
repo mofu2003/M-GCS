@@ -258,6 +258,10 @@ void CalibrationService::process_mag_cal_progress(
     status_.progress = progress.completion_pct;
     current_result_.progress = progress.completion_pct;
     // 分罗盘记录：界面按识别到的罗盘数量各画一条进度条。
+    const auto previous = status_.compass_progress.find(progress.compass_id);
+    const bool progress_changed =
+        previous == status_.compass_progress.end() ||
+        previous->second != progress.completion_pct;
     status_.compass_progress[progress.compass_id] = progress.completion_pct;
     for (const auto& [id, pct] : status_.compass_progress) {
         (void)id;
@@ -266,6 +270,12 @@ void CalibrationService::process_mag_cal_progress(
     status_.user_message = "Magnetometer calibration: compass " +
         std::to_string(static_cast<unsigned>(progress.compass_id) + 1) + " " +
         std::to_string(static_cast<unsigned>(progress.completion_pct)) + "%";
+    if (progress_changed) {
+        MGC_LOG_DEBUG("[CalService] MAG_CAL_PROGRESS compass=%u pct=%u status=%u",
+                      static_cast<unsigned>(progress.compass_id),
+                      static_cast<unsigned>(progress.completion_pct),
+                      static_cast<unsigned>(progress.cal_status));
+    }
 
     if (progress.cal_status >= kMagCalFailed) {
         current_result_.failure_reason = "Flight controller reported magnetometer calibration failure (status " +

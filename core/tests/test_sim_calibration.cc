@@ -63,13 +63,28 @@ static void test_cal_start_compass() {
     for (int i = 0; i < 20; i++) env.tick(50);
 
     bool sent_modern_mag_cal_command = false;
+    bool sent_mag_cal_cancel = false;
+    bool requested_progress_stream = false;
+    bool requested_report_stream = false;
     for (const auto& command : env.mock->received_cmds) {
         if (command.command == kStartMagCalCommand) {
             sent_modern_mag_cal_command = true;
-            break;
+        } else if (command.command == 42426) {
+            sent_mag_cal_cancel = true;
+        } else if (command.command == 511 && command.p1 == 191.0f &&
+                   command.p2 == 100000.0f) {
+            requested_progress_stream = true;
+        } else if (command.command == 511 && command.p1 == 192.0f &&
+                   command.p2 == 1000000.0f) {
+            requested_report_stream = true;
         }
     }
     CHECK(sent_modern_mag_cal_command, "mock received DO_START_MAG_CAL command");
+    CHECK(sent_mag_cal_cancel, "start flushes stale MAG_CAL state with DO_CANCEL_MAG_CAL");
+    CHECK(requested_progress_stream,
+          "start requests MAG_CAL_PROGRESS at 10 Hz");
+    CHECK(requested_report_stream,
+          "start requests MAG_CAL_REPORT at 1 Hz");
 }
 
 static void test_calibration_operation_cancel() {
@@ -86,6 +101,14 @@ static void test_calibration_operation_cancel() {
     CHECK(cancel && strstr(cancel, "\"canceled\":true") != nullptr,
           "calibration can be cancelled through operations");
     if (cancel) mg_free_string(cancel);
+    for (int i = 0; i < 10; ++i) env.tick(20);
+
+    bool sent_mag_cal_cancel = false;
+    for (const auto& command : env.mock->received_cmds) {
+        if (command.command == 42426) sent_mag_cal_cancel = true;
+    }
+    CHECK(sent_mag_cal_cancel,
+          "magnetometer cancellation sends DO_CANCEL_MAG_CAL to the vehicle");
 
     char* snapshot = mg_operations_get_snapshot(env.core);
     CHECK(snapshot && strstr(snapshot, "\"id\":\"calibration\"") != nullptr,

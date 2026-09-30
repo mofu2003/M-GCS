@@ -44,6 +44,9 @@ bash tools/audit_status.sh
 - `ARCH-001`：遥测缓存与序列化器已下沉到 `core/include/core/telemetry/`，core 不再依赖 bridge。
 - `CAL-001` / `CAL-003`：校准读回失败不再误报成功；历史写盘移出锁内。
 - `CAL-002`：guided point 的 COMMAND_LONG 经纬度单位修正为度。
+- `CAL-004`：磁力计校准按 QGC/MP 流程先清理旧状态并显式开启
+  `MAG_CAL_PROGRESS`/`MAG_CAL_REPORT`；前端修复罗盘进度 JSON 编码导致状态更新中断，
+  取消时立即结束本地校准态并在真机上验证进度和取消都有效。
 - `HOME-001`：识别飞控后请求 `HOME_POSITION` 和 `EXTENDED_SYS_STATE` 1Hz。
 - `HOME-002`：新增 `mg_command_set_home`，设置 Home 前由 UI 确认。
 - `LOG-001` / `LOCK-001`：飞行日志接入 STATUSTEXT/连接事件，回调移出锁内。

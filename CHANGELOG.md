@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.0.19 - 2026-09-30
+
+### Fixed
+
+- 磁力计校准在真实 ArduPilot 飞控上现在会按 QGC/MP 的 MAV_CAL 流程先发送
+  `MAV_CMD_DO_CANCEL_MAG_CAL` 清理旧状态，再显式请求 `MAG_CAL_PROGRESS` 10 Hz 和
+  `MAG_CAL_REPORT` 1 Hz，最后发送 `MAV_CMD_DO_START_MAG_CAL`。
+- 修复 `CalibrationStatus.toJson()` 将 `Map<int,int>` 直接交给 `jsonEncode` 导致的
+  “Converting object to an encodable object failed” 异常。此前第一次收到罗盘进度时
+  状态更新就中断，所以进度条和取消后的界面一直停留在旧状态。
+- 取消磁力计校准现在先立即清除前端运行态，再向飞控发送取消并停止 191/192 消息流；
+  即使取消命令发送失败，本地状态也不会再卡在“校准中”。
+
+### Verification
+
+- 真实 ArduPilot 飞控验证：开始校准后收到连续 `MAG_CAL_PROGRESS`，进度从 0% 正常
+  增长到 8%，两个罗盘分别显示；点击取消后进度条立即消失，开始按钮恢复，后端记录
+  `Calibration cancelled by user`。
+- 新增 Flutter 回归测试，覆盖含罗盘进度映射的 JSON 编码。
+- 聚焦后端测试通过：`test_sim_calibration`、`test_sim_ui_paths`、`test_ffi_contract`。
+- 完整 `tools/preflight.sh` 在提交前执行。
+
 ## 0.0.18 - 2026-09-30
 
 ### Added

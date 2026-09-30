@@ -11,6 +11,7 @@
 
 #include "core/calibration/strategies/compass_calibration.h"
 #include "core/log/logging.h"
+#include "ardupilotmega/mavlink.h"
 #include <algorithm>
 
 namespace mg::core::calibration {
@@ -25,6 +26,24 @@ bool CompassCalibration::send_calibration_command(
     AccelCalMode /*accel_mode*/) {
     MGC_LOG_INFO("[CompassCal] Sending magnetometer calibration command to sys=%u comp=%u",
                  target_sys, target_comp);
+    // ArduPilot streams MAG_CAL_PROGRESS/REPORT under the EXTRA3 stream.  The
+    // stream can be disabled on real aircraft, so request the two messages
+    // explicitly before starting. QGC also cancels the previous attempt first;
+    // ArduPilot otherwise keeps replaying a stale failed report.
+    mav->send_command_long(
+        target_sys, target_comp,
+        42426,  // MAV_CMD_DO_CANCEL_MAG_CAL
+        0,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    mav->request_message_interval(
+        target_sys, target_comp,
+        MAVLINK_MSG_ID_MAG_CAL_PROGRESS,
+        100000);  // 10 Hz: progress must update smoothly while rotating.
+    mav->request_message_interval(
+        target_sys, target_comp,
+        MAVLINK_MSG_ID_MAG_CAL_REPORT,
+        1000000);  // 1 Hz is enough for the final per-compass result.
+
     // Match Mission Planner's modern MAV_CAL workflow.  It supports multiple
     // compasses and returns MAG_CAL_PROGRESS/MAG_CAL_REPORT messages.
     // 参数与 Mission Planner 的 ConfigHWCompass 保持一致：

@@ -46,10 +46,22 @@ MGCORE_API char* mg_calibration_cancel(mg_core_t* core) {
     } else if (mav && status.current_type == mg::core::calibration::CalibrationType::Magnetometer) {
         command_sent = mav->send_command_long(
             active_target_sys(core), active_target_comp(core),
-            42426, 0, 0, 0, 1, 0, 0, 0, 0);
+            42426, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        // Do not leave the explicit 10 Hz calibration streams running after
+        // cancellation.
+        mav->request_message_interval(
+            active_target_sys(core), active_target_comp(core), 191, -1);
+        mav->request_message_interval(
+            active_target_sys(core), active_target_comp(core), 192, -1);
     }
-    cal.cancel();
-    return command_sent ? ok() : fail(MG_ERROR_SEND_FAILED, "failed to send calibration cancel command");
+    if (!cal.cancel()) {
+        return fail(MG_ERROR_INVALID_STATE, "no calibration in progress");
+    }
+    if (!command_sent) {
+        return fail(MG_ERROR_SEND_FAILED,
+                    "calibration cancelled locally, but the cancel command was not sent");
+    }
+    return ok();
 }
 
 MGCORE_API char* mg_calibration_get_status(mg_core_t* core) {

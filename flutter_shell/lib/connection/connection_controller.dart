@@ -77,7 +77,12 @@ final class CalibrationStatus {
     'message': message,
     'failureReason': failureReason,
     'accelerometerMode': accelerometerMode,
-    'compassProgress': compassProgress,
+    // jsonEncode requires string keys. Keep the in-memory map integer-keyed
+    // for direct compass_id lookup, but serialize it with JSON-safe keys.
+    'compassProgress': {
+      for (final entry in compassProgress.entries)
+        entry.key.toString(): entry.value,
+    },
   };
 }
 
@@ -633,14 +638,41 @@ final class ConnectionController extends ChangeNotifier
 
   Future<void> cancelCalibration() async {
     if (!calibrationStatus.active) return;
+    final requestedType = calibrationStatus.type;
+    _calibrationTimer?.cancel();
+    calibrationStatus = CalibrationStatus(
+      active: false,
+      type: requestedType,
+      stage: 'cancelled',
+      progress: calibrationStatus.progress,
+      message: '已取消校准',
+      compassProgress: calibrationStatus.compassProgress,
+    );
+    calibrationError = null;
+    _notifyCalibrationChanges();
+    notifyListeners();
+
+    Object? cancellationError;
     try {
       final result = _readJson(_calibrationCancel(_core));
       if (result is! Map<String, Object?> || result['success'] != true) {
-        throw StateError(_nativeError(result, '取消校准失败'));
+        final message = _nativeError(result, '取消校准失败');
+        // A stale UI snapshot can outlive the native calibration state. In
+        // that case the local clear above is already the correct end state.
+        if (!message.contains('no calibration in progress')) {
+          throw StateError(message);
+        }
       }
-      await _pollCalibrationStatus();
     } on Object catch (error) {
-      calibrationError = _friendlyError(error);
+      cancellationError = error;
+    }
+    // Always refresh after a cancellation attempt. The native service stops
+    // its local state even when the MAVLink cancel frame could not be sent;
+    // leaving the UI stuck in "calibrating" is worse than showing the send
+    // error after the state has already returned to idle/cancelled.
+    await _pollCalibrationStatus();
+    if (cancellationError != null) {
+      calibrationError = _friendlyError(cancellationError);
       _notifyCalibrationChanges();
       notifyListeners();
     }
