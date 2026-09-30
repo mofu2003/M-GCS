@@ -67,6 +67,14 @@
   operation 状态序列化。
 - FFI 导出总数保持 285，公开 C ABI 和 JSON 响应结构不变。
 
+`0.0.18` 已完成 operations 与 diagnostics 拆分：
+
+- `ffi_operations.cc` 负责 params、mission、calibration、log 的统一 operation 快照，
+  以及 `mg_operations_get_snapshot` / `mg_operations_cancel`。
+- `ffi_diagnostics.cc` 只保留连接诊断、遥测 dashboard、参数写入历史和系统诊断聚合。
+- `ffi_operations_internal.h` 提供系统诊断需要的 operations 快照，不形成对外 ABI。
+- FFI 导出总数仍为 285，operation JSON 字段和取消语义不变。
+
 ## 非目标
 
 - 不在重构中顺便改 UI 设计或替换状态管理框架。

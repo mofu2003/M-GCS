@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.0.18 - 2026-09-30
+
+### Added
+
+- 新增 `ffi_operations.cc` 和 `ffi_operations_internal.h`，把长任务的统一快照与取消
+  从系统诊断文件中分离。
+
+### Changed
+
+- params、mission、calibration、log 的状态快照和取消入口现在集中在一个 operations
+  模块；系统诊断通过内部接口复用同一份快照。
+- `ffi_diagnostics.cc` 保留连接诊断、遥测 dashboard、参数写入历史和系统诊断聚合，
+  不再同时维护长任务状态语义。
+- `mg_operations_get_snapshot` / `mg_operations_cancel` 的 C ABI、JSON 字段和取消
+  行为保持不变，FFI 导出总数仍为 285。
+
+### Verification
+
+- 聚焦测试通过：`test_ffi_contract`、`test_ffi_comprehensive`、
+  `test_state_machines`、`test_sim_full_flow`、`test_sim_ui_paths`。
+- `tools/preflight.sh` 通过：Flutter analyze/test、后端 offline/simulation 34/34、
+  UI token 检查和 macOS debug 构建。
+
 ## 0.0.17 - 2026-09-30
 
 ### Added
