@@ -293,6 +293,13 @@ class _MissionPlanningFloatingPanelState
         )
         .take(3)
         .toList(growable: false);
+    final canStartMission =
+        connected &&
+        !busy &&
+        !transferring &&
+        document != null &&
+        document.entities.isNotEmpty &&
+        !_mission.dirty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -327,6 +334,22 @@ class _MissionPlanningFloatingPanelState
                   SizedBox(width: 6),
                   Text('上传到飞控'),
                 ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            MacosTooltip(
+              message: _mission.dirty ? '请先上传任务' : '解锁并启动任务',
+              child: PushButton(
+                controlSize: ControlSize.small,
+                onPressed: canStartMission ? _startMission : null,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    MacosIcon(CupertinoIcons.play_fill, size: 12),
+                    SizedBox(width: 5),
+                    Text('启动任务'),
+                  ],
+                ),
               ),
             ),
             const Spacer(),
@@ -478,6 +501,110 @@ class _MissionPlanningFloatingPanelState
     await _mutate(() async {
       await _mission.upload();
     });
+  }
+
+  Future<void> _startMission() async {
+    if (_mission.dirty) {
+      await confirmMissionAction(
+        context,
+        title: '任务尚未上传',
+        message: '当前有未上传修改。请先上传任务，再执行任务。',
+        confirmLabel: '知道了',
+      );
+      return;
+    }
+    final confirmed = await showMacosAlertDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final colors = dialogContext.mgColors;
+        return MacosAlertDialog(
+          appIcon: MacosIcon(
+            CupertinoIcons.exclamationmark_triangle,
+            size: 38,
+            color: colors.danger,
+          ),
+          title: const Text('执行任务确认'),
+          message: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 300),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                  decoration: BoxDecoration(
+                    color: colors.warning.withValues(alpha: 0.10),
+                    border: Border.all(
+                      color: colors.warning.withValues(alpha: 0.45),
+                    ),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      MacosIcon(
+                        CupertinoIcons.exclamationmark_triangle,
+                        size: 15,
+                        color: colors.warning,
+                      ),
+                      const SizedBox(width: 7),
+                      const Expanded(
+                        child: Text(
+                          '飞控将自动解锁并进入任务执行状态。请确认航线、返航高度、'
+                          '地理围栏和周围人员安全。',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _estimateSummary(),
+                  textAlign: TextAlign.center,
+                  style: MacosTheme.of(
+                    dialogContext,
+                  ).typography.caption1.copyWith(color: colors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          primaryButton: PushButton(
+            controlSize: ControlSize.large,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('解锁并启动'),
+          ),
+          secondaryButton: PushButton(
+            controlSize: ControlSize.large,
+            secondary: true,
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+        );
+      },
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.controller.startMission();
+    } on Object catch (error) {
+      if (!mounted) return;
+      await showMacosAlertDialog<void>(
+        context: context,
+        builder: (dialogContext) => MacosAlertDialog(
+          appIcon: MacosIcon(
+            CupertinoIcons.xmark_circle_fill,
+            size: 38,
+            color: dialogContext.mgColors.danger,
+          ),
+          title: const Text('任务启动失败'),
+          message: Text(error.toString().replaceFirst('Bad state: ', '')),
+          primaryButton: PushButton(
+            controlSize: ControlSize.large,
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('知道了'),
+          ),
+        ),
+      );
+    }
   }
 
   // ================================================================

@@ -346,6 +346,9 @@ final class ConnectionController extends ChangeNotifier
   late final Pointer<Utf8> Function(Pointer<Void>) _commandRtl;
   late final Pointer<Utf8> Function(Pointer<Void>) _commandLand;
   late final Pointer<Utf8> Function(Pointer<Void>, double) _commandTakeoff;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _commandArm;
+  late final Pointer<Utf8> Function(Pointer<Void>, int, int) _commandSetMode;
+  late final Pointer<Utf8> Function(Pointer<Void>) _commandMissionStart;
   late final Pointer<Utf8> Function(Pointer<Void>) _commandGuidedPause;
   late final Pointer<Utf8> Function(Pointer<Void>, double, double, double)
   _commandSetHome;
@@ -431,6 +434,7 @@ final class ConnectionController extends ChangeNotifier
   bool vehicleArmed = false;
   String vehicleFlightMode = '';
   int vehicleType = 0;
+  int vehicleAutopilotType = 0;
 
   /// EXTENDED_SYS_STATE 的 landed_state（MAV_LANDED_STATE）：
   /// 1=undefined、2=on_ground、3=takeoff、4=in_air、5=landing。
@@ -1410,6 +1414,21 @@ final class ConnectionController extends ChangeNotifier
             NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Double)>
           >('mg_command_takeoff')
           .asFunction();
+      _commandArm = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
+            'mg_command_arm',
+          )
+          .asFunction();
+      _commandSetMode = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32, Int32)>
+          >('mg_command_set_mode')
+          .asFunction();
+      _commandMissionStart = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_mission_start',
+          )
+          .asFunction();
       _commandGuidedPause = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
             'mg_command_guided_pause',
@@ -1635,6 +1654,54 @@ final class ConnectionController extends ChangeNotifier
       _readJson(_commandTakeoff(_core, altitudeMeters)),
       '起飞',
     );
+  }
+
+  /// 按 QGC 的 APM/PX4 Start Mission 流程解锁并启动当前飞控任务。
+  ///
+  /// ArduPilot 固定翼需要先进入 AUTO 再解锁，避免 VTOL/固定翼在错误姿态下上锁；
+  /// 多旋翼先进入 GUIDED、解锁后再发 MISSION_START。PX4 统一进入 AUTO_MISSION。
+  Future<void> startMission() async {
+    _requireConnected('启动任务');
+    final fixedWing =
+        controlProfile == VehicleControlProfile.fixedWing ||
+        controlProfile == VehicleControlProfile.planeVtol;
+
+    if (vehicleAutopilotType == 12) {
+      const px4AutoMissionMode = 0x04040000;
+      await _setFlightMode(px4AutoMissionMode);
+      if (!vehicleArmed) await _armVehicle();
+      return;
+    }
+
+    final autoMode = fixedWing ? 10 : 3;
+    final guidedMode = fixedWing ? 15 : 4;
+    if (vehicleFlying) {
+      await _setFlightMode(autoMode);
+      return;
+    }
+
+    if (fixedWing) {
+      await _setFlightMode(autoMode);
+      if (!vehicleArmed) await _armVehicle();
+      return;
+    }
+
+    if (!vehicleArmed) {
+      await _setFlightMode(guidedMode);
+      await _armVehicle();
+    }
+    _requireCommandSuccess(_readJson(_commandMissionStart(_core)), '启动任务');
+  }
+
+  Future<void> _setFlightMode(int customMode) async {
+    _requireCommandSuccess(
+      _readJson(_commandSetMode(_core, 0, customMode)),
+      '切换飞行模式',
+    );
+  }
+
+  Future<void> _armVehicle() async {
+    _requireCommandSuccess(_readJson(_commandArm(_core, 0)), '解锁');
   }
 
   Future<void> guidedPause() async {
@@ -2533,6 +2600,7 @@ final class ConnectionController extends ChangeNotifier
     final oldArmed = vehicleArmed;
     final oldFlightMode = vehicleFlightMode;
     final oldVehicleType = vehicleType;
+    final oldAutopilotType = vehicleAutopilotType;
     final oldLandedState = vehicleLandedState;
     try {
       // 引导操作门控要用到的实时状态（QGC 的 show* 属性）。
@@ -2543,6 +2611,7 @@ final class ConnectionController extends ChangeNotifier
       vehicleArmed = summaryData['armed'] == true;
       vehicleFlightMode = summaryData['flight_mode'] as String? ?? '';
       vehicleType = summaryData['vehicle_type'] as int? ?? 0;
+      vehicleAutopilotType = summaryData['autopilot_type'] as int? ?? 0;
 
       final extendedEnvelope =
           _readJson(_getExtendedSysState(_core)) as Map<String, Object?>;
@@ -2587,6 +2656,7 @@ final class ConnectionController extends ChangeNotifier
         oldArmed != vehicleArmed ||
         oldFlightMode != vehicleFlightMode ||
         oldVehicleType != vehicleType ||
+        oldAutopilotType != vehicleAutopilotType ||
         oldLandedState != vehicleLandedState;
   }
 
