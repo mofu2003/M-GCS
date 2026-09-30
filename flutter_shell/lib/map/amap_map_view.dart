@@ -344,8 +344,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     final mission = widget.connectionController.missionPlanning;
     final entities = mission.document?.entities ?? const <MissionEntity>[];
     final vertices = <_MissionRouteVertex>[];
-    for (var index = 0; index < entities.length; index++) {
-      final entity = entities[index];
+    for (final entity in entities) {
       if (!entity.enabled) continue;
       final latitude = entity.latitude;
       final longitude = entity.longitude;
@@ -358,7 +357,6 @@ class _AMapMapViewState extends State<AMapMapView> {
       final wgs84 = LatLng(latitude, longitude);
       vertices.add(
         _MissionRouteVertex(
-          number: index + 1,
           wgs84: wgs84,
           tileFrame: _toTileFrame(latitude, longitude),
         ),
@@ -404,8 +402,7 @@ class _AMapMapViewState extends State<AMapMapView> {
           height: 22,
           child: IgnorePointer(
             child: _DistanceLabel(
-              text: '${start.number}→${end.number} '
-                  '${_formatRouteDistance(distance)}',
+              text: _formatRouteDistance(distance),
             ),
           ),
         ),
@@ -720,12 +717,10 @@ class _TransientMapMessageState extends State<_TransientMapMessage>
 
 class _MissionRouteVertex {
   const _MissionRouteVertex({
-    required this.number,
     required this.wgs84,
     required this.tileFrame,
   });
 
-  final int number;
   final LatLng wgs84;
   final LatLng tileFrame;
 }
