@@ -125,22 +125,21 @@ FFI 约束：
 - 复杂结果使用 JSON envelope，保持 success/error 语义稳定。
 - `mg_vehicle_open()` 只创建独立飞控会话，不改变 active/UI focus；`mg_vehicle_select()` 是显式焦点操作。旧的单机便捷连接入口保持连接后选中会话的兼容行为。新增接口应逐步改为显式 vehicle 目标。
 
-## Mission CAD 领域边界
+## 任务规划领域边界
 
-Mission CAD 是面向精确航线设计的后端领域子系统。其可编辑源模型是 `MissionCadDocument`，在局部 ENU 米制坐标中保存点、航段、扫描区和约束；WGS84 仅在地图、导入导出和 MAVLink 编译边界使用。
+任务规划是面向航线设计的后端领域子系统。可编辑源模型是 `MissionDocument`，保存任务实体、参数、revision、诊断和编译所需的设计意图；WGS84 仅在地图、导入导出和 MAVLink 编译边界使用。
 
-- `core/mission/cad` 负责文档、编辑历史、约束、编译、校验、估算、诊断和持久化；
-  几何参数化实体和导入导出适配器按阶段继续扩展。
+- `core/mission` 负责任务文档、编辑历史、参数化测绘、编译、校验、估算、诊断和持久化。
 - `bridge/ffi` 负责稳定、版本化、前端无关的 C ABI/JSON 契约。
 - 任何前端和 CLI 只负责编辑交互与渲染，不能拥有第二套权威几何或航线编译逻辑。
 - `MissionPlan` 是编译后的 MAVLink 目标模型；任务上传下载继续由既有 mission transfer 负责。
 - 编辑、校验和编译不写飞控；上传是单独、显式的安全敏感操作。
 
-当前已实现的文档模型包含稳定实体 ID、revision、undo/redo、结构化诊断、
-命令目录、`.mgcad.json` 序列化，以及编译、上传和回读比对链路。编辑动作不写飞控；
+当前已实现的任务文档模型包含稳定实体 ID、revision、undo/redo、结构化诊断、
+命令目录、任务文档 JSON 序列化，以及编译、上传和回读比对链路。编辑动作不写飞控；
 上传必须由调用方显式触发。
 
-任务领域边界由 ADR 0005 约束；新增实现必须先落在 `core/mission/` 和对应的 FFI 契约中。
+任务领域边界以本文和 `docs/MISSION_PLANNING.md` 为准；新增实现必须先落在 `core/mission/` 和对应的 FFI 契约中。
 
 ## 固件 Profile 与能力契约
 
@@ -190,6 +189,6 @@ MGC 当前采用 ArduPilot-first，PX4-compatible 路线：ArduPilot 能力优�
 - ADR 0001：初始架构。
 - ADR 0002：复用官方 MAVLink。
 - ADR 0003：本地 FFI 桥接。
-- ADR 0005：Mission CAD 由后端领域模型负责。
+- ADR 0005：旧任务规划决策的废止记录（仅作历史追溯）。
 - ADR 0006：波形显示管线——采集保真、显示可读。
 - ADR 0007：界面字体跨平台统一，以 macOS 端为设计基准。

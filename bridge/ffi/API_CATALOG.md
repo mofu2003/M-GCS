@@ -101,7 +101,9 @@ document contains:
 - `entities`: ordered mission entities with a stable `id`, command, frame,
   coordinates, altitude, four command parameters, and enabled state.
 
-`mg_mission_doc_export` returns the document JSON for `.mgcad.json` storage.
+`mg_mission_doc_export` returns the versioned task document JSON.
+`mg_mission_doc_save/load` do not enforce a filename extension; use `.mission.json`
+for new files.
 `mg_mission_doc_import` loads that JSON without uploading to a vehicle.
 `mg_mission_doc_save/load` provide the same operation through a filesystem
 path.
