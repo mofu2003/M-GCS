@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.0.20 - 2026-10-01
+
+### Changed
+
+- 完成第二阶段 B 的第一个内部重构：新增 `MissionDocumentFfiBackend`，将任务文档
+  FFI 绑定、JSON envelope、任务传输进度、回读验证和文件互操作从
+  `ConnectionController` 迁出。
+- `ConnectionController` 不再直接实现 `MissionDocumentBackend`，保留共享 Core、动态库
+  生命周期和连接状态职责；任务页面公开契约和用户行为保持不变。
+- 任务回读验证增加可接受协议归一化结果的独立记录，并继续显示真正差异的详细字段。
+
+### Verification
+
+- `flutter analyze lib test` 通过。
+- Flutter 测试 `20/20` 通过。
+- 后端 offline/simulation `34/34` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.19 - 2026-09-30
 
 ### Fixed
