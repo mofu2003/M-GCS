@@ -12,6 +12,7 @@ import '../mission/mission_document_models.dart';
 import 'telemetry_ffi_backend.dart';
 import 'parameter_ffi_backend.dart';
 import 'calibration_ffi_backend.dart';
+import 'flight_command_ffi_backend.dart';
 
 final class SerialPortInfo {
   const SerialPortInfo({
@@ -290,25 +291,6 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _close;
-  late final Pointer<Utf8> Function(Pointer<Void>) _commandRtl;
-  late final Pointer<Utf8> Function(Pointer<Void>) _commandLand;
-  late final Pointer<Utf8> Function(Pointer<Void>, double) _commandTakeoff;
-  late final Pointer<Utf8> Function(Pointer<Void>, int) _commandArm;
-  late final Pointer<Utf8> Function(Pointer<Void>, int, int) _commandSetMode;
-  late final Pointer<Utf8> Function(Pointer<Void>) _commandMissionStart;
-  late final Pointer<Utf8> Function(Pointer<Void>) _commandGuidedPause;
-  late final Pointer<Utf8> Function(Pointer<Void>, double, double, double)
-  _commandSetHome;
-  late final Pointer<Utf8> Function(
-    Pointer<Void>,
-    double,
-    double,
-    double,
-    double,
-    double,
-  )
-  _commandGuidedPoint;
-  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _commandOrbit;
   late final void Function(Pointer<Utf8>) _freeString;
 
   MissionDocumentController? _missionPlanning;
@@ -316,6 +298,7 @@ final class ConnectionController extends ChangeNotifier {
   TelemetryFfiBackend? _telemetryBackend;
   ParameterFfiBackend? _parameterBackend;
   CalibrationFfiBackend? _calibrationBackend;
+  FlightCommandFfiBackend? _flightCommandBackend;
 
   MissionDocumentController get missionPlanning =>
       _missionPlanning ??= MissionDocumentController(
@@ -334,6 +317,9 @@ final class ConnectionController extends ChangeNotifier {
 
   CalibrationFfiBackend get calibrationBackend =>
       _calibrationBackend ??= CalibrationFfiBackend(_library, _core);
+
+  FlightCommandFfiBackend get flightCommandBackend =>
+      _flightCommandBackend ??= FlightCommandFfiBackend(_library, _core);
 
   final List<SerialPortInfo> ports = [];
   final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
@@ -1151,67 +1137,6 @@ final class ConnectionController extends ChangeNotifier {
             'mg_vehicle_select',
           )
           .asFunction();
-      _commandRtl = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_command_rtl',
-          )
-          .asFunction();
-      _commandLand = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_command_land',
-          )
-          .asFunction();
-      _commandTakeoff = _library
-          .lookup<
-            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Double)>
-          >('mg_command_takeoff')
-          .asFunction();
-      _commandArm = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
-            'mg_command_arm',
-          )
-          .asFunction();
-      _commandSetMode = _library
-          .lookup<
-            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32, Int32)>
-          >('mg_command_set_mode')
-          .asFunction();
-      _commandMissionStart = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_mission_start',
-          )
-          .asFunction();
-      _commandGuidedPause = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_command_guided_pause',
-          )
-          .asFunction();
-      _commandSetHome = _library
-          .lookup<
-            NativeFunction<
-              Pointer<Utf8> Function(Pointer<Void>, Double, Double, Double)
-            >
-          >('mg_command_set_home')
-          .asFunction();
-      _commandGuidedPoint = _library
-          .lookup<
-            NativeFunction<
-              Pointer<Utf8> Function(
-                Pointer<Void>,
-                Double,
-                Double,
-                Double,
-                Double,
-                Double,
-              )
-            >
-          >('mg_command_guided_point')
-          .asFunction();
-      _commandOrbit = _library
-          .lookup<
-            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
-          >('mg_command_orbit')
-          .asFunction();
       _core = _create();
       _waveformBuffer = calloc<Float>(
         _waveformMaxPoints * _waveformFloatsPerPoint,
@@ -1252,8 +1177,12 @@ final class ConnectionController extends ChangeNotifier {
   ) async {
     _requireConnected('移动到此处');
     _requireCommandSuccess(
-      _readJson(
-        _commandGuidedPoint(_core, latitude, longitude, altitudeMeters, -1, -1),
+      flightCommandBackend.guidedPoint(
+        latitude,
+        longitude,
+        altitudeMeters,
+        -1,
+        -1,
       ),
       '移动到此处',
     );
@@ -1261,20 +1190,17 @@ final class ConnectionController extends ChangeNotifier {
 
   Future<void> guidedReturnToLaunch() async {
     _requireConnected('返航');
-    _requireCommandSuccess(_readJson(_commandRtl(_core)), '返航');
+    _requireCommandSuccess(flightCommandBackend.rtl(), '返航');
   }
 
   Future<void> guidedLand() async {
     _requireConnected('降落');
-    _requireCommandSuccess(_readJson(_commandLand(_core)), '降落');
+    _requireCommandSuccess(flightCommandBackend.land(), '降落');
   }
 
   Future<void> guidedTakeoff(double altitudeMeters) async {
     _requireConnected('起飞');
-    _requireCommandSuccess(
-      _readJson(_commandTakeoff(_core, altitudeMeters)),
-      '起飞',
-    );
+    _requireCommandSuccess(flightCommandBackend.takeoff(altitudeMeters), '起飞');
   }
 
   /// 按 QGC 的 APM/PX4 Start Mission 流程解锁并启动当前飞控任务。
@@ -1311,7 +1237,7 @@ final class ConnectionController extends ChangeNotifier {
       await _setFlightModeAndValidate(guidedMode, 'Guided');
       await _armVehicleAndValidate();
     }
-    _requireCommandSuccess(_readJson(_commandMissionStart(_core)), '启动任务');
+    _requireCommandSuccess(flightCommandBackend.missionStart(), '启动任务');
   }
 
   Future<void> _setFlightModeAndValidate(
@@ -1322,9 +1248,7 @@ final class ConnectionController extends ChangeNotifier {
 
     for (var attempt = 0; attempt < 3; attempt++) {
       _requireCommandSuccess(
-        _readJson(
-          _commandSetMode(_core, _mavModeFlagCustomModeEnabled, customMode),
-        ),
+        flightCommandBackend.setMode(_mavModeFlagCustomModeEnabled, customMode),
         '切换飞行模式',
       );
       if (await _waitForVehicleState(
@@ -1339,7 +1263,7 @@ final class ConnectionController extends ChangeNotifier {
 
   Future<void> _armVehicleAndValidate() async {
     if (vehicleArmed) return;
-    _requireCommandSuccess(_readJson(_commandArm(_core, 0)), '解锁');
+    _requireCommandSuccess(flightCommandBackend.arm(0), '解锁');
     if (await _waitForVehicleState(
       armed: true,
       timeout: _armValidationWindow,
@@ -1390,7 +1314,7 @@ final class ConnectionController extends ChangeNotifier {
 
   Future<void> guidedPause() async {
     _requireConnected('暂停');
-    _requireCommandSuccess(_readJson(_commandGuidedPause(_core)), '暂停');
+    _requireCommandSuccess(flightCommandBackend.guidedPause(), '暂停');
   }
 
   Future<void> guidedOrbit({
@@ -1409,7 +1333,16 @@ final class ConnectionController extends ChangeNotifier {
       'altitude': altitudeMeters,
     }).toNativeUtf8();
     try {
-      _requireCommandSuccess(_readJson(_commandOrbit(_core, config)), '环绕飞行');
+      _requireCommandSuccess(
+        flightCommandBackend.orbit(
+          latitude: latitude,
+          longitude: longitude,
+          radiusMeters: radiusMeters,
+          velocityMetersPerSecond: velocityMetersPerSecond,
+          altitudeMeters: altitudeMeters,
+        ),
+        '环绕飞行',
+      );
     } finally {
       malloc.free(config);
     }
@@ -1423,7 +1356,7 @@ final class ConnectionController extends ChangeNotifier {
   ) async {
     _requireConnected('设置 Home');
     _requireCommandSuccess(
-      _readJson(_commandSetHome(_core, latitude, longitude, altitudeMeters)),
+      flightCommandBackend.setHome(latitude, longitude, altitudeMeters),
       '设置 Home',
     );
   }

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.24 - 2026-10-01
+
+### Changed
+
+- 完成第二阶段 B 的第五个内部重构：新增 `FlightCommandFfiBackend`，将 RTL、降落、
+  起飞、解锁、模式切换、任务启动、引导点、暂停、环绕和设置 Home 的动态绑定与 JSON
+  解包从 `ConnectionController` 迁出。
+- QGC/MP 组合的飞行模式门控、解锁确认、模式心跳验证和安全敏感流程仍由
+  `ConnectionController` 管理，现有飞行命令行为保持不变。
+
+### Verification
+
+- `flutter analyze lib test` 通过。
+- Flutter 测试 `20/20` 通过。
+- 后端 offline/simulation `34/34` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.23 - 2026-10-01
 
 ### Changed
