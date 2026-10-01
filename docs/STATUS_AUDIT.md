@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.58`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.59`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -123,6 +123,10 @@ bash tools/audit_status.sh
 - `UI-004`：任务执行进度。适配器按 seq 去重统计 `MISSION_ITEM_REACHED`，新增
   `mg_mission_get_execution_progress`；任务面板显示"第 N/共 M 项 + 已到达"进度条，
   最后一项到达显示完成。此前 `MISSION_ITEM_REACHED` 只透传回调，启动任务后无进度可看。
+- `UI-005`：飞行模式操作台。新增 `mg_flight_get_modes` / `mg_flight_set_mode`，前端
+  贴左上角悬浮显示当前模式与模式表（不可切换项置灰），并让连接 / 航线规划 / 飞行模式
+  三个浮层可以同时打开。模式表来自既有 `firmware_plugin_ardupilot` /
+  `firmware_plugin_px4`，没有新造模式数据。
 - `COMPLEX-001`：QGC ComplexItem（Survey、CorridorScan 等）提升为正式
   `MissionComplexItem` 模型，保存 `id`、`item_type` 和原始 JSON，`.plan` 往返无损；
   新增 `entity_insert_index` 后导出时与普通航点按原顺序交错；内部字段目前只读，

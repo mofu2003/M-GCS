@@ -21,6 +21,12 @@ MGCORE_API char* mg_cmd_guided(mg_core_t* core, double lat, double lon, float al
 MGCORE_API char* mg_command_arm(mg_core_t* core, int force);
 MGCORE_API char* mg_command_disarm(mg_core_t* core, int force);
 MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_mode);
+// 飞行模式操作台接口。模式表按机型给（ArduPilot 用 Copter/Plane/Rover/Sub/Tracker 各自
+// 的枚举号，PX4 用 main/sub 打包），与 MP 的 CMB_modes、QGC 的 flightMode 菜单同源。
+// mg_flight_get_modes 返回 available / current_mode / armed / modes[{id,name,settable}]；
+// mg_flight_set_mode 按名字切换，内部转成 base_mode + custom_mode 再发 DO_SET_MODE。
+MGCORE_API char* mg_flight_get_modes(mg_core_t* core);
+MGCORE_API char* mg_flight_set_mode(mg_core_t* core, const char* mode_name);
 MGCORE_API char* mg_command_rtl(mg_core_t* core);
 MGCORE_API char* mg_command_takeoff(mg_core_t* core, float altitude_m);
 MGCORE_API char* mg_command_land(mg_core_t* core);

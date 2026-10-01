@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mgcore VERSION 0.0.58 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
+project(mgcore VERSION 0.0.59 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -182,6 +182,7 @@ set(MGCORE_SOURCES
     bridge/ffi/ffi_vehicle.cc
     bridge/ffi/ffi_params.cc
     bridge/ffi/ffi_commands.cc
+    bridge/ffi/ffi_flight_modes.cc
     bridge/ffi/ffi_log_commands.cc
     bridge/ffi/ffi_preflight_commands.cc
     bridge/ffi/ffi_flight_commands.cc

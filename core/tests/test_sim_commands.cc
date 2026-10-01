@@ -154,6 +154,31 @@ static void test_mode_change() {
     CHECK(found_mode_cmd, "set_mode sends CUSTOM_MODE_ENABLED base flag and Guided custom mode");
 }
 
+/// 飞行模式操作台：模式表按机型给，按名字切换，非法模式被拒。
+static void test_flight_mode_catalog() {
+    fprintf(stderr, "\n[Group] Flight mode catalog and switching\n");
+    TestEnv env;
+    CHECK(env.wait_connected(), "connected before reading the mode catalog");
+
+    char* catalog = mg_flight_get_modes(env.core);
+    CHECK(is_success(catalog), "mode catalog returns success");
+    CHECK(json_has(catalog, "\"available\":true"), "mode catalog is available on a connected vehicle");
+    CHECK(json_has(catalog, "\"name\":\"Stabilize\""), "copter catalog contains Stabilize");
+    CHECK(json_has(catalog, "\"name\":\"Loiter\""), "copter catalog contains Loiter");
+    CHECK(json_has(catalog, "\"current_mode\":\"Stabilize\""), "catalog reports the heartbeat mode");
+    if (catalog) mg_free_string(catalog);
+
+    char* set = mg_flight_set_mode(env.core, "Loiter");
+    CHECK(is_success(set), "setting a known mode by name succeeds");
+    CHECK(json_has(set, "\"custom_mode\":5"), "Loiter maps to the copter custom_mode 5");
+    if (set) mg_free_string(set);
+
+    char* bad = mg_flight_set_mode(env.core, "NotAMode");
+    CHECK(is_failure(bad) && json_has(bad, "unknown flight mode"),
+          "unknown mode name is rejected");
+    if (bad) mg_free_string(bad);
+}
+
 static void test_mode_status_tracks_latest_heartbeat() {
     fprintf(stderr, "\n[Group] MODE STATUS follows latest heartbeat\n");
     TestEnv env;
@@ -484,6 +509,7 @@ int main() {
     test_flight_mode_state_setters();
     test_set_home_encoding();
     test_mode_status_tracks_latest_heartbeat();
+    test_flight_mode_catalog();
     test_command_nak();
     test_command_timeout();
     test_arm_no_retry_on_drop();

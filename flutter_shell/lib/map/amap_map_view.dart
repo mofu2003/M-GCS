@@ -11,6 +11,7 @@ import '../connection/connection_controller.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import '../connection_panel.dart';
+import '../flight/flight_mode_panel.dart';
 import '../mission/mission_document_controller.dart';
 import '../mission/mission_document_models.dart';
 import '../mission/mission_geo.dart';
@@ -126,6 +127,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   bool _centeredOnVehicle = false;
   Timer? _saveTimer;
   bool _showConnectionPanel = false;
+  bool _showFlightModePanel = false;
   bool _showMissionPlanning = false;
   OverlayEntry? _transientMessage;
   String? _draggingEntityId;
@@ -651,14 +653,13 @@ class _AMapMapViewState extends State<AMapMapView> {
               );
             },
             onOpenConfiguration: widget.onOpenConfiguration,
-            onOpenConnection: () => setState(() {
-              _showMissionPlanning = false;
-              _showConnectionPanel = !_showConnectionPanel;
-            }),
-            onOpenMissionPlanning: () => setState(() {
-              _showConnectionPanel = false;
-              _showMissionPlanning = !_showMissionPlanning;
-            }),
+            // 三个浮层互不排斥，可以同时开着（连接 / 航线规划 / 飞行模式）。
+            onOpenConnection: () =>
+                setState(() => _showConnectionPanel = !_showConnectionPanel),
+            onOpenMissionPlanning: () =>
+                setState(() => _showMissionPlanning = !_showMissionPlanning),
+            onOpenFlightModes: () =>
+                setState(() => _showFlightModePanel = !_showFlightModePanel),
           ),
         ),
         if (_showConnectionPanel)
@@ -685,6 +686,16 @@ class _AMapMapViewState extends State<AMapMapView> {
             child: MissionPlanningFloatingPanel(
               controller: widget.connectionController,
               onClose: () => setState(() => _showMissionPlanning = false),
+            ),
+          ),
+        if (_showFlightModePanel)
+          // 左上角悬浮，和右下角的连接面板、右侧的航线规划互不遮挡，可以同时开着。
+          Positioned(
+            left: 70,
+            top: 16,
+            child: FlightModeFloatingPanel(
+              controller: widget.connectionController,
+              onClose: () => setState(() => _showFlightModePanel = false),
             ),
           ),
       ],
@@ -912,6 +923,7 @@ class _MapControls extends StatelessWidget {
     this.onOpenConfiguration,
     required this.onOpenConnection,
     required this.onOpenMissionPlanning,
+    this.onOpenFlightModes,
   });
 
   final VoidCallback onZoomIn;
@@ -920,6 +932,7 @@ class _MapControls extends StatelessWidget {
   final VoidCallback? onOpenConfiguration;
   final VoidCallback onOpenConnection;
   final VoidCallback onOpenMissionPlanning;
+  final VoidCallback? onOpenFlightModes;
 
   @override
   Widget build(BuildContext context) => DecoratedBox(
@@ -967,6 +980,11 @@ class _MapControls extends StatelessWidget {
           icon: CupertinoIcons.map,
           tooltip: '航线规划',
           onPressed: onOpenMissionPlanning,
+        ),
+        _MapIconButton(
+          icon: CupertinoIcons.airplane,
+          tooltip: '飞行模式',
+          onPressed: onOpenFlightModes ?? () {},
         ),
       ],
     ),

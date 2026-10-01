@@ -129,6 +129,27 @@ std::vector<std::string> FlightModeManager::available_modes() const {
     return modes;
 }
 
+std::vector<mg::core::firmware::FlightModeEntry>
+FlightModeManager::mode_entries() const {
+    mg::core::platform::LockGuard lk(mtx_);
+    if (!fw_plugin_) return {};
+    return fw_plugin_->available_modes(fw_adapter_.vehicle_kind());
+}
+
+bool FlightModeManager::set_mode(const std::string& mode_name) {
+    mg::core::platform::LockGuard lk(mtx_);
+    if (!fw_plugin_ || !mavlink_ || mode_name.empty()) return false;
+    const int custom =
+        fw_plugin_->encode_flight_mode(fw_adapter_.vehicle_kind(), mode_name);
+    if (custom < 0) return false;
+    // QGC Vehicle::setFlightMode：base_mode 带 CUSTOM_MODE_ENABLED，并按需保留
+    // SAFETY_ARMED 位，ArduPilot 只看 custom_mode。
+    uint8_t base_mode = 0x01;             // MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
+    if (armed_) base_mode |= 0x80;        // MAV_MODE_FLAG_SAFETY_ARMED
+    return mavlink_->set_mode(target_sys_, target_comp_, base_mode,
+                              static_cast<uint32_t>(custom));
+}
+
 bool FlightModeManager::arm(bool force) {
     if (!armed_) {
         MGC_LOG_INFO("[FlightMode] Arm requested (force=%d)", force);

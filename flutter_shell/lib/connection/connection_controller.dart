@@ -268,6 +268,19 @@ enum SerialConnectionPhase { disconnected, waitingForHeartbeat, connected }
 
 enum ConnectionTransport { serial, udp, tcp }
 
+/// 飞行模式表里的一项。`id` 是 MAVLink custom_mode（PX4 为 main/sub 打包值）。
+class FlightModeOption {
+  const FlightModeOption({
+    required this.id,
+    required this.name,
+    required this.settable,
+  });
+
+  final int id;
+  final String name;
+  final bool settable;
+}
+
 /// Selects the tuning UI surface for the detected ArduPilot vehicle profile.
 enum VehicleControlProfile { unknown, copter, fixedWing, planeVtol }
 
@@ -290,6 +303,9 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>) _requestFirmwareVersion;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getFlightModes;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _setFlightMode;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _close;
   late final void Function(Pointer<Utf8>) _freeString;
 
@@ -399,6 +415,10 @@ final class ConnectionController extends ChangeNotifier {
   /// 心跳摘要：QGC 的引导操作门控按 armed / 飞行模式 / 机型判断。
   bool vehicleArmed = false;
   String vehicleFlightMode = '';
+
+  /// 飞行模式操作台数据：后端按机型给出的完整模式表（含不可切换项）。
+  bool flightModesAvailable = false;
+  List<FlightModeOption> flightModeOptions = const [];
   int vehicleType = 0;
   int vehicleAutopilotType = 0;
 
@@ -1137,6 +1157,16 @@ final class ConnectionController extends ChangeNotifier {
             'mg_vehicle_select',
           )
           .asFunction();
+      _getFlightModes = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
+            'mg_flight_get_modes',
+          )
+          .asFunction();
+      _setFlightMode = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+          >('mg_flight_set_mode')
+          .asFunction();
       _core = _create();
       _waveformBuffer = calloc<Float>(
         _waveformMaxPoints * _waveformFloatsPerPoint,
@@ -1160,6 +1190,55 @@ final class ConnectionController extends ChangeNotifier {
 
   void _requireConnected(String action) {
     if (!isConnected) throw StateError('未连接飞控，无法$action');
+  }
+
+  /// 拉取飞行模式表（模式名 + 是否可切换）。参考 QGC `Vehicle::flightModes()`
+  /// 与 MP `CMB_modes`：列表按机型给，MC 与固定翼的模式号不同，不能混用。
+  Future<void> refreshFlightModes() async {
+    if (!isConnected) {
+      if (!flightModesAvailable && flightModeOptions.isEmpty) return;
+      flightModesAvailable = false;
+      flightModeOptions = const [];
+      notifyListeners();
+      return;
+    }
+    try {
+      final response = _readJson(_getFlightModes(_core)) as Map<String, Object?>;
+      if (response['success'] != true) return;
+      final options = (response['modes'] as List<Object?>? ?? const [])
+          .whereType<Map<Object?, Object?>>()
+          .map(
+            (raw) => FlightModeOption(
+              id: (raw['id'] as num?)?.toInt() ?? 0,
+              name: raw['name'] as String? ?? '',
+              settable: raw['settable'] == true,
+            ),
+          )
+          .where((option) => option.name.isNotEmpty)
+          .toList(growable: false);
+      flightModesAvailable = response['available'] == true;
+      flightModeOptions = options;
+      final current = response['current_mode'] as String? ?? '';
+      if (current.isNotEmpty) vehicleFlightMode = current;
+      notifyListeners();
+    } on Object {
+      // 轮询失败保持上一次结果，不打断其它遥测。
+    }
+  }
+
+  /// 按名字切换飞行模式（MP 的 setMode(name) / QGC 的 flightMode 属性写法）。
+  Future<void> setFlightMode(String name) async {
+    _requireConnected('切换飞行模式');
+    final nativeName = name.toNativeUtf8();
+    try {
+      _requireCommandSuccess(
+        _readJson(_setFlightMode(_core, nativeName)),
+        '切换到 $name',
+      );
+    } finally {
+      malloc.free(nativeName);
+    }
+    await refreshFlightModes();
   }
 
   void _requireCommandSuccess(Object? raw, String action) {

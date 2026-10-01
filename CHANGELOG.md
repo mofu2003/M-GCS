@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.0.59 - 2026-10-02
+
+### Added
+
+- 新增 FFI `mg_flight_get_modes` / `mg_flight_set_mode`：按机型返回完整飞行模式表
+  （`id` = custom_mode、`name`、`settable`）与当前模式、解锁状态，并支持按名字切换。
+  模式号沿用 MP/QGC 的 ArduPilot 枚举（Copter Auto=3、Plane Auto=10），PX4 走
+  main/sub 打包值。
+- 新增「飞行模式」操作台：贴左上角悬浮，显示当前模式与解锁状态，列出模式表并高亮当前项，
+  不可切换项置灰；未连接时只读。参考 QGC `FlightModeMenu.qml` 的列表交互与 MP
+  `FlightData.cs` 的 `CMB_modes` 按机型取表。
+- 三个浮层不再互斥：连接、航线规划、飞行模式可以同时打开，各自贴不同边缘，互不遮挡。
+
+### Verification
+
+- `test_sim_commands` 新增模式目录用例：连接后目录可用、含 Copter 的 Stabilize/Loiter、
+  按名字切换到 Loiter 得到 custom_mode 5、未知模式被拒。
+- 用本地 ArduPlane SITL 实测：`mg_flight_get_modes` 返回 Plane 表与 `current_mode:"Auto"`，
+  `mg_flight_set_mode("Loiter")` 成功且回读变为 `Loiter`（custom_mode 12）。
+- 后端 offline/simulation `35/35` 通过；Flutter analyze 无问题、测试 `22/22` 通过；
+  UI token 检查与 macOS debug 构建通过；完整 `tools/preflight.sh` 通过。
+
 ## 0.0.58 - 2026-10-02
 
 ### Fixed

@@ -164,6 +164,9 @@ Flutter 侧补齐围栏/Rally 的绑定、控制器流程和任务面板操作�
 `0.0.55` 补任务执行进度：适配器统计 `MISSION_ITEM_REACHED`（按 seq 去重），新增
 `mg_mission_get_execution_progress`，Flutter 任务面板显示进度条并每秒轮询（面板隐藏即停）。
 
+`0.0.59` 新增飞行模式操作台：`mg_flight_get_modes` / `mg_flight_set_mode` 复用固件插件
+已有的模式表，前端按 QGC 的菜单交互和 MP 的按机型取表实现，并解除三个浮层之间的互斥。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

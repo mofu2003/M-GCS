@@ -94,6 +94,14 @@ public:
     /// Get available modes for current vehicle type
     std::vector<std::string> available_modes() const;
 
+    /// 全部模式（含不可切换的），供 UI 展示模式表。MP/QGC 都是按机型给完整列表，
+    /// 不可切换的项保留但置灰，而不是从列表里删掉。
+    std::vector<mg::core::firmware::FlightModeEntry> mode_entries() const;
+
+    /// 按名字切换模式。MP 的 CMB_modes 与 QGC 的 flightMode 属性都是按名字切。
+    /// 名字不识别或未绑定时返回 false。
+    bool set_mode(const std::string& mode_name);
+
     bool arm(bool force = false);
     bool disarm(bool force = false);
     bool return_to_launch();
