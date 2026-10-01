@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.0.54 - 2026-10-01
+
+### Added
+
+- `mg_operations_get_snapshot` 新增 `fence` 和 `rally` 区段（`type` 分别为
+  `fence_transfer` / `rally_transfer`），字段与 `mission` 同构
+  （`state`/`progress_pct`/`received`/`sent`/`total`/`result`/`error`）。此前围栏和
+  Rally 传输没有进度来源，前端无法等待完成。
+- Flutter 侧完成对接：`MissionDocumentBackend` 新增围栏/Rally 的
+  compile/upload/download/import/verify/clear/进度查询接口，
+  `MissionDocumentFfiBackend` 绑定对应 FFI，`MissionDocumentController` 新增
+  `uploadFence`/`readFenceFromVehicle`/`verifyFence`/`clearFence` 及 Rally 同名流程，
+  任务面板“设置”标签页新增围栏/Rally 操作组（读取 / 下发 / 清除，下发自带回读核对）。
+- `MissionVerificationDifference` 新增 `area` 字段，承载围栏/Rally 核对返回的区段名。
+
+### Verification
+
+- 后端 offline/simulation `35/35` 通过。
+- Flutter analyze 无问题，Flutter 测试 `21/21` 通过（新增围栏/Rally 流程用例）。
+- UI token 检查和 macOS debug 构建通过；bundle 内 `libmgcore.dylib` 含全部 300 个
+  `mg_*` 导出符号（含新增围栏/Rally 接口）。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.53 - 2026-10-01
 
 ### Changed

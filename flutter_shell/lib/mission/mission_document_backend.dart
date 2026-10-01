@@ -35,6 +35,37 @@ abstract interface class MissionDocumentBackend {
     double toleranceMeters = 0.1,
   });
 
+  /// 围栏是独立的 MAVLink mission type，不随任务上传。下面这组接口与任务
+  /// 上传/读取/核对对称，差别只是走 fence mission type。
+  Future<JsonMap> compileFencePlan();
+
+  Future<JsonMap> uploadFence(int expectedRevision);
+
+  Future<void> startFenceDownload();
+
+  Future<MissionDocument> importFenceFromVehicle();
+
+  Future<MissionVerificationResult> verifyFence({double toleranceMeters = 0.1});
+
+  Future<MissionTransferProgress> getFenceTransferProgress();
+
+  Future<void> clearFence();
+
+  /// Rally 同样是独立 mission type（MAV_MISSION_TYPE_RALLY）。
+  Future<JsonMap> compileRallyPlan();
+
+  Future<JsonMap> uploadRally(int expectedRevision);
+
+  Future<void> startRallyDownload();
+
+  Future<MissionDocument> importRallyFromVehicle();
+
+  Future<MissionVerificationResult> verifyRally({double toleranceMeters = 0.1});
+
+  Future<MissionTransferProgress> getRallyTransferProgress();
+
+  Future<void> clearRally();
+
   Future<MissionDocument> importMissionDocument(String json);
 
   Future<String> exportMissionDocument();

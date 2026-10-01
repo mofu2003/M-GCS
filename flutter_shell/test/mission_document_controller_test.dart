@@ -197,6 +197,42 @@ void main() {
       expect(controller.status, contains('已采用飞控任务'));
     },
   );
+
+  test('fence and rally flows upload, read back and verify', () async {
+    final backend = _FakeMissionBackend();
+    final controller = MissionDocumentController(backend: backend);
+
+    await controller.initialize();
+    await controller.addEntity(
+      const MissionEntity(
+        id: 'entity-1',
+        latitude: 31.2,
+        longitude: 121.4,
+        altitudeMeters: 50,
+      ),
+    );
+
+    final fence = await controller.uploadFence();
+    expect(fence?.matches, isTrue);
+    expect(controller.status, contains('围栏已下发并回读核对通过'));
+
+    await controller.readFenceFromVehicle();
+    expect(backend.fenceDownloadStarts, 2);
+    expect(controller.status, contains('已从飞控读取围栏'));
+
+    await controller.clearFence();
+    expect(backend.fenceClears, 1);
+
+    final rally = await controller.uploadRally();
+    expect(rally?.matches, isTrue);
+    expect(controller.status, contains('Rally 点已下发并回读核对通过'));
+
+    await controller.readRallyFromVehicle();
+    expect(backend.rallyDownloadStarts, 2);
+
+    await controller.clearRally();
+    expect(backend.rallyClears, 1);
+  });
 }
 
 final class _FakeMissionBackend implements MissionDocumentBackend {
@@ -208,6 +244,16 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
   int transferCompletionPolls = 2;
   int downloadStarts = 0;
   bool cancelCalled = false;
+  int fenceDownloadStarts = 0;
+  int fenceClears = 0;
+  int rallyDownloadStarts = 0;
+  int rallyClears = 0;
+  MissionVerificationResult fenceVerificationResult =
+      const MissionVerificationResult(matches: true);
+  MissionVerificationResult rallyVerificationResult =
+      const MissionVerificationResult(matches: true);
+  final MissionTransferProgress _fenceTransfer = const MissionTransferProgress();
+  final MissionTransferProgress _rallyTransfer = const MissionTransferProgress();
   MissionVerificationResult verificationResult =
       const MissionVerificationResult(
         matches: true,
@@ -342,6 +388,70 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
   Future<void> startMissionDownload() async {
     downloadStarts++;
     _startTransfer(MissionTransferState.downloading);
+  }
+
+  @override
+  Future<JsonMap> compileFencePlan() async => const {'success': true, 'item_count': 0};
+
+  @override
+  Future<JsonMap> uploadFence(int expectedRevision) async => {
+    'success': true,
+    'revision': expectedRevision,
+    'state': 'uploading',
+  };
+
+  @override
+  Future<void> startFenceDownload() async {
+    fenceDownloadStarts++;
+  }
+
+  @override
+  Future<MissionTransferProgress> getFenceTransferProgress() async =>
+      _fenceTransfer;
+
+  @override
+  Future<MissionDocument> importFenceFromVehicle() async => _document;
+
+  @override
+  Future<MissionVerificationResult> verifyFence({
+    double toleranceMeters = 0.1,
+  }) async => fenceVerificationResult;
+
+  @override
+  Future<void> clearFence() async {
+    fenceClears++;
+  }
+
+  @override
+  Future<JsonMap> compileRallyPlan() async => const {'success': true, 'item_count': 0};
+
+  @override
+  Future<JsonMap> uploadRally(int expectedRevision) async => {
+    'success': true,
+    'revision': expectedRevision,
+    'state': 'uploading',
+  };
+
+  @override
+  Future<void> startRallyDownload() async {
+    rallyDownloadStarts++;
+  }
+
+  @override
+  Future<MissionTransferProgress> getRallyTransferProgress() async =>
+      _rallyTransfer;
+
+  @override
+  Future<MissionDocument> importRallyFromVehicle() async => _document;
+
+  @override
+  Future<MissionVerificationResult> verifyRally({
+    double toleranceMeters = 0.1,
+  }) async => rallyVerificationResult;
+
+  @override
+  Future<void> clearRally() async {
+    rallyClears++;
   }
 
   @override

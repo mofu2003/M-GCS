@@ -158,6 +158,9 @@ breach-return 点及高度），区分于阻断上传的复杂项：围栏/Rally
 剩余项属于产品决策（参数阈值、固件刷写取舍）、环境阻塞（FFmpeg 并发）或前端/真机
 工作。判定口径见 [完成定义与后端维护收口](DEFINITION_OF_DONE.md)。
 
+`0.0.54` 完成前后端对接：`mg_operations_get_snapshot` 新增 `fence`/`rally` 进度区段，
+Flutter 侧补齐围栏/Rally 的绑定、控制器流程和任务面板操作组（读取 / 下发 / 清除）。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

@@ -422,6 +422,7 @@ final class MissionVerificationDifference {
     required this.expected,
     required this.actual,
     this.reason = '',
+    this.area = '',
   });
 
   final int index;
@@ -429,6 +430,8 @@ final class MissionVerificationDifference {
   final String expected;
   final String actual;
   final String reason;
+  /// 围栏/Rally 核对时后端给出的区段名（如 `polygon[0]`、`rally[1]`）。
+  final String area;
 
   factory MissionVerificationDifference.fromJson(JsonMap json) =>
       MissionVerificationDifference(
@@ -437,6 +440,7 @@ final class MissionVerificationDifference {
         expected: json['expected']?.toString() ?? '',
         actual: json['actual']?.toString() ?? '',
         reason: json['reason']?.toString() ?? '',
+        area: json['area']?.toString() ?? '',
       );
 }
 

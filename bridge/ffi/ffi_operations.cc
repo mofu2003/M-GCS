@@ -42,10 +42,10 @@ std::string params_operation_json(mg_core_t* core) {
     return jb.str();
 }
 
-std::string mission_operation_json(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
-    auto progress = mav ? mg::bridge::ffi::present_mission_progress(core, mav->mission_get_progress())
-                        : mg::core::mission::MissionTransferProgress{};
+std::string transfer_operation_json(
+    const char* id,
+    const char* type,
+    const mg::core::mission::MissionTransferProgress& progress) {
     const bool active =
         progress.state == mg::core::mission::MissionState::Downloading ||
         progress.state == mg::core::mission::MissionState::Uploading ||
@@ -67,8 +67,8 @@ std::string mission_operation_json(mg_core_t* core) {
 
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
-    jb.field("id", "mission");
-    jb.field("type", "mission_transfer");
+    jb.field("id", id);
+    jb.field("type", type);
     jb.field("state", state);
     jb.field("progress_pct", pct);
     jb.field("received", static_cast<int>(progress.received));
@@ -85,6 +85,28 @@ std::string mission_operation_json(mg_core_t* core) {
     jb.field("error", progress.error);
     jb.end_object();
     return jb.str();
+}
+
+std::string mission_operation_json(mg_core_t* core) {
+    auto* mav = get_active_mavlink(core);
+    const auto progress = mav
+        ? mg::bridge::ffi::present_mission_progress(core, mav->mission_get_progress())
+        : mg::core::mission::MissionTransferProgress{};
+    return transfer_operation_json("mission", "mission_transfer", progress);
+}
+
+std::string fence_operation_json(mg_core_t* core) {
+    auto* mav = get_active_mavlink(core);
+    const auto progress = mav ? mav->fence_get_progress()
+                              : mg::core::mission::MissionTransferProgress{};
+    return transfer_operation_json("fence", "fence_transfer", progress);
+}
+
+std::string rally_operation_json(mg_core_t* core) {
+    auto* mav = get_active_mavlink(core);
+    const auto progress = mav ? mav->rally_get_progress()
+                              : mg::core::mission::MissionTransferProgress{};
+    return transfer_operation_json("rally", "rally_transfer", progress);
 }
 
 std::string calibration_operation_json(mg_core_t* core) {
@@ -169,6 +191,8 @@ std::string operations_snapshot_json(mg_core_t* core) {
     ops.begin_array();
     ops.append_json(params_operation_json(core));
     ops.append_json(mission_operation_json(core));
+    ops.append_json(fence_operation_json(core));
+    ops.append_json(rally_operation_json(core));
     ops.append_json(calibration_operation_json(core));
     ops.append_json(log_operation_json(core));
     ops.end_array();
@@ -179,6 +203,8 @@ std::string operations_snapshot_json(mg_core_t* core) {
     jb.raw_field("operations", ops.str());
     jb.raw_field("params", params_operation_json(core));
     jb.raw_field("mission", mission_operation_json(core));
+    jb.raw_field("fence", fence_operation_json(core));
+    jb.raw_field("rally", rally_operation_json(core));
     jb.raw_field("calibration", calibration_operation_json(core));
     jb.raw_field("log", log_operation_json(core));
     jb.end_object();

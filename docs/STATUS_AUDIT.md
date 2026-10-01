@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.53`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.54`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -10,7 +10,7 @@
 | `git diff --check` | 通过 |
 | `dart tools/check_ui_tokens.dart` | 通过 |
 | Flutter analyze | 通过 |
-| Flutter test | 20/20 |
+| Flutter test | 21/21 |
 | 后端 offline/simulation | 35/35 |
 | macOS debug 构建 | 通过 |
 | Windows build/preflight | workflow 统一调用预检脚本；脚本会先生成 MAVLink 头，再构建 bundle 并校验关键 FFI 导出。未在本机 Windows 复核 |
@@ -117,6 +117,9 @@ bash tools/audit_status.sh
 - `FENCE-005` / `RALLY-005`：新增 `mg_mission_doc_verify_fence` /
   `mg_mission_doc_verify_rally`，比较文档与飞控围栏/Rally，返回 `matches` 与结构化
   `differences`；`test_sim_fence_rally` 扩展到 29 项断言，覆盖清空飞控后 verify 报差异。
+- `UI-003`：围栏/Rally 完成前后端对接。`mg_operations_get_snapshot` 新增
+  `fence`/`rally` 进度区段（与 `mission` 同构），Flutter 侧补齐
+  `MissionDocumentBackend` 绑定、`MissionDocumentController` 流程和任务面板操作组。
 - `COMPLEX-001`：QGC ComplexItem（Survey、CorridorScan 等）提升为正式
   `MissionComplexItem` 模型，保存 `id`、`item_type` 和原始 JSON，`.plan` 往返无损；
   新增 `entity_insert_index` 后导出时与普通航点按原顺序交错；内部字段目前只读，
@@ -150,7 +153,8 @@ bash tools/audit_status.sh
 任务上传、下载已经通过 `mg_operations_get_snapshot` 显示进度并支持真实取消；参数同步
 后端也已支持 `mg_operations_cancel("params")` 和 cancelled/failed 终态，但 Flutter
 页面仍由各页等待。operations 快照现在还包含 `calibration` 和 `log`，对应的校准与日志
-下载取消也已接入；`mg_system_get_diagnostics` 还包含最近参数写入的 requested/actual/
+下载取消也已接入，并新增围栏/Rally 的 `fence`/`rally` 区段（与 `mission` 字段同构，
+供前端轮询进度）；`mg_system_get_diagnostics` 还包含最近参数写入的 requested/actual/
 state/error 历史。前端后续可统一消费同一套 operation 状态。
 
 ### `PARAM-002`：参数元数据和覆盖仍可继续增强

@@ -136,6 +136,14 @@ int main() {
         return env.mock->stored_mission_type(MAV_MISSION_TYPE_FENCE).size() == 5;
     });
     CHECK("fence reaches the vehicle as five items", fence_arrived);
+
+    result = mg_operations_get_snapshot(env.core);
+    CHECK("operations snapshot exposes fence and rally progress",
+          result && strstr(result, "\"fence\"") && strstr(result, "\"rally\"") &&
+              strstr(result, "\"fence_transfer\"") &&
+              strstr(result, "\"rally_transfer\""));
+    if (result) mg_free_string(result);
+
     const auto& fence = env.mock->stored_mission_type(MAV_MISSION_TYPE_FENCE);
     if (fence.size() == 5) {
         CHECK("polygon vertex keeps count and fence mission type",

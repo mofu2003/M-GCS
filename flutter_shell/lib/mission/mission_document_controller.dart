@@ -17,6 +17,8 @@ final class MissionDocumentController extends ChangeNotifier {
   MissionEstimate? estimate;
   MissionTransferProgress? transfer;
   MissionVerificationResult? verification;
+  MissionVerificationResult? fenceVerification;
+  MissionVerificationResult? rallyVerification;
   List<MissionCommandDescriptor> commandCatalog = const [];
   String? status;
   String? error;
@@ -218,6 +220,119 @@ final class MissionDocumentController extends ChangeNotifier {
     return result!;
   }
 
+  /// 下发围栏：上传 → 等待 → 回读 → 核对。围栏是独立 mission type，不随任务上传。
+  Future<MissionVerificationResult?> uploadFence({
+    double toleranceMeters = 0.1,
+  }) async {
+    final current = document;
+    if (current == null) throw StateError('任务文档尚未初始化');
+    final currentRevision = current.revision;
+    fenceVerification = null;
+    await _run('正在下发围栏…', rethrowErrors: true, () async {
+      await backend.uploadFence(currentRevision);
+      await _waitForOperation(backend.getFenceTransferProgress, '下发围栏');
+      status = '围栏已下发，正在从飞控回读核对…';
+      notifyListeners();
+      await backend.startFenceDownload();
+      await _waitForOperation(backend.getFenceTransferProgress, '回读围栏');
+      fenceVerification = await backend.verifyFence(
+        toleranceMeters: toleranceMeters,
+      );
+      final result = fenceVerification!;
+      status = result.matches
+          ? '围栏已下发并回读核对通过'
+          : '围栏已下发，但回读发现 ${result.differenceCount} 处差异';
+    });
+    return fenceVerification;
+  }
+
+  /// 从飞控读取围栏并替换文档的围栏区段。
+  Future<void> readFenceFromVehicle() =>
+      _run('正在从飞控读取围栏…', rethrowErrors: true, () async {
+        fenceVerification = null;
+        await backend.startFenceDownload();
+        await _waitForOperation(backend.getFenceTransferProgress, '读取围栏');
+        document = await backend.importFenceFromVehicle();
+        await _refreshDerived();
+        status = '已从飞控读取围栏并更新文档';
+      });
+
+  Future<MissionVerificationResult> verifyFence({
+    double toleranceMeters = 0.1,
+  }) async {
+    MissionVerificationResult? result;
+    await _run('正在核对飞控围栏…', rethrowErrors: true, () async {
+      await backend.startFenceDownload();
+      await _waitForOperation(backend.getFenceTransferProgress, '回读围栏');
+      result = await backend.verifyFence(toleranceMeters: toleranceMeters);
+      fenceVerification = result;
+    });
+    return result!;
+  }
+
+  Future<void> clearFence() =>
+      _run('正在清除飞控围栏…', rethrowErrors: true, () async {
+        fenceVerification = null;
+        await backend.clearFence();
+        status = '已请求清除飞控围栏';
+      });
+
+  /// 下发 Rally 点：上传 → 等待 → 回读 → 核对。
+  Future<MissionVerificationResult?> uploadRally({
+    double toleranceMeters = 0.1,
+  }) async {
+    final current = document;
+    if (current == null) throw StateError('任务文档尚未初始化');
+    final currentRevision = current.revision;
+    rallyVerification = null;
+    await _run('正在下发 Rally 点…', rethrowErrors: true, () async {
+      await backend.uploadRally(currentRevision);
+      await _waitForOperation(backend.getRallyTransferProgress, '下发 Rally 点');
+      status = 'Rally 点已下发，正在从飞控回读核对…';
+      notifyListeners();
+      await backend.startRallyDownload();
+      await _waitForOperation(backend.getRallyTransferProgress, '回读 Rally 点');
+      rallyVerification = await backend.verifyRally(
+        toleranceMeters: toleranceMeters,
+      );
+      final result = rallyVerification!;
+      status = result.matches
+          ? 'Rally 点已下发并回读核对通过'
+          : 'Rally 点已下发，但回读发现 ${result.differenceCount} 处差异';
+    });
+    return rallyVerification;
+  }
+
+  Future<void> readRallyFromVehicle() =>
+      _run('正在从飞控读取 Rally 点…', rethrowErrors: true, () async {
+        rallyVerification = null;
+        await backend.startRallyDownload();
+        await _waitForOperation(backend.getRallyTransferProgress, '读取 Rally 点');
+        document = await backend.importRallyFromVehicle();
+        await _refreshDerived();
+        status = '已从飞控读取 Rally 点并更新文档';
+      });
+
+  Future<MissionVerificationResult> verifyRally({
+    double toleranceMeters = 0.1,
+  }) async {
+    MissionVerificationResult? result;
+    await _run('正在核对飞控 Rally 点…', rethrowErrors: true, () async {
+      await backend.startRallyDownload();
+      await _waitForOperation(backend.getRallyTransferProgress, '回读 Rally 点');
+      result = await backend.verifyRally(toleranceMeters: toleranceMeters);
+      rallyVerification = result;
+    });
+    return result!;
+  }
+
+  Future<void> clearRally() =>
+      _run('正在清除飞控 Rally 点…', rethrowErrors: true, () async {
+        rallyVerification = null;
+        await backend.clearRally();
+        status = '已请求清除飞控 Rally 点';
+      });
+
   Future<void> importJson(String json) => _run('正在导入任务…', () async {
     document = await backend.importMissionDocument(json);
     validation = null;
@@ -278,6 +393,30 @@ final class MissionDocumentController extends ChangeNotifier {
   Future<void> _refreshTransfer() async {
     transfer = await backend.getMissionTransferProgress();
     notifyListeners();
+  }
+
+  /// 与 [_waitForTransfer] 相同的等待语义，但进度来源是围栏/Rally 这类独立
+  /// mission type。operations 快照里它们分别是 `fence` / `rally` 区段。
+  Future<void> _waitForOperation(
+    Future<MissionTransferProgress> Function() poll,
+    String action,
+  ) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    while (DateTime.now().isBefore(deadline)) {
+      final current = await poll();
+      if (current.active) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        continue;
+      }
+      if (current.cancelled) throw const _MissionTransferCancelled();
+      if (current.error.isNotEmpty || current.result != 0) {
+        throw StateError(
+          '$action失败：${current.error.isEmpty ? 'result=${current.result}' : current.error}',
+        );
+      }
+      return;
+    }
+    throw StateError('$action超时');
   }
 
   Future<void> _refreshDerived() async {

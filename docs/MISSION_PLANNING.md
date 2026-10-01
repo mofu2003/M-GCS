@@ -196,6 +196,8 @@ GeoFence 与 Rally 是独立的 MAVLink mission type，不计入航点任务上�
 围栏和 Rally 也支持回读：`geo_fence_from_plan` / `rally_points_from_plan` 解析飞控返回的
 任务项，`mg_mission_doc_import_fence_from_vehicle` /
 `mg_mission_doc_import_rally_from_vehicle` 在一次成功下载后替换文档对应区段。
+上传/回读进度从 `mg_operations_get_snapshot` 的 `fence` / `rally` 区段读取，字段与
+`mission` 一致（`state`/`progress_pct`/`received`/`sent`/`total`/`result`/`error`）。
 
 `mg_mission_doc_verify_fence` / `mg_mission_doc_verify_rally` 与 `mg_mission_doc_verify`
 对称，比较文档与飞控的围栏/Rally 并返回差异，用于上传后回读核对。

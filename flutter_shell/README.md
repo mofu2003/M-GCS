@@ -1,6 +1,6 @@
 # M-GCS Flutter Shell
 
-Current version: `0.0.53` (source of truth: `pubspec.yaml`).
+Current version: `0.0.54` (source of truth: `pubspec.yaml`).
 
 The shell is the cross-platform presentation layer for M-GCS. It contains the
 map, connection workspace, telemetry and waveform views, mission planning,

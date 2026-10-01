@@ -704,6 +704,13 @@ class _MissionPlanningFloatingPanelState
                 }
               },
             ),
+            const SizedBox(height: 14),
+            const _MissionSectionTitle('围栏 / Rally'),
+            const SizedBox(height: 6),
+            _FenceRallyCard(
+              mission: _mission,
+              enabled: enabled && widget.controller.isConnected,
+            ),
           ],
         ),
       );
@@ -739,6 +746,98 @@ class _MissionPlanningFloatingPanelState
     }
     final meters = wgs84DistanceMeters(LatLng(lat1, lon1), LatLng(lat2, lon2));
     return '距上一点 ${formatMissionDistance(meters)}';
+  }
+}
+
+/// 围栏 / Rally 操作组。
+///
+/// 两者是独立的 MAVLink mission type，不随任务上传；下发流程自带回读核对。
+class _FenceRallyCard extends StatelessWidget {
+  const _FenceRallyCard({required this.mission, required this.enabled});
+
+  final MissionDocumentController mission;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    return MissionCardFrame(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _row(
+            context,
+            icon: CupertinoIcons.lock_shield,
+            label: '围栏',
+            hint: '围栏是独立的 MAVLink mission type，不随任务上传',
+            onRead: mission.readFenceFromVehicle,
+            onUpload: mission.uploadFence,
+            onClear: mission.clearFence,
+            labelColor: colors.warning,
+          ),
+          const SizedBox(height: 8),
+          _row(
+            context,
+            icon: CupertinoIcons.flag,
+            label: 'Rally',
+            hint: 'Rally 点同样是独立 mission type，不随任务上传',
+            onRead: mission.readRallyFromVehicle,
+            onUpload: mission.uploadRally,
+            onClear: mission.clearRally,
+            labelColor: colors.accent,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required String hint,
+    required Future<Object?> Function() onRead,
+    required Future<Object?> Function() onUpload,
+    required Future<void> Function() onClear,
+    required Color labelColor,
+  }) {
+    final colors = context.mgColors;
+    final typography = MacosTheme.of(context).typography;
+    return Row(
+      children: [
+        Container(width: 3, height: 14, color: labelColor),
+        const SizedBox(width: 8),
+        MacosTooltip(
+          message: hint,
+          child: MacosIcon(icon, size: 13, color: colors.textSecondary),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: typography.body),
+        const Spacer(),
+        PushButton(
+          controlSize: ControlSize.small,
+          secondary: true,
+          onPressed: enabled ? () => unawaited(onRead()) : null,
+          child: const Text('读取'),
+        ),
+        const SizedBox(width: 6),
+        MacosTooltip(
+          message: '下发并自动回读核对',
+          child: PushButton(
+            controlSize: ControlSize.small,
+            onPressed: enabled ? () => unawaited(onUpload()) : null,
+            child: const Text('下发'),
+          ),
+        ),
+        const SizedBox(width: 6),
+        PushButton(
+          controlSize: ControlSize.small,
+          secondary: true,
+          onPressed: enabled ? () => unawaited(onClear()) : null,
+          child: const Text('清除'),
+        ),
+      ],
+    );
   }
 }
 
