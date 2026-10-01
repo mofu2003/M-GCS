@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.25 - 2026-10-01
+
+### Changed
+
+- 完成第二阶段 C 的第一项 MAVLink 内部拆分：新增
+  `core/src/mavlink/mavlink_adapter_state.h`，将遥测最新值、链路质量、日志下载和
+  Command ACK 等待状态从 `mavlink_adapter_internal.h` 迁出。
+- `mavlink_adapter_internal.h` 现在只保留 `Impl` 组合、协议辅助方法和消息分发入口，
+  文件从 1434 行降到 1269 行；公开 FFI、MAVLink 行为、JSON 契约和 Flutter 绑定不变。
+
+### Verification
+
+- `flutter analyze lib test` 通过。
+- Flutter 测试 `20/20` 通过。
+- 后端 offline/simulation `34/34` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.24 - 2026-10-01
 
 ### Changed

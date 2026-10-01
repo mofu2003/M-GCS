@@ -60,6 +60,10 @@ Servo/RC、系统状态和 freshness 的状态仍由 `ConnectionController` 管�
 RTL、降落、起飞、解锁、模式切换、任务启动、引导点、暂停、环绕和设置 Home 的安全
 门控及状态确认仍由 `ConnectionController` 管理。
 
+第二阶段 C 已开始：`mavlink_adapter_state.h` 已拆出遥测、链路质量、日志下载和
+Command ACK 等待状态。`mavlink_adapter_internal.h` 继续逐步释放消息处理、任务协议、
+参数协议、命令和日志处理的实现职责，每个切片独立通过门禁。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

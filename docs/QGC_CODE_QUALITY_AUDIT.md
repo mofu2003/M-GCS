@@ -1,6 +1,6 @@
 # M-GCS 与 QGroundControl 代码质量审计
 
-> 更新时间：2026-09-30。范围是 M-GCS 后端 `core/`、`bridge/ffi/`、测试，以及
+> 更新时间：2026-10-01。范围是 M-GCS 后端 `core/`、`bridge/ffi/`、测试，以及
 > QGroundControl 的 Mission、FactSystem、Comms、Vehicle、Calibration、
 > LogManager 等相关模块。不是对整个 QGC 仓库做总体评分，也不替代 MP 与 QGC
 > 的逐模块比较；上游选择规则见
@@ -32,7 +32,7 @@ QGC 在本文涉及的多数通用架构和任务系统中领先，但 ArduPilot
 | QGC 选定后端模块 | 约 71,236 行 |
 | QGC `test/` | 约 72,006 行 |
 | M-GCS 默认 offline/simulation | 34 个测试 |
-| M-GCS Flutter 测试 | 16 个测试 |
+| M-GCS Flutter 测试 | 20 个测试 |
 
 行数不等于质量，但说明 QGC 的测试和领域覆盖远高于 M-GCS。M-GCS 的优势是体积小、修改路径短、单次审计可以读完主要模块。
 
