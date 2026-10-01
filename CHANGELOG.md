@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.37 - 2026-10-01
+
+### Changed
+
+- 新增 `mg_config_get_metadata_coverage`：按当前固件/机型 profile 统计已加载参数中
+  described、fallback 和覆盖率，并列出缺少本地描述的参数名。
+- 覆盖报告只读，不修改参数缓存、不发送 MAVLink 请求，也不伪造缺失元数据；用于指导
+  后续按真实 ArduPilot 参数页缺口补齐描述库。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.36 - 2026-10-01
 
 ### Changed

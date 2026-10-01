@@ -28,6 +28,7 @@ MGCORE_API char* mg_params_load_from_file(mg_core_t* core, const char* filepath)
 MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name);
 MGCORE_API char* mg_config_write_param(mg_core_t* core, const char* param_name, float value);
 MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json_params);
+MGCORE_API char* mg_config_get_metadata_coverage(mg_core_t* core);
 
 MGCORE_API char* mg_param_file_export(mg_core_t* core, const char* json);
 MGCORE_API char* mg_param_file_import(mg_core_t* core, const char* content);

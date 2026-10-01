@@ -190,6 +190,23 @@ std::vector<GroupDescriptor> ParamDescriptors::get_all_groups(const std::string&
     return result;
 }
 
+ParamCoverage ParamDescriptors::coverage(
+    const std::string& profile,
+    const std::vector<std::string>& parameter_names) const {
+    ParamCoverage result;
+    result.total = static_cast<int>(parameter_names.size());
+    for (const auto& name : parameter_names) {
+        if (get(profile, name).found) {
+            result.described++;
+        } else {
+            result.fallback++;
+            result.missing.push_back(name);
+        }
+    }
+    std::sort(result.missing.begin(), result.missing.end());
+    return result;
+}
+
 std::string ParamDescriptors::validate(const std::string& param_name, float value) const {
     auto desc = get(param_name);
     if (!desc.found) return ""; // No descriptor = no validation

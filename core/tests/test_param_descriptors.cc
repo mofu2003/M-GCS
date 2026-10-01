@@ -97,6 +97,13 @@ static void test_ardupilot_profiles() {
           db.validate("copter", "BARO1_DEVID", 1.0f) == "Parameter is read-only");
     CHECK("range validation still works",
           db.validate("copter", "ACRO_RP_RATE", -1.0f).find("between") != std::string::npos);
+
+    const auto coverage = db.coverage("copter", {"BATT_CAPACITY", "MGC_UNKNOWN"});
+    CHECK("coverage counts described parameters",
+          coverage.total == 2 && coverage.described == 1);
+    CHECK("coverage lists fallback parameters",
+          coverage.fallback == 1 && coverage.missing.size() == 1 &&
+              coverage.missing.front() == "MGC_UNKNOWN");
 }
 
 static void test_chinese_translation_overlay() {

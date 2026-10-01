@@ -277,6 +277,38 @@ MGCORE_API char* mg_config_validate_param(mg_core_t* core, const char* param_nam
     return to_cstr(jb.str());
 }
 
+MGCORE_API char* mg_config_get_metadata_coverage(mg_core_t* core) {
+    CHECK_CORE(core);
+    auto* mav = get_active_mavlink(core);
+    auto& db = get_desc_db();
+    const auto profile = ffi_param_profile(core);
+    std::vector<std::string> names;
+    if (mav) {
+        const auto params = mav->all_params();
+        names.reserve(params.size());
+        for (const auto& param : params) names.push_back(param.name);
+    }
+    const auto coverage = db.coverage(profile, names);
+    const int percent = coverage.total > 0
+        ? (coverage.described * 100) / coverage.total
+        : 0;
+
+    mg::bridge::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("profile", profile);
+    jb.field("total", coverage.total);
+    jb.field("described", coverage.described);
+    jb.field("fallback", coverage.fallback);
+    jb.field("coverage_pct", percent);
+    mg::bridge::JsonBuilder missing;
+    missing.begin_array();
+    for (const auto& name : coverage.missing) missing.append_string(name);
+    missing.end_array();
+    jb.raw_field("missing", missing.str());
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
 MGCORE_API char* mg_config_get_presets(mg_core_t* core) {
     CHECK_CORE(core);
 

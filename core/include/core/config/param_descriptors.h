@@ -61,6 +61,13 @@ struct GroupDescriptor {
     std::vector<std::string> param_names;  // Ordered list of params in this group
 };
 
+struct ParamCoverage {
+    int total = 0;
+    int described = 0;
+    int fallback = 0;
+    std::vector<std::string> missing;
+};
+
 class ParamDescriptors {
 public:
     /// Load from JSON file. If path is empty, tries to find it automatically.
@@ -104,6 +111,10 @@ public:
     std::string enum_label(const std::string& profile, const std::string& param_name, int value) const;
 
     bool is_loaded() const { return loaded_; }
+
+    /// Summarize descriptor coverage for a list of loaded parameter names.
+    ParamCoverage coverage(const std::string& profile,
+                           const std::vector<std::string>& parameter_names) const;
 
 private:
     bool loaded_ = false;
