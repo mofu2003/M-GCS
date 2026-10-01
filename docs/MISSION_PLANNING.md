@@ -180,6 +180,11 @@ polygon、circle、inclusion 和 breach-return。ComplexItem 导入会产生“�
 返回 `complex_item.unsupported` 错误，强制用户在 QGroundControl 处理或移除复杂项，
 避免静默上传一份缺少 Survey/Corridor 的任务。
 
+GeoFence 与 Rally 是独立的 MAVLink mission type，不计入航点任务上传，也不会因为存在
+围栏/Rally 而阻断上传。`validate` 会检查其几何：多边形至少 3 个顶点、经纬度合法、
+圆半径为正值、breach-return 点位于有效范围，问题分别以 `geo_fence.*` / `rally.*`
+错误码返回。
+
 参数化测绘实体或禁用实体仍不能无损导出为普通 `.plan`；`hoverSpeed`、地形高度模式、
 null 参数和不在命令目录中的 MAV_CMD 会通过 `warnings` 报告。围栏和 Rally 的统一编辑
 文档仍未实现。

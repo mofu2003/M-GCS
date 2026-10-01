@@ -343,6 +343,129 @@ MissionValidationReport validate_document(const MissionDocument& document) {
             "complex_items");
     }
 
+    for (size_t index = 0; index < document.rally_points.size(); ++index) {
+        const MissionRallyPoint& rally = document.rally_points[index];
+        const std::string field =
+            "rally_points[" + std::to_string(index) + "]";
+        if (!finite(rally.latitude) || rally.latitude < kMinLatitude ||
+            rally.latitude > kMaxLatitude) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "rally.latitude",
+                "Rally point latitude is invalid",
+                {},
+                field + ".latitude");
+        }
+        if (!finite(rally.longitude) || rally.longitude < kMinLongitude ||
+            rally.longitude > kMaxLongitude) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "rally.longitude",
+                "Rally point longitude is invalid",
+                {},
+                field + ".longitude");
+        }
+        if (!finite(static_cast<double>(rally.altitude_m))) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "rally.altitude",
+                "Rally point altitude must be finite",
+                {},
+                field + ".altitude_m");
+        }
+    }
+
+    for (size_t index = 0; index < document.geo_fence.polygons.size(); ++index) {
+        const MissionGeoFencePolygon& polygon =
+            document.geo_fence.polygons[index];
+        const std::string field =
+            "geo_fence.polygons[" + std::to_string(index) + "]";
+        if (polygon.vertices.size() < 3) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "geo_fence.polygon_vertices",
+                "GeoFence polygon requires at least three vertices",
+                {},
+                field + ".vertices");
+        }
+        for (size_t vertex_index = 0; vertex_index < polygon.vertices.size();
+             ++vertex_index) {
+            const MissionGeoPoint& vertex = polygon.vertices[vertex_index];
+            if (!finite(vertex.latitude) || vertex.latitude < kMinLatitude ||
+                vertex.latitude > kMaxLatitude ||
+                !finite(vertex.longitude) ||
+                vertex.longitude < kMinLongitude ||
+                vertex.longitude > kMaxLongitude) {
+                add_diagnostic(
+                    report,
+                    DiagnosticSeverity::Error,
+                    "geo_fence.vertex",
+                    "GeoFence polygon vertex is invalid",
+                    {},
+                    field + ".vertices[" + std::to_string(vertex_index) + "]");
+            }
+        }
+    }
+
+    for (size_t index = 0; index < document.geo_fence.circles.size(); ++index) {
+        const MissionGeoFenceCircle& circle = document.geo_fence.circles[index];
+        const std::string field =
+            "geo_fence.circles[" + std::to_string(index) + "]";
+        if (!finite(circle.center.latitude) ||
+            circle.center.latitude < kMinLatitude ||
+            circle.center.latitude > kMaxLatitude ||
+            !finite(circle.center.longitude) ||
+            circle.center.longitude < kMinLongitude ||
+            circle.center.longitude > kMaxLongitude) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "geo_fence.circle_center",
+                "GeoFence circle center is invalid",
+                {},
+                field + ".center");
+        }
+        if (!finite(circle.radius_m) || circle.radius_m <= 0.0) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "geo_fence.circle_radius",
+                "GeoFence circle radius must be positive",
+                {},
+                field + ".radius_m");
+        }
+    }
+
+    if (document.geo_fence.breach_return_set) {
+        const MissionGeoPoint& breach = document.geo_fence.breach_return;
+        if (!finite(breach.latitude) || breach.latitude < kMinLatitude ||
+            breach.latitude > kMaxLatitude || !finite(breach.longitude) ||
+            breach.longitude < kMinLongitude ||
+            breach.longitude > kMaxLongitude) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "geo_fence.breach_return",
+                "GeoFence breach-return point is invalid",
+                {},
+                "geo_fence.breach_return");
+        }
+        if (!finite(
+                static_cast<double>(document.geo_fence.breach_return_altitude_m))) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "geo_fence.breach_return_altitude",
+                "GeoFence breach-return altitude must be finite",
+                {},
+                "geo_fence.breach_return_altitude_m");
+        }
+    }
+
     for (size_t index = 0; index < document.entities.size(); ++index) {
         const MissionEntity& entity = document.entities[index];
         if (entity.id.empty()) {

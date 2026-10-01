@@ -58,6 +58,10 @@ GeoFence 和 Rally 已进入正式文档模型；ComplexItem 以 `MissionComplex
 `complex_item.unsupported` 错误，`validate`/`compile`/上传/回读全部失败。这是有意
 设计，避免上传时只飞普通航点、与导入的 `.plan` 不一致却没有提示。
 
+GeoFence 和 Rally 在文档里是独立模型，`validate` 会校验其几何（多边形至少 3 个顶点、
+经纬度在合法范围、圆半径为正、breach-return 点有效），但不会因为存在围栏/Rally 而
+阻断任务上传：它们是独立 MAVLink mission type，与航点任务分开处理。
+
 ## 导出边界
 
 `.plan` 不静默 flatten 设计意图：

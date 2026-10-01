@@ -28,6 +28,16 @@ static int g_fail = 0;
     } \
 } while (0)
 
+static bool report_has_code(const MissionValidationReport& report,
+                            const std::string& code) {
+    for (const auto& diagnostic : report.diagnostics) {
+        if (diagnostic.code == code) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static MissionDocument valid_document() {
     MissionDocument document;
     document.metadata.id = "mission-test";
@@ -998,11 +1008,62 @@ static void test_ffi_qgc_plan_interchange() {
     mg_destroy(core);
 }
 
+static void test_geofence_rally_validation() {
+    fprintf(stderr, "\n[Group] GeoFence and rally geometry validation\n");
+
+    CHECK(MissionDocumentService::validate_document(valid_document()).valid,
+          "document with a well-formed rally point passes validation");
+
+    MissionDocument bad_rally = valid_document();
+    bad_rally.rally_points[0].latitude =
+        std::numeric_limits<double>::quiet_NaN();
+    auto report = MissionDocumentService::validate_document(bad_rally);
+    CHECK(!report.valid && report_has_code(report, "rally.latitude"),
+          "rally point with NaN latitude fails validation");
+
+    MissionDocument bad_polygon = valid_document();
+    MissionGeoFencePolygon polygon;
+    polygon.vertices = {{39.9, 116.4}, {39.91, 116.41}};
+    bad_polygon.geo_fence.polygons.push_back(polygon);
+    report = MissionDocumentService::validate_document(bad_polygon);
+    CHECK(!report.valid && report_has_code(report, "geo_fence.polygon_vertices"),
+          "polygon with fewer than three vertices fails validation");
+
+    MissionDocument bad_circle = valid_document();
+    MissionGeoFenceCircle circle;
+    circle.center = {39.9, 116.4};
+    circle.radius_m = 0.0;
+    bad_circle.geo_fence.circles.push_back(circle);
+    report = MissionDocumentService::validate_document(bad_circle);
+    CHECK(!report.valid && report_has_code(report, "geo_fence.circle_radius"),
+          "circle with non-positive radius fails validation");
+
+    MissionDocument bad_breach = valid_document();
+    bad_breach.geo_fence.breach_return_set = true;
+    bad_breach.geo_fence.breach_return = {200.0, 116.4};
+    bad_breach.geo_fence.breach_return_altitude_m = 30.0f;
+    report = MissionDocumentService::validate_document(bad_breach);
+    CHECK(!report.valid && report_has_code(report, "geo_fence.breach_return"),
+          "breach-return point outside the latitude range fails validation");
+
+    MissionDocument good_fence = valid_document();
+    MissionGeoFencePolygon good_polygon;
+    good_polygon.vertices = {{39.9, 116.4}, {39.91, 116.41}, {39.92, 116.4}};
+    good_fence.geo_fence.polygons.push_back(good_polygon);
+    MissionGeoFenceCircle good_circle;
+    good_circle.center = {39.9, 116.4};
+    good_circle.radius_m = 120.0;
+    good_fence.geo_fence.circles.push_back(good_circle);
+    CHECK(MissionDocumentService::validate_document(good_fence).valid,
+          "well-formed polygon and circle fence passes validation");
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Tests ===\n");
     test_document_editing_history();
     test_document_roundtrip();
     test_validation_compile_and_estimate();
+    test_geofence_rally_validation();
     test_parameterized_survey_entities();
     test_ffi_contract();
     test_ffi_survey_entity_roundtrip();

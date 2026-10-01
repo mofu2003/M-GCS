@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.47 - 2026-10-01
+
+### Added
+
+- 任务校验层补齐 GeoFence 与 Rally 几何校验：Rally 点经纬度和高度、围栏多边形顶点
+  数量和经纬度范围、圆形围栏圆心和半径、breach-return 点及高度都会检查，分别返回
+  `rally.*` / `geo_fence.*` 错误码。
+- 围栏与 Rally 属于独立 MAVLink mission type，仍作为合法文档保留（不阻断任务上传），
+  与阻断上传的 `complex_item.unsupported` 区分开。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.46 - 2026-10-01
 
 ### Fixed
