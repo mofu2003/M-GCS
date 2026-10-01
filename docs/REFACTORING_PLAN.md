@@ -139,6 +139,9 @@ breach-return 点及高度），区分于阻断上传的复杂项：围栏/Rally
 编译，新增 `mg_mission_doc_compile_rally` / `mg_mission_doc_upload_rally` /
 `mg_mission_doc_clear_rally`。
 
+`0.0.50` 让 mock 飞控按 mission type 分库并回显 mission type，新增 `test_sim_fence_rally`
+端到端验证围栏/Rally 上传与清除，补上 0.0.48/0.0.49 新增传输路径此前缺失的车辆级覆盖。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

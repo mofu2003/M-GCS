@@ -2,11 +2,11 @@
 
 ## 当前基线
 
-- 当前版本：`0.0.49`。
+- 当前版本：`0.0.50`。
 - 代码分层：`flutter_shell -> bridge/ffi -> core -> third_party`。
 - 默认测试只包含 `offline` 和 `simulation`；hardware/manual 必须显式运行。
 - 默认预检：`tools/preflight.sh`。
-- 当前已复核门禁：后端 `34/34`、Flutter `20/20`、UI token 和 macOS debug 构建通过。
+- 当前已复核门禁：后端 `35/35`、Flutter `20/20`、UI token 和 macOS debug 构建通过。
 
 ## 上游实现策略
 

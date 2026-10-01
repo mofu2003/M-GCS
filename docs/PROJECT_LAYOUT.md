@@ -1,6 +1,6 @@
 # 项目结构
 
-当前版本基线：`0.0.49`。本文件只描述代码组织，具体接口和状态以
+当前版本基线：`0.0.50`。本文件只描述代码组织，具体接口和状态以
 [`ARCHITECTURE.md`](ARCHITECTURE.md) 与 [`STATUS_AUDIT.md`](STATUS_AUDIT.md) 为准。
 
 ## 顶层目录

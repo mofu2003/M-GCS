@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.49`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.50`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -11,7 +11,7 @@
 | `dart tools/check_ui_tokens.dart` | 通过 |
 | Flutter analyze | 通过 |
 | Flutter test | 20/20 |
-| 后端 offline/simulation | 34/34 |
+| 后端 offline/simulation | 35/35 |
 | macOS debug 构建 | 通过 |
 | Windows build/preflight | workflow 统一调用预检脚本；脚本会先生成 MAVLink 头，再构建 bundle 并校验关键 FFI 导出。未在本机 Windows 复核 |
 | Linux Flutter bundle | CI 安装 GTK/CMake/Ninja，生成 MAVLink 头，构建 debug bundle，并校验 `libmgcore.so`、数据文件和关键 FFI 导出。未在本机 Linux 复核 |
@@ -105,6 +105,9 @@ bash tools/audit_status.sh
   `mg_mission_doc_upload_rally` / `mg_mission_doc_clear_rally` 下发/清除，编码按 QGC
   `RallyPointManager`（5100、`MAV_FRAME_GLOBAL_RELATIVE_ALT`）；`mg_mission_doc_compile_rally`
   提供编译预览。
+- `TEST-001`：mock 飞控按 mission type 分库并回显 mission type，新增
+  `test_sim_fence_rally` 端到端验证围栏/Rally 上传（fence 5 项、rally 2 项、
+  fence clear）。后端 simulation 测试从 13 增至 14。
 - `COMPLEX-001`：QGC ComplexItem（Survey、CorridorScan 等）提升为正式
   `MissionComplexItem` 模型，保存 `id`、`item_type` 和原始 JSON，`.plan` 往返无损；
   新增 `entity_insert_index` 后导出时与普通航点按原顺序交错；内部字段目前只读，

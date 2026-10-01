@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.0.50 - 2026-10-01
+
+### Added
+
+- 新增模拟测试 `test_sim_fence_rally`：mock 飞控现在按 mission type 分库存放任务项
+  （`MAV_MISSION_TYPE_FENCE` / `MAV_MISSION_TYPE_RALLY`），并在 mission count、
+  request、ack、clear 中回显请求的 mission type，使围栏/Rally 上传可以端到端验证。
+- 测试覆盖：文档围栏经 `mg_mission_doc_upload_fence` 下发为 5 个 fence 任务项
+  （多边形顶点带 `param1` 顶点数、圆形带半径、breach-return 带高度），
+  `mg_mission_doc_upload_rally` 下发 2 个 `NAV_RALLY_POINT`，
+  `mg_mission_doc_clear_fence` 清空飞控围栏。
+
+### Verification
+
+- 后端 offline/simulation `35/35` 通过（新增 1 个 simulation 测试）。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.49 - 2026-10-01
 
 ### Added

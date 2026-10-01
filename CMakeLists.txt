@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mgcore VERSION 0.0.49 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
+project(mgcore VERSION 0.0.50 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -401,6 +401,7 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_transport_links.cc
         core/tests/test_new_modules.cc
         core/tests/test_sim_geofence.cc
+        core/tests/test_sim_fence_rally.cc
         core/tests/test_sim_full_flow.cc
         core/tests/test_sim_ui_paths.cc
         tests/test_real_fc_dump.cc

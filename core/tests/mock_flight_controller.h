@@ -98,6 +98,14 @@ public:
     // Mission
     void set_mission(const std::vector<mavlink_mission_item_int_t>& v) { stored_mission_=v; }
     const std::vector<mavlink_mission_item_int_t>& stored_mission() const { return stored_mission_; }
+    // 非 0 mission type（fence=1 / rally=2）的任务列表，供端到端测试断言。
+    const std::vector<mavlink_mission_item_int_t>& stored_mission_type(
+        uint8_t mission_type) const {
+        if (mission_type == MAV_MISSION_TYPE_MISSION) return stored_mission_;
+        static const std::vector<mavlink_mission_item_int_t> empty;
+        const auto it = mission_by_type_.find(mission_type);
+        return it == mission_by_type_.end() ? empty : it->second;
+    }
 
     // Command ACK
     void set_next_cmd_result(uint8_t r) { next_cmd_result_=r; }
@@ -184,8 +192,15 @@ private:
     std::string ftp_open_path_;
     uint8_t ftp_session_=0;
     std::vector<mavlink_mission_item_int_t> stored_mission_;
+    std::map<uint8_t, std::vector<mavlink_mission_item_int_t>> mission_by_type_;
     int mission_recv_=0, mission_total_=0;
     uint8_t next_cmd_result_=0;
+
+    // mission type 0 uses stored_mission_; fence/rally live in mission_by_type_.
+    std::vector<mavlink_mission_item_int_t>& mission_store(uint8_t mission_type) {
+        if (mission_type == MAV_MISSION_TYPE_MISSION) return stored_mission_;
+        return mission_by_type_[mission_type];
+    }
 
 private:
 
@@ -290,17 +305,20 @@ private:
             break; }
         case MAVLINK_MSG_ID_MISSION_REQUEST_LIST: {
             // mission_count: target_sys,target_comp,msg, target_sys,target_comp,count,mission_type,opaque_id
+            mavlink_mission_request_list_t req;
+            mavlink_msg_mission_request_list_decode(&msg,&req);
             mavlink_message_t m; mavlink_msg_mission_count_pack(config_.system_id,config_.component_id,&m,
-                0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)stored_mission_.size(), MAV_MISSION_TYPE_MISSION, 0);
+                0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)mission_store(req.mission_type).size(), req.mission_type, 0);
             send(m); break; }
         case MAVLINK_MSG_ID_MISSION_REQUEST_INT: {
             // 故障注入：首次任务请求不响应（测试任务超时重发）
             if(mission_first_drop_ && !mission_dropped_){ mission_dropped_=true; break; }
             mavlink_mission_request_int_t r; mavlink_msg_mission_request_int_decode(&msg,&r);
-            if(r.seq<stored_mission_.size()){
+            auto& store = mission_store(r.mission_type);
+            if(r.seq<store.size()){
                 mavlink_message_t m;
                 if (mission_download_use_compat_item_) {
-                    const auto& src = stored_mission_[r.seq];
+                    const auto& src = store[r.seq];
                     mavlink_msg_mission_item_pack(
                         config_.system_id, config_.component_id, &m,
                         0, MAV_COMP_ID_AUTOPILOT1,
@@ -311,7 +329,9 @@ private:
                         static_cast<float>(static_cast<double>(src.y) / 1e7),
                         src.z, src.mission_type);
                 } else {
-                    mavlink_msg_mission_item_int_encode(config_.system_id,config_.component_id,&m,&stored_mission_[r.seq]);
+                    auto item = store[r.seq];
+                    item.mission_type = r.mission_type;
+                    mavlink_msg_mission_item_int_encode(config_.system_id,config_.component_id,&m,&item);
                 }
                 send(m);
             }
@@ -319,26 +339,28 @@ private:
         case MAVLINK_MSG_ID_MISSION_ITEM_INT: {
             if (mission_use_compat_request_) break;
             mavlink_mission_item_int_t it; mavlink_msg_mission_item_int_decode(&msg,&it);
-            mission_recv_++; if(it.seq>=(int)stored_mission_.size()) stored_mission_.resize(it.seq+1);
+            auto& store = mission_store(it.mission_type);
+            mission_recv_++; if(it.seq>=(int)store.size()) store.resize(it.seq+1);
             mission_items_received = mission_recv_;
-            stored_mission_[it.seq]=it;
+            store[it.seq]=it;
             if(mission_recv_>=mission_total_){
                 // mission_ack: target_sys,target_comp,msg, target_sys,target_comp,type,mission_type,opaque_id
                 mavlink_message_t a; mavlink_msg_mission_ack_pack(config_.system_id,config_.component_id,&a,
-                    0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, MAV_MISSION_TYPE_MISSION, 0);
+                    0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, it.mission_type, 0);
                 send(a);
             } else {
                 // mission_request_int: target_sys,target_comp,msg, target_sys,target_comp,seq,mission_type
                 mavlink_message_t r; mavlink_msg_mission_request_int_pack(config_.system_id,config_.component_id,&r,
-                    0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)mission_recv_, MAV_MISSION_TYPE_MISSION);
+                    0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)mission_recv_, it.mission_type);
                 send(r);
             }
             break; }
         case MAVLINK_MSG_ID_MISSION_ITEM: {
             mavlink_mission_item_t it; mavlink_msg_mission_item_decode(&msg,&it);
-            mission_recv_++; if(it.seq>=(int)stored_mission_.size()) stored_mission_.resize(it.seq+1);
+            auto& store = mission_store(it.mission_type);
+            mission_recv_++; if(it.seq>=(int)store.size()) store.resize(it.seq+1);
             mission_items_received = mission_recv_;
-            auto& stored = stored_mission_[it.seq];
+            auto& stored = store[it.seq];
             memset(&stored, 0, sizeof(stored));
             stored.seq = it.seq;
             stored.frame = it.frame;
@@ -355,37 +377,39 @@ private:
             stored.mission_type = it.mission_type;
             if(mission_recv_>=mission_total_){
                 mavlink_message_t a; mavlink_msg_mission_ack_pack(config_.system_id,config_.component_id,&a,
-                    0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, MAV_MISSION_TYPE_MISSION, 0);
+                    0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, it.mission_type, 0);
                 send(a);
             } else {
                 mavlink_message_t r;
                 if (mission_use_compat_request_) {
                     mavlink_msg_mission_request_pack(config_.system_id,config_.component_id,&r,
-                        0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)mission_recv_, MAV_MISSION_TYPE_MISSION);
+                        0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)mission_recv_, it.mission_type);
                 } else {
                     mavlink_msg_mission_request_int_pack(config_.system_id,config_.component_id,&r,
-                        0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)mission_recv_, MAV_MISSION_TYPE_MISSION);
+                        0, MAV_COMP_ID_AUTOPILOT1, (uint16_t)mission_recv_, it.mission_type);
                 }
                 send(r);
             }
             break; }
         case MAVLINK_MSG_ID_MISSION_COUNT: {
             mavlink_mission_count_t mc; mavlink_msg_mission_count_decode(&msg,&mc);
-            mission_total_=mc.count; mission_recv_=0; stored_mission_.clear(); stored_mission_.resize(mission_total_);
+            auto& store = mission_store(mc.mission_type);
+            mission_total_=mc.count; mission_recv_=0; store.clear(); store.resize(mission_total_);
             if(mission_total_>0){mavlink_message_t r;
                 if (mission_use_compat_request_) {
                     mavlink_msg_mission_request_pack(config_.system_id,config_.component_id,&r,
-                        0, MAV_COMP_ID_AUTOPILOT1, 0, MAV_MISSION_TYPE_MISSION);
+                        0, MAV_COMP_ID_AUTOPILOT1, 0, mc.mission_type);
                 } else {
                     mavlink_msg_mission_request_int_pack(config_.system_id,config_.component_id,&r,
-                        0, MAV_COMP_ID_AUTOPILOT1, 0, MAV_MISSION_TYPE_MISSION);
+                        0, MAV_COMP_ID_AUTOPILOT1, 0, mc.mission_type);
                 }
                 send(r);}
             break; }
         case MAVLINK_MSG_ID_MISSION_CLEAR_ALL: {
-            mission_clear_received=true; stored_mission_.clear();
+            mavlink_mission_clear_all_t ca; mavlink_msg_mission_clear_all_decode(&msg,&ca);
+            mission_clear_received=true; mission_store(ca.mission_type).clear();
             mavlink_message_t a; mavlink_msg_mission_ack_pack(config_.system_id,config_.component_id,&a,
-                0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, MAV_MISSION_TYPE_MISSION, 0);
+                0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, ca.mission_type, 0);
             send(a); break; }
         case MAVLINK_MSG_ID_MISSION_SET_CURRENT: {
             mission_set_current_received=true; mavlink_mission_set_current_t sc; mavlink_msg_mission_set_current_decode(&msg,&sc); mission_set_current_seq=sc.seq;
