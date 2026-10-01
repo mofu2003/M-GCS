@@ -500,6 +500,21 @@ mg::core::mission::MissionPlan MavlinkAdapter::rally_get_plan() const {
     return impl_->rally.plan;
 }
 
+mg::core::mission::MissionPlanSnapshot
+MavlinkAdapter::rally_get_plan_snapshot() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    mg::core::mission::MissionPlanSnapshot snapshot;
+    snapshot.plan = impl_->rally.plan;
+    snapshot.provenance.plan_revision = impl_->rally.plan_revision;
+    snapshot.provenance.last_completed_download_revision =
+        impl_->rally.last_completed_download_revision;
+    snapshot.provenance.last_upload_revision =
+        impl_->rally.last_upload_revision;
+    snapshot.provenance.completed_download_count =
+        impl_->rally.completed_download_count;
+    return snapshot;
+}
+
 mg::core::mission::MissionTransferProgress MavlinkAdapter::rally_get_progress() const {
     mg::core::platform::LockGuard lk(impl_->mtx);
     return impl_->rally.progress;
@@ -528,6 +543,21 @@ bool MavlinkAdapter::fence_clear(uint8_t target_system, uint8_t target_component
 mg::core::mission::MissionPlan MavlinkAdapter::fence_get_plan() const {
     mg::core::platform::LockGuard lk(impl_->mtx);
     return impl_->fence.plan;
+}
+
+mg::core::mission::MissionPlanSnapshot
+MavlinkAdapter::fence_get_plan_snapshot() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    mg::core::mission::MissionPlanSnapshot snapshot;
+    snapshot.plan = impl_->fence.plan;
+    snapshot.provenance.plan_revision = impl_->fence.plan_revision;
+    snapshot.provenance.last_completed_download_revision =
+        impl_->fence.last_completed_download_revision;
+    snapshot.provenance.last_upload_revision =
+        impl_->fence.last_upload_revision;
+    snapshot.provenance.completed_download_count =
+        impl_->fence.completed_download_count;
+    return snapshot;
 }
 
 mg::core::mission::MissionTransferProgress MavlinkAdapter::fence_get_progress() const {

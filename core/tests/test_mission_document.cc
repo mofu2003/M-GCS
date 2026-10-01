@@ -1114,6 +1114,90 @@ static void test_geofence_compile() {
           "polygon with fewer than three vertices cannot be compiled");
 }
 
+static void test_fence_rally_plan_roundtrip() {
+    fprintf(stderr, "\n[Group] Fence and rally plan round-trip\n");
+
+    MissionGeoFence fence;
+    MissionGeoFencePolygon included;
+    included.inclusion = true;
+    included.vertices = {{39.9, 116.4}, {39.91, 116.41}, {39.92, 116.4}};
+    fence.polygons.push_back(included);
+    MissionGeoFencePolygon excluded;
+    excluded.inclusion = false;
+    excluded.vertices = {{39.8, 116.3}, {39.81, 116.31}, {39.82, 116.3}};
+    fence.polygons.push_back(excluded);
+    MissionGeoFenceCircle circle;
+    circle.inclusion = false;
+    circle.center = {39.9, 116.4};
+    circle.radius_m = 90.0;
+    fence.circles.push_back(circle);
+    fence.breach_return_set = true;
+    fence.breach_return = {39.9, 116.4};
+    fence.breach_return_altitude_m = 35.0f;
+
+    MissionPlan plan;
+    std::string error;
+    CHECK(compile_geo_fence_plan(fence, plan, error),
+          "two polygons, a circle and a return point compile");
+
+    MissionGeoFence restored;
+    CHECK(geo_fence_from_plan(plan, restored, error),
+          "fence plan parses back into the document model");
+    CHECK(restored.polygons.size() == 2 && restored.circles.size() == 1 &&
+              restored.breach_return_set,
+          "fence round-trip keeps two polygons, one circle and the return point");
+    if (restored.polygons.size() == 2) {
+        CHECK(restored.polygons[0].inclusion && !restored.polygons[1].inclusion &&
+                  restored.polygons[0].vertices.size() == 3,
+              "polygon inclusion flags and vertices survive the round-trip");
+        CHECK(std::fabs(restored.polygons[1].vertices[1].latitude - 39.81) < 1e-6,
+              "polygon coordinates survive the round-trip");
+    }
+    if (restored.circles.size() == 1) {
+        CHECK(!restored.circles[0].inclusion &&
+                  std::fabs(restored.circles[0].radius_m - 90.0) < 1e-3,
+              "circle inclusion flag and radius survive the round-trip");
+    }
+
+    // 损坏的 fence 计划必须被拒绝，而不是产生半个多边形。
+    MissionPlan truncated;
+    truncated.items.push_back(plan.items[0]);
+    truncated.items.push_back(plan.items[1]);
+    MissionGeoFence partial;
+    CHECK(!geo_fence_from_plan(truncated, partial, error) && !error.empty(),
+          "incomplete polygon at the end of the list is rejected");
+
+    MissionPlan mixed = plan;
+    mixed.items[1].param1 = 4.0f;
+    CHECK(!geo_fence_from_plan(mixed, partial, error),
+          "polygon vertex count changing mid-polygon is rejected");
+
+    MissionPlan unsupported;
+    MissionItem bogus{};
+    bogus.command = 16;
+    unsupported.items.push_back(bogus);
+    CHECK(!geo_fence_from_plan(unsupported, partial, error),
+          "unsupported fence command is rejected");
+
+    std::vector<MissionRallyPoint> rally = {
+        {39.9, 116.4, 30.0f},
+        {39.91, 116.41, 40.0f},
+    };
+    MissionPlan rally_plan;
+    CHECK(compile_rally_plan(rally, rally_plan, error),
+          "rally points compile for the round-trip");
+    std::vector<MissionRallyPoint> rally_restored;
+    CHECK(rally_points_from_plan(rally_plan, rally_restored, error) &&
+              rally_restored.size() == 2 &&
+              std::fabs(rally_restored[1].altitude_m - 40.0f) < 1e-3f,
+          "rally points survive the plan round-trip");
+
+    MissionPlan bad_rally;
+    bad_rally.items.push_back(bogus);
+    CHECK(!rally_points_from_plan(bad_rally, rally_restored, error),
+          "unsupported rally command is rejected");
+}
+
 static void test_ffi_geofence_compile() {
     fprintf(stderr, "\n[Group] GeoFence compile through FFI\n");
     mg_core_t* core = mg_create();
@@ -1235,6 +1319,7 @@ int main() {
     test_validation_compile_and_estimate();
     test_geofence_rally_validation();
     test_geofence_compile();
+    test_fence_rally_plan_roundtrip();
     test_ffi_geofence_compile();
     test_rally_compile();
     test_ffi_rally_compile();

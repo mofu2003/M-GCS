@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.0.51 - 2026-10-01
+
+### Fixed
+
+- 修复围栏/Rally 下载时 mission type 被写死为 0 的适配器 bug：`send_mission_request_int`
+  和 `send_mission_ack` 现在携带实际 mission type，围栏/Rally 下载不再错走普通任务状态机。
+  该问题由新增的端到端模拟测试发现。
+
+### Added
+
+- 新增 `geo_fence_from_plan` / `rally_points_from_plan`：`compile_geo_fence_plan` 和
+  `compile_rally_plan` 的逆过程。围栏分组规则与 QGC `GeoFenceManager` 一致
+  （相邻且 `param1` 顶点数和命令相同的顶点属于同一多边形），非法计划会被拒绝。
+- 新增 FFI `mg_mission_doc_import_fence_from_vehicle` / `mg_mission_doc_import_rally_from_vehicle`：
+  在一次已完成下载后把飞控围栏/Rally 读回文档，语义与 `mg_mission_doc_import_from_vehicle`
+  一致（未完成下载返回 `invalid_state`）。适配器新增 `fence_get_plan_snapshot` /
+  `rally_get_plan_snapshot` 提供 provenance。
+- 端到端模拟测试扩展为围栏/Rally 上传 + 下载 + 回读文档的完整闭环（25 项断言）。
+
+### Verification
+
+- 后端 offline/simulation `35/35` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.50 - 2026-10-01
 
 ### Added

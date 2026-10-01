@@ -192,6 +192,10 @@ GeoFence 与 Rally 是独立的 MAVLink mission type，不计入航点任务上�
 `MAV_CMD_NAV_RALLY_POINT`（5100），由 `mg_mission_doc_upload_rally` /
 `mg_mission_doc_clear_rally` 下发或清除。
 
+围栏和 Rally 也支持回读：`geo_fence_from_plan` / `rally_points_from_plan` 解析飞控返回的
+任务项，`mg_mission_doc_import_fence_from_vehicle` /
+`mg_mission_doc_import_rally_from_vehicle` 在一次成功下载后替换文档对应区段。
+
 参数化测绘实体或禁用实体仍不能无损导出为普通 `.plan`；`hoverSpeed`、地形高度模式、
 null 参数和不在命令目录中的 MAV_CMD 会通过 `warnings` 报告。围栏和 Rally 的统一编辑
 文档仍未实现。

@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.50`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.51`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -108,6 +108,12 @@ bash tools/audit_status.sh
 - `TEST-001`：mock 飞控按 mission type 分库并回显 mission type，新增
   `test_sim_fence_rally` 端到端验证围栏/Rally 上传（fence 5 项、rally 2 项、
   fence clear）。后端 simulation 测试从 13 增至 14。
+- `FENCE-004` / `RALLY-004`：`geo_fence_from_plan` / `rally_points_from_plan` 提供
+  `compile_*` 的逆过程（围栏分组按 QGC `GeoFenceManager`），FFI 新增
+  `mg_mission_doc_import_fence_from_vehicle` / `mg_mission_doc_import_rally_from_vehicle`，
+  围栏/Rally 形成上传 + 下载 + 回读闭环；`test_sim_fence_rally` 扩展到 25 项断言。
+- `MAV-001`：修复围栏/Rally 下载时 `send_mission_request_int` / `send_mission_ack`
+  把 mission type 写死为 0 的 bug（由端到端测试发现）。
 - `COMPLEX-001`：QGC ComplexItem（Survey、CorridorScan 等）提升为正式
   `MissionComplexItem` 模型，保存 `id`、`item_type` 和原始 JSON，`.plan` 往返无损；
   新增 `entity_insert_index` 后导出时与普通航点按原顺序交错；内部字段目前只读，

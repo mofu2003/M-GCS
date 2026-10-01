@@ -73,6 +73,12 @@ Rally 同样可单独下发：`compile_rally_plan` 按 QGC `RallyPointManager` �
 的任务项，FFI 入口是 `mg_mission_doc_compile_rally`、`mg_mission_doc_upload_rally` 和
 `mg_mission_doc_clear_rally`。
 
+回读方向同样支持：`geo_fence_from_plan` / `rally_points_from_plan` 是编译的逆过程，
+围栏分组规则与 QGC `GeoFenceManager` 相同（连续且 `param1` 顶点数一致的顶点属于同一
+多边形，中途改变顶点数或 inclusion 会被拒绝）。在一次已完成下载后，
+`mg_mission_doc_import_fence_from_vehicle` / `mg_mission_doc_import_rally_from_vehicle`
+把飞控围栏/Rally 读回文档。
+
 ## 导出边界
 
 `.plan` 不静默 flatten 设计意图：

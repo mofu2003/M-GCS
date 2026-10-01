@@ -564,6 +564,9 @@ public:
     /// Get the current rally point plan (thread-safe snapshot)
     mg::core::mission::MissionPlan rally_get_plan() const;
 
+    /// Get the cached rally plan and provenance atomically.
+    mg::core::mission::MissionPlanSnapshot rally_get_plan_snapshot() const;
+
     /// Get rally point transfer progress
     mg::core::mission::MissionTransferProgress rally_get_progress() const;
 
@@ -583,6 +586,9 @@ public:
 
     /// Get the current geofence plan (thread-safe snapshot)
     mg::core::mission::MissionPlan fence_get_plan() const;
+
+    /// Get the cached geofence plan and provenance atomically.
+    mg::core::mission::MissionPlanSnapshot fence_get_plan_snapshot() const;
 
     /// Get geofence transfer progress
     mg::core::mission::MissionTransferProgress fence_get_progress() const;

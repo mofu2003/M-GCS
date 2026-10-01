@@ -304,4 +304,128 @@ bool compile_rally_plan(
     return plan.valid;
 }
 
+namespace {
+
+double fence_latitude(const MissionItem& item) {
+    return static_cast<double>(item.x) / 1e7;
+}
+
+double fence_longitude(const MissionItem& item) {
+    return static_cast<double>(item.y) / 1e7;
+}
+
+} // namespace
+
+bool geo_fence_from_plan(
+    const MissionPlan& plan,
+    MissionGeoFence& fence,
+    std::string& error) {
+    error.clear();
+    fence = MissionGeoFence{};
+
+    std::vector<MissionGeoPoint> pending_vertices;
+    uint16_t pending_command = 0;
+    int expected_vertices = 0;
+
+    auto flush_polygon = [&]() {
+        if (pending_vertices.empty()) return;
+        MissionGeoFencePolygon polygon;
+        polygon.inclusion = pending_command == kFencePolygonVertexInclusion;
+        polygon.vertices = pending_vertices;
+        fence.polygons.push_back(std::move(polygon));
+        pending_vertices.clear();
+        pending_command = 0;
+        expected_vertices = 0;
+    };
+
+    for (size_t index = 0; index < plan.items.size(); ++index) {
+        const MissionItem& item = plan.items[index];
+        switch (item.command) {
+            case kFencePolygonVertexInclusion:
+            case kFencePolygonVertexExclusion: {
+                const int vertex_count =
+                    static_cast<int>(std::lround(item.param1));
+                if (pending_vertices.empty()) {
+                    pending_command = item.command;
+                    expected_vertices = vertex_count;
+                } else if (expected_vertices != vertex_count) {
+                    error = "fence polygon vertex count changed mid-polygon";
+                    return false;
+                } else if (pending_command != item.command) {
+                    error = "fence polygon inclusion flag changed mid-polygon";
+                    return false;
+                }
+                pending_vertices.push_back(
+                    {fence_latitude(item), fence_longitude(item)});
+                if (static_cast<int>(pending_vertices.size()) ==
+                    expected_vertices) {
+                    flush_polygon();
+                }
+                break;
+            }
+            case kFenceCircleInclusion:
+            case kFenceCircleExclusion: {
+                if (!pending_vertices.empty()) {
+                    error = "fence polygon is incomplete before a circle item";
+                    return false;
+                }
+                MissionGeoFenceCircle circle;
+                circle.inclusion = item.command == kFenceCircleInclusion;
+                circle.center = {fence_latitude(item), fence_longitude(item)};
+                circle.radius_m = static_cast<double>(item.param1);
+                fence.circles.push_back(circle);
+                break;
+            }
+            case kFenceReturnPoint: {
+                if (!pending_vertices.empty()) {
+                    error =
+                        "fence polygon is incomplete before the return point";
+                    return false;
+                }
+                fence.breach_return_set = true;
+                fence.breach_return = {fence_latitude(item),
+                                       fence_longitude(item)};
+                fence.breach_return_altitude_m = item.z;
+                break;
+            }
+            default:
+                error = "unsupported fence mission command " +
+                        std::to_string(item.command) + " at index " +
+                        std::to_string(index);
+                return false;
+        }
+    }
+
+    if (!pending_vertices.empty()) {
+        error = "fence polygon is incomplete at the end of the item list";
+        return false;
+    }
+    return true;
+}
+
+bool rally_points_from_plan(
+    const MissionPlan& plan,
+    std::vector<MissionRallyPoint>& rally_points,
+    std::string& error) {
+    error.clear();
+    rally_points.clear();
+
+    for (size_t index = 0; index < plan.items.size(); ++index) {
+        const MissionItem& item = plan.items[index];
+        if (item.command != kNavRallyPoint) {
+            error = "unsupported rally mission command " +
+                    std::to_string(item.command) + " at index " +
+                    std::to_string(index);
+            rally_points.clear();
+            return false;
+        }
+        MissionRallyPoint point;
+        point.latitude = fence_latitude(item);
+        point.longitude = fence_longitude(item);
+        point.altitude_m = item.z;
+        rally_points.push_back(point);
+    }
+    return true;
+}
+
 } // namespace mg::core::mission::cad

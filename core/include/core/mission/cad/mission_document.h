@@ -305,6 +305,24 @@ bool compile_rally_plan(
     MissionPlan& plan,
     std::string& error);
 
+/// 从 fence mission type 的任务项还原文档围栏（`compile_geo_fence_plan` 的逆过程）。
+///
+/// 分组规则与 QGC `GeoFenceManager` 一致：相邻且 `param1`（顶点总数）和命令相同的
+/// `MAV_CMD_NAV_FENCE_POLYGON_VERTEX_INCLUSION/_EXCLUSION` 属于同一多边形；圆形和
+/// breach-return 各自独立。出现不支持的命令、多边形中途改变顶点数或命令、或结束时
+/// 多边形不完整都返回 false 并给出原因。
+bool geo_fence_from_plan(
+    const MissionPlan& plan,
+    MissionGeoFence& fence,
+    std::string& error);
+
+/// 从 rally mission type 的任务项还原文档 Rally 点（`compile_rally_plan` 的逆过程）。
+/// 只接受 `MAV_CMD_NAV_RALLY_POINT`（5100）；出现其他命令返回 false。空列表合法。
+bool rally_points_from_plan(
+    const MissionPlan& plan,
+    std::vector<MissionRallyPoint>& rally_points,
+    std::string& error);
+
 /// 该实体类型是否由 SurveyCalculator 在编译期展开（而不是 1 实体 1 任务项）。
 bool is_parameterized_survey_type(const std::string& type);
 

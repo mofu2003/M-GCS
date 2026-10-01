@@ -142,6 +142,11 @@ breach-return 点及高度），区分于阻断上传的复杂项：围栏/Rally
 `0.0.50` 让 mock 飞控按 mission type 分库并回显 mission type，新增 `test_sim_fence_rally`
 端到端验证围栏/Rally 上传与清除，补上 0.0.48/0.0.49 新增传输路径此前缺失的车辆级覆盖。
 
+`0.0.51` 补齐围栏/Rally 回读：`geo_fence_from_plan` / `rally_points_from_plan` 解析飞控
+任务项，新增 `mg_mission_doc_import_fence_from_vehicle` / `import_rally_from_vehicle` 和
+适配器 `fence_get_plan_snapshot` / `rally_get_plan_snapshot`；端到端测试扩展为上传 +
+下载 + 回读闭环，并因此修掉下载时 mission type 写死为 0 的 bug。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

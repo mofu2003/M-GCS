@@ -58,6 +58,10 @@ MGCORE_API char* mg_mission_doc_upload_rally(
     mg_core_t* core,
     unsigned long long expected_revision);
 MGCORE_API char* mg_mission_doc_clear_rally(mg_core_t* core);
+// 从飞控读回围栏/Rally 并替换文档对应区段。语义与 mg_mission_doc_import_from_vehicle
+// 一致：需要一次已完成的对应 mission type 下载，否则返回 invalid_state。
+MGCORE_API char* mg_mission_doc_import_fence_from_vehicle(mg_core_t* core);
+MGCORE_API char* mg_mission_doc_import_rally_from_vehicle(mg_core_t* core);
 MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m);
 // 把飞控当前任务读进任务文档（替换实体列表，保留 metadata / defaults / home）。
 // 需要一次已完成的任务下载，否则返回 invalid_state：读取语义与 MP 的 Read、

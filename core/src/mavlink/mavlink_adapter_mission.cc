@@ -43,10 +43,14 @@ void MavlinkAdapter::Impl::handle_mission_count(const mavlink_message_t& m)
         state.last_completed_download_revision = state.plan_revision;
         ++state.completed_download_count;
     } else {
-        send_mission_request_int(m.sysid, m.compid, 0);
-        state.record_send(m.sysid, m.compid, [this, &state, sys = m.sysid, comp = m.compid]() {
-            send_mission_request_int(sys, comp, state.download_seq);
-        });
+        send_mission_request_int(m.sysid, m.compid, 0, mc.mission_type);
+        state.record_send(
+            m.sysid, m.compid,
+            [this, &state, sys = m.sysid, comp = m.compid,
+             mission_type = mc.mission_type]() {
+                send_mission_request_int(sys, comp, state.download_seq,
+                                         mission_type);
+            });
     }
 }
 
@@ -81,15 +85,21 @@ void MavlinkAdapter::Impl::handle_mission_item_int(const mavlink_message_t& m)
     state.record_recv();
 
     if (state.download_seq < state.download_total) {
-        send_mission_request_int(m.sysid, m.compid, state.download_seq);
-        state.record_send(m.sysid, m.compid, [this, &state, sys = m.sysid, comp = m.compid]() {
-            send_mission_request_int(sys, comp, state.download_seq);
-        });
+        send_mission_request_int(m.sysid, m.compid, state.download_seq,
+                                 mi.mission_type);
+        state.record_send(
+            m.sysid, m.compid,
+            [this, &state, sys = m.sysid, comp = m.compid,
+             mission_type = mi.mission_type]() {
+                send_mission_request_int(sys, comp, state.download_seq,
+                                         mission_type);
+            });
     } else {
         state.plan.valid = true;
         state.last_completed_download_revision = state.plan_revision;
         ++state.completed_download_count;
-        send_mission_ack(m.sysid, m.compid, MAV_MISSION_ACCEPTED);
+        send_mission_ack(m.sysid, m.compid, MAV_MISSION_ACCEPTED,
+                         mi.mission_type);
         state.progress.state = mg::core::mission::MissionState::Idle;
         state.resend_fn = nullptr;
     }
@@ -132,15 +142,21 @@ void MavlinkAdapter::Impl::handle_mission_item(const mavlink_message_t& m)
     state.record_recv();
 
     if (state.download_seq < state.download_total) {
-        send_mission_request_int(m.sysid, m.compid, state.download_seq);
-        state.record_send(m.sysid, m.compid, [this, &state, sys = m.sysid, comp = m.compid]() {
-            send_mission_request_int(sys, comp, state.download_seq);
-        });
+        send_mission_request_int(m.sysid, m.compid, state.download_seq,
+                                 mi.mission_type);
+        state.record_send(
+            m.sysid, m.compid,
+            [this, &state, sys = m.sysid, comp = m.compid,
+             mission_type = mi.mission_type]() {
+                send_mission_request_int(sys, comp, state.download_seq,
+                                         mission_type);
+            });
     } else {
         state.plan.valid = true;
         state.last_completed_download_revision = state.plan_revision;
         ++state.completed_download_count;
-        send_mission_ack(m.sysid, m.compid, MAV_MISSION_ACCEPTED);
+        send_mission_ack(m.sysid, m.compid, MAV_MISSION_ACCEPTED,
+                         mi.mission_type);
         state.progress.state = mg::core::mission::MissionState::Idle;
         state.resend_fn = nullptr;
     }
@@ -224,15 +240,17 @@ void MavlinkAdapter::Impl::handle_mission_item_reached(const mavlink_message_t& 
         deferred_cbs.push_back([cb = tel.mission_reached_cb, seq = mr.seq]() { cb(seq); });
 }
 
-bool MavlinkAdapter::Impl::send_mission_request_int(uint8_t sysid, uint8_t compid, uint16_t seq)
+bool MavlinkAdapter::Impl::send_mission_request_int(uint8_t sysid, uint8_t compid, uint16_t seq,
+                                                    uint8_t mission_type)
 {
-    mavlink_msg_mission_request_int_pack(255, 0, &msg, sysid, compid, seq, 0);
+    mavlink_msg_mission_request_int_pack(255, 0, &msg, sysid, compid, seq, mission_type);
     return send_msg();
 }
 
-bool MavlinkAdapter::Impl::send_mission_ack(uint8_t sysid, uint8_t compid, uint8_t type)
+bool MavlinkAdapter::Impl::send_mission_ack(uint8_t sysid, uint8_t compid, uint8_t type,
+                                            uint8_t mission_type)
 {
-    mavlink_msg_mission_ack_pack(255, 0, &msg, sysid, compid, type, 0, 0);
+    mavlink_msg_mission_ack_pack(255, 0, &msg, sysid, compid, type, mission_type, 0);
     return send_msg();
 }
 

@@ -58,6 +58,23 @@ static bool wait_for(MockVehicleTestEnv& env,
     return satisfied;
 }
 
+// 从 mg_mission_doc_* 的返回 envelope 里取 document.geo_fence / rally_points。
+static int json_array_size(const char* json, const char* section,
+                           const char* array_key) {
+    if (!json) return -1;
+    cJSON* root = cJSON_Parse(json);
+    int size = -1;
+    if (root) {
+        cJSON* document = cJSON_GetObjectItemCaseSensitive(root, "document");
+        cJSON* object = section ? cJSON_GetObjectItemCaseSensitive(document, section)
+                                : document;
+        cJSON* array = cJSON_GetObjectItemCaseSensitive(object, array_key);
+        if (cJSON_IsArray(array)) size = cJSON_GetArraySize(array);
+        cJSON_Delete(root);
+    }
+    return size;
+}
+
 int main() {
     fprintf(stderr, "=== Fence / Rally Mission Simulation Test ===\n");
 
@@ -134,8 +151,27 @@ int main() {
                   static_cast<int>(fence[4].z) == 35);
     }
 
+    fprintf(stderr, "\n[Fence download / import]\n");
+    result = mg_fence_download(env.core);
+    CHECK("fence download starts", result && strstr(result, "\"success\":true"));
+    if (result) mg_free_string(result);
+    CHECK("fence download completes",
+          wait_for(env, [&]() {
+              return env.mav->fence_get_plan_snapshot()
+                         .provenance.last_completed_download_revision != 0;
+          }));
+    result = mg_mission_doc_import_fence_from_vehicle(env.core);
+    CHECK("fence imports back into the document",
+          result && strstr(result, "\"success\":true"));
+    CHECK("imported fence keeps its polygon",
+          json_array_size(result, "geo_fence", "polygons") == 1);
+    CHECK("imported fence keeps its circle",
+          json_array_size(result, "geo_fence", "circles") == 1);
+    if (result) mg_free_string(result);
+
     fprintf(stderr, "\n[Rally upload]\n");
-    result = mg_mission_doc_upload_rally(env.core, revision);
+    const unsigned long long rally_revision = document_revision(env.core);
+    result = mg_mission_doc_upload_rally(env.core, rally_revision);
     CHECK("rally upload starts", result && strstr(result, "\"success\":true"));
     if (result) mg_free_string(result);
 
@@ -152,6 +188,22 @@ int main() {
         CHECK("rally altitude is preserved",
               static_cast<int>(rally[1].z) == 40);
     }
+
+    fprintf(stderr, "\n[Rally download / import]\n");
+    result = mg_rally_download(env.core);
+    CHECK("rally download starts", result && strstr(result, "\"success\":true"));
+    if (result) mg_free_string(result);
+    CHECK("rally download completes",
+          wait_for(env, [&]() {
+              return env.mav->rally_get_plan_snapshot()
+                         .provenance.last_completed_download_revision != 0;
+          }));
+    result = mg_mission_doc_import_rally_from_vehicle(env.core);
+    CHECK("rally points import back into the document",
+          result && strstr(result, "\"success\":true"));
+    CHECK("imported document keeps both rally points",
+          json_array_size(result, nullptr, "rally_points") == 2);
+    if (result) mg_free_string(result);
 
     fprintf(stderr, "\n[Fence clear]\n");
     result = mg_mission_doc_clear_fence(env.core);

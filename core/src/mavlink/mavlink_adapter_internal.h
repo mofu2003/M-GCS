@@ -266,10 +266,12 @@ struct MavlinkAdapter::Impl {
 
     // 任务发送辅助函数
     // 请求下载下一个任务项
-    bool send_mission_request_int(uint8_t sysid, uint8_t compid, uint16_t seq);
+    bool send_mission_request_int(uint8_t sysid, uint8_t compid, uint16_t seq,
+                                  uint8_t mission_type = 0);
 
     // 发送任务确认
-    bool send_mission_ack(uint8_t sysid, uint8_t compid, uint8_t type);
+    bool send_mission_ack(uint8_t sysid, uint8_t compid, uint8_t type,
+                          uint8_t mission_type = 0);
 
     // 发送任务项（INT 格式）
     bool send_mission_item_int(uint8_t sysid, uint8_t compid, const mg::core::mission::MissionItem& item);
