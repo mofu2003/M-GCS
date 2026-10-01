@@ -105,6 +105,9 @@ RTL、降落、起飞、解锁、模式切换、任务启动、引导点、暂�
 `0.0.39` 根据覆盖率结果补齐 `ARMING_CHECK`、`THR_MID`、`TELEM1_BAUD` 和旧版
 `WPNAV_*`/`PILOT_SPEED_DN` 的基础描述，模拟参数覆盖率提升到 97%。
 
+`0.0.40` 补全 Rover、Submarine、AntennaTracker 的 profile 识别，后续可在这些归属下
+逐步增加机型专属元数据，而不是继续落入空 profile。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

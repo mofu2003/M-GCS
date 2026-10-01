@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.40 - 2026-10-01
+
+### Changed
+
+- 参数 profile 识别补齐 Rover、Submarine 和 AntennaTracker，分别映射到
+  `rover`、`sub`、`tracker`，不再返回空 profile。
+- 这些 profile 当前回退到通用描述库；后续可独立补充机型专属参数元数据，覆盖报告
+  和分组接口会使用正确的 profile 名称。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.39 - 2026-10-01
 
 ### Changed

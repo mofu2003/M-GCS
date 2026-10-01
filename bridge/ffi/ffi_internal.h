@@ -216,6 +216,9 @@ inline std::string ffi_param_profile(mg_core_t* core) {
     if (family == "Copter") return "copter";
     if (family == "FixedWing") return "plane";
     if (family == "VTOL") return "vtol";
+    if (family == "Rover") return "rover";
+    if (family == "Submarine") return "sub";
+    if (family == "AntennaTracker") return "tracker";
     return "";
 }
 

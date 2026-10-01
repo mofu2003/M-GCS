@@ -288,6 +288,23 @@ static void test_unclassified_parameter_group() {
     if (coverage) mg_free_string(coverage);
 }
 
+static void test_metadata_profile_for_rover() {
+    fprintf(stderr, "\n[Group] Vehicle parameter profile mapping\n");
+    MockFlightController::Config config;
+    config.vehicle = MockFlightController::Rover;
+    TestEnv env(config);
+
+    env.tick(1100);
+    char* load = mg_params_request_all(env.core);
+    if (load) mg_free_string(load);
+    if (!load_all_params(env)) return;
+
+    char* coverage = mg_config_get_metadata_coverage(env.core);
+    CHECK("Rover uses an explicit parameter profile",
+          coverage != nullptr && strstr(coverage, "\"profile\":\"rover\"") != nullptr);
+    if (coverage) mg_free_string(coverage);
+}
+
 static void test_config_uses_ardupilot_profile_metadata() {
     fprintf(stderr, "\n[Group] Config metadata profile\n");
     TestEnv env;
@@ -488,6 +505,7 @@ int main() {
     test_config_write_rejects_read_only();
     test_bulk_param_refresh();
     test_unclassified_parameter_group();
+    test_metadata_profile_for_rover();
     test_change_set_requires_loaded_params();
     test_change_set_rejects_malformed_json();
     test_change_set_planning();
