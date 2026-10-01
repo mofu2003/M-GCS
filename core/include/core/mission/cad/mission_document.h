@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -104,6 +105,8 @@ struct MissionDocument {
     uint64_t revision = 1;
     int64_t updated_at_ms = 0;
     std::vector<MissionEntity> entities;
+    /// Format-specific JSON sections preserved verbatim for lossless round-trips.
+    std::map<std::string, std::string> extensions;
 };
 
 struct MissionValidationReport {

@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.40`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.41`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -88,6 +88,8 @@ bash tools/audit_status.sh
   77% 提升到 97%；剩余 fallback 是测试专用未知参数。
 - `PARAM-013`：Rover、Submarine、AntennaTracker 现在分别获得 rover/sub/tracker
   profile 标识，不再落入空 profile；当前使用通用描述回退。
+- `PLAN-001`：QGC `.plan` 的 ComplexItem、GeoFence、Rally 保存到任务文档
+  `extensions` 并在导出时恢复，避免导入时静默丢失或直接拒绝。
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项
@@ -110,7 +112,7 @@ state/error 历史。前端后续可统一消费同一套 operation 状态。
 参数写入已经具备 pending/confirmed/failed、超时重发、目标信息、PARAM_ERROR 明确
 拒绝、描述库写入校验、批量刷新重试/状态跟踪、ArduPilot 版本参数重映射（含前缀）、
 未分类参数回退、canonical 覆盖率报告、高频 common 参数、常见 4.7 重映射和
-Rover/Sub/Tracker profile 标识。下一项继续补真实参数页深度和机型专属描述。
+Rover/Sub/Tracker profile 标识。任务领域已开始保留 QGC opaque 区段。
 
 ### `DEAD-001`：固件刷写占位
 

@@ -22,8 +22,8 @@ QGC 的 `MissionController`、`MissionItem` 和 `SimpleMissionItem`，不是从�
 | `mission.globalPlanAltitudeMode` | 无独立字段 | 导入产生 warning；每个任务项的 frame 仍是权威 |
 | `mission.plannedHomePosition` | `home` | `[lat, lon, alt]`；null 或缺失时 home 为未设置 |
 | `mission.items[]` | `entities[]` | 只接受 `SimpleItem`，顺序映射为 `order` |
-| 根 `geoFence.polygon` | 无 | 非空时导入失败，避免静默丢弃 |
-| 根 `rallyPoints.points` | 无 | 非空时导入失败，避免静默丢弃 |
+| 根 `geoFence.polygon` | `extensions["geoFence"]` | 非空时原样保留并产生 warning；不参与该任务文档的实体编辑 |
+| 根 `rallyPoints.points` | `extensions["rallyPoints"]` | 非空时原样保留并产生 warning；不参与该任务文档的实体编辑 |
 
 ## `SimpleItem` 映射
 
@@ -38,7 +38,7 @@ params = [param1, param2, param3, param4, latitude, longitude, altitude]
 
 | QGC 字段 | M-GCS 映射 |
 | --- | --- |
-| `type` | 必须是 `SimpleItem` |
+| `type` | `SimpleItem` 映射为实体；其他类型原样保留到 `extensions["qgc_plan.complex_items"]` |
 | `frame` | `entity.frame`，导入时归一化 `_INT` 帧 5/6/11 |
 | `command` | `entity.command`，实体类型由后端命令目录反推 |
 | `autoContinue` | `entity.autocontinue` |
@@ -49,13 +49,15 @@ params = [param1, param2, param3, param4, latitude, longitude, altitude]
 | `altitudeMode` / `altitude` / `AMSLAltAboveTerrain` | 不保留，导入产生 warning |
 
 不在命令目录中的 MAV_CMD 可以进入文档，但会返回 warning；后续校验会把不支持的命令
-标为错误，调用方不应忽略这项诊断。
+标为错误，调用方不应忽略这项诊断。ComplexItem、GeoFence 和 Rally 不进入实体列表，
+但在再次导出同一 `.plan` 时会按原始 JSON 返回。
 
 ## 导出边界
 
 `.plan` 不静默 flatten 设计意图：
 
-- `survey_grid` / `corridor` 导出返回错误，不展开成普通航点。
+- `survey_grid` / `corridor` 导出仍返回错误，不展开成普通航点；它们不是 opaque
+  QGC ComplexItem。
 - disabled 实体无法由 QGC `SimpleItem` 表达，导出返回错误。
 - entity label / notes 无法无损写入 SimpleItem，导出返回 warning。
 - 未设置 home 时导出 `plannedHomePosition: null`，并返回 warning。
@@ -71,8 +73,9 @@ params = [param1, param2, param3, param4, latitude, longitude, altitude]
 3. 有位置的任务项经纬度、高度保持一致。
 4. firmware profile、vehicle type 和 cruise speed 在受支持取值范围内保持一致。
 
-不保证保留 `doJumpId`、QGC 地形/海拔模式、hover speed、label、notes、参数化测绘意图、
-GeoFence 和 Rally；这些字段必须通过错误或 warnings 显式暴露。
+不保证保留 `doJumpId`、QGC 地形/海拔模式、hover speed、label、notes 和参数化测绘
+意图；这些字段必须通过错误或 warnings 显式暴露。ComplexItem、GeoFence 和 Rally
+通过 opaque `extensions` 参与文本 round-trip，但 M-GCS 不能编辑其内部字段。
 
 ## 参考实现
 

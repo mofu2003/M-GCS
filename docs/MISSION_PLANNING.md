@@ -169,11 +169,13 @@ MAVLink `MISSION_ITEM_INT` 的 `degE7` 格式转换为 `int32`，分辨率约为
   映射为文档 home，`cruiseSpeed` 映射为默认速度，`firmwareType` / `vehicleType`
   映射为文档 metadata。
 
-`.plan` 当前不会静默降级无法表达的内容：参数化测绘实体或禁用实体不能无损导出；
-Survey、CorridorScan 等复杂 `mission.items`，以及非空 GeoFence / Rally 会在导入时返回
-明确错误。可继续导入但无法完整保留的字段通过响应中的 `warnings` 返回，例如
-`hoverSpeed`、地形高度模式、null 参数和不在命令目录中的 MAV_CMD。围栏和 Rally 的
-统一编辑文档仍未实现。
+`.plan` 对复杂区段采用 opaque 保留：Survey、CorridorScan 等复杂 `mission.items`，
+以及非空 GeoFence / Rally 不再直接拒绝，而是原样保存到任务文档的 `extensions`，
+再次导出 `.plan` 时放回。调用方仍会收到 warning，因为 M-GCS 不能编辑或校验这些区段。
+
+参数化测绘实体或禁用实体仍不能无损导出为普通 `.plan`；`hoverSpeed`、地形高度模式、
+null 参数和不在命令目录中的 MAV_CMD 会通过 `warnings` 报告。围栏和 Rally 的统一编辑
+文档仍未实现。
 
 完整字段映射和往返保证见 [QGC `.plan` 任务文件互操作](QGC_PLAN_INTERCHANGE.md)。
 

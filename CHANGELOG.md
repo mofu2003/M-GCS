@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.0.41 - 2026-10-01
+
+### Changed
+
+- `MissionDocument` 新增 `extensions` 区，用于保存任务文档本身不理解的格式专属 JSON。
+- QGC `.plan` 导入不再拒绝 ComplexItem、非空 GeoFence 或 Rally；这些区段会原样保留，
+  并在再次导出 `.plan` 时放回，同时通过 warnings 明确说明它们仍是 opaque 数据。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.40 - 2026-10-01
 
 ### Changed

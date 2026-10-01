@@ -120,6 +120,67 @@ void add_number_or_null(cJSON* array, double value) {
         array,
         std::isfinite(value) ? cJSON_CreateNumber(value) : cJSON_CreateNull());
 }
+
+std::string compact_json(cJSON* value) {
+    if (!value) return {};
+    char* printed = cJSON_PrintUnformatted(value);
+    if (!printed) return {};
+    std::string result(printed);
+    cJSON_free(printed);
+    return result;
+}
+
+bool append_extension_array(cJSON* target,
+                            const MissionDocument& document,
+                            const char* key,
+                            std::string& error) {
+    const auto it = document.extensions.find(key);
+    if (it == document.extensions.end()) return true;
+    std::unique_ptr<cJSON, decltype(&cJSON_Delete)> array(
+        cJSON_Parse(it->second.c_str()), cJSON_Delete);
+    if (!array || !cJSON_IsArray(array.get())) {
+        error = std::string("mission document extension ") + key +
+                " is not a JSON array";
+        return false;
+    }
+    for (cJSON* item = array->child; item != nullptr; item = item->next) {
+        cJSON_AddItemToArray(target, cJSON_Duplicate(item, true));
+    }
+    return true;
+}
+
+void add_extension_object_or_empty(cJSON* root,
+                                   const MissionDocument& document,
+                                   const char* key,
+                                   const char* default_array_key) {
+    const auto it = document.extensions.find(key);
+    if (it != document.extensions.end()) {
+        cJSON* value = cJSON_Parse(it->second.c_str());
+        if (value && cJSON_IsObject(value)) {
+            cJSON_AddItemToObject(root, key, value);
+            return;
+        }
+        cJSON_Delete(value);
+    }
+    cJSON* value = cJSON_AddObjectToObject(root, key);
+    cJSON_AddNumberToObject(value, "version", 1);
+    cJSON_AddArrayToObject(value, default_array_key);
+}
+
+void append_opaque_item(MissionDocument& document,
+                        const char* key,
+                        cJSON* item) {
+    std::unique_ptr<cJSON, decltype(&cJSON_Delete)> array(nullptr, cJSON_Delete);
+    const auto existing = document.extensions.find(key);
+    if (existing != document.extensions.end()) {
+        array.reset(cJSON_Parse(existing->second.c_str()));
+    }
+    if (!array || !cJSON_IsArray(array.get())) {
+        array.reset(cJSON_CreateArray());
+    }
+    cJSON_AddItemToArray(array.get(), cJSON_Duplicate(item, true));
+    document.extensions[key] = compact_json(array.get());
+}
 } // namespace
 
 std::string export_qgc_plan_json(
@@ -218,14 +279,12 @@ std::string export_qgc_plan_json(
         add_number_or_null(params, entity.altitude_m);
         cJSON_AddItemToArray(items, item);
     }
+    if (!append_extension_array(items, document, "qgc_plan.complex_items", error)) {
+        return {};
+    }
 
-    cJSON* geo_fence = cJSON_AddObjectToObject(root.get(), "geoFence");
-    cJSON_AddNumberToObject(geo_fence, "version", 1);
-    cJSON_AddArrayToObject(geo_fence, "polygon");
-
-    cJSON* rally = cJSON_AddObjectToObject(root.get(), "rallyPoints");
-    cJSON_AddNumberToObject(rally, "version", 1);
-    cJSON_AddArrayToObject(rally, "points");
+    add_extension_object_or_empty(root.get(), document, "geoFence", "polygon");
+    add_extension_object_or_empty(root.get(), document, "rallyPoints", "points");
 
     char* printed = cJSON_Print(root.get());
     if (!printed) {
@@ -257,15 +316,6 @@ bool import_qgc_plan_json(
         error = "QGC .plan fileType must be Plan";
         return false;
     }
-    if (has_nonempty_array(root.get(), "geoFence", "polygon")) {
-        error = "QGC .plan contains a non-empty GeoFence, which is not supported by the mission document";
-        return false;
-    }
-    if (has_nonempty_array(root.get(), "rallyPoints", "points")) {
-        error = "QGC .plan contains non-empty Rally points, which are not supported by the mission document";
-        return false;
-    }
-
     cJSON* mission = object_field(root.get(), "mission");
     if (!mission || !cJSON_IsObject(mission)) {
         error = "QGC .plan is missing the mission object";
@@ -282,6 +332,20 @@ bool import_qgc_plan_json(
 
     MissionDocument parsed = document;
     parsed.entities.clear();
+    parsed.extensions.erase("qgc_plan.complex_items");
+    parsed.extensions.erase("geoFence");
+    parsed.extensions.erase("rallyPoints");
+
+    cJSON* geo_fence = object_field(root.get(), "geoFence");
+    if (has_nonempty_array(root.get(), "geoFence", "polygon")) {
+        parsed.extensions["geoFence"] = compact_json(geo_fence);
+        add_warning(warnings, "QGC GeoFence preserved as an opaque extension");
+    }
+    cJSON* rally_points = object_field(root.get(), "rallyPoints");
+    if (has_nonempty_array(root.get(), "rallyPoints", "points")) {
+        parsed.extensions["rallyPoints"] = compact_json(rally_points);
+        add_warning(warnings, "QGC Rally points preserved as an opaque extension");
+    }
 
     int firmware_type = 0;
     if (int_field(mission, "firmwareType", firmware_type)) {
@@ -365,9 +429,11 @@ bool import_qgc_plan_json(
 
         const std::string item_type = string_field(item, "type");
         if (item_type != "SimpleItem") {
-            error = "unsupported QGC .plan item type '" + item_type +
-                    "' at index " + std::to_string(index);
-            return false;
+            append_opaque_item(parsed, "qgc_plan.complex_items", item);
+            add_warning(
+                warnings,
+                "QGC item type '" + item_type + "' preserved as an opaque extension");
+            continue;
         }
 
         int frame = 0;
@@ -454,6 +520,7 @@ bool import_qgc_plan_json(
     document.metadata = parsed.metadata;
     document.defaults = parsed.defaults;
     document.entities = std::move(parsed.entities);
+    document.extensions = std::move(parsed.extensions);
     return true;
 }
 

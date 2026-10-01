@@ -108,6 +108,9 @@ RTL、降落、起飞、解锁、模式切换、任务启动、引导点、暂�
 `0.0.40` 补全 Rover、Submarine、AntennaTracker 的 profile 识别，后续可在这些归属下
 逐步增加机型专属元数据，而不是继续落入空 profile。
 
+阶段 E 已开始并发布到 `0.0.41`：任务文档增加 opaque `extensions`，QGC `.plan` 的
+ComplexItem、GeoFence 和 Rally 可无损保留文本 round-trip，但尚不能编辑或校验内部字段。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

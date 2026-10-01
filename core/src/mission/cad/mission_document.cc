@@ -607,6 +607,15 @@ std::string serialize_mission_document(const MissionDocument& document) {
     cJSON_AddNumberToObject(root, "revision", document.revision);
     cJSON_AddNumberToObject(root, "updated_at_ms", document.updated_at_ms);
 
+    if (!document.extensions.empty()) {
+        cJSON* extensions = cJSON_AddObjectToObject(root, "extensions");
+        for (const auto& [key, raw_json] : document.extensions) {
+            cJSON* value = cJSON_Parse(raw_json.c_str());
+            if (!value) continue;
+            cJSON_AddItemToObject(extensions, key.c_str(), value);
+        }
+    }
+
     cJSON* entities = cJSON_AddArrayToObject(root, "entities");
     for (const MissionEntity& entity : document.entities) {
         cJSON* item = cJSON_CreateObject();
@@ -731,6 +740,21 @@ bool deserialize_mission_document(
     parsed.revision = std::max<uint64_t>(1, revision);
     parsed.updated_at_ms = static_cast<int64_t>(
         get_double(root, "updated_at_ms", static_cast<double>(now_ms())));
+
+    cJSON* extensions = get_item(root, "extensions");
+    if (extensions && cJSON_IsObject(extensions)) {
+        for (cJSON* entry = extensions->child; entry != nullptr; entry = entry->next) {
+            if (!entry->string) continue;
+            char* raw = cJSON_PrintUnformatted(entry);
+            if (!raw) {
+                cJSON_Delete(root);
+                error = "mission document extension is not serializable";
+                return false;
+            }
+            parsed.extensions[entry->string] = raw;
+            cJSON_free(raw);
+        }
+    }
 
     cJSON* entities = get_item(root, "entities");
     if (entities && cJSON_IsArray(entities)) {

@@ -723,10 +723,13 @@ static void test_qgc_plan_interchange() {
     MissionDocument complex;
     warnings.clear();
     error.clear();
-    CHECK(!import_qgc_plan_json(complex_plan, complex, warnings, error),
-          "unsupported complex QGC item is rejected");
-    CHECK(error.find("unsupported") != std::string::npos,
-          "complex QGC item rejection explains the reason");
+    CHECK(import_qgc_plan_json(complex_plan, complex, warnings, error),
+          "complex QGC item imports as an opaque extension");
+    CHECK(complex.extensions.count("qgc_plan.complex_items") == 1,
+          "complex QGC item is preserved in the extension store");
+    const std::string complex_export = export_qgc_plan_json(complex, warnings, error);
+    CHECK(complex_export.find("Survey") != std::string::npos,
+          "opaque complex item is restored on QGC export");
 
     const std::string fence_plan = R"({
         "fileType": "Plan",
@@ -742,10 +745,14 @@ static void test_qgc_plan_interchange() {
     MissionDocument fenced;
     warnings.clear();
     error.clear();
-    CHECK(!import_qgc_plan_json(fence_plan, fenced, warnings, error),
-          "non-empty QGC GeoFence is not silently dropped");
-    CHECK(error.find("GeoFence") != std::string::npos,
-          "GeoFence rejection explains the unsupported section");
+    CHECK(import_qgc_plan_json(fence_plan, fenced, warnings, error),
+          "non-empty QGC GeoFence imports as an opaque extension");
+    CHECK(fenced.extensions.count("geoFence") == 1,
+          "QGC GeoFence is preserved in the extension store");
+    const std::string fence_export = export_qgc_plan_json(fenced, warnings, error);
+    CHECK(fence_export.find("\"geoFence\"") != std::string::npos &&
+              fence_export.find("39.91") != std::string::npos,
+          "opaque GeoFence is restored on QGC export");
 
     MissionDocument survey_document;
     MissionEntity survey;
