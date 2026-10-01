@@ -668,6 +668,8 @@ std::string serialize_mission_document(const MissionDocument& document) {
             cJSON_AddStringToObject(object, "id", item.id.c_str());
             cJSON_AddStringToObject(object, "item_type", item.item_type.c_str());
             cJSON_AddStringToObject(object, "json", item.json.c_str());
+            cJSON_AddNumberToObject(
+                object, "entity_insert_index", item.entity_insert_index);
             cJSON_AddItemToArray(complex_items, object);
         }
     }
@@ -906,6 +908,10 @@ bool deserialize_mission_document(
             complex.id = get_string(item, "id", {});
             complex.item_type = get_string(item, "item_type", {});
             complex.json = get_string(item, "json", {});
+            complex.entity_insert_index = static_cast<uint32_t>(
+                get_int(item,
+                        "entity_insert_index",
+                        static_cast<int>(kComplexItemAppendAtEnd)));
             if (complex.json.empty()) {
                 cJSON_Delete(root);
                 error = "complex item JSON is required";

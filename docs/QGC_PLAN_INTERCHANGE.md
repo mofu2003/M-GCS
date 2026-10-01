@@ -42,7 +42,7 @@ params = [param1, param2, param3, param4, latitude, longitude, altitude]
 | `frame` | `entity.frame`，导入时归一化 `_INT` 帧 5/6/11 |
 | `command` | `entity.command`，实体类型由后端命令目录反推 |
 | `autoContinue` | `entity.autocontinue` |
-| `doJumpId` | 不保留；导入顺序决定文档 `order`，导出按当前顺序重新编号 |
+| `doJumpId` | 不保留；导出时按合并后的 item 顺序对简单项和复杂项统一重编号 |
 | `params[0..3]` | `entity.params[0..3]` |
 | `params[4..6]` | `entity.latitude/longitude/altitude_m`；null 表示未提供位置 |
 | `coordinate` | 旧格式位置；存在时覆盖 `params[4..6]` 的缺失值 |
@@ -79,7 +79,9 @@ GeoFence 和 Rally 已进入正式文档模型；ComplexItem 以 `MissionComplex
 
 不保证保留 `doJumpId`、QGC 地形/海拔模式、hover speed、label、notes 和参数化测绘
 意图；这些字段必须通过错误或 warnings 显式暴露。ComplexItem、Rally 和 GeoFence 已
-进入正式文档模型，参与文本 round-trip。
+进入正式文档模型，参与文本 round-trip。ComplexItem 通过 `entity_insert_index`
+记录它在任务序列中相对普通航点的位置，导出时与 SimpleItem 按原顺序交错输出，不再
+固定追加到末尾。
 
 ## 参考实现
 

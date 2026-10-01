@@ -768,6 +768,54 @@ static void test_qgc_plan_interchange() {
               complex_reimport.complex_items[0].item_type == "Survey",
           "exported ComplexItem re-imports with its type intact");
 
+    const std::string interleaved_plan = R"({
+        "fileType": "Plan",
+        "mission": {
+            "version": 2,
+            "firmwareType": 3,
+            "vehicleType": 2,
+            "plannedHomePosition": [39.9, 116.4, 20],
+            "items": [
+                {"type": "SimpleItem", "frame": 3, "command": 16,
+                 "autoContinue": true, "doJumpId": 1,
+                 "params": [0, 0, 0, 0, 39.9, 116.4, 50]},
+                {"type": "ComplexItem", "complexItemType": "Survey",
+                 "version": 1, "polygon": [[39.9, 116.4], [39.91, 116.41]]},
+                {"type": "SimpleItem", "frame": 3, "command": 16,
+                 "autoContinue": true, "doJumpId": 3,
+                 "params": [0, 0, 0, 0, 39.91, 116.41, 50]}
+            ]
+        }
+    })";
+    MissionDocument interleaved;
+    warnings.clear();
+    error.clear();
+    CHECK(import_qgc_plan_json(interleaved_plan, interleaved, warnings, error),
+          "interleaved QGC plan imports");
+    CHECK(interleaved.entities.size() == 2 &&
+              interleaved.complex_items.size() == 1,
+          "interleaved plan keeps two simple entities and one complex item");
+    CHECK(interleaved.complex_items[0].entity_insert_index == 1,
+          "complex item records its position between entities");
+
+    const std::string interleaved_doc = serialize_mission_document(interleaved);
+    MissionDocument interleaved_round;
+    error.clear();
+    CHECK(deserialize_mission_document(interleaved_doc, interleaved_round, error) &&
+              interleaved_round.complex_items.size() == 1 &&
+              interleaved_round.complex_items[0].entity_insert_index == 1,
+          "complex item insert index round-trips through the document JSON");
+
+    const std::string interleaved_export =
+        export_qgc_plan_json(interleaved, warnings, error);
+    const size_t first_simple = interleaved_export.find("\"SimpleItem\"");
+    const size_t survey_position = interleaved_export.find("Survey");
+    const size_t last_simple = interleaved_export.rfind("\"SimpleItem\"");
+    CHECK(first_simple != std::string::npos && survey_position != std::string::npos &&
+              last_simple != std::string::npos &&
+              first_simple < survey_position && survey_position < last_simple,
+          "complex item is exported between the two simple items");
+
     const std::string fence_plan = R"({
         "fileType": "Plan",
         "geoFence": {

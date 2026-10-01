@@ -123,19 +123,22 @@ std::string compact_json(cJSON* value) {
     return result;
 }
 
-bool append_complex_items(cJSON* target,
-                          const MissionDocument& document,
-                          std::string& error) {
-    for (const MissionComplexItem& complex : document.complex_items) {
-        std::unique_ptr<cJSON, decltype(&cJSON_Delete)> item(
-            cJSON_Parse(complex.json.c_str()), cJSON_Delete);
-        if (!item || !cJSON_IsObject(item.get())) {
-            error = "mission document complex item '" + complex.id +
-                    "' is not a JSON object";
-            return false;
-        }
-        cJSON_AddItemToArray(target, cJSON_Duplicate(item.get(), true));
+bool append_complex_item_json(cJSON* target,
+                              const MissionComplexItem& complex,
+                              int do_jump_id,
+                              std::string& error) {
+    std::unique_ptr<cJSON, decltype(&cJSON_Delete)> item(
+        cJSON_Parse(complex.json.c_str()), cJSON_Delete);
+    if (!item || !cJSON_IsObject(item.get())) {
+        error = "mission document complex item '" + complex.id +
+                "' is not a JSON object";
+        return false;
     }
+    // doJumpId is a derived field: renumber it so the merged mission.items
+    // sequence stays unique across simple and complex items.
+    cJSON_DeleteItemFromObject(item.get(), "doJumpId");
+    cJSON_AddNumberToObject(item.get(), "doJumpId", do_jump_id);
+    cJSON_AddItemToArray(target, cJSON_Duplicate(item.get(), true));
     return true;
 }
 
@@ -147,6 +150,8 @@ void append_complex_item(MissionDocument& document, cJSON* item, int index) {
         complex.item_type = string_field(item, "type");
     }
     complex.json = compact_json(item);
+    complex.entity_insert_index =
+        static_cast<uint32_t>(document.entities.size());
     document.complex_items.push_back(std::move(complex));
 }
 
@@ -445,7 +450,41 @@ std::string export_qgc_plan_json(
 
     cJSON* items = cJSON_AddArrayToObject(mission, "items");
     int sequence = 1;
-    for (const MissionEntity& entity : document.entities) {
+
+    // Preserved complex items are interleaved with simple entities so the QGC
+    // plan keeps its original item order instead of appending them at the end.
+    std::vector<size_t> complex_order(document.complex_items.size());
+    for (size_t i = 0; i < complex_order.size(); ++i) {
+        complex_order[i] = i;
+    }
+    std::stable_sort(
+        complex_order.begin(),
+        complex_order.end(),
+        [&document](size_t a, size_t b) {
+            return document.complex_items[a].entity_insert_index <
+                   document.complex_items[b].entity_insert_index;
+        });
+
+    size_t next_complex = 0;
+    const size_t entity_count = document.entities.size();
+    auto emit_complex_before = [&](size_t entity_index) -> bool {
+        while (next_complex < complex_order.size() &&
+               document.complex_items[complex_order[next_complex]]
+                       .entity_insert_index <= entity_index) {
+            const MissionComplexItem& complex =
+                document.complex_items[complex_order[next_complex]];
+            if (!append_complex_item_json(items, complex, sequence, error)) {
+                return false;
+            }
+            ++sequence;
+            ++next_complex;
+        }
+        return true;
+    };
+
+    for (size_t index = 0; index < entity_count; ++index) {
+        if (!emit_complex_before(index)) return {};
+        const MissionEntity& entity = document.entities[index];
         cJSON* item = cJSON_CreateObject();
         cJSON_AddStringToObject(item, "type", "SimpleItem");
         cJSON_AddNumberToObject(item, "frame", entity.frame);
@@ -462,8 +501,16 @@ std::string export_qgc_plan_json(
         add_number_or_null(params, entity.altitude_m);
         cJSON_AddItemToArray(items, item);
     }
-    if (!append_complex_items(items, document, error)) {
-        return {};
+    // Flush trailing complex items, including the append-at-end sentinel.
+    if (!emit_complex_before(entity_count)) return {};
+    while (next_complex < complex_order.size()) {
+        const MissionComplexItem& complex =
+            document.complex_items[complex_order[next_complex]];
+        if (!append_complex_item_json(items, complex, sequence, error)) {
+            return {};
+        }
+        ++sequence;
+        ++next_complex;
     }
 
     add_geo_fence(root.get(), document, "geoFence");

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.45 - 2026-10-01
+
+### Changed
+
+- `MissionComplexItem` 新增 `entity_insert_index`，记录复杂项在任务序列中相对普通航点的
+  插入位置；任务文档 JSON 一并保存和恢复（缺失时按“末尾”兼容旧文档）。
+- QGC `.plan` 导出不再把复杂项固定追加到末尾，而是按插入位置与 SimpleItem 交错输出，
+  保持 Survey/Corridor 与航点的原始先后顺序。
+- `doJumpId` 作为派生字段在导出时对简单项和复杂项统一重编号，避免混排后出现重复序号。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.44 - 2026-10-01
 
 ### Changed

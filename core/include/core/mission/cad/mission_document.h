@@ -77,7 +77,14 @@ struct MissionComplexItem {
     std::string id;
     std::string item_type;
     std::string json;
+    // Position in the plan relative to simple entities: the complex item is
+    // emitted after this many entities. 0 places it before the first entity.
+    uint32_t entity_insert_index = 0;
 };
+
+// Sentinel for MissionComplexItem::entity_insert_index meaning "after every
+// entity". Chosen so it also matches QGC items that only carry complex entries.
+inline constexpr uint32_t kComplexItemAppendAtEnd = ~static_cast<uint32_t>(0);
 
 struct MissionDefaults {
     uint8_t frame = static_cast<uint8_t>(CoordFrame::GlobalRelAlt);

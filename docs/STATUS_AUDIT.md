@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.44`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.45`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -96,7 +96,8 @@ bash tools/audit_status.sh
   breach-return。
 - `COMPLEX-001`：QGC ComplexItem（Survey、CorridorScan 等）提升为正式
   `MissionComplexItem` 模型，保存 `id`、`item_type` 和原始 JSON，`.plan` 往返无损；
-  内部字段目前只读，暂不语义化编辑。
+  新增 `entity_insert_index` 后导出时与普通航点按原顺序交错；内部字段目前只读，
+  暂不语义化编辑。
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项

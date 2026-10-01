@@ -170,10 +170,11 @@ MAVLink `MISSION_ITEM_INT` 的 `degE7` 格式转换为 `int32`，分辨率约为
   映射为文档 metadata。
 
 `.plan` 对复杂区段采用分级处理：Survey、CorridorScan 等复杂 `mission.items` 由
-`MissionComplexItem` 正式模型保存 `id`、`item_type` 和原始 JSON，再次导出 `.plan`
-时放回；Rally version 2 已提升为正式的 `rally_points` 模型；GeoFence 已提升为正式
-模型，支持 polygon、circle、inclusion 和 breach-return。ComplexItem 导入会产生
-“只读保留、暂不可语义化编辑”的 warning，因为 M-GCS 暂时不能编辑其内部字段。
+`MissionComplexItem` 正式模型保存 `id`、`item_type`、原始 JSON 和
+`entity_insert_index`，再次导出 `.plan` 时按插入位置与普通航点交错放回；Rally
+version 2 已提升为正式的 `rally_points` 模型；GeoFence 已提升为正式模型，支持
+polygon、circle、inclusion 和 breach-return。ComplexItem 导入会产生“只读保留、
+暂不可语义化编辑”的 warning，因为 M-GCS 暂时不能编辑其内部字段。
 
 参数化测绘实体或禁用实体仍不能无损导出为普通 `.plan`；`hoverSpeed`、地形高度模式、
 null 参数和不在命令目录中的 MAV_CMD 会通过 `warnings` 报告。围栏和 Rally 的统一编辑

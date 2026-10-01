@@ -121,6 +121,9 @@ breach-return。
 `MissionComplexItem` 模型，保存 `id`、`item_type`（`complexItemType`，回退 `type`）
 和原始 JSON；`.plan` 往返无损，内部字段暂为只读。
 
+`0.0.45` 为 `MissionComplexItem` 增加 `entity_insert_index`，`.plan` 导出时复杂项与
+SimpleItem 按原始顺序交错，不再固定追加到末尾；`doJumpId` 对两者统一重新编号。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：
