@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.0.53 - 2026-10-01
+
+### Changed
+
+- QGC ComplexItem 现在可以编译：复用 QGC 保存在 `TransectStyleComplexItem.Items`
+  里的已算好任务项，而不是在 M-GCS 重新推导 Survey/Corridor 几何（参照 QGC
+  `TransectStyleComplexItem::_save`）。新增 `expand_complex_item_entities` 和
+  `expand_document_entities`，编译与估算都会按 `entity_insert_index` 把复杂项展开到
+  正确位置。
+- 校验层不再对复杂项一刀切报错：`TransectStyleComplexItem.Items` 缺失的复杂项继续以
+  `complex_item.unsupported` 阻断上传；可展开的复杂项改为 `complex_item.expanded`
+  警告（几何来自 QGC、在 M-GCS 中只读），展开出的未知 MAV_CMD 报
+  `complex_item.unsupported_command`。含可展开复杂项的任务现在可以正常校验、编译和上传。
+
+### Verification
+
+- 后端 offline/simulation `35/35` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.52 - 2026-10-01
 
 ### Added

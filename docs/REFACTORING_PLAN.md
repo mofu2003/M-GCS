@@ -150,6 +150,10 @@ breach-return 点及高度），区分于阻断上传的复杂项：围栏/Rally
 `0.0.52` 补齐围栏/Rally 校验：新增 `mg_mission_doc_verify_fence` /
 `mg_mission_doc_verify_rally`，返回 `matches` 与结构化 differences，与任务 verify 对称。
 
+`0.0.53` 打通 ComplexItem 编译：复用 QGC 存入的 `TransectStyleComplexItem.Items`，
+不再自己重算 Survey 几何；`expand_document_entities` 让编译/估算按插入位置展开复杂项，
+`complex_item.unsupported` 收窄为“确实无法展开”的情况。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

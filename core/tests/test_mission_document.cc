@@ -1198,6 +1198,106 @@ static void test_fence_rally_plan_roundtrip() {
           "unsupported rally command is rejected");
 }
 
+static void test_complex_item_expansion() {
+    fprintf(stderr, "\n[Group] QGC ComplexItem expansion\n");
+
+    // QGC saves the computed mission items inside the complex item. M-GCS reuses
+    // them instead of re-deriving the survey geometry.
+    MissionDocument document;
+    document.metadata.id = "complex-expand";
+    document.home.set = true;
+    document.home.latitude = 39.9;
+    document.home.longitude = 116.4;
+    document.defaults.altitude_m = 50.0f;
+    document.defaults.speed_ms = 10.0f;
+
+    MissionEntity waypoint;
+    waypoint.id = "waypoint-1";
+    waypoint.type = "waypoint";
+    waypoint.command = static_cast<uint16_t>(NavCommand::NavWaypoint);
+    waypoint.latitude = 39.9001;
+    waypoint.longitude = 116.4001;
+    waypoint.altitude_m = 50.0f;
+    document.entities.push_back(waypoint);
+
+    MissionComplexItem survey;
+    survey.id = "plan-complex-item-2";
+    survey.item_type = "Survey";
+    survey.entity_insert_index = 1;
+    survey.json = R"({
+        "type": "ComplexItem",
+        "complexItemType": "Survey",
+        "TransectStyleComplexItem": {
+            "version": 2,
+            "Items": [
+                {"type": "SimpleItem", "frame": 3, "command": 16,
+                 "autoContinue": true, "doJumpId": 1,
+                 "params": [0, 2, 0, 0, 39.91, 116.41, 60]},
+                {"type": "SimpleItem", "frame": 3, "command": 16,
+                 "autoContinue": true, "doJumpId": 2,
+                 "params": [0, 2, 0, 0, 39.92, 116.42, 60]}
+            ]
+        }
+    })";
+    document.complex_items.push_back(survey);
+
+    std::vector<MissionEntity> expanded;
+    std::string error;
+    CHECK(expand_complex_item_entities(survey, expanded, error) &&
+              expanded.size() == 2,
+          "complex item expands into its stored mission items");
+    if (expanded.size() == 2) {
+        CHECK(expanded[0].id == "plan-complex-item-2-item-1" &&
+                  std::fabs(expanded[1].latitude - 39.92) < 1e-9,
+              "expanded items keep stable ids and coordinates");
+    }
+
+    const auto report = MissionDocumentService::validate_document(document);
+    CHECK(report.valid, "document with an expandable complex item is valid");
+    CHECK(report_has_code(report, "complex_item.expanded"),
+          "expanded complex item is reported as read-only");
+    CHECK(!report_has_code(report, "complex_item.unsupported"),
+          "expandable complex item no longer blocks validation");
+
+    const auto compiled = MissionDocumentService::compile_document(document);
+    CHECK(compiled.valid && compiled.plan.items.size() == 3,
+          "compile includes the expanded complex item items");
+    CHECK(compiled.source_entity_ids.size() == 3 &&
+              compiled.source_entity_ids[1] == "plan-complex-item-2" &&
+              compiled.source_entity_ids[2] == "plan-complex-item-2",
+          "expanded items report the complex item as their source");
+
+    const auto estimate = MissionDocumentService::estimate_document(document);
+    CHECK(estimate.waypoint_count == 3,
+          "estimate counts the expanded complex item waypoints");
+
+    MissionComplexItem broken;
+    broken.id = "plan-complex-item-3";
+    broken.item_type = "Survey";
+    broken.json = R"({
+        "type": "ComplexItem",
+        "complexItemType": "Survey",
+        "polygon": [[39.9, 116.4], [39.91, 116.41], [39.92, 116.4]]
+    })";
+    CHECK(!expand_complex_item_entities(broken, expanded, error),
+          "complex item without TransectStyleComplexItem is rejected");
+
+    MissionDocument unsupported = document;
+    unsupported.complex_items[0].json = R"({
+        "TransectStyleComplexItem": {
+            "Items": [{"type": "SimpleItem", "frame": 3, "command": 9999,
+                       "autoContinue": true,
+                       "params": [0, 0, 0, 0, 39.9, 116.4, 50]}]
+        }
+    })";
+    const auto unsupported_report =
+        MissionDocumentService::validate_document(unsupported);
+    CHECK(!unsupported_report.valid &&
+              report_has_code(unsupported_report,
+                              "complex_item.unsupported_command"),
+          "expanded command outside the catalog fails validation");
+}
+
 static void test_ffi_geofence_compile() {
     fprintf(stderr, "\n[Group] GeoFence compile through FFI\n");
     mg_core_t* core = mg_create();
@@ -1320,6 +1420,7 @@ int main() {
     test_geofence_rally_validation();
     test_geofence_compile();
     test_fence_rally_plan_roundtrip();
+    test_complex_item_expansion();
     test_ffi_geofence_compile();
     test_rally_compile();
     test_ffi_rally_compile();

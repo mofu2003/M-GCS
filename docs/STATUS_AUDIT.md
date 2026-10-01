@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.52`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.53`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -122,6 +122,11 @@ bash tools/audit_status.sh
   新增 `entity_insert_index` 后导出时与普通航点按原顺序交错；内部字段目前只读，
   暂不语义化编辑，校验层以 `complex_item.unsupported` 错误阻断编译/上传，避免静默
   丢弃复杂项。
+- `COMPLEX-002`：复用 QGC 存在 `TransectStyleComplexItem.Items` 里的已算好任务项，
+  `expand_complex_item_entities` / `expand_document_entities` 在编译和估算时按
+  `entity_insert_index` 展开复杂项，含可展开复杂项的任务可正常校验/编译/上传；
+  缺少该区段仍报 `complex_item.unsupported`，未知命令报
+  `complex_item.unsupported_command`，可展开项给出 `complex_item.expanded` 警告。
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项

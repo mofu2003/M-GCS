@@ -323,6 +323,15 @@ bool rally_points_from_plan(
     std::vector<MissionRallyPoint>& rally_points,
     std::string& error);
 
+/// 把 QGC ComplexItem 里保存的展开任务项（`TransectStyleComplexItem.Items`）
+/// 还原成文档实体。这是复用 QGC 已算好的几何、而不是在 M-GCS 里重算 Survey 网格的
+/// 关键：QGC 保存 ComplexItem 时会把内部 MissionItem 列表一并写入。
+/// 缺少该区段或其中出现非法条目时返回 false，`error` 说明原因。
+bool expand_complex_item_entities(
+    const MissionComplexItem& complex,
+    std::vector<MissionEntity>& entities,
+    std::string& error);
+
 /// 该实体类型是否由 SurveyCalculator 在编译期展开（而不是 1 实体 1 任务项）。
 bool is_parameterized_survey_type(const std::string& type);
 

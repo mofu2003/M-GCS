@@ -15,7 +15,19 @@ MissionEstimate estimate_document_impl(const MissionDocument& document) {
     double current_speed = document.defaults.speed_ms;
     double photo_trigger_distance = 0.0;
 
-    for (const MissionEntity& entity : document.entities) {
+    std::vector<ExpandedEntity> ordered;
+    std::string expand_error;
+    if (!expand_document_entities(document, ordered, expand_error)) {
+        // Best-effort fallback: estimate the plain entities when a complex item
+        // cannot be expanded, so the caller still gets a partial figure.
+        ordered.clear();
+        for (const MissionEntity& entity : document.entities) {
+            ordered.push_back({entity, entity.id});
+        }
+    }
+
+    for (const ExpandedEntity& expanded : ordered) {
+        const MissionEntity& entity = expanded.entity;
         if (!entity.enabled) {
             continue;
         }

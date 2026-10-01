@@ -177,8 +177,9 @@ polygon、circle、inclusion 和 breach-return。ComplexItem 导入会产生“�
 暂不可语义化编辑”的 warning，因为 M-GCS 暂时不能编辑其内部字段。
 
 复杂项不参与编译。文档含 `complex_items` 时，`validate`、`compile`、上传和回读都会
-返回 `complex_item.unsupported` 错误，强制用户在 QGroundControl 处理或移除复杂项，
-避免静默上传一份缺少 Survey/Corridor 的任务。
+返回 `complex_item.unsupported` 错误。QGC 会把 ComplexItem 的已算好任务项写进
+`TransectStyleComplexItem.Items`，M-GCS 复用这段几何展开成普通任务项，因此带
+Survey/Corridor 的任务可以正常编译和上传；只有缺少该区段的复杂项才会被阻断。
 
 GeoFence 与 Rally 是独立的 MAVLink mission type，不计入航点任务上传，也不会因为存在
 围栏/Rally 而阻断上传。`validate` 会检查其几何：多边形至少 3 个顶点、经纬度合法、

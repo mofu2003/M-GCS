@@ -55,8 +55,10 @@ GeoFence 和 Rally 已进入正式文档模型；ComplexItem 以 `MissionComplex
 `.plan` 时会按该 JSON 重建完整 ComplexItem。
 
 复杂项只做无损保留，不参与编译：文档含 `complex_items` 时校验返回
-`complex_item.unsupported` 错误，`validate`/`compile`/上传/回读全部失败。这是有意
-设计，避免上传时只飞普通航点、与导入的 `.plan` 不一致却没有提示。
+`complex_item.unsupported` 错误。QGC 保存 ComplexItem 时会把算好的内部 MissionItem
+写入 `TransectStyleComplexItem.Items`（见 QGC `TransectStyleComplexItem::_save`），
+M-GCS 直接复用这段几何展开成普通任务项参与编译/估算/上传，而不是自己重推 Survey 网格；
+只有缺少该区段的复杂项才继续报错阻断，避免上传时静默丢掉 Survey/Corridor。
 
 GeoFence 和 Rally 在文档里是独立模型，`validate` 会校验其几何（多边形至少 3 个顶点、
 经纬度在合法范围、圆半径为正、breach-return 点有效），但不会因为存在围栏/Rally 而

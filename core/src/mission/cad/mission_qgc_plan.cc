@@ -114,6 +114,62 @@ void add_number_or_null(cJSON* array, double value) {
         std::isfinite(value) ? cJSON_CreateNumber(value) : cJSON_CreateNull());
 }
 
+bool parse_qgc_simple_item(cJSON* item,
+                           const std::string& id,
+                           uint32_t order,
+                           MissionEntity& entity,
+                           std::string& error) {
+    int frame = 0;
+    int command = 0;
+    bool auto_continue = false;
+    if (!int_field(item, "frame", frame) ||
+        !int_field(item, "command", command) ||
+        !bool_field(item, "autoContinue", auto_continue)) {
+        error = "mission item " + id + " is missing frame, command or autoContinue";
+        return false;
+    }
+    if (frame < 0 || frame > 255 || command < 0 || command > 65535) {
+        error = "mission item " + id + " has frame or command out of range";
+        return false;
+    }
+    cJSON* params = object_field(item, "params");
+    if (!params || !cJSON_IsArray(params) || cJSON_GetArraySize(params) < 4) {
+        error = "mission item " + id + " must contain at least four params";
+        return false;
+    }
+
+    entity = MissionEntity{};
+    entity.id = id;
+    entity.command = static_cast<uint16_t>(command);
+    entity.type = mission_entity_type_for_command(entity.command);
+    entity.frame = normalize_mission_frame(static_cast<uint8_t>(frame));
+    entity.autocontinue = static_cast<uint8_t>(auto_continue ? 1 : 0);
+    entity.order = order;
+    for (int param = 0; param < 4; ++param) {
+        cJSON* value = cJSON_GetArrayItem(params, param);
+        entity.params[static_cast<size_t>(param)] =
+            (value && cJSON_IsNumber(value))
+                ? static_cast<float>(value->valuedouble)
+                : 0.0f;
+    }
+    const int params_count = cJSON_GetArraySize(params);
+    if (params_count >= 7) {
+        entity.latitude = number_or_nan(cJSON_GetArrayItem(params, 4));
+        entity.longitude = number_or_nan(cJSON_GetArrayItem(params, 5));
+        entity.altitude_m =
+            static_cast<float>(number_or_nan(cJSON_GetArrayItem(params, 6)));
+    }
+    cJSON* coordinate = object_field(item, "coordinate");
+    if (coordinate && cJSON_IsArray(coordinate) &&
+        cJSON_GetArraySize(coordinate) >= 3) {
+        entity.latitude = number_or_nan(cJSON_GetArrayItem(coordinate, 0));
+        entity.longitude = number_or_nan(cJSON_GetArrayItem(coordinate, 1));
+        entity.altitude_m =
+            static_cast<float>(number_or_nan(cJSON_GetArrayItem(coordinate, 2)));
+    }
+    return true;
+}
+
 std::string compact_json(cJSON* value) {
     if (!value) return {};
     char* printed = cJSON_PrintUnformatted(value);
@@ -749,6 +805,58 @@ bool import_qgc_plan_json(
     document.entities = std::move(parsed.entities);
     document.complex_items = std::move(parsed.complex_items);
     document.extensions = std::move(parsed.extensions);
+    return true;
+}
+
+bool expand_complex_item_entities(
+    const MissionComplexItem& complex,
+    std::vector<MissionEntity>& entities,
+    std::string& error) {
+    error.clear();
+    entities.clear();
+
+    std::unique_ptr<cJSON, decltype(&cJSON_Delete)> root(
+        cJSON_Parse(complex.json.c_str()), cJSON_Delete);
+    if (!root || !cJSON_IsObject(root.get())) {
+        error = "complex item '" + complex.id + "' payload is not a JSON object";
+        return false;
+    }
+
+    // QGC writes the internal MissionItem list into the complex item when the
+    // plan is saved (TransectStyleComplexItem::_save), so the expanded geometry
+    // can be reused verbatim instead of re-running the survey generator.
+    cJSON* transect = object_field(root.get(), "TransectStyleComplexItem");
+    if (!transect || !cJSON_IsObject(transect)) {
+        error = "complex item '" + complex.id + "' (" + complex.item_type +
+                ") has no TransectStyleComplexItem geometry to expand";
+        return false;
+    }
+    cJSON* items = object_field(transect, "Items");
+    if (!items || !cJSON_IsArray(items) || cJSON_GetArraySize(items) == 0) {
+        error = "complex item '" + complex.id +
+                "' has no stored mission items to expand";
+        return false;
+    }
+
+    const int count = cJSON_GetArraySize(items);
+    for (int index = 0; index < count; ++index) {
+        cJSON* item = cJSON_GetArrayItem(items, index);
+        if (!item || !cJSON_IsObject(item)) {
+            error = "complex item '" + complex.id + "' mission item " +
+                    std::to_string(index) + " is not an object";
+            entities.clear();
+            return false;
+        }
+        MissionEntity entity;
+        const std::string id =
+            complex.id + "-item-" + std::to_string(index + 1);
+        if (!parse_qgc_simple_item(item, id, static_cast<uint32_t>(index),
+                                   entity, error)) {
+            entities.clear();
+            return false;
+        }
+        entities.push_back(std::move(entity));
+    }
     return true;
 }
 

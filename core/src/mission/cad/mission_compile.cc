@@ -62,6 +62,57 @@ SurveyResult expand_survey_entity(const MissionEntity& entity) {
     return SurveyCalculator::generate_grid(survey_grid_config(entity));
 }
 
+bool expand_document_entities(
+    const MissionDocument& document,
+    std::vector<ExpandedEntity>& out,
+    std::string& error) {
+    error.clear();
+    out.clear();
+
+    // Preserved QGC complex items carry their own computed mission items, so the
+    // document order can be rebuilt without re-deriving survey geometry.
+    std::vector<size_t> complex_order(document.complex_items.size());
+    for (size_t i = 0; i < complex_order.size(); ++i) complex_order[i] = i;
+    std::stable_sort(
+        complex_order.begin(),
+        complex_order.end(),
+        [&document](size_t a, size_t b) {
+            return document.complex_items[a].entity_insert_index <
+                   document.complex_items[b].entity_insert_index;
+        });
+
+    size_t next_complex = 0;
+    auto emit_complex_before = [&](size_t entity_index) -> bool {
+        while (next_complex < complex_order.size() &&
+               document.complex_items[complex_order[next_complex]]
+                       .entity_insert_index <= entity_index) {
+            const MissionComplexItem& complex =
+                document.complex_items[complex_order[next_complex]];
+            std::vector<MissionEntity> expanded;
+            if (!expand_complex_item_entities(complex, expanded, error)) {
+                out.clear();
+                return false;
+            }
+            for (MissionEntity entity : expanded) {
+                entity.order = static_cast<uint32_t>(out.size());
+                out.push_back({std::move(entity), complex.id});
+            }
+            ++next_complex;
+        }
+        return true;
+    };
+
+    for (size_t index = 0; index < document.entities.size(); ++index) {
+        if (!emit_complex_before(index)) return false;
+        const MissionEntity& entity = document.entities[index];
+        out.push_back({entity, entity.id});
+    }
+    if (!emit_complex_before(document.entities.size())) return false;
+    // Flush complex items marked "append at end".
+    if (!emit_complex_before(kComplexItemAppendAtEnd)) return false;
+    return true;
+}
+
 MissionCompileResult compile_document_impl(const MissionDocument& document) {
     MissionCompileResult result;
     result.report = validate_document(document);
@@ -69,7 +120,22 @@ MissionCompileResult compile_document_impl(const MissionDocument& document) {
         return result;
     }
 
-    for (const MissionEntity& entity : document.entities) {
+    std::vector<ExpandedEntity> ordered;
+    std::string expand_error;
+    if (!expand_document_entities(document, ordered, expand_error)) {
+        add_diagnostic(
+            result.report,
+            DiagnosticSeverity::Error,
+            "complex_item.unsupported",
+            expand_error.empty() ? "complex item cannot be expanded" : expand_error,
+            {},
+            "complex_items");
+        result.valid = false;
+        return result;
+    }
+
+    for (const ExpandedEntity& expanded : ordered) {
+        const MissionEntity& entity = expanded.entity;
         if (!entity.enabled) {
             continue;
         }
@@ -95,7 +161,7 @@ MissionCompileResult compile_document_impl(const MissionDocument& document) {
             for (MissionItem item : generated.items) {
                 item.seq = static_cast<uint16_t>(result.plan.items.size());
                 result.plan.items.push_back(item);
-                result.source_entity_ids.push_back(entity.id);
+                result.source_entity_ids.push_back(expanded.source_id);
             }
             continue;
         }
@@ -120,7 +186,7 @@ MissionCompileResult compile_document_impl(const MissionDocument& document) {
             : document.defaults.altitude_m;
         item.mission_type = 0;
         result.plan.items.push_back(item);
-        result.source_entity_ids.push_back(entity.id);
+        result.source_entity_ids.push_back(expanded.source_id);
     }
 
     result.plan.valid = !result.plan.items.empty();

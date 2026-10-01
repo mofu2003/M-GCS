@@ -25,6 +25,21 @@ MissionValidationReport validate_document(const MissionDocument& document);
 /// Expand a parameterized survey/corridor entity through the shared calculator.
 SurveyResult expand_survey_entity(const MissionEntity& entity);
 
+/// A compiled entity plus the document item it came from (entity id or complex
+/// item id), so callers can report provenance for expanded complex items.
+struct ExpandedEntity {
+    MissionEntity entity;
+    std::string source_id;
+};
+
+/// Entities in plan order with QGC ComplexItem geometry expanded in place of the
+/// preserved complex entry (using the stored `TransectStyleComplexItem.Items`).
+/// Returns false with `error` when a complex item cannot be expanded.
+bool expand_document_entities(
+    const MissionDocument& document,
+    std::vector<ExpandedEntity>& entities,
+    std::string& error);
+
 MissionCompileResult compile_document_impl(const MissionDocument& document);
 MissionEstimate estimate_document_impl(const MissionDocument& document);
 

@@ -329,16 +329,43 @@ MissionValidationReport validate_document(const MissionDocument& document) {
     size_t enabled_count = 0;
     std::vector<const MissionEntity*> enabled;
 
-    // QGC complex items (Survey, CorridorScan, ...) are preserved for round-trip
-    // but the compiler only expands MissionEntity. Blocking validation here keeps
-    // upload from silently dropping them and flying a different mission.
+    // QGC complex items (Survey, CorridorScan, ...) carry their own computed
+    // mission items, so they can be expanded and uploaded. An item that cannot be
+    // expanded stays an error so upload never silently drops it.
     for (const MissionComplexItem& complex : document.complex_items) {
+        std::vector<MissionEntity> expanded;
+        std::string expand_error;
+        if (!expand_complex_item_entities(complex, expanded, expand_error)) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "complex_item.unsupported",
+                expand_error.empty()
+                    ? "QGC complex item cannot be expanded into mission items"
+                    : expand_error,
+                complex.id,
+                "complex_items");
+            continue;
+        }
+        for (const MissionEntity& entity : expanded) {
+            if (entity.command == 0 ||
+                find_command_descriptor(entity.command) == nullptr) {
+                add_diagnostic(
+                    report,
+                    DiagnosticSeverity::Error,
+                    "complex_item.unsupported_command",
+                    "Expanded complex item contains a command that is not in "
+                    "the supported catalog",
+                    entity.id,
+                    "command");
+            }
+        }
         add_diagnostic(
             report,
-            DiagnosticSeverity::Error,
-            "complex_item.unsupported",
-            "QGC complex items are preserved but not compiled or uploaded yet; "
-            "remove them or edit the plan in QGroundControl before uploading",
+            DiagnosticSeverity::Warning,
+            "complex_item.expanded",
+            "Complex item geometry is expanded from the stored QGroundControl "
+            "mission items and is read-only in M-GCS",
             complex.id,
             "complex_items");
     }

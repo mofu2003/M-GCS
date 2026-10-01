@@ -2,7 +2,7 @@
 
 ## 当前基线
 
-- 当前版本：`0.0.52`。
+- 当前版本：`0.0.53`。
 - 代码分层：`flutter_shell -> bridge/ffi -> core -> third_party`。
 - 默认测试只包含 `offline` 和 `simulation`；hardware/manual 必须显式运行。
 - 默认预检：`tools/preflight.sh`。
