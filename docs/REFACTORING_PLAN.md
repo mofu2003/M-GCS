@@ -124,6 +124,9 @@ breach-return。
 `0.0.45` 为 `MissionComplexItem` 增加 `entity_insert_index`，`.plan` 导出时复杂项与
 SimpleItem 按原始顺序交错，不再固定追加到末尾；`doJumpId` 对两者统一重新编号。
 
+`0.0.46` 在任务校验层新增 `complex_item.unsupported` 错误：含复杂项的文档不能通过
+`validate`/`compile`/上传，阻断“编译只展开普通实体、上传静默丢弃复杂项”的隐患。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

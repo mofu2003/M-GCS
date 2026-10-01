@@ -816,6 +816,21 @@ static void test_qgc_plan_interchange() {
               first_simple < survey_position && survey_position < last_simple,
           "complex item is exported between the two simple items");
 
+    const auto interleaved_validation =
+        MissionDocumentService::validate_document(interleaved);
+    bool complex_error = false;
+    for (const auto& diagnostic : interleaved_validation.diagnostics) {
+        if (diagnostic.code == "complex_item.unsupported") {
+            complex_error = true;
+        }
+    }
+    CHECK(!interleaved_validation.valid && complex_error,
+          "complex items block validation so upload cannot silently drop them");
+    const auto interleaved_compile =
+        MissionDocumentService::compile_document(interleaved);
+    CHECK(!interleaved_compile.valid,
+          "document with complex items cannot be compiled for upload");
+
     const std::string fence_plan = R"({
         "fileType": "Plan",
         "geoFence": {

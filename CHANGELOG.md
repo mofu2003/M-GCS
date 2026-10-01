@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.46 - 2026-10-01
+
+### Fixed
+
+- 修复含 QGC ComplexItem 的任务文档在上传时静默丢弃复杂项的安全隐患：校验层新增
+  `complex_item.unsupported` 错误，文档带复杂项时 `validate`/`compile`/上传/回读
+  都会失败，并提示先在 QGroundControl 处理或移除复杂项。此前编译只展开普通实体，
+  上传后飞控任务会与导入的 `.plan` 不一致且没有任何提示。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.45 - 2026-10-01
 
 ### Changed

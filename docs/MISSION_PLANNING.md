@@ -176,6 +176,10 @@ version 2 已提升为正式的 `rally_points` 模型；GeoFence 已提升为正
 polygon、circle、inclusion 和 breach-return。ComplexItem 导入会产生“只读保留、
 暂不可语义化编辑”的 warning，因为 M-GCS 暂时不能编辑其内部字段。
 
+复杂项不参与编译。文档含 `complex_items` 时，`validate`、`compile`、上传和回读都会
+返回 `complex_item.unsupported` 错误，强制用户在 QGroundControl 处理或移除复杂项，
+避免静默上传一份缺少 Survey/Corridor 的任务。
+
 参数化测绘实体或禁用实体仍不能无损导出为普通 `.plan`；`hoverSpeed`、地形高度模式、
 null 参数和不在命令目录中的 MAV_CMD 会通过 `warnings` 报告。围栏和 Rally 的统一编辑
 文档仍未实现。

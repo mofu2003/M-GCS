@@ -54,6 +54,10 @@ GeoFence 和 Rally 已进入正式文档模型；ComplexItem 以 `MissionComplex
 `id`、`item_type`（取 `complexItemType`，回退 `type`）和原始 JSON，再次导出同一
 `.plan` 时会按该 JSON 重建完整 ComplexItem。
 
+复杂项只做无损保留，不参与编译：文档含 `complex_items` 时校验返回
+`complex_item.unsupported` 错误，`validate`/`compile`/上传/回读全部失败。这是有意
+设计，避免上传时只飞普通航点、与导入的 `.plan` 不一致却没有提示。
+
 ## 导出边界
 
 `.plan` 不静默 flatten 设计意图：

@@ -328,6 +328,21 @@ MissionValidationReport validate_document(const MissionDocument& document) {
     std::unordered_set<std::string> ids;
     size_t enabled_count = 0;
     std::vector<const MissionEntity*> enabled;
+
+    // QGC complex items (Survey, CorridorScan, ...) are preserved for round-trip
+    // but the compiler only expands MissionEntity. Blocking validation here keeps
+    // upload from silently dropping them and flying a different mission.
+    for (const MissionComplexItem& complex : document.complex_items) {
+        add_diagnostic(
+            report,
+            DiagnosticSeverity::Error,
+            "complex_item.unsupported",
+            "QGC complex items are preserved but not compiled or uploaded yet; "
+            "remove them or edit the plan in QGroundControl before uploading",
+            complex.id,
+            "complex_items");
+    }
+
     for (size_t index = 0; index < document.entities.size(); ++index) {
         const MissionEntity& entity = document.entities[index];
         if (entity.id.empty()) {
