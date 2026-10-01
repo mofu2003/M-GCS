@@ -43,6 +43,14 @@
 | 下一阶段 E | 任务领域补齐 | QGC `.plan` ComplexItem 保留、GeoFence/Rally 文档模型、ArduPilot 能力矩阵和往返测试 |
 | 后续 | 平台真实验收 | Windows 串口/任务/参数/校准、Linux 串口、Android USB 生命周期；构建成功不能替代设备验收 |
 
+### 当前执行进度
+
+第二阶段 B 已开始：任务文档 FFI 绑定已迁移到
+`flutter_shell/lib/mission/mission_document_ffi_backend.dart`。`ConnectionController`
+继续持有共享 Core 和连接状态，但不再直接实现 `MissionDocumentBackend`，任务页面契约
+保持不变。后续按同样方式拆遥测、参数、校准和飞行命令适配器，每次只迁移一个领域并
+保持门禁通过。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

@@ -93,6 +93,13 @@ Home、默认速度和固件/机型元数据，并对复杂项、非空 GeoFence
 的字段返回明确错误或 warnings。地理围栏/Rally 的统一文档仍未实现；任务规划页面已
 接入回读验证、脏状态提示、校验诊断定位、地图/列表选中和拖动排序。
 
+### `REFACTOR-001`：任务 FFI 适配器已从 Flutter 主控制器迁出
+
+`MissionDocumentFfiBackend` 现在独立负责任务文档相关的动态符号绑定、JSON envelope、
+任务传输进度和文件互操作；`ConnectionController` 只提供共享 Core、动态库和连接状态
+回调。公开 `MissionDocumentBackend` 契约和任务页面行为不变。当前仅完成任务领域，
+其他遥测、参数、校准和飞行命令适配器仍在主控制器中，后续逐域迁移。
+
 ## 当前工作区
 
 提交前必须确保：
