@@ -54,6 +54,7 @@ class _MissionPlanningFloatingPanelState
   bool _collapsed = false;
   String? _lastSelectedEntityId;
   final Map<String, GlobalKey> _entityKeys = {};
+  Timer? _executionTimer;
 
   MissionDocumentController get _mission => widget.controller.missionPlanning;
 
@@ -65,6 +66,11 @@ class _MissionPlanningFloatingPanelState
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_mission.initialize());
     });
+    // 面板只在显示时挂载，所以这里的轮询随面板出现/消失自动开始和停止。
+    _executionTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => unawaited(_mission.refreshExecutionProgress()),
+    );
   }
 
   void _handleTabChanged() {
@@ -98,6 +104,7 @@ class _MissionPlanningFloatingPanelState
 
   @override
   void dispose() {
+    _executionTimer?.cancel();
     _tabs.removeListener(_handleTabChanged);
     _mission.removeListener(_handleMissionChanged);
     _tabs.dispose();
@@ -217,6 +224,12 @@ class _MissionPlanningFloatingPanelState
         children: [
           _buildMissionActions(context, document),
           const SizedBox(height: 8),
+          if (_mission.executionProgress?.active ?? false) ...[
+            _MissionExecutionProgressBar(
+              progress: _mission.executionProgress!,
+            ),
+            const SizedBox(height: 8),
+          ],
           Expanded(
             child: entities.isEmpty
                 ? const _MissionEmptyState()
@@ -746,6 +759,63 @@ class _MissionPlanningFloatingPanelState
     }
     final meters = wgs84DistanceMeters(LatLng(lat1, lon1), LatLng(lat2, lon2));
     return '距上一点 ${formatMissionDistance(meters)}';
+  }
+}
+
+/// 任务执行进度条：来源是飞控的 MISSION_CURRENT + MISSION_ITEM_REACHED。
+class _MissionExecutionProgressBar extends StatelessWidget {
+  const _MissionExecutionProgressBar({required this.progress});
+
+  final MissionExecutionProgress progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    final typography = MacosTheme.of(context).typography;
+    final total = progress.total;
+    final reached = progress.reachedCount.clamp(0, total);
+    final ratio = total == 0 ? 0.0 : reached / total;
+    final done = progress.finished;
+    final label = done
+        ? '任务完成 · 共 $total 项'
+        : '任务进度 第 ${(progress.currentIndex + 1).clamp(1, total)}/$total 项 · '
+              '已到达 $reached 项';
+    return MissionCardFrame(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              MacosIcon(
+                done
+                    ? CupertinoIcons.checkmark_circle
+                    : CupertinoIcons.location_north,
+                size: 13,
+                color: done ? colors.success : colors.accent,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: typography.caption1.copyWith(
+                    color: colors.textPrimary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ProgressBar(
+            value: ratio * 100,
+            height: MgMetrics.motorBarHeight,
+            trackColor: done ? colors.success : colors.accent,
+            backgroundColor: colors.surfaceMuted,
+            semanticLabel: label,
+          ),
+        ],
+      ),
+    );
   }
 }
 

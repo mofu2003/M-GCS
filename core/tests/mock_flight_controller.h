@@ -155,6 +155,14 @@ public:
         send(m);
     }
 
+    /// 发送 MISSION_CURRENT，模拟飞控上报当前目标项。
+    void send_mission_current(uint16_t seq) {
+        mavlink_message_t m;
+        mavlink_msg_mission_current_pack(config_.system_id, config_.component_id,
+                                         &m, seq, 0, 0, 0, 0, 0, 0);
+        send(m);
+    }
+
     /// 发送 HOME_POSITION，模拟飞控上报 home 点（经纬度用度、高度用米）。
     void send_home_position(double lat_deg, double lon_deg, double alt_m) {
         const float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};

@@ -366,6 +366,42 @@ final class MissionDocumentOperationResult {
 
 enum MissionTransferState { idle, downloading, uploading, waitingAck }
 
+/// 任务执行进度：`MISSION_CURRENT` 给出当前目标项，`MISSION_ITEM_REACHED` 统计已到达项。
+/// `currentIndex` 是去掉 ArduPilot home 偏移后的客户端可见序号（0 起）。
+final class MissionExecutionProgress {
+  const MissionExecutionProgress({
+    this.valid = false,
+    this.currentIndex = 0,
+    this.currentSeq = 0,
+    this.total = 0,
+    this.reachedCount = 0,
+    this.lastReachedSeq = 0,
+    this.finished = false,
+  });
+
+  final bool valid;
+  final int currentIndex;
+  final int currentSeq;
+  final int total;
+  final int reachedCount;
+  final int lastReachedSeq;
+  final bool finished;
+
+  /// 有可判断的飞控任务时才展示进度。
+  bool get active => valid && total > 0;
+
+  factory MissionExecutionProgress.fromJson(JsonMap json) =>
+      MissionExecutionProgress(
+        valid: json['valid'] == true,
+        currentIndex: (json['current_index'] as num?)?.toInt() ?? 0,
+        currentSeq: (json['current_seq'] as num?)?.toInt() ?? 0,
+        total: (json['total'] as num?)?.toInt() ?? 0,
+        reachedCount: (json['reached_count'] as num?)?.toInt() ?? 0,
+        lastReachedSeq: (json['last_reached_seq'] as num?)?.toInt() ?? 0,
+        finished: json['finished'] == true,
+      );
+}
+
 final class MissionTransferProgress {
   const MissionTransferProgress({
     this.state = MissionTransferState.idle,

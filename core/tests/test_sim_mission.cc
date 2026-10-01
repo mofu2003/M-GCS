@@ -160,6 +160,65 @@ static void test_mission_clear() {
     CHECK(env.mock->mission_clear_received, "mission clear received");
 }
 
+static void test_mission_execution_progress() {
+    fprintf(stderr, "\n[Group] Mission execution progress\n");
+    TestEnv env;
+
+    for (int i = 0; i < 15; i++) env.tick(100);
+
+    std::vector<mavlink_mission_item_int_t> items(4);
+    for (int i = 0; i < 4; i++) {
+        memset(&items[i], 0, sizeof(mavlink_mission_item_int_t));
+        items[i].seq = static_cast<uint16_t>(i);
+        items[i].command = MAV_CMD_NAV_WAYPOINT;
+        items[i].frame = MAV_FRAME_GLOBAL_RELATIVE_ALT;
+        items[i].x = static_cast<int32_t>((39.9 + i * 0.01) * 1e7);
+        items[i].y = static_cast<int32_t>((116.4 + i * 0.01) * 1e7);
+        items[i].z = 50.0f + i * 10.0f;
+    }
+    env.mock->set_mission(items);
+
+    char* result = mg_mission_download(env.core);
+    if (result) mg_free_string(result);
+    for (int i = 0; i < 80; i++) env.tick(50);
+
+    char* progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"valid\":true"),
+          "execution progress reports a cached mission");
+    CHECK(progress && strstr(progress, "\"reached_count\":0") &&
+              strstr(progress, "\"finished\":false"),
+          "execution progress starts with nothing reached");
+    if (progress) mg_free_string(progress);
+
+    // 飞控报告当前目标为第 1 项，并已到达。
+    env.mock->send_mission_current(1);
+    env.mock->send_mission_item_reached(1);
+    for (int i = 0; i < 10; i++) env.tick(50);
+
+    progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"reached_count\":1") &&
+              strstr(progress, "\"last_reached_seq\":1") &&
+              strstr(progress, "\"finished\":false"),
+          "reached count tracks MISSION_ITEM_REACHED");
+    if (progress) mg_free_string(progress);
+
+    // 重发同一个 seq 不应重复计数。
+    env.mock->send_mission_item_reached(1);
+    for (int i = 0; i < 10; i++) env.tick(50);
+    progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"reached_count\":1"),
+          "duplicate MISSION_ITEM_REACHED is not double counted");
+    if (progress) mg_free_string(progress);
+
+    // 到达原始 seq 的最后一项（含 home 偏移）即视为任务完成。
+    env.mock->send_mission_item_reached(static_cast<uint16_t>(items.size() - 1));
+    for (int i = 0; i < 10; i++) env.tick(50);
+    progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"finished\":true"),
+          "reaching the last mission item reports finished");
+    if (progress) mg_free_string(progress);
+}
+
 int main() {
     fprintf(stderr, "=== Mission Simulation Tests ===\n");
     test_mission_upload();
@@ -167,6 +226,7 @@ int main() {
     test_mission_download();
     test_mission_download_compat_item();
     test_mission_clear();
+    test_mission_execution_progress();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

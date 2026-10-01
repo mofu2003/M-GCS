@@ -54,6 +54,9 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     _missionDocVerifyRally = _lookupVerify('mg_mission_doc_verify_rally');
     _rallyDownload = _lookup1('mg_rally_download');
     _missionDownload = _lookup1('mg_mission_download');
+    _missionExecutionProgress = _lookup1(
+      'mg_mission_get_execution_progress',
+    );
     _operationsGetSnapshot = _lookup1('mg_operations_get_snapshot');
     _operationsCancel = _lookup2('mg_operations_cancel');
   }
@@ -99,6 +102,7 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   late final Pointer<Utf8> Function(Pointer<Void>, double) _missionDocVerifyRally;
   late final Pointer<Utf8> Function(Pointer<Void>) _rallyDownload;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDownload;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionExecutionProgress;
   late final Pointer<Utf8> Function(Pointer<Void>) _operationsGetSnapshot;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _operationsCancel;
@@ -230,6 +234,14 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     } finally {
       malloc.free(nativeId);
     }
+  }
+
+  @override
+  Future<MissionExecutionProgress> getMissionExecutionProgress() async {
+    final response =
+        _readJson(_missionExecutionProgress(_core)) as JsonMap;
+    _requireSuccess(response);
+    return MissionExecutionProgress.fromJson(response);
   }
 
   @override

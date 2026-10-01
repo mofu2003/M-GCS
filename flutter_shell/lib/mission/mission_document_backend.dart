@@ -27,6 +27,9 @@ abstract interface class MissionDocumentBackend {
 
   Future<MissionTransferProgress> getMissionTransferProgress();
 
+  /// 任务执行进度（当前项 / 已到达 / 是否跑完）。
+  Future<MissionExecutionProgress> getMissionExecutionProgress();
+
   Future<void> cancelMissionTransfer();
 
   Future<MissionDocument> importMissionDocumentFromVehicle();

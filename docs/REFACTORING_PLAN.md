@@ -161,6 +161,9 @@ breach-return 点及高度），区分于阻断上传的复杂项：围栏/Rally
 `0.0.54` 完成前后端对接：`mg_operations_get_snapshot` 新增 `fence`/`rally` 进度区段，
 Flutter 侧补齐围栏/Rally 的绑定、控制器流程和任务面板操作组（读取 / 下发 / 清除）。
 
+`0.0.55` 补任务执行进度：适配器统计 `MISSION_ITEM_REACHED`（按 seq 去重），新增
+`mg_mission_get_execution_progress`，Flutter 任务面板显示进度条并每秒轮询（面板隐藏即停）。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

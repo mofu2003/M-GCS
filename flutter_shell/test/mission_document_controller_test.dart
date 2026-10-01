@@ -233,6 +233,29 @@ void main() {
     await controller.clearRally();
     expect(backend.rallyClears, 1);
   });
+
+  test('mission execution progress polls vehicle feedback', () async {
+    final backend = _FakeMissionBackend();
+    final controller = MissionDocumentController(backend: backend);
+
+    await controller.initialize();
+    await controller.refreshExecutionProgress();
+    expect(controller.executionProgress?.active, isTrue);
+    expect(controller.executionProgress?.total, 3);
+    expect(controller.executionProgress?.finished, isFalse);
+
+    backend.executionProgress = const MissionExecutionProgress(
+      valid: true,
+      currentIndex: 2,
+      total: 3,
+      reachedCount: 3,
+      lastReachedSeq: 3,
+      finished: true,
+    );
+    await controller.refreshExecutionProgress();
+    expect(controller.executionProgress?.finished, isTrue);
+    expect(controller.executionProgress?.reachedCount, 3);
+  });
 }
 
 final class _FakeMissionBackend implements MissionDocumentBackend {
@@ -453,6 +476,13 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
   Future<void> clearRally() async {
     rallyClears++;
   }
+
+  @override
+  Future<MissionExecutionProgress> getMissionExecutionProgress() async =>
+      executionProgress;
+
+  MissionExecutionProgress executionProgress =
+      const MissionExecutionProgress(valid: true, total: 3);
 
   @override
   Future<MissionTransferProgress> getMissionTransferProgress() async {

@@ -236,6 +236,17 @@ void MavlinkAdapter::Impl::handle_mission_item_reached(const mavlink_message_t& 
 {
     mavlink_mission_item_reached_t mr;
     mavlink_msg_mission_item_reached_decode(&m, &mr);
+    // 记录任务执行进度：同一个 seq 可能被重发，用 flags 去重避免计数偏大。
+    auto& execution = mission;
+    if (mr.seq >= execution.reached_flags.size()) {
+        execution.reached_flags.resize(mr.seq + 1, 0);
+    }
+    if (execution.reached_flags[mr.seq] == 0) {
+        execution.reached_flags[mr.seq] = 1;
+        ++execution.reached_count;
+    }
+    execution.last_reached_seq = mr.seq;
+    execution.has_reached = true;
     if (tel.mission_reached_cb)
         deferred_cbs.push_back([cb = tel.mission_reached_cb, seq = mr.seq]() { cb(seq); });
 }

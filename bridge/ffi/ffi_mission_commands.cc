@@ -123,3 +123,27 @@ MGCORE_API char* mg_mission_get_current(mg_core_t* core) {
     jb.end_object();
     return to_cstr(jb.str());
 }
+
+MGCORE_API char* mg_mission_get_execution_progress(mg_core_t* core) {
+    CHECK_CORE(core);
+    auto* mav = get_active_mavlink(core);
+    auto raw_plan = mav ? mav->mission_get_plan() : mg::core::mission::MissionPlan{};
+    auto plan = ffi_present_mission_plan(core, raw_plan);
+    const auto progress = mav
+        ? mav->mission_get_execution_progress()
+        : mg::core::mavlink::MavlinkAdapter::MissionExecutionProgress{};
+
+    mg::bridge::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("valid", progress.valid);
+    jb.field("current_index",
+             mg::bridge::ffi::present_mission_current_index(core, raw_plan));
+    jb.field("current_seq", static_cast<int>(progress.current_seq));
+    jb.field("total", static_cast<int>(plan.items.size()));
+    jb.field("reached_count", static_cast<int>(progress.reached_count));
+    jb.field("last_reached_seq", static_cast<int>(progress.last_reached_seq));
+    jb.field("finished", progress.finished);
+    jb.end_object();
+    return to_cstr(jb.str());
+}

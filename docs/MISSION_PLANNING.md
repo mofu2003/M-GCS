@@ -202,6 +202,10 @@ GeoFence 与 Rally 是独立的 MAVLink mission type，不计入航点任务上�
 `mg_mission_doc_verify_fence` / `mg_mission_doc_verify_rally` 与 `mg_mission_doc_verify`
 对称，比较文档与飞控的围栏/Rally 并返回差异，用于上传后回读核对。
 
+任务执行进度由 `mg_mission_get_execution_progress` 提供：`MISSION_CURRENT` 给出当前目标项，
+`MISSION_ITEM_REACHED` 统计已到达项（按 seq 去重），最后一项到达即 `finished:true`。
+`current_index` 已去掉 ArduPilot 的 home 偏移，可直接对应任务面板里的项序号。
+
 参数化测绘实体或禁用实体仍不能无损导出为普通 `.plan`；`hoverSpeed`、地形高度模式、
 null 参数和不在命令目录中的 MAV_CMD 会通过 `warnings` 报告。围栏和 Rally 的统一编辑
 文档仍未实现。

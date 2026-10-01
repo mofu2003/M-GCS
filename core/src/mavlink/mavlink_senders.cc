@@ -415,6 +415,24 @@ MavlinkAdapter::mission_get_plan_snapshot() const {
     return snapshot;
 }
 
+MavlinkAdapter::MissionExecutionProgress
+MavlinkAdapter::mission_get_execution_progress() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    MissionExecutionProgress progress;
+    const auto& execution = impl_->mission;
+    progress.total = static_cast<uint32_t>(execution.plan.items.size());
+    progress.valid = progress.total > 0;
+    progress.current_seq = execution.plan.current_index;
+    progress.reached_count = execution.reached_count;
+    progress.last_reached_seq = execution.last_reached_seq;
+    progress.has_reached = execution.has_reached;
+    // 原始 seq 的最后一项就是任务最后一项，收到它的 REACHED 即视为任务跑完。
+    progress.finished = progress.valid && execution.has_reached &&
+                        static_cast<uint32_t>(execution.last_reached_seq) + 1 >=
+                            progress.total;
+    return progress;
+}
+
 // ================================================================
 // 集结点（MAV_MISSION_TYPE_RALLY = 2）
 // ================================================================
@@ -423,6 +441,10 @@ MavlinkAdapter::mission_get_plan_snapshot() const {
 bool MavlinkAdapter::mission_type_download(uint8_t sys, uint8_t comp,
                                             MissionTransferState& state, uint8_t mission_type) {
     state.plan.clear();
+    state.reached_count = 0;
+    state.last_reached_seq = 0;
+    state.has_reached = false;
+    state.reached_flags.clear();
     ++state.plan_revision;
     state.download_total = 0;
     state.download_seq = 0;
@@ -448,6 +470,10 @@ bool MavlinkAdapter::mission_type_upload(uint8_t sys, uint8_t comp,
     if (plan.items.empty()) return false;
 
     state.plan = plan;
+    state.reached_count = 0;
+    state.last_reached_seq = 0;
+    state.has_reached = false;
+    state.reached_flags.assign(plan.items.size(), 0);
     ++state.plan_revision;
     state.last_upload_revision = state.plan_revision;
     state.upload_total = static_cast<uint16_t>(plan.items.size());

@@ -547,6 +547,20 @@ public:
     /// Get the cached mission plan and provenance atomically.
     mg::core::mission::MissionPlanSnapshot mission_get_plan_snapshot() const;
 
+    /// 任务执行进度：MISSION_CURRENT 给出当前目标项，MISSION_ITEM_REACHED 统计已到达项。
+    /// `current_seq` / `last_reached_seq` 是飞控原始 seq（ArduPilot 含第 0 项 home）。
+    struct MissionExecutionProgress {
+        bool valid = false;         // 飞控任务已缓存，可以判断进度
+        uint16_t current_seq = 0;   // MISSION_CURRENT 的 seq
+        uint32_t total = 0;         // 缓存任务项总数
+        uint16_t reached_count = 0; // 已到达项数量
+        uint16_t last_reached_seq = 0;
+        bool has_reached = false;   // 本次任务是否收到过 MISSION_ITEM_REACHED
+        bool finished = false;      // 最后一项已到达
+    };
+
+    MissionExecutionProgress mission_get_execution_progress() const;
+
     // ================================================================
     // Rally Points (MAV_MISSION_TYPE_RALLY = 2)
     // ================================================================

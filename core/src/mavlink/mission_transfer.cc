@@ -20,6 +20,10 @@ void MissionTransferState::reset() {
     last_completed_download_revision = 0;
     last_upload_revision = 0;
     completed_download_count = 0;
+    reached_count = 0;
+    last_reached_seq = 0;
+    has_reached = false;
+    reached_flags.clear();
 }
 
 void MissionTransferState::record_send(uint8_t sys, uint8_t comp,

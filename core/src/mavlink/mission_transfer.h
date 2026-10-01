@@ -36,6 +36,13 @@ struct MissionTransferState {
     uint64_t last_upload_revision = 0;
     uint64_t completed_download_count = 0;
 
+    // 任务执行进度（目前只有 mission type 使用）：MISSION_CURRENT 给出当前目标项，
+    // MISSION_ITEM_REACHED 用来统计已到达的项，两者一起构成"飞到第几个"的进度。
+    uint16_t reached_count = 0;
+    uint16_t last_reached_seq = 0;
+    bool has_reached = false;
+    std::vector<uint8_t> reached_flags;
+
     // 超时重试
     int         retry_count = 0;
     std::chrono::steady_clock::time_point last_send_time;

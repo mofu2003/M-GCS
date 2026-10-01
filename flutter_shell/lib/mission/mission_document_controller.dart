@@ -17,6 +17,7 @@ final class MissionDocumentController extends ChangeNotifier {
   MissionEstimate? estimate;
   MissionTransferProgress? transfer;
   MissionVerificationResult? verification;
+  MissionExecutionProgress? executionProgress;
   MissionVerificationResult? fenceVerification;
   MissionVerificationResult? rallyVerification;
   List<MissionCommandDescriptor> commandCatalog = const [];
@@ -392,6 +393,18 @@ final class MissionDocumentController extends ChangeNotifier {
 
   Future<void> _refreshTransfer() async {
     transfer = await backend.getMissionTransferProgress();
+    notifyListeners();
+  }
+
+  /// 轮询任务执行进度。与传输进度不同，这里不设置 busy/status：
+  /// 未连接或后端暂不可用时静默保留上一次结果。
+  Future<void> refreshExecutionProgress() async {
+    if (!initialized) return;
+    try {
+      executionProgress = await backend.getMissionExecutionProgress();
+    } on Object {
+      return;
+    }
     notifyListeners();
   }
 

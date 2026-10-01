@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.55 - 2026-10-01
+
+### Added
+
+- 新增 FFI `mg_mission_get_execution_progress`：报告任务执行进度
+  （`valid` / `current_index` / `current_seq` / `total` / `reached_count` /
+  `last_reached_seq` / `finished`）。`current_index` 已去掉 ArduPilot home 偏移。
+- 适配器开始统计 `MISSION_ITEM_REACHED`：按 seq 去重累计已到达项，最后一项到达即
+  `finished`；任务下载/上传会重置统计。此前 `MISSION_ITEM_REACHED` 只透传回调，
+  前端无法判断任务是否跑完。
+- Flutter 侧任务面板新增执行进度条（当前第 N/共 M 项、已到达数、完成状态），
+  由 `MissionDocumentController.refreshExecutionProgress` 每秒轮询；
+  面板只在显示时挂载，隐藏即停止轮询。
+
+### Verification
+
+- 后端 offline/simulation `35/35` 通过（`test_sim_mission` 新增 5 条进度断言）。
+- Flutter analyze 无问题，Flutter 测试 `22/22` 通过。
+- UI token 检查通过；完整 `tools/preflight.sh` 通过。
+
 ## 0.0.54 - 2026-10-01
 
 ### Added
