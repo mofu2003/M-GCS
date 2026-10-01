@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.31`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.32`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -31,10 +31,10 @@ bash tools/audit_status.sh
 
 | 项目 | 数量 |
 | --- | ---: |
-| FFI exports | 285 |
+| FFI exports | 286 |
 | Flutter 使用 | 65 |
-| 测试触达 | 198 |
-| 前端和测试都未触达 | 85 |
+| 测试触达 | 200 |
+| 前端和测试都未触达 | 84 |
 
 这些数字必须由 `tools/audit_status.sh` 生成，不手工维护。无人区不等于可删除，公开
 兼容 ABI 仍需遵守 API Catalog 的冻结规则。
@@ -70,6 +70,8 @@ bash tools/audit_status.sh
   does-not-exist、out-of-range、permission-denied、read-only 和类型错误等原因。
 - `PARAM-004`：描述库 `read_only` 会阻止写入；单写和批量写共享枚举、范围、bool
   校验，批量响应通过 `errors` 返回逐项失败原因。
+- `PARAM-005`：新增 `mg_params_refresh`，支持精确名称和 `PREFIX*`，对当前参数缓存
+  去重解析并返回 resolved/sent/unknown/duplicates。
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项
@@ -90,9 +92,9 @@ state/error 历史。前端后续可统一消费同一套 operation 状态。
 ### `PARAM-002`：参数元数据和覆盖仍可继续增强
 
 参数写入已经具备 pending/confirmed/failed、超时重发、目标信息、PARAM_ERROR 明确
-拒绝和描述库写入校验，但还没有达到 QGC FactSystem 的参数数据库、完整批量刷新策略和
-分固件覆盖水平。下一项应以真实 ArduPilot 参数页和元数据缺口为依据，不盲目复制全量
-参数库。
+拒绝、描述库写入校验和一轮批量刷新解析，但还没有达到 QGC FactSystem 的批量刷新
+重试/状态跟踪和分固件覆盖水平。下一项应补刷新任务状态和退避重试，再以真实 ArduPilot
+参数页和元数据缺口为依据，不盲目复制全量参数库。
 
 ### `DEAD-001`：固件刷写占位
 

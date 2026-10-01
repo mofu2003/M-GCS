@@ -95,6 +95,17 @@ bool MavlinkAdapter::request_param_list(uint8_t target_system,
     return impl_->send_msg();
 }
 
+bool MavlinkAdapter::request_param_read_by_name(uint8_t target_system,
+                                                 uint8_t target_component,
+                                                 const char* param_id) {
+    if (!param_id || param_id[0] == '\0') return false;
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    mavlink_msg_param_request_read_pack(
+        255, 0, &impl_->msg,
+        target_system, target_component, param_id, -1);
+    return impl_->send_msg();
+}
+
 // 发送参数设置命令（委托给 Status 版本）
 bool MavlinkAdapter::set_param(uint8_t target_system, uint8_t target_component,
                                const char* param_id, float param_value, uint8_t param_type) {

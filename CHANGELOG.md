@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.32 - 2026-10-01
+
+### Changed
+
+- 新增 `mg_params_refresh`：接受 JSON 名称数组，支持精确参数名和 `PREFIX*` 前缀，
+  基于当前参数缓存去重解析，并通过现有 `PARAM_REQUEST_READ` 发送刷新请求。
+- 刷新响应返回 `requested`、`resolved`、`sent`、`failed`、`duplicates` 和 `unknown`；
+  不自动下载整表，也不改变现有 `mg_params_request_all` 的语义。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.31 - 2026-10-01
 
 ### Changed

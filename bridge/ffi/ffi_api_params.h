@@ -13,6 +13,7 @@ MGCORE_API char* mg_param_get(mg_core_t* core, const char* name);
 MGCORE_API char* mg_param_set(mg_core_t* core, const char* name, float value);
 
 MGCORE_API char* mg_params_request_all(mg_core_t* core);
+MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names);
 MGCORE_API char* mg_params_get_all(mg_core_t* core);
 MGCORE_API char* mg_params_get_progress(mg_core_t* core);
 MGCORE_API char* mg_params_get_by_name(mg_core_t* core, const char* param_name);

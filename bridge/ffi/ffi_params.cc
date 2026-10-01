@@ -12,6 +12,8 @@
 #include "telemetry_bindings.h"
 #include "core/config/parameter_change_set.h"
 
+#include <unordered_set>
+
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 
@@ -118,6 +120,94 @@ MGCORE_API char* mg_params_request_all(mg_core_t* core) {
         return ok();
     }
     return fail(MG_ERROR_SEND_FAILED, "send failed");
+}
+
+MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
+    if (!json_names || json_names[0] == '\0') {
+        return fail(MG_ERROR_INVALID_PARAM, "empty parameter refresh list");
+    }
+
+    cJSON* root = cJSON_Parse(json_names);
+    if (!root || !cJSON_IsArray(root)) {
+        if (root) cJSON_Delete(root);
+        return fail(MG_ERROR_INVALID_PARAM, "expected JSON array of parameter names");
+    }
+
+    auto* mav = get_active_mavlink(core);
+    if (!mav || mav->params_received() == 0) {
+        cJSON_Delete(root);
+        return fail(MG_ERROR_INVALID_STATE, "parameters are not loaded");
+    }
+
+    const auto params = mav->all_params();
+    std::unordered_set<std::string> available;
+    available.reserve(params.size());
+    for (const auto& param : params) available.insert(param.name);
+
+    std::vector<std::string> resolved;
+    std::unordered_set<std::string> seen;
+    std::vector<std::string> unknown;
+    int requested = 0;
+    int duplicates = 0;
+
+    const int size = cJSON_GetArraySize(root);
+    for (int index = 0; index < size; ++index) {
+        cJSON* item = cJSON_GetArrayItem(root, index);
+        if (!item || !cJSON_IsString(item) || !item->valuestring || item->valuestring[0] == '\0') {
+            continue;
+        }
+        requested++;
+        const std::string entry = item->valuestring;
+        if (entry.back() == '*') {
+            const std::string prefix = entry.substr(0, entry.size() - 1);
+            if (prefix.empty()) {
+                unknown.push_back(entry);
+                continue;
+            }
+            for (const auto& param : params) {
+                if (param.name.rfind(prefix, 0) != 0) continue;
+                if (seen.insert(param.name).second) resolved.push_back(param.name);
+                else duplicates++;
+            }
+            continue;
+        }
+
+        if (available.count(entry) == 0) {
+            unknown.push_back(entry);
+            continue;
+        }
+        if (seen.insert(entry).second) resolved.push_back(entry);
+        else duplicates++;
+    }
+    cJSON_Delete(root);
+
+    int sent = 0;
+    int failed = 0;
+    for (const auto& name : resolved) {
+        if (mav->request_param_read_by_name(
+                active_target_sys(core), active_target_comp(core), name.c_str())) {
+            sent++;
+        } else {
+            failed++;
+        }
+    }
+
+    mg::bridge::JsonBuilder output;
+    output.begin_object();
+    output.field("success", failed == 0);
+    output.field("requested", requested);
+    output.field("resolved", static_cast<int>(resolved.size()));
+    output.field("sent", sent);
+    output.field("failed", failed);
+    output.field("duplicates", duplicates);
+    mg::bridge::JsonBuilder unknown_json;
+    unknown_json.begin_array();
+    for (const auto& name : unknown) unknown_json.append_string(name);
+    unknown_json.end_array();
+    output.raw_field("unknown", unknown_json.str());
+    output.end_object();
+    return to_cstr(output.str());
 }
 
 MGCORE_API char* mg_params_get_all(mg_core_t* core) {

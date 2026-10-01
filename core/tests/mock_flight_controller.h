@@ -39,6 +39,7 @@ public:
     struct CommandRecord { uint16_t command; float p1,p2,p3,p4; int32_t x,y,z; };
     std::vector<CommandRecord> received_cmds;
     std::vector<std::string>   received_params_set;
+    std::vector<std::string>   received_param_reads;
     int  mission_items_received = 0;
     bool mission_clear_received = false;
     bool mission_set_current_received = false;
@@ -277,6 +278,7 @@ private:
         case MAVLINK_MSG_ID_PARAM_REQUEST_READ: {
             mavlink_param_request_read_t r; mavlink_msg_param_request_read_decode(&msg,&r);
             char nb[17]={}; memcpy(nb,r.param_id,16); std::string pn(nb);
+            if (!pn.empty()) received_param_reads.push_back(pn);
             auto it=params_.find(pn); if(it!=params_.end()) send_pv(pn,it->second.value,it->second.type,(uint16_t)std::distance(params_.begin(),it));
             break; }
         case MAVLINK_MSG_ID_PARAM_SET: {

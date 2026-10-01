@@ -220,6 +220,31 @@ static void test_config_write_rejects_read_only() {
     if (batch_result) mg_free_string(batch_result);
 }
 
+static void test_bulk_param_refresh() {
+    fprintf(stderr, "\n[Group] Bulk parameter refresh\n");
+    TestEnv env;
+
+    env.tick(1100);
+    char* load = mg_params_request_all(env.core);
+    if (load) mg_free_string(load);
+    if (!load_all_params(env)) return;
+
+    env.mock->received_param_reads.clear();
+    char* result = mg_params_refresh(
+        env.core,
+        "[\"WPNAV_SPEED\",\"WPNAV_*\",\"WPNAV_SPEED\",\"DOES_NOT_EXIST\"]");
+    env.tick(1);
+    CHECK("bulk refresh resolves exact names and prefixes",
+          result != nullptr && strstr(result, "\"resolved\":3") != nullptr);
+    CHECK("bulk refresh reports unknown names",
+          result != nullptr && strstr(result, "\"DOES_NOT_EXIST\"") != nullptr);
+    CHECK("bulk refresh reports duplicate requests",
+          result != nullptr && strstr(result, "\"duplicates\":2") != nullptr);
+    CHECK("bulk refresh sends each resolved name once",
+          env.mock->received_param_reads.size() == 3);
+    if (result) mg_free_string(result);
+}
+
 static void test_config_uses_ardupilot_profile_metadata() {
     fprintf(stderr, "\n[Group] Config metadata profile\n");
     TestEnv env;
@@ -418,6 +443,7 @@ int main() {
     test_param_get();
     test_param_set();
     test_config_write_rejects_read_only();
+    test_bulk_param_refresh();
     test_change_set_requires_loaded_params();
     test_change_set_rejects_malformed_json();
     test_change_set_planning();

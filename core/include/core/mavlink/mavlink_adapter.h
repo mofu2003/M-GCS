@@ -439,6 +439,9 @@ public:
     bool request_home_position(uint8_t target_system, uint8_t target_component);
     // 请求完整参数列表
     bool request_param_list(uint8_t target_system, uint8_t target_component);
+    // 按名称请求单个参数
+    bool request_param_read_by_name(uint8_t target_system, uint8_t target_component,
+                                    const char* param_id);
 
     /// 向飞控发送 PARAM_SET 以修改参数值
     /// Returns true if the message was sent successfully.

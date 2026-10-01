@@ -48,6 +48,7 @@ public:
 
     void raw_field(const char* key, const std::string& raw) { sep(); q(key); out_ << ":" << raw; }
     void append_json(const std::string& raw) { sep(); out_ << raw; }
+    void append_string(const std::string& v) { sep(); out_ << "\"" << esc(v) << "\""; }
 
     /// Append a pre-built JsonBuilder's content as a nested element
     void append_object(const JsonBuilder& other) { sep(); out_ << other.str(); }
