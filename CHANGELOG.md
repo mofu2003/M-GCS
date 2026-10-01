@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.56 - 2026-10-01
+
+### Changed
+
+- 加大航线规划面板的按钮：任务动作行（从飞控读取 / 上传到飞控 / 启动任务 / 取消）、
+  围栏与 Rally 操作组、Home 卡片、核对面板的按钮从 `ControlSize.small` 提升到
+  `ControlSize.regular`，与连接窗口保持一致。
+- 任务动作行由 `Row` 改为 `Wrap`，按钮变大后在窄面板里自动换行，避免溢出。
+
+### Verification
+
+- Flutter analyze 无问题，Flutter 测试 `22/22` 通过。
+- UI token 检查和 macOS debug 构建通过；完整 `tools/preflight.sh` 通过。
+
 ## 0.0.55 - 2026-10-01
 
 ### Added

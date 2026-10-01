@@ -319,10 +319,13 @@ class _MissionPlanningFloatingPanelState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             PushButton(
-              controlSize: ControlSize.small,
+              controlSize: ControlSize.regular,
               secondary: true,
               onPressed: busy || transferring || !connected
                   ? null
@@ -336,9 +339,8 @@ class _MissionPlanningFloatingPanelState
                 ],
               ),
             ),
-            const SizedBox(width: 8),
             PushButton(
-              controlSize: ControlSize.small,
+              controlSize: ControlSize.regular,
               secondary: true,
               onPressed: busy || transferring || !connected || document == null
                   ? null
@@ -352,11 +354,10 @@ class _MissionPlanningFloatingPanelState
                 ],
               ),
             ),
-            const SizedBox(width: 8),
             MacosTooltip(
               message: _mission.dirty ? '请先上传任务' : '解锁并启动任务',
               child: PushButton(
-                controlSize: ControlSize.small,
+                controlSize: ControlSize.regular,
                 onPressed: canStartMission ? _startMission : null,
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
@@ -368,20 +369,16 @@ class _MissionPlanningFloatingPanelState
                 ),
               ),
             ),
-            const Spacer(),
             if (_mission.dirty)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Text(
-                  '未上传',
-                  style: MacosTheme.of(
-                    context,
-                  ).typography.caption1.copyWith(color: colors.warning),
-                ),
+              Text(
+                '未上传',
+                style: MacosTheme.of(
+                  context,
+                ).typography.caption1.copyWith(color: colors.warning),
               ),
             if (transferring)
               PushButton(
-                controlSize: ControlSize.small,
+                controlSize: ControlSize.regular,
                 secondary: true,
                 onPressed: _mission.cancelTransfer,
                 child: const Text('取消'),
@@ -885,7 +882,7 @@ class _FenceRallyCard extends StatelessWidget {
         Text(label, style: typography.body),
         const Spacer(),
         PushButton(
-          controlSize: ControlSize.small,
+          controlSize: ControlSize.regular,
           secondary: true,
           onPressed: enabled ? () => unawaited(onRead()) : null,
           child: const Text('读取'),
@@ -894,14 +891,14 @@ class _FenceRallyCard extends StatelessWidget {
         MacosTooltip(
           message: '下发并自动回读核对',
           child: PushButton(
-            controlSize: ControlSize.small,
+            controlSize: ControlSize.regular,
             onPressed: enabled ? () => unawaited(onUpload()) : null,
             child: const Text('下发'),
           ),
         ),
         const SizedBox(width: 6),
         PushButton(
-          controlSize: ControlSize.small,
+          controlSize: ControlSize.regular,
           secondary: true,
           onPressed: enabled ? () => unawaited(onClear()) : null,
           child: const Text('清除'),
@@ -1022,7 +1019,7 @@ class _HomeCardState extends State<_HomeCard> {
                   ),
                 ),
               PushButton(
-                controlSize: ControlSize.small,
+                controlSize: ControlSize.regular,
                 secondary: true,
                 onPressed: widget.controller.isConnected && widget.enabled
                     ? _setVehicleHome
@@ -1075,7 +1072,7 @@ class _HomeCardState extends State<_HomeCard> {
           Align(
             alignment: Alignment.centerRight,
             child: PushButton(
-              controlSize: ControlSize.small,
+              controlSize: ControlSize.regular,
               secondary: true,
               onPressed: widget.enabled ? _save : null,
               child: const Text('保存'),
@@ -1474,13 +1471,13 @@ class _MissionVerificationPanel extends StatelessWidget {
               children: [
                 if (onAdoptVehicle != null)
                   PushButton(
-                    controlSize: ControlSize.small,
+                    controlSize: ControlSize.regular,
                     onPressed: onAdoptVehicle,
                     child: const Text('采用飞控任务'),
                   ),
                 if (onRetryUpload != null)
                   PushButton(
-                    controlSize: ControlSize.small,
+                    controlSize: ControlSize.regular,
                     secondary: true,
                     onPressed: onRetryUpload,
                     child: const Text('重新上传本地任务'),
