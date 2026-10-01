@@ -129,3 +129,135 @@ MissionCompileResult compile_document_impl(const MissionDocument& document) {
 }
 
 } // namespace mg::core::mission::cad::detail
+
+namespace mg::core::mission::cad {
+
+namespace {
+
+// MAV_CMD_NAV_FENCE_* / MAV_FRAME_* 常量，取值与 QGC GeoFenceManager 一致。
+constexpr uint16_t kFenceReturnPoint = 5000;
+constexpr uint16_t kFencePolygonVertexInclusion = 5001;
+constexpr uint16_t kFencePolygonVertexExclusion = 5002;
+constexpr uint16_t kFenceCircleInclusion = 5003;
+constexpr uint16_t kFenceCircleExclusion = 5004;
+constexpr uint8_t kFrameGlobal = 0;             // MAV_FRAME_GLOBAL
+constexpr uint8_t kFrameGlobalRelAlt = 3;       // MAV_FRAME_GLOBAL_RELATIVE_ALT
+constexpr uint8_t kMissionTypeFence = 1;        // MAV_MISSION_TYPE_FENCE
+
+bool fence_coordinate_valid(const MissionGeoPoint& point) {
+    return std::isfinite(point.latitude) &&
+           point.latitude >= -90.0 && point.latitude <= 90.0 &&
+           std::isfinite(point.longitude) &&
+           point.longitude >= -180.0 && point.longitude <= 180.0;
+}
+
+MissionItem fence_item(uint8_t frame, uint16_t command, double latitude,
+                       double longitude) {
+    MissionItem item{};
+    item.frame = frame;
+    item.command = command;
+    item.autocontinue = 0;
+    item.x = static_cast<int32_t>(std::llround(latitude * 1e7));
+    item.y = static_cast<int32_t>(std::llround(longitude * 1e7));
+    item.mission_type = kMissionTypeFence;
+    return item;
+}
+
+} // namespace
+
+bool compile_geo_fence_plan(
+    const MissionGeoFence& fence,
+    MissionPlan& plan,
+    std::string& error) {
+    error.clear();
+    plan.clear();
+
+    const bool has_breach = fence.breach_return_set;
+    if (fence.polygons.empty() && fence.circles.empty() && !has_breach) {
+        error = "geo fence is empty";
+        return false;
+    }
+
+    for (size_t polygon_index = 0; polygon_index < fence.polygons.size();
+         ++polygon_index) {
+        const MissionGeoFencePolygon& polygon = fence.polygons[polygon_index];
+        if (polygon.vertices.size() < 3) {
+            error = "geo fence polygon " + std::to_string(polygon_index) +
+                    " requires at least three vertices";
+            plan.clear();
+            return false;
+        }
+        const uint16_t command = polygon.inclusion
+            ? kFencePolygonVertexInclusion
+            : kFencePolygonVertexExclusion;
+        for (size_t vertex_index = 0; vertex_index < polygon.vertices.size();
+             ++vertex_index) {
+            const MissionGeoPoint& vertex = polygon.vertices[vertex_index];
+            if (!fence_coordinate_valid(vertex)) {
+                error = "geo fence polygon " + std::to_string(polygon_index) +
+                        " vertex " + std::to_string(vertex_index) +
+                        " is invalid";
+                plan.clear();
+                return false;
+            }
+            MissionItem item =
+                fence_item(kFrameGlobal, command, vertex.latitude,
+                           vertex.longitude);
+            item.param1 = static_cast<float>(polygon.vertices.size());
+            item.seq = static_cast<uint16_t>(plan.items.size());
+            plan.items.push_back(item);
+        }
+    }
+
+    for (size_t circle_index = 0; circle_index < fence.circles.size();
+         ++circle_index) {
+        const MissionGeoFenceCircle& circle = fence.circles[circle_index];
+        if (!fence_coordinate_valid(circle.center)) {
+            error = "geo fence circle " + std::to_string(circle_index) +
+                    " center is invalid";
+            plan.clear();
+            return false;
+        }
+        if (!std::isfinite(circle.radius_m) || circle.radius_m <= 0.0) {
+            error = "geo fence circle " + std::to_string(circle_index) +
+                    " radius must be positive";
+            plan.clear();
+            return false;
+        }
+        MissionItem item = fence_item(
+            kFrameGlobal,
+            circle.inclusion ? kFenceCircleInclusion : kFenceCircleExclusion,
+            circle.center.latitude,
+            circle.center.longitude);
+        item.param1 = static_cast<float>(circle.radius_m);
+        item.seq = static_cast<uint16_t>(plan.items.size());
+        plan.items.push_back(item);
+    }
+
+    if (has_breach) {
+        if (!fence_coordinate_valid(fence.breach_return)) {
+            error = "geo fence breach-return point is invalid";
+            plan.clear();
+            return false;
+        }
+        if (!std::isfinite(
+                static_cast<double>(fence.breach_return_altitude_m))) {
+            error = "geo fence breach-return altitude is invalid";
+            plan.clear();
+            return false;
+        }
+        MissionItem item = fence_item(
+            kFrameGlobalRelAlt,
+            kFenceReturnPoint,
+            fence.breach_return.latitude,
+            fence.breach_return.longitude);
+        item.z = fence.breach_return_altitude_m;
+        item.seq = static_cast<uint16_t>(plan.items.size());
+        plan.items.push_back(item);
+    }
+
+    plan.valid = !plan.items.empty();
+    return plan.valid;
+}
+
+} // namespace mg::core::mission::cad

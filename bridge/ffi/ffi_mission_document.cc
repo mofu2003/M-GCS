@@ -431,6 +431,106 @@ MGCORE_API char* mg_mission_doc_upload(
     return to_cstr(jb.str());
 }
 
+MGCORE_API char* mg_mission_doc_compile_fence(mg_core_t* core) {
+    CHECK_CORE(core);
+
+    const auto document = ensure_document(core)->snapshot();
+    mg::core::mission::MissionPlan plan;
+    std::string error;
+    if (!compile_geo_fence_plan(document.geo_fence, plan, error)) {
+        return fail(
+            MG_ERROR_INVALID_PARAM,
+            error.empty() ? "geo fence cannot be compiled" : error.c_str());
+    }
+
+    mg::bridge::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("item_count", static_cast<int>(plan.items.size()));
+    jb.raw_field("plan", mg::bridge::mission_plan_json(plan));
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
+MGCORE_API char* mg_mission_doc_upload_fence(
+    mg_core_t* core,
+    unsigned long long expected_revision) {
+    CHECK_CORE(core); CHECK_CONNECTED(core);
+
+    const auto service = ensure_document(core);
+    if (expected_revision == 0) {
+        return fail(
+            MG_ERROR_INVALID_PARAM,
+            "expected_revision is required for geofence upload");
+    }
+    if (service->revision() != expected_revision) {
+        mg_set_last_error(MG_ERROR_INVALID_STATE);
+        mg::bridge::JsonBuilder failure;
+        failure.begin_object();
+        failure.field("success", false);
+        failure.field(
+            "error",
+            "revision mismatch: expected " + std::to_string(expected_revision) +
+                ", current " + std::to_string(service->revision()));
+        failure.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
+        failure.field(
+            "revision",
+            static_cast<unsigned long long>(service->revision()));
+        failure.end_object();
+        return to_cstr(failure.str());
+    }
+
+    const auto document = service->snapshot();
+    mg::core::mission::MissionPlan plan;
+    std::string error;
+    if (!compile_geo_fence_plan(document.geo_fence, plan, error)) {
+        return fail(
+            MG_ERROR_INVALID_PARAM,
+            error.empty() ? "geo fence cannot be compiled" : error.c_str());
+    }
+
+    mg::core::platform::LockGuard lock(core->mission_mtx);
+    auto* mavlink = get_active_mavlink(core);
+    if (!mavlink ||
+        !mavlink->fence_upload(
+            active_target_sys(core),
+            active_target_comp(core),
+            plan)) {
+        return fail(MG_ERROR_SEND_FAILED, "geofence upload failed to start");
+    }
+
+    mg::bridge::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field(
+        "revision",
+        static_cast<unsigned long long>(expected_revision));
+    jb.field("state", "uploading");
+    jb.field("item_count", static_cast<int>(plan.items.size()));
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
+MGCORE_API char* mg_mission_doc_clear_fence(mg_core_t* core) {
+    CHECK_CORE(core); CHECK_CONNECTED(core);
+
+    mg::core::platform::LockGuard lock(core->mission_mtx);
+    auto* mavlink = get_active_mavlink(core);
+    if (!mavlink ||
+        !mavlink->fence_clear(
+            active_target_sys(core),
+            active_target_comp(core))) {
+        return fail(MG_ERROR_SEND_FAILED, "geofence clear failed to start");
+    }
+
+    mg::bridge::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("state", "clearing");
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
 MGCORE_API char* mg_mission_doc_import_from_vehicle(mg_core_t* core) {
     CHECK_CORE(core); CHECK_CONNECTED(core);
 

@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.47`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.48`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -97,6 +97,10 @@ bash tools/audit_status.sh
 - `FENCE-002` / `RALLY-002`：校验层补齐围栏与 Rally 几何校验（顶点数量、经纬度范围、
   圆半径、breach-return 点及高度），返回 `geo_fence.*` / `rally.*` 错误码；围栏和
   Rally 属独立 MAVLink mission type，作为合法文档保留，不阻断任务上传。
+- `FENCE-003`：`geo_fence` 可编译成 fence mission type 任务项并经
+  `mg_mission_doc_upload_fence` / `mg_mission_doc_clear_fence` 下发/清除，编码按 QGC
+  `GeoFenceManager`（5001/5002 顶点、5003/5004 圆形、5000 breach-return）；
+  `mg_mission_doc_compile_fence` 提供不接触飞控的编译预览。Rally 上传尚未接通。
 - `COMPLEX-001`：QGC ComplexItem（Survey、CorridorScan 等）提升为正式
   `MissionComplexItem` 模型，保存 `id`、`item_type` 和原始 JSON，`.plan` 往返无损；
   新增 `entity_insert_index` 后导出时与普通航点按原顺序交错；内部字段目前只读，

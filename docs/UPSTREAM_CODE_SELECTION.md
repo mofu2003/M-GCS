@@ -53,7 +53,7 @@ ArduPilot 的长期现场积累。正确做法是按能力比较：
 | ArduPilot 参数元数据、默认值、枚举和参数文件 | MP | 参数库和 ArduPilot 专用语义更完整 | `ParameterFactMetaData.xml`、`ExtLibs/Utilities/ParameterMetaDataRepository*.cs` |
 | 参数管理器的异步状态、写入确认和批量刷新 | QGC | `ParameterManager`/`FactSystem` 的边界、类型和状态表达更成熟 | `src/FactSystem/ParameterManager.*`、`FactMetaData.*` |
 | `.waypoints` / MP 任务文件 | MP | ArduPilot/MP 生态的默认交换格式 | `GCSViews/FlightPlanner.cs`、`ExtLibs/ArduPilot/mav_mission.cs` |
-| `.plan`、ComplexItem、GeoFence、Rally | QGC | 文件结构、复杂项模型和组合规划能力更完整 | `src/MissionManager/MissionController.*`、`ComplexMissionItem.*`、`GeoFence*`、`RallyPoint*` |
+| `.plan`、ComplexItem、GeoFence、Rally | QGC | 文件结构、复杂项模型和组合规划能力更完整 | `src/MissionManager/MissionController.*`、`ComplexMissionItem.*`、`GeoFenceManager.*`（围栏 mission 编码：5000–5004）、`RallyPoint*` |
 | 任务传输 ACK、超时、取消和结果文本 | QGC | `PlanManager` 的生命周期和错误语义更集中 | `src/MissionManager/PlanManager.cc` |
 | 任务编辑对象模型和能力门控 | QGC | SimpleItem/ComplexItem/视觉任务项分层更清晰 | `src/MissionManager/MissionController.*` |
 | ArduPilot 校准动作和机型差异 | MP | 面向 ArduPilot 的校准顺序、提示和硬件差异经验更多 | `GCSViews/ConfigurationView/Config*Calibration.cs`、`ExtLibs/Utilities/CompassCalibrator.cs` |

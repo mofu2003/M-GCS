@@ -131,6 +131,10 @@ SimpleItem 按原始顺序交错，不再固定追加到末尾；`doJumpId` 对�
 breach-return 点及高度），区分于阻断上传的复杂项：围栏/Rally 是独立 mission type，
 仍是合法文档。
 
+`0.0.48` 把文档围栏接到 fence mission 传输：`compile_geo_fence_plan` 按 QGC
+`GeoFenceManager` 编码编译，新增 `mg_mission_doc_compile_fence` /
+`mg_mission_doc_upload_fence` / `mg_mission_doc_clear_fence`；Rally 上传仍待补。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

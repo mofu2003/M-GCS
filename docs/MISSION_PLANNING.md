@@ -185,6 +185,11 @@ GeoFence 与 Rally 是独立的 MAVLink mission type，不计入航点任务上�
 圆半径为正值、breach-return 点位于有效范围，问题分别以 `geo_fence.*` / `rally.*`
 错误码返回。
 
+围栏能独立下发：`compile_geo_fence_plan` 按 QGC `GeoFenceManager` 的编码把
+`geo_fence` 编译成 fence mission 项，再由 `mg_mission_doc_upload_fence` /
+`mg_mission_doc_clear_fence` 下发或清除；`mg_mission_doc_compile_fence` 可先做
+不接触飞控的编译预览。Rally 上传尚未接通。
+
 参数化测绘实体或禁用实体仍不能无损导出为普通 `.plan`；`hoverSpeed`、地形高度模式、
 null 参数和不在命令目录中的 MAV_CMD 会通过 `warnings` 报告。围栏和 Rally 的统一编辑
 文档仍未实现。

@@ -1058,12 +1058,117 @@ static void test_geofence_rally_validation() {
           "well-formed polygon and circle fence passes validation");
 }
 
+static void test_geofence_compile() {
+    fprintf(stderr, "\n[Group] GeoFence mission compilation\n");
+
+    MissionGeoFence fence;
+    MissionGeoFencePolygon excluded;
+    excluded.inclusion = false;
+    excluded.vertices = {{39.9, 116.4}, {39.91, 116.41}, {39.92, 116.4}};
+    fence.polygons.push_back(excluded);
+
+    MissionGeoFenceCircle included;
+    included.inclusion = true;
+    included.center = {39.9, 116.4};
+    included.radius_m = 120.0;
+    fence.circles.push_back(included);
+
+    fence.breach_return_set = true;
+    fence.breach_return = {39.9, 116.4};
+    fence.breach_return_altitude_m = 35.0f;
+
+    MissionPlan plan;
+    std::string error;
+    CHECK(compile_geo_fence_plan(fence, plan, error),
+          "well-formed fence compiles to a fence mission");
+    CHECK(plan.items.size() == 5,
+          "fence compiles to three vertices, one circle and one return point");
+    if (plan.items.size() == 5) {
+        CHECK(plan.items[0].command == 5002 && plan.items[0].frame == 0 &&
+                  plan.items[0].param1 == 3.0f &&
+                  plan.items[0].mission_type == 1,
+              "polygon vertex compiles as exclusion with the vertex count");
+        CHECK(plan.items[2].command == 5002 && plan.items[2].seq == 2,
+              "polygon vertices keep a contiguous sequence");
+        CHECK(plan.items[3].command == 5003 &&
+                  std::fabs(plan.items[3].param1 - 120.0f) < 1e-3f,
+              "circle compiles as inclusion with its radius");
+        CHECK(plan.items[4].command == 5000 && plan.items[4].frame == 3 &&
+                  std::fabs(plan.items[4].z - 35.0f) < 1e-3f,
+              "breach return compiles with relative altitude");
+        CHECK(plan.items[3].seq == 3 && plan.items[4].seq == 4,
+              "fence sequence numbers are contiguous");
+    }
+
+    MissionGeoFence empty_fence;
+    MissionPlan empty_plan;
+    CHECK(!compile_geo_fence_plan(empty_fence, empty_plan, error) &&
+              !error.empty(),
+          "empty fence cannot be compiled");
+
+    MissionGeoFence short_polygon;
+    MissionGeoFencePolygon line;
+    line.vertices = {{39.9, 116.4}, {39.91, 116.41}};
+    short_polygon.polygons.push_back(line);
+    CHECK(!compile_geo_fence_plan(short_polygon, empty_plan, error),
+          "polygon with fewer than three vertices cannot be compiled");
+}
+
+static void test_ffi_geofence_compile() {
+    fprintf(stderr, "\n[Group] GeoFence compile through FFI\n");
+    mg_core_t* core = mg_create();
+    CHECK(core != nullptr, "mg_create succeeds (fence)");
+
+    char* result =
+        mg_mission_doc_create(core, R"({"metadata":{"name":"Fence"}})");
+    if (result) mg_free_string(result);
+
+    const char* fence_plan = R"({
+        "fileType": "Plan",
+        "geoFence": {
+            "version": 2,
+            "polygons": [{
+                "version": 1,
+                "inclusion": true,
+                "polygon": [[39.9, 116.4], [39.91, 116.41], [39.92, 116.4]]
+            }],
+            "circles": [{
+                "version": 1,
+                "inclusion": false,
+                "circle": {"center": [39.9, 116.4], "radius": 90}
+            }]
+        },
+        "mission": {
+            "version": 2,
+            "firmwareType": 3,
+            "vehicleType": 2,
+            "plannedHomePosition": [39.9, 116.4, 20],
+            "items": []
+        }
+    })";
+    result = mg_mission_doc_import_format(core, "plan", fence_plan);
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_compile_fence(core);
+    CHECK(result && strstr(result, "\"success\":true"),
+          "FFI fence compile succeeds for a valid fence");
+    CHECK(result && strstr(result, "\"item_count\":4"),
+          "FFI fence compile reports three vertices plus one circle");
+    CHECK(result && strstr(result, "5001") && strstr(result, "5004"),
+          "FFI fence compile emits inclusion and exclusion commands");
+    if (result) mg_free_string(result);
+
+    mg_destroy(core);
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Tests ===\n");
     test_document_editing_history();
     test_document_roundtrip();
     test_validation_compile_and_estimate();
     test_geofence_rally_validation();
+    test_geofence_compile();
+    test_ffi_geofence_compile();
     test_parameterized_survey_entities();
     test_ffi_contract();
     test_ffi_survey_entity_roundtrip();

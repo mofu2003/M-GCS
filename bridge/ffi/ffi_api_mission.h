@@ -40,6 +40,15 @@ MGCORE_API char* mg_mission_doc_estimate(mg_core_t* core);
 MGCORE_API char* mg_mission_doc_upload(
     mg_core_t* core,
     unsigned long long expected_revision);
+// Geofence 是独立的 MAVLink mission type（MAV_MISSION_TYPE_FENCE），不随任务上传。
+// compile_fence 只编译文档里的围栏，返回 fence mission 计划（不接触飞控）；
+// upload_fence 把编译结果通过 fence_upload 下发；clear_fence 清空飞控围栏。
+// 编码与 QGC GeoFenceManager 一致，详见 core/mission/cad/mission_document.h。
+MGCORE_API char* mg_mission_doc_compile_fence(mg_core_t* core);
+MGCORE_API char* mg_mission_doc_upload_fence(
+    mg_core_t* core,
+    unsigned long long expected_revision);
+MGCORE_API char* mg_mission_doc_clear_fence(mg_core_t* core);
 MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m);
 // 把飞控当前任务读进任务文档（替换实体列表，保留 metadata / defaults / home）。
 // 需要一次已完成的任务下载，否则返回 invalid_state：读取语义与 MP 的 Read、

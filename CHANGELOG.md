@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.0.48 - 2026-10-01
+
+### Added
+
+- 新增 `compile_geo_fence_plan`：把文档 `geo_fence` 编译成 MAVLink fence mission
+  type 的任务项，编码与 QGC `GeoFenceManager` 对齐（多边形用 5001/5002 且 `param1`
+  为顶点总数，圆形用 5003/5004 且 `param1` 为半径，breach-return 用 5000 +
+  `MAV_FRAME_GLOBAL_RELATIVE_ALT`），顺序为多边形 → 圆形 → breach-return。
+- 新增 FFI `mg_mission_doc_compile_fence`、`mg_mission_doc_upload_fence` 和
+  `mg_mission_doc_clear_fence`，把文档围栏接到既有 fence mission 传输上（围栏是独立
+  MAVLink mission type，不随任务上传）。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.47 - 2026-10-01
 
 ### Added

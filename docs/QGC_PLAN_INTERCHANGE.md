@@ -62,6 +62,12 @@ GeoFence 和 Rally 在文档里是独立模型，`validate` 会校验其几何�
 经纬度在合法范围、圆半径为正、breach-return 点有效），但不会因为存在围栏/Rally 而
 阻断任务上传：它们是独立 MAVLink mission type，与航点任务分开处理。
 
+围栏可以单独下发：`compile_geo_fence_plan` 把 `geo_fence` 编译成 fence mission 项，
+编码与 QGC `GeoFenceManager` 一致（多边形 5001/5002，`param1` 为顶点总数；圆形
+5003/5004，`param1` 为半径；breach-return 5000 + `MAV_FRAME_GLOBAL_RELATIVE_ALT`），
+顺序为多边形 → 圆形 → breach-return。FFI 入口是 `mg_mission_doc_compile_fence`、
+`mg_mission_doc_upload_fence` 和 `mg_mission_doc_clear_fence`。Rally 上传尚未接通。
+
 ## 导出边界
 
 `.plan` 不静默 flatten 设计意图：

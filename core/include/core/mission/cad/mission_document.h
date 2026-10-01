@@ -278,6 +278,22 @@ bool load_mission_document(
 
 const char* mission_entity_type_name(const std::string& type);
 
+/// 把文档围栏编译成 MAVLink fence mission type（`MAV_MISSION_TYPE_FENCE`）的任务项。
+///
+/// 编码与 QGC `GeoFenceManager` 一致，顺序为多边形 → 圆形 → breach-return：
+/// - 多边形顶点用 `MAV_CMD_NAV_FENCE_POLYGON_VERTEX_INCLUSION/_EXCLUSION`（5001/5002），
+///   `MAV_FRAME_GLOBAL`，`param1` 为该多边形顶点总数；
+/// - 圆形用 `MAV_CMD_NAV_FENCE_CIRCLE_INCLUSION/_EXCLUSION`（5003/5004），
+///   `MAV_FRAME_GLOBAL`，`param1` 为半径（米）；
+/// - breach-return 用 `MAV_CMD_NAV_FENCE_RETURN_POINT`（5000），
+///   `MAV_FRAME_GLOBAL_RELATIVE_ALT`，`param7` 为高度。
+///
+/// 围栏为空或几何非法时返回 false，`error` 说明原因。
+bool compile_geo_fence_plan(
+    const MissionGeoFence& fence,
+    MissionPlan& plan,
+    std::string& error);
+
 /// 该实体类型是否由 SurveyCalculator 在编译期展开（而不是 1 实体 1 任务项）。
 bool is_parameterized_survey_type(const std::string& type);
 
