@@ -783,6 +783,20 @@ public:
         int64_t completed_at_ms = 0;
     };
     std::vector<ParamChangeRecord> param_change_history() const;
+    struct ParamRefreshStatus {
+        bool active = false;
+        int total = 0;
+        int completed = 0;
+        int pending = 0;
+        int round = 0;
+        std::vector<std::string> failed;
+    };
+    /// 启动批量刷新并返回成功发送的请求数。
+    int start_param_refresh(uint8_t target_system,
+                            uint8_t target_component,
+                            const std::vector<std::string>& names);
+    /// 当前批量刷新状态。
+    ParamRefreshStatus param_refresh_status() const;
     // 已处理消息总数
     uint64_t message_count() const;
     LinkQualityInfo link_quality() const;

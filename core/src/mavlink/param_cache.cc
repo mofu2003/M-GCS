@@ -32,6 +32,12 @@ void ParamCache::start_download(uint8_t sys, uint8_t comp) {
     failed_indices.clear();
     batch_queue.clear();
     write_retry_queue.clear();
+    refresh_pending.clear();
+    refresh_retry_queue.clear();
+    refresh_failed.clear();
+    refresh_total = 0;
+    refresh_completed = 0;
+    refresh_round = 0;
     for (const auto& [name, pending] : pending_writes) {
         complete_write(
             pending.history_id,
@@ -152,6 +158,49 @@ bool ParamCache::reject_write(
             [&name](const PendingWrite& queued) { return queued.name == name; }),
         write_retry_queue.end());
     return true;
+}
+
+void ParamCache::begin_refresh(const std::vector<std::string>& names,
+                               uint8_t target_sys,
+                               uint8_t target_comp) {
+    refresh_pending.clear();
+    refresh_retry_queue.clear();
+    refresh_failed.clear();
+    refresh_total = static_cast<int>(names.size());
+    refresh_completed = 0;
+    refresh_round = 0;
+    const auto now = std::chrono::steady_clock::now();
+    for (const auto& name : names) {
+        RefreshRequest request;
+        request.name = name;
+        request.target_sys = target_sys;
+        request.target_comp = target_comp;
+        request.send_time = now;
+        refresh_pending[name] = std::move(request);
+    }
+}
+
+void ParamCache::on_param_value_received(const std::string& name) {
+    if (refresh_pending.erase(name) > 0) {
+        refresh_completed++;
+    }
+}
+
+void ParamCache::fail_refresh(const std::string& name) {
+    if (refresh_pending.erase(name) == 0) return;
+    refresh_failed.push_back(name);
+    refresh_completed++;
+}
+
+ParamCache::RefreshStatus ParamCache::refresh_status() const {
+    RefreshStatus status;
+    status.active = !refresh_pending.empty();
+    status.total = refresh_total;
+    status.completed = refresh_completed;
+    status.pending = static_cast<int>(refresh_pending.size());
+    status.round = refresh_round;
+    status.failed = refresh_failed;
+    return status;
 }
 
 void ParamCache::on_param_received(uint16_t index) {
@@ -299,6 +348,27 @@ int ParamCache::check_timeouts(std::vector<std::function<void()>>& deferred_cbs)
             }
         }
         ++it;
+    }
+
+    // 5. 批量参数刷新超时/重试
+    for (auto it = refresh_pending.begin(); it != refresh_pending.end();) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - it->second.send_time).count();
+        if (elapsed < PARAM_REFRESH_TIMEOUT_MS) {
+            ++it;
+            continue;
+        }
+        if (it->second.retry_count < PARAM_REFRESH_MAX_RETRIES) {
+            it->second.retry_count++;
+            it->second.send_time = now;
+            refresh_round = std::max(refresh_round, it->second.retry_count);
+            refresh_retry_queue.push_back(it->second);
+            ++it;
+        } else {
+            refresh_failed.push_back(it->first);
+            refresh_completed++;
+            it = refresh_pending.erase(it);
+        }
     }
 
     return 0;

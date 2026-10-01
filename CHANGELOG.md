@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.33 - 2026-10-01
+
+### Changed
+
+- 为批量参数刷新增加异步任务状态和重试：每个名称记录发送时间、重试次数和目标
+  sysid/compid，1 秒无回复时最多重发 2 次，重试耗尽进入 failed。
+- 新增 `mg_params_get_refresh_status`，返回 active/total/completed/pending/round/failed；
+  `PARAM_VALUE` 完成对应刷新，`PARAM_ERROR` 立即失败，原 `mg_params_refresh` 响应保持兼容。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.32 - 2026-10-01
 
 ### Changed

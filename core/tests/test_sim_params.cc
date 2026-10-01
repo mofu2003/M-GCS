@@ -243,6 +243,11 @@ static void test_bulk_param_refresh() {
     CHECK("bulk refresh sends each resolved name once",
           env.mock->received_param_reads.size() == 3);
     if (result) mg_free_string(result);
+    char* status = mg_params_get_refresh_status(env.core);
+    CHECK("bulk refresh status completes after PARAM_VALUE replies",
+          status != nullptr && strstr(status, "\"active\":false") != nullptr &&
+              strstr(status, "\"completed\":3") != nullptr);
+    if (status) mg_free_string(status);
 }
 
 static void test_config_uses_ardupilot_profile_metadata() {

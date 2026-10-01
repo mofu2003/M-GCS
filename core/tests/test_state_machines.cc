@@ -307,6 +307,27 @@ static void test_param_cache() {
           "queued parameter retry preserves target sys/component");
     pc.write_retry_queue.clear();
 
+    pc.begin_refresh({"REFRESH_A", "REFRESH_B"}, 1, 1);
+    pc.refresh_pending["REFRESH_A"].send_time =
+        std::chrono::steady_clock::now() - std::chrono::seconds(2);
+    cbs.clear();
+    pc.check_timeouts(cbs);
+    CHECK(pc.refresh_retry_queue.size() == 1,
+          "timed-out parameter refresh is queued for retransmission");
+    CHECK(pc.refresh_pending["REFRESH_A"].retry_count == 1,
+          "queued parameter refresh increments retry count");
+    pc.refresh_pending["REFRESH_A"].retry_count = PARAM_REFRESH_MAX_RETRIES;
+    pc.refresh_pending["REFRESH_A"].send_time =
+        std::chrono::steady_clock::now() - std::chrono::seconds(2);
+    pc.refresh_retry_queue.clear();
+    pc.check_timeouts(cbs);
+    CHECK(pc.refresh_status().failed.size() == 1 &&
+              pc.refresh_status().failed.front() == "REFRESH_A",
+          "refresh retry exhaustion records failure");
+    pc.on_param_value_received("REFRESH_B");
+    CHECK(pc.refresh_status().completed == 2,
+          "refresh status counts success and failure");
+
     bool rejected_callback = false;
     const uint64_t rejected_id = pc.record_write_request("REJECT_PARAM", 4.0f, 9, 1, 1);
     pc.pending_writes["REJECT_PARAM"].result_cb = [&rejected_callback](bool success) {

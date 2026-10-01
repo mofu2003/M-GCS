@@ -203,6 +203,7 @@ void MavlinkAdapter::Impl::handle_param_value(const mavlink_message_t& m)
     info.type = pv.param_type;
     info.index = pv.param_index;
     info.count = pv.param_count;
+    pc.on_param_value_received(info.name);
 
     // 检查是否是写入确认（参数名在 pending_writes 中）
     auto write_it = pc.pending_writes.find(info.name);
@@ -244,6 +245,7 @@ void MavlinkAdapter::Impl::handle_param_error(const mavlink_message_t& m)
     mavlink_param_error_t error{};
     mavlink_msg_param_error_decode(&m, &error);
     const std::string name(error.param_id, strnlen(error.param_id, sizeof(error.param_id)));
+    pc.fail_refresh(name);
     const auto pending = pc.pending_writes.find(name);
     if (pending == pc.pending_writes.end()) {
         return;

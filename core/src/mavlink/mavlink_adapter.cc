@@ -475,6 +475,38 @@ std::vector<MavlinkAdapter::ParamChangeRecord> MavlinkAdapter::param_change_hist
     return records;
 }
 
+int MavlinkAdapter::start_param_refresh(uint8_t target_system,
+                                        uint8_t target_component,
+                                        const std::vector<std::string>& names) {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    impl_->pc.begin_refresh(names, target_system, target_component);
+    int sent = 0;
+    for (const auto& name : names) {
+        mavlink_msg_param_request_read_pack(
+            255, 0, &impl_->msg,
+            target_system, target_component, name.c_str(), -1);
+        if (impl_->send_msg()) {
+            sent++;
+        } else {
+            impl_->pc.fail_refresh(name);
+        }
+    }
+    return sent;
+}
+
+MavlinkAdapter::ParamRefreshStatus MavlinkAdapter::param_refresh_status() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    const auto status = impl_->pc.refresh_status();
+    ParamRefreshStatus output;
+    output.active = status.active;
+    output.total = status.total;
+    output.completed = status.completed;
+    output.pending = status.pending;
+    output.round = status.round;
+    output.failed = status.failed;
+    return output;
+}
+
 uint64_t MavlinkAdapter::message_count() const {
     mg::core::platform::LockGuard lk(impl_->mtx);
     return impl_->msg_count;

@@ -32,6 +32,8 @@ static constexpr int PARAM_MISSING_TIMEOUT_MS = 3000;  // 缺失参数等待超�
 static constexpr int PARAM_MISSING_MAX_RETRIES = 5;    // 单个缺失参数最大重试
 static constexpr int PARAM_WRITE_TIMEOUT_MS = 1000;    // PARAM_SET 确认超时
 static constexpr int PARAM_WRITE_MAX_RETRIES = 2;      // PARAM_SET 最大重试
+static constexpr int PARAM_REFRESH_TIMEOUT_MS = 1000;  // PARAM_REQUEST_READ 确认超时
+static constexpr int PARAM_REFRESH_MAX_RETRIES = 2;    // PARAM_REQUEST_READ 最大重试
 static constexpr int PARAM_BATCH_SIZE = 10;            // 每批请求缺失参数数量
 
 // ================================================================
@@ -84,6 +86,20 @@ struct ParamCache {
     std::unordered_map<std::string, PendingWrite> pending_writes;
     std::vector<PendingWrite> write_retry_queue;
 
+    struct RefreshRequest {
+        std::string name;
+        uint8_t target_sys = 0;
+        uint8_t target_comp = 0;
+        int retry_count = 0;
+        std::chrono::steady_clock::time_point send_time;
+    };
+    std::unordered_map<std::string, RefreshRequest> refresh_pending;
+    std::vector<RefreshRequest> refresh_retry_queue;
+    std::vector<std::string> refresh_failed;
+    int refresh_total = 0;
+    int refresh_completed = 0;
+    int refresh_round = 0;
+
     enum class WriteState : uint8_t {
         Pending = 0,
         Confirmed = 1,
@@ -132,6 +148,27 @@ struct ParamCache {
         const std::string& name,
         const std::string& error,
         std::vector<std::function<void()>>& deferred_cbs);
+
+    /// 启动/替换一批参数刷新请求。
+    void begin_refresh(const std::vector<std::string>& names,
+                       uint8_t target_sys,
+                       uint8_t target_comp);
+
+    /// PARAM_VALUE 到达时完成对应刷新请求。
+    void on_param_value_received(const std::string& name);
+
+    /// PARAM_ERROR 到达时终止对应刷新请求。
+    void fail_refresh(const std::string& name);
+
+    struct RefreshStatus {
+        bool active = false;
+        int total = 0;
+        int completed = 0;
+        int pending = 0;
+        int round = 0;
+        std::vector<std::string> failed;
+    };
+    RefreshStatus refresh_status() const;
 
     /// 收到 PARAM_VALUE 后更新状态
     void on_param_received(uint16_t index);

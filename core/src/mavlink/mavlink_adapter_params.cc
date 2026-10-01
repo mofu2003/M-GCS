@@ -60,6 +60,20 @@ void MavlinkAdapter::Impl::process_param_timeouts()
             }
         }
     }
+
+    if (!pc.refresh_retry_queue.empty()) {
+        auto retries = std::move(pc.refresh_retry_queue);
+        pc.refresh_retry_queue.clear();
+        for (const auto& request : retries) {
+            mavlink_msg_param_request_read_pack(
+                255, 0, &msg,
+                request.target_sys, request.target_comp,
+                request.name.c_str(), -1);
+            if (!send_msg()) {
+                pc.fail_refresh(request.name);
+            }
+        }
+    }
 }
 
 } // namespace mg::core::mavlink

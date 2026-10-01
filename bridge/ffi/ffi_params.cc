@@ -182,16 +182,10 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
     }
     cJSON_Delete(root);
 
-    int sent = 0;
-    int failed = 0;
-    for (const auto& name : resolved) {
-        if (mav->request_param_read_by_name(
-                active_target_sys(core), active_target_comp(core), name.c_str())) {
-            sent++;
-        } else {
-            failed++;
-        }
-    }
+    const int sent = mav->start_param_refresh(
+        active_target_sys(core), active_target_comp(core), resolved);
+    const int failed = static_cast<int>(resolved.size()) - sent;
+    const auto status = mav->param_refresh_status();
 
     mg::bridge::JsonBuilder output;
     output.begin_object();
@@ -201,11 +195,38 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
     output.field("sent", sent);
     output.field("failed", failed);
     output.field("duplicates", duplicates);
+    output.field("active", status.active);
+    output.field("pending", status.pending);
+    output.field("completed", status.completed);
+    output.field("round", status.round);
     mg::bridge::JsonBuilder unknown_json;
     unknown_json.begin_array();
     for (const auto& name : unknown) unknown_json.append_string(name);
     unknown_json.end_array();
     output.raw_field("unknown", unknown_json.str());
+    output.end_object();
+    return to_cstr(output.str());
+}
+
+MGCORE_API char* mg_params_get_refresh_status(mg_core_t* core) {
+    CHECK_CORE(core);
+    auto* mav = get_active_mavlink(core);
+    if (!mav) {
+        return to_cstr(R"({"active":false,"total":0,"completed":0,"pending":0,"round":0,"failed":[]})");
+    }
+    const auto status = mav->param_refresh_status();
+    mg::bridge::JsonBuilder output;
+    output.begin_object();
+    output.field("active", status.active);
+    output.field("total", status.total);
+    output.field("completed", status.completed);
+    output.field("pending", status.pending);
+    output.field("round", status.round);
+    mg::bridge::JsonBuilder failed;
+    failed.begin_array();
+    for (const auto& name : status.failed) failed.append_string(name);
+    failed.end_array();
+    output.raw_field("failed", failed.str());
     output.end_object();
     return to_cstr(output.str());
 }
