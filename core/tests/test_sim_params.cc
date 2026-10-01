@@ -250,6 +250,36 @@ static void test_bulk_param_refresh() {
     if (status) mg_free_string(status);
 }
 
+static void test_unclassified_parameter_group() {
+    fprintf(stderr, "\n[Group] Unclassified parameter metadata fallback\n");
+    TestEnv env;
+    env.mock->add_param("MGC_UNKNOWN", 42.0f, MAV_PARAM_TYPE_REAL32);
+
+    env.tick(1100);
+    char* load = mg_params_request_all(env.core);
+    if (load) mg_free_string(load);
+    if (!load_all_params(env)) return;
+
+    char* groups = mg_config_get_groups(env.core);
+    CHECK("unclassified parameter group is exposed",
+          groups != nullptr && strstr(groups, "\"name\":\"other\"") != nullptr);
+    if (groups) mg_free_string(groups);
+
+    char* descriptor = mg_config_get_group_descriptor(env.core, "other");
+    CHECK("unclassified descriptor keeps raw parameter name",
+          descriptor != nullptr && strstr(descriptor, "\"param_name\":\"MGC_UNKNOWN\"") != nullptr);
+    CHECK("unclassified descriptor marks missing metadata",
+          descriptor != nullptr && strstr(descriptor, "\"found\":false") != nullptr);
+    CHECK("unclassified descriptor infers MAVLink type",
+          descriptor != nullptr && strstr(descriptor, "\"type\":\"float\"") != nullptr);
+    if (descriptor) mg_free_string(descriptor);
+
+    char* values = mg_config_read_group(env.core, "other");
+    CHECK("unclassified group carries live value",
+          values != nullptr && strstr(values, "\"value\":42") != nullptr);
+    if (values) mg_free_string(values);
+}
+
 static void test_config_uses_ardupilot_profile_metadata() {
     fprintf(stderr, "\n[Group] Config metadata profile\n");
     TestEnv env;
@@ -449,6 +479,7 @@ int main() {
     test_param_set();
     test_config_write_rejects_read_only();
     test_bulk_param_refresh();
+    test_unclassified_parameter_group();
     test_change_set_requires_loaded_params();
     test_change_set_rejects_malformed_json();
     test_change_set_planning();

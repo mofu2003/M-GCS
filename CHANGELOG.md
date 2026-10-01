@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.35 - 2026-10-01
+
+### Changed
+
+- 参数页现在会把已从飞控加载、但描述库未覆盖的参数归入稳定的 `other` 分组，不再让
+  这些参数从分组接口中消失。
+- `other` 分组会从 MAVLink 参数类型推断基础 `int/float` 类型，保留原始参数名和实时
+  值，并用 `found:false` 明确标记缺少本地描述；不伪造范围或枚举信息。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.34 - 2026-10-01
 
 ### Changed

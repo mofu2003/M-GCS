@@ -12,10 +12,63 @@
 #include "json_serializers.h"
 #include "core/config/config_descriptors.h"
 
+#include <algorithm>
+#include <set>
+
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 
 // get_desc_db() shared via ffi_internal.h
+
+namespace {
+
+constexpr const char* kOtherParameterGroup = "other";
+
+const char* infer_param_type(const mg::core::mavlink::ParamInfo& param) {
+    switch (param.type) {
+        case MAV_PARAM_TYPE_REAL32:
+        case MAV_PARAM_TYPE_REAL64:
+            return "float";
+        case MAV_PARAM_TYPE_UINT8:
+        case MAV_PARAM_TYPE_INT8:
+        case MAV_PARAM_TYPE_UINT16:
+        case MAV_PARAM_TYPE_INT16:
+        case MAV_PARAM_TYPE_UINT32:
+        case MAV_PARAM_TYPE_INT32:
+        case MAV_PARAM_TYPE_UINT64:
+        case MAV_PARAM_TYPE_INT64:
+            return "int";
+        default:
+            return "float";
+    }
+}
+
+mg::core::config::GroupDescriptor other_parameter_group(
+    mg_core_t* core,
+    const mg::core::config::ParamDescriptors& db,
+    const std::string& profile) {
+    mg::core::config::GroupDescriptor group;
+    group.name = kOtherParameterGroup;
+    group.display_name = "Other";
+    group.description = "Loaded parameters without a local descriptor";
+
+    auto* mav = get_active_mavlink(core);
+    if (!mav) return group;
+
+    std::set<std::string> grouped;
+    for (const auto& group_name : db.get_group_names(profile)) {
+        const auto descriptor = db.get_group(profile, group_name);
+        grouped.insert(descriptor.param_names.begin(), descriptor.param_names.end());
+    }
+    for (const auto& param : mav->all_params()) {
+        if (grouped.count(param.name) != 0) continue;
+        group.param_names.push_back(param.name);
+    }
+    std::sort(group.param_names.begin(), group.param_names.end());
+    return group;
+}
+
+} // namespace
 
 // ================================================================
 // Helper: serialize a ParamDescriptor to JSON
@@ -140,6 +193,17 @@ MGCORE_API char* mg_config_get_groups(mg_core_t* core) {
         item.end_object();
         jb.append_json(item.str());
     }
+    const auto other = other_parameter_group(core, db, profile);
+    if (!other.param_names.empty()) {
+        mg::bridge::JsonBuilder item;
+        item.begin_object();
+        item.field("name", other.name);
+        item.field("display_name", other.display_name);
+        item.field("description", other.description);
+        item.field("param_count", static_cast<int>(other.param_names.size()));
+        item.end_object();
+        jb.append_json(item.str());
+    }
     jb.end_array();
     return to_cstr(jb.str());
 }
@@ -150,7 +214,9 @@ MGCORE_API char* mg_config_get_group_descriptor(mg_core_t* core, const char* gro
 
     auto& db = get_desc_db();
     const auto profile = ffi_param_profile(core);
-    auto group = db.get_group(profile, group_name);
+    auto group = std::string(group_name) == kOtherParameterGroup
+        ? other_parameter_group(core, db, profile)
+        : db.get_group(profile, group_name);
 
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
@@ -162,6 +228,14 @@ MGCORE_API char* mg_config_get_group_descriptor(mg_core_t* core, const char* gro
     params.begin_array();
     for (const auto& pname : group.param_names) {
         auto desc = db.get(profile, pname);
+        if (!desc.found) {
+            auto* mav = get_active_mavlink(core);
+            const auto value = mav ? mav->get_param_by_name(pname.c_str()) : std::nullopt;
+            desc.type = value.has_value() ? infer_param_type(value.value()) : "float";
+            desc.display_name = pname;
+            desc.description = "No local metadata available";
+            desc.group = kOtherParameterGroup;
+        }
         params.append_json(param_desc_json(desc));
     }
     params.end_array();
@@ -178,7 +252,9 @@ MGCORE_API char* mg_config_read_group(mg_core_t* core, const char* group_name) {
 
     auto& db = get_desc_db();
     const auto profile = ffi_param_profile(core);
-    auto group = db.get_group(profile, group_name);
+    auto group = std::string(group_name) == kOtherParameterGroup
+        ? other_parameter_group(core, db, profile)
+        : db.get_group(profile, group_name);
     if (group.param_names.empty()) return to_cstr("{}");
 
     return to_cstr(config_read_group_json(core, group));
