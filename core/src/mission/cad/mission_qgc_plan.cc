@@ -108,13 +108,6 @@ bool catalog_has_command(uint16_t command) {
     });
 }
 
-bool has_nonempty_array(cJSON* root, const char* section_key, const char* array_key) {
-    cJSON* section = object_field(root, section_key);
-    if (!section || !cJSON_IsObject(section)) return false;
-    cJSON* array = object_field(section, array_key);
-    return array && cJSON_IsArray(array) && cJSON_GetArraySize(array) > 0;
-}
-
 void add_number_or_null(cJSON* array, double value) {
     cJSON_AddItemToArray(
         array,
@@ -147,24 +140,6 @@ bool append_extension_array(cJSON* target,
         cJSON_AddItemToArray(target, cJSON_Duplicate(item, true));
     }
     return true;
-}
-
-void add_extension_object_or_empty(cJSON* root,
-                                   const MissionDocument& document,
-                                   const char* key,
-                                   const char* default_array_key) {
-    const auto it = document.extensions.find(key);
-    if (it != document.extensions.end()) {
-        cJSON* value = cJSON_Parse(it->second.c_str());
-        if (value && cJSON_IsObject(value)) {
-            cJSON_AddItemToObject(root, key, value);
-            return;
-        }
-        cJSON_Delete(value);
-    }
-    cJSON* value = cJSON_AddObjectToObject(root, key);
-    cJSON_AddNumberToObject(value, "version", 1);
-    cJSON_AddArrayToObject(value, default_array_key);
 }
 
 void append_opaque_item(MissionDocument& document,
@@ -241,6 +216,158 @@ bool parse_rally_points(cJSON* root,
         point.altitude_m = static_cast<float>(
             number_or_nan(cJSON_GetArrayItem(coordinate, 2)));
         document.rally_points.push_back(point);
+    }
+    return true;
+}
+
+void add_geo_fence(cJSON* root,
+                   const MissionDocument& document,
+                   const char* key) {
+    cJSON* fence = cJSON_AddObjectToObject(root, key);
+    cJSON_AddNumberToObject(fence, "version", 2);
+    cJSON* polygons = cJSON_AddArrayToObject(fence, "polygons");
+    for (const auto& polygon : document.geo_fence.polygons) {
+        cJSON* item = cJSON_CreateObject();
+        cJSON_AddNumberToObject(item, "version", 1);
+        cJSON_AddBoolToObject(item, "inclusion", polygon.inclusion);
+        cJSON* vertices = cJSON_AddArrayToObject(item, "polygon");
+        for (const auto& vertex : polygon.vertices) {
+            cJSON* coordinate = cJSON_CreateArray();
+            add_number_or_null(coordinate, vertex.latitude);
+            add_number_or_null(coordinate, vertex.longitude);
+            cJSON_AddItemToArray(vertices, coordinate);
+        }
+        cJSON_AddItemToArray(polygons, item);
+    }
+    cJSON* circles = cJSON_AddArrayToObject(fence, "circles");
+    for (const auto& circle : document.geo_fence.circles) {
+        cJSON* item = cJSON_CreateObject();
+        cJSON_AddNumberToObject(item, "version", 1);
+        cJSON_AddBoolToObject(item, "inclusion", circle.inclusion);
+        cJSON* circle_object = cJSON_AddObjectToObject(item, "circle");
+        cJSON* center = cJSON_AddArrayToObject(circle_object, "center");
+        add_number_or_null(center, circle.center.latitude);
+        add_number_or_null(center, circle.center.longitude);
+        cJSON_AddNumberToObject(circle_object, "radius", circle.radius_m);
+        cJSON_AddItemToArray(circles, item);
+    }
+    if (document.geo_fence.breach_return_set) {
+        cJSON* breach = cJSON_AddArrayToObject(fence, "breachReturn");
+        add_number_or_null(breach, document.geo_fence.breach_return.latitude);
+        add_number_or_null(breach, document.geo_fence.breach_return.longitude);
+        add_number_or_null(breach, document.geo_fence.breach_return_altitude_m);
+    }
+}
+
+bool parse_geo_fence(cJSON* root,
+                     MissionDocument& document,
+                     std::vector<std::string>& warnings,
+                     std::string& error) {
+    document.geo_fence = MissionGeoFence{};
+    cJSON* fence = object_field(root, "geoFence");
+    if (!fence) return true;
+    if (!cJSON_IsObject(fence)) {
+        error = "QGC geoFence must be an object";
+        return false;
+    }
+    int version = 0;
+    if (!int_field(fence, "version", version)) {
+        error = "QGC geoFence.version is required";
+        return false;
+    }
+    if (version == 1) {
+        add_warning(warnings, "old QGC geoFence version 1 is ignored");
+        return true;
+    }
+    if (version != 2) {
+        error = "QGC geoFence supports version 2";
+        return false;
+    }
+
+    cJSON* polygons = object_field(fence, "polygons");
+    if (!polygons || !cJSON_IsArray(polygons)) {
+        error = "QGC geoFence.polygons must be an array";
+        return false;
+    }
+    for (int i = 0; i < cJSON_GetArraySize(polygons); ++i) {
+        cJSON* item = cJSON_GetArrayItem(polygons, i);
+        if (!item || !cJSON_IsObject(item)) {
+            error = "QGC geoFence polygon must be an object";
+            return false;
+        }
+        MissionGeoFencePolygon polygon;
+        bool inclusion = true;
+        if (!bool_field(item, "inclusion", inclusion)) {
+            error = "QGC geoFence polygon inclusion is required";
+            return false;
+        }
+        polygon.inclusion = inclusion;
+        cJSON* vertices = object_field(item, "polygon");
+        if (!vertices || !cJSON_IsArray(vertices)) {
+            error = "QGC geoFence polygon vertices must be an array";
+            return false;
+        }
+        for (int j = 0; j < cJSON_GetArraySize(vertices); ++j) {
+            cJSON* coordinate = cJSON_GetArrayItem(vertices, j);
+            if (!coordinate || !cJSON_IsArray(coordinate) || cJSON_GetArraySize(coordinate) != 2) {
+                error = "QGC geoFence polygon vertex must contain two values";
+                return false;
+            }
+            MissionGeoPoint point;
+            point.latitude = number_or_nan(cJSON_GetArrayItem(coordinate, 0));
+            point.longitude = number_or_nan(cJSON_GetArrayItem(coordinate, 1));
+            polygon.vertices.push_back(point);
+        }
+        document.geo_fence.polygons.push_back(std::move(polygon));
+    }
+
+    cJSON* circles = object_field(fence, "circles");
+    if (!circles || !cJSON_IsArray(circles)) {
+        error = "QGC geoFence.circles must be an array";
+        return false;
+    }
+    for (int i = 0; i < cJSON_GetArraySize(circles); ++i) {
+        cJSON* item = cJSON_GetArrayItem(circles, i);
+        if (!item || !cJSON_IsObject(item)) {
+            error = "QGC geoFence circle must be an object";
+            return false;
+        }
+        MissionGeoFenceCircle circle;
+        bool inclusion = true;
+        if (!bool_field(item, "inclusion", inclusion)) {
+            error = "QGC geoFence circle inclusion is required";
+            return false;
+        }
+        circle.inclusion = inclusion;
+        cJSON* circle_object = object_field(item, "circle");
+        if (!circle_object || !cJSON_IsObject(circle_object)) {
+            error = "QGC geoFence circle payload is required";
+            return false;
+        }
+        cJSON* center = object_field(circle_object, "center");
+        cJSON* radius = object_field(circle_object, "radius");
+        if (!center || !cJSON_IsArray(center) || cJSON_GetArraySize(center) != 2 ||
+            !radius || !cJSON_IsNumber(radius)) {
+            error = "QGC geoFence circle center/radius are invalid";
+            return false;
+        }
+        circle.center.latitude = number_or_nan(cJSON_GetArrayItem(center, 0));
+        circle.center.longitude = number_or_nan(cJSON_GetArrayItem(center, 1));
+        circle.radius_m = radius->valuedouble;
+        document.geo_fence.circles.push_back(circle);
+    }
+
+    cJSON* breach = object_field(fence, "breachReturn");
+    if (breach) {
+        if (!cJSON_IsArray(breach) || cJSON_GetArraySize(breach) != 3) {
+            error = "QGC geoFence breachReturn must contain three values";
+            return false;
+        }
+        document.geo_fence.breach_return_set = true;
+        document.geo_fence.breach_return.latitude = number_or_nan(cJSON_GetArrayItem(breach, 0));
+        document.geo_fence.breach_return.longitude = number_or_nan(cJSON_GetArrayItem(breach, 1));
+        document.geo_fence.breach_return_altitude_m = static_cast<float>(
+            number_or_nan(cJSON_GetArrayItem(breach, 2)));
     }
     return true;
 }
@@ -346,7 +473,7 @@ std::string export_qgc_plan_json(
         return {};
     }
 
-    add_extension_object_or_empty(root.get(), document, "geoFence", "polygon");
+    add_geo_fence(root.get(), document, "geoFence");
     add_rally_points(root.get(), document, "rallyPoints");
 
     char* printed = cJSON_Print(root.get());
@@ -399,12 +526,8 @@ bool import_qgc_plan_json(
     parsed.extensions.erase("geoFence");
     parsed.extensions.erase("rallyPoints");
     parsed.rally_points.clear();
-
-    cJSON* geo_fence = object_field(root.get(), "geoFence");
-    if (has_nonempty_array(root.get(), "geoFence", "polygon")) {
-        parsed.extensions["geoFence"] = compact_json(geo_fence);
-        add_warning(warnings, "QGC GeoFence preserved as an opaque extension");
-    }
+    parsed.geo_fence = MissionGeoFence{};
+    if (!parse_geo_fence(root.get(), parsed, warnings, error)) return false;
     if (!parse_rally_points(root.get(), parsed, warnings, error)) return false;
 
     int firmware_type = 0;
@@ -579,6 +702,7 @@ bool import_qgc_plan_json(
     document.home = parsed.home;
     document.metadata = parsed.metadata;
     document.rally_points = std::move(parsed.rally_points);
+    document.geo_fence = std::move(parsed.geo_fence);
     document.defaults = parsed.defaults;
     document.entities = std::move(parsed.entities);
     document.extensions = std::move(parsed.extensions);

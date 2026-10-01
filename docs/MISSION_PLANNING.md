@@ -169,10 +169,10 @@ MAVLink `MISSION_ITEM_INT` 的 `degE7` 格式转换为 `int32`，分辨率约为
   映射为文档 home，`cruiseSpeed` 映射为默认速度，`firmwareType` / `vehicleType`
   映射为文档 metadata。
 
-`.plan` 对复杂区段采用分级处理：Survey、CorridorScan 等复杂 `mission.items` 和非空
-GeoFence 原样保存到任务文档的 `extensions`，再次导出 `.plan` 时放回；Rally version 2
-已提升为正式的 `rally_points` 文档模型，可读写经纬度和高度。opaque 区段仍会产生
-warning，因为 M-GCS 暂时不能编辑或校验其内部字段。
+`.plan` 对复杂区段采用分级处理：Survey、CorridorScan 等复杂 `mission.items` 原样保存
+到任务文档的 `extensions`，再次导出 `.plan` 时放回；Rally version 2 已提升为正式的
+`rally_points` 模型；GeoFence 已提升为正式模型，支持 polygon、circle、inclusion 和
+breach-return。opaque ComplexItem 仍会产生 warning，因为 M-GCS 暂时不能编辑其内部字段。
 
 参数化测绘实体或禁用实体仍不能无损导出为普通 `.plan`；`hoverSpeed`、地形高度模式、
 null 参数和不在命令目录中的 MAV_CMD 会通过 `warnings` 报告。围栏和 Rally 的统一编辑

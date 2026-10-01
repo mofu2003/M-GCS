@@ -737,7 +737,20 @@ static void test_qgc_plan_interchange() {
 
     const std::string fence_plan = R"({
         "fileType": "Plan",
-        "geoFence": {"polygon": [[39.9, 116.4], [39.91, 116.41]], "version": 1},
+        "geoFence": {
+            "version": 2,
+            "polygons": [{
+                "version": 1,
+                "inclusion": false,
+                "polygon": [[39.9, 116.4], [39.91, 116.41], [39.92, 116.4]]
+            }],
+            "circles": [{
+                "version": 1,
+                "inclusion": true,
+                "circle": {"center": [39.9, 116.4], "radius": 120}
+            }],
+            "breachReturn": [39.9, 116.4, 35]
+        },
         "mission": {
             "version": 2,
             "firmwareType": 3,
@@ -750,13 +763,29 @@ static void test_qgc_plan_interchange() {
     warnings.clear();
     error.clear();
     CHECK(import_qgc_plan_json(fence_plan, fenced, warnings, error),
-          "non-empty QGC GeoFence imports as an opaque extension");
-    CHECK(fenced.extensions.count("geoFence") == 1,
-          "QGC GeoFence is preserved in the extension store");
+          "QGC GeoFence imports into the formal document model");
+    CHECK(fenced.geo_fence.polygons.size() == 1 &&
+              fenced.geo_fence.polygons[0].vertices.size() == 3 &&
+              !fenced.geo_fence.polygons[0].inclusion,
+          "QGC GeoFence polygon inclusion and vertices are preserved");
+    CHECK(fenced.geo_fence.circles.size() == 1 &&
+              std::fabs(fenced.geo_fence.circles[0].radius_m - 120.0) < 1e-6,
+          "QGC GeoFence circle is preserved");
+    CHECK(fenced.geo_fence.breach_return_set,
+          "QGC GeoFence breach-return point is preserved");
     const std::string fence_export = export_qgc_plan_json(fenced, warnings, error);
     CHECK(fence_export.find("\"geoFence\"") != std::string::npos &&
-              fence_export.find("39.91") != std::string::npos,
-          "opaque GeoFence is restored on QGC export");
+              fence_export.find("39.91") != std::string::npos &&
+              fence_export.find("\"radius\"") != std::string::npos,
+          "formal GeoFence is restored on QGC export");
+    const std::string fence_document_json = serialize_mission_document(fenced);
+    MissionDocument fence_restored;
+    CHECK(deserialize_mission_document(fence_document_json, fence_restored, error),
+          "formal GeoFence round-trips through mission document JSON");
+    CHECK(fence_restored.geo_fence.polygons.size() == 1 &&
+              fence_restored.geo_fence.circles.size() == 1 &&
+              fence_restored.geo_fence.breach_return_set,
+          "formal GeoFence document fields survive JSON round-trip");
 
     const std::string rally_plan = R"({
         "fileType": "Plan",

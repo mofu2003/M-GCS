@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.42`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.43`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -92,6 +92,8 @@ bash tools/audit_status.sh
   `extensions` 并在导出时恢复，避免导入时静默丢失或直接拒绝。
 - `RALLY-001`：QGC Rally version 2 提升为正式 `rally_points` 模型，支持经纬度和
   高度随任务文档 JSON 及 `.plan` 往返；复杂项和 GeoFence 仍保持 opaque。
+- `FENCE-001`：GeoFence 提升为正式模型，覆盖 polygon、circle、inclusion 和
+  breach-return；ComplexItem 仍保持 opaque。
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项
@@ -114,8 +116,8 @@ state/error 历史。前端后续可统一消费同一套 operation 状态。
 参数写入已经具备 pending/confirmed/failed、超时重发、目标信息、PARAM_ERROR 明确
 拒绝、描述库写入校验、批量刷新重试/状态跟踪、ArduPilot 版本参数重映射（含前缀）、
 未分类参数回退、canonical 覆盖率报告、高频 common 参数、常见 4.7 重映射和
-Rover/Sub/Tracker profile 标识。任务领域中 Rally 已正式建模，其余 QGC 复杂区段仍为
-opaque。
+Rover/Sub/Tracker profile 标识。任务领域中 Rally 和 GeoFence 已正式建模，剩余 QGC
+ComplexItem 仍为 opaque。
 
 ### `DEAD-001`：固件刷写占位
 

@@ -114,6 +114,9 @@ ComplexItem、GeoFence 和 Rally 可无损保留文本 round-trip，但尚不能
 `0.0.42` 将 QGC Rally version 2 从 opaque 区段提升为正式 `MissionRallyPoint` 模型，
 支持文档 JSON 和 `.plan` 双向映射；ComplexItem 与 GeoFence 仍保持 opaque。
 
+`0.0.43` 将 GeoFence version 2 提升为正式模型，覆盖 polygon、circle、inclusion 和
+breach-return；ComplexItem 仍保持 opaque。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

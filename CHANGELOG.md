@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.43 - 2026-10-01
+
+### Changed
+
+- GeoFence 从 opaque 区段提升为正式文档模型，支持 polygon、circle、inclusion 和
+  breach-return。
+- QGC `.plan` GeoFence version 2 会映射为正式模型，导出时重新生成
+  `polygons`、`circles` 和 `breachReturn`；version 1 继续忽略并告警。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.42 - 2026-10-01
 
 ### Changed

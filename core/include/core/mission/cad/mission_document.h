@@ -49,6 +49,30 @@ struct MissionRallyPoint {
     float altitude_m = 0.0f;
 };
 
+struct MissionGeoPoint {
+    double latitude = std::numeric_limits<double>::quiet_NaN();
+    double longitude = std::numeric_limits<double>::quiet_NaN();
+};
+
+struct MissionGeoFencePolygon {
+    bool inclusion = true;
+    std::vector<MissionGeoPoint> vertices;
+};
+
+struct MissionGeoFenceCircle {
+    bool inclusion = true;
+    MissionGeoPoint center;
+    double radius_m = 0.0;
+};
+
+struct MissionGeoFence {
+    std::vector<MissionGeoFencePolygon> polygons;
+    std::vector<MissionGeoFenceCircle> circles;
+    bool breach_return_set = false;
+    MissionGeoPoint breach_return;
+    float breach_return_altitude_m = 0.0f;
+};
+
 struct MissionDefaults {
     uint8_t frame = static_cast<uint8_t>(CoordFrame::GlobalRelAlt);
     float altitude_m = 50.0f;
@@ -108,6 +132,7 @@ struct MissionDocument {
     MissionDocumentMetadata metadata;
     MissionHome home;
     std::vector<MissionRallyPoint> rally_points;
+    MissionGeoFence geo_fence;
     MissionDefaults defaults;
     uint64_t revision = 1;
     int64_t updated_at_ms = 0;
