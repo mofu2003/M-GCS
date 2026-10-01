@@ -143,6 +143,8 @@ constexpr uint16_t kFenceCircleExclusion = 5004;
 constexpr uint8_t kFrameGlobal = 0;             // MAV_FRAME_GLOBAL
 constexpr uint8_t kFrameGlobalRelAlt = 3;       // MAV_FRAME_GLOBAL_RELATIVE_ALT
 constexpr uint8_t kMissionTypeFence = 1;        // MAV_MISSION_TYPE_FENCE
+constexpr uint16_t kNavRallyPoint = 5100;       // MAV_CMD_NAV_RALLY_POINT
+constexpr uint8_t kMissionTypeRally = 2;        // MAV_MISSION_TYPE_RALLY
 
 bool fence_coordinate_valid(const MissionGeoPoint& point) {
     return std::isfinite(point.latitude) &&
@@ -253,6 +255,48 @@ bool compile_geo_fence_plan(
             fence.breach_return.longitude);
         item.z = fence.breach_return_altitude_m;
         item.seq = static_cast<uint16_t>(plan.items.size());
+        plan.items.push_back(item);
+    }
+
+    plan.valid = !plan.items.empty();
+    return plan.valid;
+}
+
+bool compile_rally_plan(
+    const std::vector<MissionRallyPoint>& rally_points,
+    MissionPlan& plan,
+    std::string& error) {
+    error.clear();
+    plan.clear();
+
+    if (rally_points.empty()) {
+        error = "rally point list is empty";
+        return false;
+    }
+
+    for (size_t index = 0; index < rally_points.size(); ++index) {
+        const MissionRallyPoint& rally = rally_points[index];
+        const MissionGeoPoint coordinate{rally.latitude, rally.longitude};
+        if (!fence_coordinate_valid(coordinate)) {
+            error = "rally point " + std::to_string(index) + " is invalid";
+            plan.clear();
+            return false;
+        }
+        if (!std::isfinite(static_cast<double>(rally.altitude_m))) {
+            error = "rally point " + std::to_string(index) +
+                    " altitude is invalid";
+            plan.clear();
+            return false;
+        }
+        MissionItem item{};
+        item.seq = static_cast<uint16_t>(plan.items.size());
+        item.frame = kFrameGlobalRelAlt;
+        item.command = kNavRallyPoint;
+        item.autocontinue = 0;
+        item.x = static_cast<int32_t>(std::llround(rally.latitude * 1e7));
+        item.y = static_cast<int32_t>(std::llround(rally.longitude * 1e7));
+        item.z = rally.altitude_m;
+        item.mission_type = kMissionTypeRally;
         plan.items.push_back(item);
     }
 

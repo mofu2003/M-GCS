@@ -294,6 +294,17 @@ bool compile_geo_fence_plan(
     MissionPlan& plan,
     std::string& error);
 
+/// 把文档 Rally 点编译成 MAVLink rally mission type（`MAV_MISSION_TYPE_RALLY`）的任务项。
+///
+/// 编码与 QGC `RallyPointManager` 一致：每个点一个
+/// `MAV_CMD_NAV_RALLY_POINT`（5100），`MAV_FRAME_GLOBAL_RELATIVE_ALT`，
+/// `param1..4` 为 0，`param5/6/7` 为纬度/经度/高度，`autocontinue=0`。
+/// Rally 列表为空或存在非法点时返回 false，`error` 说明原因。
+bool compile_rally_plan(
+    const std::vector<MissionRallyPoint>& rally_points,
+    MissionPlan& plan,
+    std::string& error);
+
 /// 该实体类型是否由 SurveyCalculator 在编译期展开（而不是 1 实体 1 任务项）。
 bool is_parameterized_survey_type(const std::string& type);
 

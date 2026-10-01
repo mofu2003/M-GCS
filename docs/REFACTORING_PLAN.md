@@ -135,6 +135,10 @@ breach-return 点及高度），区分于阻断上传的复杂项：围栏/Rally
 `GeoFenceManager` 编码编译，新增 `mg_mission_doc_compile_fence` /
 `mg_mission_doc_upload_fence` / `mg_mission_doc_clear_fence`；Rally 上传仍待补。
 
+`0.0.49` 以同一模式接通 Rally：`compile_rally_plan` 按 QGC `RallyPointManager` 编码
+编译，新增 `mg_mission_doc_compile_rally` / `mg_mission_doc_upload_rally` /
+`mg_mission_doc_clear_rally`。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

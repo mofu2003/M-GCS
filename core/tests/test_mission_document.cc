@@ -1161,6 +1161,73 @@ static void test_ffi_geofence_compile() {
     mg_destroy(core);
 }
 
+static void test_rally_compile() {
+    fprintf(stderr, "\n[Group] Rally mission compilation\n");
+
+    std::vector<MissionRallyPoint> points = {
+        {39.9, 116.4, 30.0f},
+        {39.91, 116.41, 40.0f},
+    };
+    MissionPlan plan;
+    std::string error;
+    CHECK(compile_rally_plan(points, plan, error),
+          "rally points compile to a rally mission");
+    CHECK(plan.items.size() == 2, "each rally point becomes one item");
+    if (plan.items.size() == 2) {
+        CHECK(plan.items[0].command == 5100 && plan.items[0].frame == 3 &&
+                  plan.items[0].mission_type == 2,
+              "rally item uses NAV_RALLY_POINT, relative frame and rally type");
+        CHECK(std::fabs(plan.items[1].z - 40.0f) < 1e-3f &&
+                  plan.items[1].seq == 1,
+              "rally altitude and sequence are encoded");
+    }
+
+    std::vector<MissionRallyPoint> empty;
+    CHECK(!compile_rally_plan(empty, plan, error) && !error.empty(),
+          "empty rally list cannot be compiled");
+
+    std::vector<MissionRallyPoint> invalid = {{200.0, 116.4, 30.0f}};
+    CHECK(!compile_rally_plan(invalid, plan, error),
+          "rally point outside the latitude range cannot be compiled");
+}
+
+static void test_ffi_rally_compile() {
+    fprintf(stderr, "\n[Group] Rally compile through FFI\n");
+    mg_core_t* core = mg_create();
+    CHECK(core != nullptr, "mg_create succeeds (rally)");
+
+    char* result =
+        mg_mission_doc_create(core, R"({"metadata":{"name":"Rally"}})");
+    if (result) mg_free_string(result);
+
+    const char* rally_plan = R"({
+        "fileType": "Plan",
+        "rallyPoints": {
+            "version": 2,
+            "points": [[39.9, 116.4, 30], [39.91, 116.41, 40]]
+        },
+        "mission": {
+            "version": 2,
+            "firmwareType": 3,
+            "vehicleType": 2,
+            "plannedHomePosition": [39.9, 116.4, 20],
+            "items": []
+        }
+    })";
+    result = mg_mission_doc_import_format(core, "plan", rally_plan);
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_compile_rally(core);
+    CHECK(result && strstr(result, "\"success\":true"),
+          "FFI rally compile succeeds for valid points");
+    CHECK(result && strstr(result, "\"item_count\":2") &&
+              strstr(result, "5100"),
+          "FFI rally compile reports two NAV_RALLY_POINT items");
+    if (result) mg_free_string(result);
+
+    mg_destroy(core);
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Tests ===\n");
     test_document_editing_history();
@@ -1169,6 +1236,8 @@ int main() {
     test_geofence_rally_validation();
     test_geofence_compile();
     test_ffi_geofence_compile();
+    test_rally_compile();
+    test_ffi_rally_compile();
     test_parameterized_survey_entities();
     test_ffi_contract();
     test_ffi_survey_entity_roundtrip();

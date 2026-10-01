@@ -66,7 +66,12 @@ GeoFence 和 Rally 在文档里是独立模型，`validate` 会校验其几何�
 编码与 QGC `GeoFenceManager` 一致（多边形 5001/5002，`param1` 为顶点总数；圆形
 5003/5004，`param1` 为半径；breach-return 5000 + `MAV_FRAME_GLOBAL_RELATIVE_ALT`），
 顺序为多边形 → 圆形 → breach-return。FFI 入口是 `mg_mission_doc_compile_fence`、
-`mg_mission_doc_upload_fence` 和 `mg_mission_doc_clear_fence`。Rally 上传尚未接通。
+`mg_mission_doc_upload_fence` 和 `mg_mission_doc_clear_fence`。
+
+Rally 同样可单独下发：`compile_rally_plan` 按 QGC `RallyPointManager` 编码把
+`rally_points` 编译成 `MAV_CMD_NAV_RALLY_POINT`（5100）+ `MAV_FRAME_GLOBAL_RELATIVE_ALT`
+的任务项，FFI 入口是 `mg_mission_doc_compile_rally`、`mg_mission_doc_upload_rally` 和
+`mg_mission_doc_clear_rally`。
 
 ## 导出边界
 

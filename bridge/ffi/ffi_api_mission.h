@@ -49,6 +49,15 @@ MGCORE_API char* mg_mission_doc_upload_fence(
     mg_core_t* core,
     unsigned long long expected_revision);
 MGCORE_API char* mg_mission_doc_clear_fence(mg_core_t* core);
+// Rally 同样是独立的 MAVLink mission type（MAV_MISSION_TYPE_RALLY），不随任务上传。
+// compile_rally 只编译文档里的 Rally 点，返回 rally mission 计划（不接触飞控）；
+// upload_rally 通过 rally_upload 下发；clear_rally 清空飞控 Rally 点。
+// 编码与 QGC RallyPointManager 一致，详见 core/mission/cad/mission_document.h。
+MGCORE_API char* mg_mission_doc_compile_rally(mg_core_t* core);
+MGCORE_API char* mg_mission_doc_upload_rally(
+    mg_core_t* core,
+    unsigned long long expected_revision);
+MGCORE_API char* mg_mission_doc_clear_rally(mg_core_t* core);
 MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m);
 // 把飞控当前任务读进任务文档（替换实体列表，保留 metadata / defaults / home）。
 // 需要一次已完成的任务下载，否则返回 invalid_state：读取语义与 MP 的 Read、

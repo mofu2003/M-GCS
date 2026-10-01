@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.49 - 2026-10-01
+
+### Added
+
+- 新增 `compile_rally_plan`：把文档 `rally_points` 编译成 MAVLink rally mission type
+  任务项，编码与 QGC `RallyPointManager` 对齐（`MAV_CMD_NAV_RALLY_POINT` 5100、
+  `MAV_FRAME_GLOBAL_RELATIVE_ALT`、`param5/6/7` 为纬度/经度/高度、`autocontinue=0`）。
+- 新增 FFI `mg_mission_doc_compile_rally`、`mg_mission_doc_upload_rally` 和
+  `mg_mission_doc_clear_rally`，把文档 Rally 点接到既有 rally mission 传输上（Rally 是
+  独立 MAVLink mission type，不随任务上传）。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.48 - 2026-10-01
 
 ### Added
