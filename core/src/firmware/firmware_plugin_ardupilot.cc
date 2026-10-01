@@ -284,6 +284,11 @@ std::string ArduPilotPlugin::remap_param_name(VehicleKind vehicle, int major, in
     return remap_.remap(major, minor, name);
 }
 
+std::string ArduPilotPlugin::canonical_param_name(VehicleKind vehicle, int major, int minor, const std::string& name) const {
+    ensure_remap_loaded(vehicle);
+    return remap_.canonical_name(major, minor, name);
+}
+
 bool ArduPilotPlugin::has_param_remapping() const { return true; }
 
 } // namespace mg::core::firmware

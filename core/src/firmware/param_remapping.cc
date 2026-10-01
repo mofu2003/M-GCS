@@ -56,6 +56,32 @@ std::string ParamRemapping::remap(int major, int minor, const std::string& param
     return current;
 }
 
+std::string ParamRemapping::canonical_name(int major, int minor, const std::string& param_name) const {
+    if (major == 0 && minor == 0) return param_name;
+
+    auto major_it = remap_table_.find(major);
+    if (major_it == remap_table_.end()) return param_name;
+
+    std::vector<int> versions;
+    for (const auto& [ver, _] : major_it->second) {
+        if (ver > minor) versions.push_back(ver);
+    }
+    std::sort(versions.begin(), versions.end());
+
+    std::string current = param_name;
+    for (int ver : versions) {
+        const auto version_it = major_it->second.find(ver);
+        if (version_it == major_it->second.end()) continue;
+        for (const auto& [new_name, old_name] : version_it->second) {
+            if (old_name == current) {
+                current = new_name;
+                break;
+            }
+        }
+    }
+    return current;
+}
+
 bool ParamRemapping::has_remap(const std::string& param_name) const {
     for (const auto& [major, minor_map] : remap_table_) {
         for (const auto& [minor, entries] : minor_map) {

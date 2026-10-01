@@ -41,6 +41,7 @@ public:
     float default_loiter_radius(VehicleKind vehicle) const override;
 
     std::string remap_param_name(VehicleKind vehicle, int major, int minor, const std::string& name) const override;
+    std::string canonical_param_name(VehicleKind vehicle, int major, int minor, const std::string& name) const override;
     bool has_param_remapping() const override;
 
 private:

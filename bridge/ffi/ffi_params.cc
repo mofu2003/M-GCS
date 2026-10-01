@@ -166,7 +166,9 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
                 continue;
             }
             for (const auto& param : params) {
-                if (param.name.rfind(prefix, 0) != 0) continue;
+                const std::string canonical_name =
+                    ffi_param_canonical_name(core, param.name);
+                if (canonical_name.rfind(prefix, 0) != 0) continue;
                 if (seen.insert(param.name).second) resolved.push_back(param.name);
                 else duplicates++;
             }

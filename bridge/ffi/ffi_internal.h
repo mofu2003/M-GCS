@@ -241,6 +241,27 @@ inline std::string ffi_param_vehicle_name(mg_core_t* core,
         param_name);
 }
 
+/// Translate a parameter name reported by the detected firmware back to the
+/// newest canonical name used by the local descriptor database.
+inline std::string ffi_param_canonical_name(mg_core_t* core,
+                                            const std::string& param_name) {
+    auto* mav = get_active_mavlink(core);
+    if (!mav) return param_name;
+    const auto hb = mav->latest_heartbeat();
+    const auto version = mav->latest_firmware_version();
+    if (!hb.has_value() || !version.has_value()) return param_name;
+
+    mg::core::firmware::FirmwareAdapter adapter;
+    adapter.detect(hb->autopilot_type, hb->vehicle_type);
+    auto plugin = mg::core::firmware::create_firmware_plugin(adapter.firmware_kind());
+    if (!plugin || !plugin->has_param_remapping()) return param_name;
+    return plugin->canonical_param_name(
+        adapter.vehicle_kind(),
+        version->firmware_major,
+        version->firmware_minor,
+        param_name);
+}
+
 /// Get a parameter value by name (returns 0 if not found or no connection).
 inline float ffi_get_param(mg_core_t* core, const char* name) {
     auto* mav = get_active_mavlink(core);

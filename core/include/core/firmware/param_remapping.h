@@ -57,6 +57,11 @@ public:
     /// Returns the original name if no remapping is needed.
     std::string remap(int major, int minor, const std::string& param_name) const;
 
+    /// Translate a firmware parameter name back to the newest canonical name.
+    /// This is the inverse direction of remap() and is used for prefix matching
+    /// against parameters reported by older firmware.
+    std::string canonical_name(int major, int minor, const std::string& param_name) const;
+
     /// Check if a parameter name has any remap entries.
     bool has_remap(const std::string& param_name) const;
 

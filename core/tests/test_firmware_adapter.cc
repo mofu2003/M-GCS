@@ -79,6 +79,10 @@ static void test_ardupilot_parameter_remapping() {
           remap.remap(4, 7, "WP_SPD") == "WP_SPD");
     CHECK("unknown parameter name passes through",
           remap.remap(4, 5, "UNKNOWN_PARAM") == "UNKNOWN_PARAM");
+    CHECK("old firmware name reverse-maps to canonical",
+          remap.canonical_name(4, 5, "WPNAV_SPEED") == "WP_SPD");
+    CHECK("canonical reverse mapping keeps unknown names",
+          remap.canonical_name(4, 5, "UNKNOWN_PARAM") == "UNKNOWN_PARAM");
 }
 
 int main() {

@@ -142,6 +142,9 @@ public:
     /// Remap a parameter name for the given firmware version.
     virtual std::string remap_param_name(VehicleKind vehicle, int major, int minor, const std::string& name) const = 0;
 
+    /// Translate a firmware-era parameter name to the newest canonical name.
+    virtual std::string canonical_param_name(VehicleKind vehicle, int major, int minor, const std::string& name) const = 0;
+
     /// Check if the plugin has parameter remapping support.
     virtual bool has_param_remapping() const = 0;
 };

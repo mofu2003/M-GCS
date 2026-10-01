@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.36 - 2026-10-01
+
+### Changed
+
+- 参数前缀刷新现在支持版本重映射反查：在旧 ArduPilot 固件上，用户请求 `WP_*` 时，
+  参数缓存中的 `WPNAV_*` 会通过 canonical 名称匹配并参与刷新。
+- firmware plugin 增加 `canonical_param_name`，ArduPilot 实现反向遍历版本表，PX4
+  保持原名；精确名称重映射、重试和状态查询行为保持不变。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.35 - 2026-10-01
 
 ### Changed
