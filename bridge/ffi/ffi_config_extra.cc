@@ -128,6 +128,10 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
     auto* mav = get_active_mavlink(core);
     int written = 0;
     int failed_count = 0;
+    auto& descriptor_db = get_desc_db();
+    const auto profile = ffi_param_profile(core);
+    mg::bridge::JsonBuilder errors;
+    errors.begin_array();
 
     int size = cJSON_GetArraySize(root);
     for (int i = 0; i < size; i++) {
@@ -140,6 +144,18 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
         const char* pname = name->valuestring;
         float pvalue = static_cast<float>(value->valuedouble);
 
+        const auto validation_error = descriptor_db.validate(profile, pname, pvalue);
+        if (!validation_error.empty()) {
+            mg::bridge::JsonBuilder error;
+            error.begin_object();
+            error.field("name", pname);
+            error.field("reason", validation_error);
+            error.end_object();
+            errors.append_json(error.str());
+            failed_count++;
+            continue;
+        }
+
         auto cached = mav->get_param_by_name(pname);
         uint8_t type = cached.has_value() ? cached->type : 9;
 
@@ -151,12 +167,14 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
     }
 
     cJSON_Delete(root);
+    errors.end_array();
 
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", failed_count == 0);
     jb.field("written", written);
     jb.field("failed", failed_count);
+    jb.raw_field("errors", errors.str());
     jb.end_object();
     return to_cstr(jb.str());
 }

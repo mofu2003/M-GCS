@@ -190,6 +190,36 @@ static void test_param_set() {
     if (diagnostics) mg_free_string(diagnostics);
 }
 
+static void test_config_write_rejects_read_only() {
+    fprintf(stderr, "\n[Group] Config parameter metadata validation\n");
+    TestEnv env;
+
+    env.tick(1100);
+    env.mock->received_params_set.clear();
+
+    char* single = mg_config_write_param(env.core, "BARO1_DEVID", 1.0f);
+    CHECK("single read-only write is rejected",
+          single != nullptr && strstr(single, "read-only") != nullptr);
+    CHECK("single read-only write sends no PARAM_SET",
+          env.mock->received_params_set.empty());
+    if (single) mg_free_string(single);
+
+    const char* batch =
+        "[{\"name\":\"WPNAV_SPEED\",\"value\":8.0},"
+        "{\"name\":\"BARO1_DEVID\",\"value\":1.0}]";
+    char* batch_result = mg_config_write_params(env.core, batch);
+    CHECK("batch write reports one valid and one failed item",
+          batch_result != nullptr && strstr(batch_result, "\"written\":1") != nullptr &&
+              strstr(batch_result, "\"failed\":1") != nullptr);
+    CHECK("batch write exposes metadata failure",
+          batch_result != nullptr && strstr(batch_result, "read-only") != nullptr);
+    env.tick(1);
+    CHECK("batch write only sends the valid PARAM_SET",
+          env.mock->received_params_set.size() == 1 &&
+              env.mock->received_params_set.front() == "WPNAV_SPEED");
+    if (batch_result) mg_free_string(batch_result);
+}
+
 static void test_config_uses_ardupilot_profile_metadata() {
     fprintf(stderr, "\n[Group] Config metadata profile\n");
     TestEnv env;
@@ -387,6 +417,7 @@ int main() {
     test_cancel_download();
     test_param_get();
     test_param_set();
+    test_config_write_rejects_read_only();
     test_change_set_requires_loaded_params();
     test_change_set_rejects_malformed_json();
     test_change_set_planning();

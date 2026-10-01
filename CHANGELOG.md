@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.31 - 2026-10-01
+
+### Changed
+
+- 参数描述库校验现在会拒绝 `read_only` 参数；单参数写入和批量写入使用同一套
+  描述库规则，覆盖 read-only、枚举、范围、bool 和缺失描述。
+- `mg_config_write_params` 不再绕过元数据校验，并在原有 `written` / `failed`
+  字段外增加 `errors` 数组，逐项返回参数名和拒绝原因；合法项仍会正常发送。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.30 - 2026-10-01
 
 ### Changed

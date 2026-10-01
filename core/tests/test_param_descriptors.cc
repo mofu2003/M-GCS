@@ -92,6 +92,11 @@ static void test_ardupilot_profiles() {
     CHECK("GPS1_RATE_MS found", gps_rate.found);
     CHECK("GPS1_RATE_MS unit", !gps_rate.unit.empty());
     CHECK("GPS1_RATE_MS range", gps_rate.min_value != gps_rate.max_value);
+
+    CHECK("read-only descriptor is rejected",
+          db.validate("copter", "BARO1_DEVID", 1.0f) == "Parameter is read-only");
+    CHECK("range validation still works",
+          db.validate("copter", "ACRO_RP_RATE", -1.0f).find("between") != std::string::npos);
 }
 
 static void test_chinese_translation_overlay() {

@@ -194,6 +194,8 @@ std::string ParamDescriptors::validate(const std::string& param_name, float valu
     auto desc = get(param_name);
     if (!desc.found) return ""; // No descriptor = no validation
 
+    if (desc.read_only) return "Parameter is read-only";
+
     if (desc.type == "enum") {
         bool found = false;
         for (const auto& opt : desc.options) {
@@ -228,6 +230,8 @@ std::string ParamDescriptors::validate(const std::string& profile,
                                        float value) const {
     auto desc = get(profile, param_name);
     if (!desc.found) return "";
+
+    if (desc.read_only) return "Parameter is read-only";
 
     if (desc.type == "enum") {
         bool found = false;
