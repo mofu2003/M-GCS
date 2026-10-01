@@ -79,6 +79,9 @@ Rally 同样可单独下发：`compile_rally_plan` 按 QGC `RallyPointManager` �
 `mg_mission_doc_import_fence_from_vehicle` / `mg_mission_doc_import_rally_from_vehicle`
 把飞控围栏/Rally 读回文档。
 
+校验方向：`mg_mission_doc_verify_fence` / `mg_mission_doc_verify_rally` 在一次成功下载后
+比较文档与飞控，返回 `matches`、`difference_count` 和结构化 `differences`。
+
 ## 导出边界
 
 `.plan` 不静默 flatten 设计意图：

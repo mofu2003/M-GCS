@@ -169,6 +169,11 @@ int main() {
           json_array_size(result, "geo_fence", "circles") == 1);
     if (result) mg_free_string(result);
 
+    result = mg_mission_doc_verify_fence(env.core, 1e-6);
+    CHECK("fence verify matches after import",
+          result && strstr(result, "\"matches\":true"));
+    if (result) mg_free_string(result);
+
     fprintf(stderr, "\n[Rally upload]\n");
     const unsigned long long rally_revision = document_revision(env.core);
     result = mg_mission_doc_upload_rally(env.core, rally_revision);
@@ -205,6 +210,11 @@ int main() {
           json_array_size(result, nullptr, "rally_points") == 2);
     if (result) mg_free_string(result);
 
+    result = mg_mission_doc_verify_rally(env.core, 1e-6);
+    CHECK("rally verify matches after import",
+          result && strstr(result, "\"matches\":true"));
+    if (result) mg_free_string(result);
+
     fprintf(stderr, "\n[Fence clear]\n");
     result = mg_mission_doc_clear_fence(env.core);
     CHECK("fence clear starts", result && strstr(result, "\"success\":true"));
@@ -213,6 +223,20 @@ int main() {
           wait_for(env, [&]() {
               return env.mock->stored_mission_type(MAV_MISSION_TYPE_FENCE).empty();
           }));
+
+    fprintf(stderr, "\n[Fence verify after clear]\n");
+    result = mg_fence_download(env.core);
+    if (result) mg_free_string(result);
+    CHECK("cleared fence downloads again",
+          wait_for(env, [&]() {
+              const auto snapshot = env.mav->fence_get_plan_snapshot();
+              return snapshot.provenance.completed_download_count >= 2;
+          }));
+    result = mg_mission_doc_verify_fence(env.core, 1e-6);
+    CHECK("verify reports a mismatch once the vehicle fence is cleared",
+          result && strstr(result, "\"matches\":false") &&
+              strstr(result, "polygon_count") && strstr(result, "breach_return"));
+    if (result) mg_free_string(result);
 
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.52 - 2026-10-01
+
+### Added
+
+- 新增 FFI `mg_mission_doc_verify_fence` / `mg_mission_doc_verify_rally`，与
+  `mg_mission_doc_verify` 对称：在一次已完成的对应下载后比较文档与飞控的围栏/Rally，
+  返回 `matches`、`difference_count` 和结构化 `differences`
+  （`area` / `index` / `field` / `expected` / `actual`），支持容差。
+- 围栏比较覆盖多边形数量、顶点数、inclusion、每个顶点经纬度、圆形数量/圆心/半径以及
+  breach-return 点与高度；Rally 覆盖点数、经纬度和高度。
+- `test_sim_fence_rally` 扩展为上传 → 下载 → 回读 → verify 的完整闭环，并验证清空飞控
+  围栏后 verify 会报告差异（29 项断言）。
+
+### Verification
+
+- 后端 offline/simulation `35/35` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.51 - 2026-10-01
 
 ### Fixed

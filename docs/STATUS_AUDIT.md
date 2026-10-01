@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.51`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.52`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -114,6 +114,9 @@ bash tools/audit_status.sh
   围栏/Rally 形成上传 + 下载 + 回读闭环；`test_sim_fence_rally` 扩展到 25 项断言。
 - `MAV-001`：修复围栏/Rally 下载时 `send_mission_request_int` / `send_mission_ack`
   把 mission type 写死为 0 的 bug（由端到端测试发现）。
+- `FENCE-005` / `RALLY-005`：新增 `mg_mission_doc_verify_fence` /
+  `mg_mission_doc_verify_rally`，比较文档与飞控围栏/Rally，返回 `matches` 与结构化
+  `differences`；`test_sim_fence_rally` 扩展到 29 项断言，覆盖清空飞控后 verify 报差异。
 - `COMPLEX-001`：QGC ComplexItem（Survey、CorridorScan 等）提升为正式
   `MissionComplexItem` 模型，保存 `id`、`item_type` 和原始 JSON，`.plan` 往返无损；
   新增 `entity_insert_index` 后导出时与普通航点按原顺序交错；内部字段目前只读，

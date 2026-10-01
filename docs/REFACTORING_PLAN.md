@@ -147,6 +147,9 @@ breach-return 点及高度），区分于阻断上传的复杂项：围栏/Rally
 适配器 `fence_get_plan_snapshot` / `rally_get_plan_snapshot`；端到端测试扩展为上传 +
 下载 + 回读闭环，并因此修掉下载时 mission type 写死为 0 的 bug。
 
+`0.0.52` 补齐围栏/Rally 校验：新增 `mg_mission_doc_verify_fence` /
+`mg_mission_doc_verify_rally`，返回 `matches` 与结构化 differences，与任务 verify 对称。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

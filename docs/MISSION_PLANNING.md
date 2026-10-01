@@ -196,6 +196,9 @@ GeoFence 与 Rally 是独立的 MAVLink mission type，不计入航点任务上�
 任务项，`mg_mission_doc_import_fence_from_vehicle` /
 `mg_mission_doc_import_rally_from_vehicle` 在一次成功下载后替换文档对应区段。
 
+`mg_mission_doc_verify_fence` / `mg_mission_doc_verify_rally` 与 `mg_mission_doc_verify`
+对称，比较文档与飞控的围栏/Rally 并返回差异，用于上传后回读核对。
+
 参数化测绘实体或禁用实体仍不能无损导出为普通 `.plan`；`hoverSpeed`、地形高度模式、
 null 参数和不在命令目录中的 MAV_CMD 会通过 `warnings` 报告。围栏和 Rally 的统一编辑
 文档仍未实现。

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <memory>
 #include <vector>
@@ -715,6 +716,281 @@ MGCORE_API char* mg_mission_doc_import_rally_from_vehicle(mg_core_t* core) {
         core->mission_document = service;
     }
     return to_cstr(document_snapshot_json(service, true));
+}
+
+namespace {
+
+struct FenceRallyDiff {
+    std::string area;
+    int index = -1;
+    std::string field;
+    std::string expected;
+    std::string actual;
+};
+
+bool within_tolerance(double a, double b, double tolerance) {
+    return std::fabs(a - b) <= tolerance;
+}
+
+std::string number_text(double value) {
+    char buffer[32];
+    std::snprintf(buffer, sizeof(buffer), "%.7f", value);
+    return buffer;
+}
+
+void compare_fence(const mg::core::mission::cad::MissionGeoFence& expected,
+                   const mg::core::mission::cad::MissionGeoFence& actual,
+                   double tolerance,
+                   std::vector<FenceRallyDiff>& diffs) {
+    if (expected.polygons.size() != actual.polygons.size()) {
+        diffs.push_back({"polygon_count", -1, "count",
+                         std::to_string(expected.polygons.size()),
+                         std::to_string(actual.polygons.size())});
+    }
+    const size_t polygon_count =
+        std::min(expected.polygons.size(), actual.polygons.size());
+    for (size_t i = 0; i < polygon_count; ++i) {
+        const auto& exp = expected.polygons[i];
+        const auto& act = actual.polygons[i];
+        const std::string area = "polygon[" + std::to_string(i) + "]";
+        if (exp.inclusion != act.inclusion) {
+            diffs.push_back({area, static_cast<int>(i), "inclusion",
+                             exp.inclusion ? "true" : "false",
+                             act.inclusion ? "true" : "false"});
+        }
+        if (exp.vertices.size() != act.vertices.size()) {
+            diffs.push_back({area, static_cast<int>(i), "vertex_count",
+                             std::to_string(exp.vertices.size()),
+                             std::to_string(act.vertices.size())});
+            continue;
+        }
+        for (size_t v = 0; v < exp.vertices.size(); ++v) {
+            if (!within_tolerance(exp.vertices[v].latitude,
+                                  act.vertices[v].latitude, tolerance)) {
+                diffs.push_back({area, static_cast<int>(i),
+                                 "vertex[" + std::to_string(v) + "].lat",
+                                 number_text(exp.vertices[v].latitude),
+                                 number_text(act.vertices[v].latitude)});
+            }
+            if (!within_tolerance(exp.vertices[v].longitude,
+                                  act.vertices[v].longitude, tolerance)) {
+                diffs.push_back({area, static_cast<int>(i),
+                                 "vertex[" + std::to_string(v) + "].lon",
+                                 number_text(exp.vertices[v].longitude),
+                                 number_text(act.vertices[v].longitude)});
+            }
+        }
+    }
+
+    if (expected.circles.size() != actual.circles.size()) {
+        diffs.push_back({"circle_count", -1, "count",
+                         std::to_string(expected.circles.size()),
+                         std::to_string(actual.circles.size())});
+    }
+    const size_t circle_count =
+        std::min(expected.circles.size(), actual.circles.size());
+    for (size_t i = 0; i < circle_count; ++i) {
+        const auto& exp = expected.circles[i];
+        const auto& act = actual.circles[i];
+        const std::string area = "circle[" + std::to_string(i) + "]";
+        if (exp.inclusion != act.inclusion) {
+            diffs.push_back({area, static_cast<int>(i), "inclusion",
+                             exp.inclusion ? "true" : "false",
+                             act.inclusion ? "true" : "false"});
+        }
+        if (!within_tolerance(exp.center.latitude, act.center.latitude,
+                              tolerance)) {
+            diffs.push_back({area, static_cast<int>(i), "center.lat",
+                             number_text(exp.center.latitude),
+                             number_text(act.center.latitude)});
+        }
+        if (!within_tolerance(exp.center.longitude, act.center.longitude,
+                              tolerance)) {
+            diffs.push_back({area, static_cast<int>(i), "center.lon",
+                             number_text(exp.center.longitude),
+                             number_text(act.center.longitude)});
+        }
+        if (!within_tolerance(exp.radius_m, act.radius_m, tolerance)) {
+            diffs.push_back({area, static_cast<int>(i), "radius_m",
+                             number_text(exp.radius_m),
+                             number_text(act.radius_m)});
+        }
+    }
+
+    if (expected.breach_return_set != actual.breach_return_set) {
+        diffs.push_back({"breach_return", -1, "set",
+                         expected.breach_return_set ? "true" : "false",
+                         actual.breach_return_set ? "true" : "false"});
+    } else if (expected.breach_return_set) {
+        if (!within_tolerance(expected.breach_return.latitude,
+                              actual.breach_return.latitude, tolerance)) {
+            diffs.push_back({"breach_return", -1, "lat",
+                             number_text(expected.breach_return.latitude),
+                             number_text(actual.breach_return.latitude)});
+        }
+        if (!within_tolerance(expected.breach_return.longitude,
+                              actual.breach_return.longitude, tolerance)) {
+            diffs.push_back({"breach_return", -1, "lon",
+                             number_text(expected.breach_return.longitude),
+                             number_text(actual.breach_return.longitude)});
+        }
+        if (!within_tolerance(expected.breach_return_altitude_m,
+                              actual.breach_return_altitude_m, tolerance)) {
+            diffs.push_back(
+                {"breach_return", -1, "alt_m",
+                 number_text(expected.breach_return_altitude_m),
+                 number_text(actual.breach_return_altitude_m)});
+        }
+    }
+}
+
+} // namespace
+
+MGCORE_API char* mg_mission_doc_verify_fence(mg_core_t* core,
+                                             double tolerance_m) {
+    CHECK_CORE(core); CHECK_CONNECTED(core);
+
+    auto* mavlink = get_active_mavlink(core);
+    if (!mavlink) {
+        return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected");
+    }
+    const auto snapshot = mavlink->fence_get_plan_snapshot();
+    const auto provenance = snapshot.provenance;
+    if (provenance.last_completed_download_revision == 0 ||
+        provenance.last_completed_download_revision !=
+            provenance.plan_revision) {
+        mg_set_last_error(MG_ERROR_INVALID_STATE);
+        mg::bridge::JsonBuilder error;
+        error.begin_object();
+        error.field("success", false);
+        error.field(
+            "error",
+            "vehicle geofence must be downloaded successfully before verification");
+        error.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
+        error.end_object();
+        return to_cstr(error.str());
+    }
+
+    mg::core::mission::cad::MissionGeoFence vehicle_fence;
+    std::string error;
+    if (!mg::core::mission::cad::geo_fence_from_plan(
+            snapshot.plan, vehicle_fence, error)) {
+        return fail(MG_ERROR_INVALID_STATE, error.c_str());
+    }
+
+    const auto document = ensure_document(core)->snapshot();
+    std::vector<FenceRallyDiff> diffs;
+    compare_fence(document.geo_fence, vehicle_fence,
+                  std::max(0.0, tolerance_m), diffs);
+
+    mg::bridge::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("matches", diffs.empty());
+    jb.field("difference_count", static_cast<int>(diffs.size()));
+    mg::bridge::JsonBuilder array;
+    array.begin_array();
+    for (const auto& diff : diffs) {
+        mg::bridge::JsonBuilder item;
+        item.begin_object();
+        item.field("area", diff.area);
+        item.field("index", diff.index);
+        item.field("field", diff.field);
+        item.field("expected", diff.expected);
+        item.field("actual", diff.actual);
+        item.end_object();
+        array.append_json(item.str());
+    }
+    array.end_array();
+    jb.raw_field("differences", array.str());
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
+MGCORE_API char* mg_mission_doc_verify_rally(mg_core_t* core,
+                                             double tolerance_m) {
+    CHECK_CORE(core); CHECK_CONNECTED(core);
+
+    auto* mavlink = get_active_mavlink(core);
+    if (!mavlink) {
+        return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected");
+    }
+    const auto snapshot = mavlink->rally_get_plan_snapshot();
+    const auto provenance = snapshot.provenance;
+    if (provenance.last_completed_download_revision == 0 ||
+        provenance.last_completed_download_revision !=
+            provenance.plan_revision) {
+        mg_set_last_error(MG_ERROR_INVALID_STATE);
+        mg::bridge::JsonBuilder error;
+        error.begin_object();
+        error.field("success", false);
+        error.field(
+            "error",
+            "vehicle rally points must be downloaded successfully before verification");
+        error.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
+        error.end_object();
+        return to_cstr(error.str());
+    }
+
+    std::vector<mg::core::mission::cad::MissionRallyPoint> vehicle_points;
+    std::string error;
+    if (!mg::core::mission::cad::rally_points_from_plan(
+            snapshot.plan, vehicle_points, error)) {
+        return fail(MG_ERROR_INVALID_STATE, error.c_str());
+    }
+
+    const auto document = ensure_document(core)->snapshot();
+    const double tolerance = std::max(0.0, tolerance_m);
+    std::vector<FenceRallyDiff> diffs;
+    if (document.rally_points.size() != vehicle_points.size()) {
+        diffs.push_back({"rally_count", -1, "count",
+                         std::to_string(document.rally_points.size()),
+                         std::to_string(vehicle_points.size())});
+    }
+    const size_t count = std::min(document.rally_points.size(),
+                                  vehicle_points.size());
+    for (size_t i = 0; i < count; ++i) {
+        const std::string area = "rally[" + std::to_string(i) + "]";
+        const auto& exp = document.rally_points[i];
+        const auto& act = vehicle_points[i];
+        if (!within_tolerance(exp.latitude, act.latitude, tolerance)) {
+            diffs.push_back({area, static_cast<int>(i), "lat",
+                             number_text(exp.latitude), number_text(act.latitude)});
+        }
+        if (!within_tolerance(exp.longitude, act.longitude, tolerance)) {
+            diffs.push_back({area, static_cast<int>(i), "lon",
+                             number_text(exp.longitude),
+                             number_text(act.longitude)});
+        }
+        if (!within_tolerance(exp.altitude_m, act.altitude_m, tolerance)) {
+            diffs.push_back({area, static_cast<int>(i), "alt_m",
+                             number_text(exp.altitude_m),
+                             number_text(act.altitude_m)});
+        }
+    }
+
+    mg::bridge::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("matches", diffs.empty());
+    jb.field("difference_count", static_cast<int>(diffs.size()));
+    mg::bridge::JsonBuilder array;
+    array.begin_array();
+    for (const auto& diff : diffs) {
+        mg::bridge::JsonBuilder item;
+        item.begin_object();
+        item.field("area", diff.area);
+        item.field("index", diff.index);
+        item.field("field", diff.field);
+        item.field("expected", diff.expected);
+        item.field("actual", diff.actual);
+        item.end_object();
+        array.append_json(item.str());
+    }
+    array.end_array();
+    jb.raw_field("differences", array.str());
+    jb.end_object();
+    return to_cstr(jb.str());
 }
 
 MGCORE_API char* mg_mission_doc_import_from_vehicle(mg_core_t* core) {

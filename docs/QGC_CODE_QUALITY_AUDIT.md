@@ -36,7 +36,7 @@ QGC 在本文涉及的多数通用架构和任务系统中领先，但 ArduPilot
 
 行数不等于质量，但说明 QGC 的测试和领域覆盖远高于 M-GCS。M-GCS 的优势是体积小、修改路径短、单次审计可以读完主要模块。
 
-当前基线为 `0.0.51`。Flutter 领域 FFI 适配器和 MAVLink adapter 内部职责已经拆分
+当前基线为 `0.0.52`。Flutter 领域 FFI 适配器和 MAVLink adapter 内部职责已经拆分
 完成，参数写入和批量刷新具备校验、拒绝、重试、状态跟踪、版本重映射（含前缀）、
 canonical 覆盖率报告和多机型 profile 标识；QGC ComplexItem、GeoFence 和 Rally 均已
 正式建模，ComplexItem 内部字段仍为只读保留。任务真实编辑模型、参数页深度、链路和
