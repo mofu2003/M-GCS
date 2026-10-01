@@ -661,6 +661,17 @@ std::string serialize_mission_document(const MissionDocument& document) {
         }
     }
 
+    if (!document.complex_items.empty()) {
+        cJSON* complex_items = cJSON_AddArrayToObject(root, "complex_items");
+        for (const MissionComplexItem& item : document.complex_items) {
+            cJSON* object = cJSON_CreateObject();
+            cJSON_AddStringToObject(object, "id", item.id.c_str());
+            cJSON_AddStringToObject(object, "item_type", item.item_type.c_str());
+            cJSON_AddStringToObject(object, "json", item.json.c_str());
+            cJSON_AddItemToArray(complex_items, object);
+        }
+    }
+
     cJSON* entities = cJSON_AddArrayToObject(root, "entities");
     for (const MissionEntity& entity : document.entities) {
         cJSON* item = cJSON_CreateObject();
@@ -879,6 +890,28 @@ bool deserialize_mission_document(
             }
             parsed.extensions[entry->string] = raw;
             cJSON_free(raw);
+        }
+    }
+
+    cJSON* complex_items = get_item(root, "complex_items");
+    if (complex_items && cJSON_IsArray(complex_items)) {
+        for (int i = 0; i < cJSON_GetArraySize(complex_items); ++i) {
+            cJSON* item = cJSON_GetArrayItem(complex_items, i);
+            if (!item || !cJSON_IsObject(item)) {
+                cJSON_Delete(root);
+                error = "complex item must be an object";
+                return false;
+            }
+            MissionComplexItem complex;
+            complex.id = get_string(item, "id", {});
+            complex.item_type = get_string(item, "item_type", {});
+            complex.json = get_string(item, "json", {});
+            if (complex.json.empty()) {
+                cJSON_Delete(root);
+                error = "complex item JSON is required";
+                return false;
+            }
+            parsed.complex_items.push_back(std::move(complex));
         }
     }
 

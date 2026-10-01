@@ -721,19 +721,52 @@ static void test_qgc_plan_interchange() {
             "firmwareType": 3,
             "vehicleType": 2,
             "plannedHomePosition": [39.9, 116.4, 20],
-            "items": [{"type": "Survey", "params": [0, 0, 0, 0]}]
+            "items": [{
+                "type": "ComplexItem",
+                "complexItemType": "Survey",
+                "version": 1,
+                "polygon": [[39.9, 116.4], [39.91, 116.41], [39.92, 116.4]],
+                "gridAngle": 0
+            }]
         }
     })";
     MissionDocument complex;
     warnings.clear();
     error.clear();
     CHECK(import_qgc_plan_json(complex_plan, complex, warnings, error),
-          "complex QGC item imports as an opaque extension");
-    CHECK(complex.extensions.count("qgc_plan.complex_items") == 1,
-          "complex QGC item is preserved in the extension store");
+          "complex QGC item imports as a formal complex item");
+    CHECK(complex.extensions.count("qgc_plan.complex_items") == 0,
+          "complex QGC item no longer leaks into the extension store");
+    CHECK(complex.complex_items.size() == 1,
+          "complex QGC item is stored in the formal model");
+    CHECK(!complex.complex_items.empty() &&
+              complex.complex_items[0].item_type == "Survey",
+          "complex item type is inferred from complexItemType");
+    CHECK(!complex.complex_items.empty() &&
+              complex.complex_items[0].json.find("gridAngle") != std::string::npos,
+          "complex item retains its raw QGC JSON payload");
+
+    const std::string complex_doc = serialize_mission_document(complex);
+    MissionDocument complex_round;
+    warnings.clear();
+    error.clear();
+    CHECK(deserialize_mission_document(complex_doc, complex_round, error),
+          "mission document with complex item round-trips");
+    CHECK(complex_round.complex_items.size() == 1 &&
+              complex_round.complex_items[0].item_type == "Survey",
+          "complex item survives mission document round-trip");
+
     const std::string complex_export = export_qgc_plan_json(complex, warnings, error);
-    CHECK(complex_export.find("Survey") != std::string::npos,
-          "opaque complex item is restored on QGC export");
+    CHECK(complex_export.find("\"complexItemType\"") != std::string::npos &&
+              complex_export.find("Survey") != std::string::npos,
+          "complex item is restored as a QGC ComplexItem on export");
+    MissionDocument complex_reimport;
+    warnings.clear();
+    error.clear();
+    CHECK(import_qgc_plan_json(complex_export, complex_reimport, warnings, error) &&
+              complex_reimport.complex_items.size() == 1 &&
+              complex_reimport.complex_items[0].item_type == "Survey",
+          "exported ComplexItem re-imports with its type intact");
 
     const std::string fence_plan = R"({
         "fileType": "Plan",

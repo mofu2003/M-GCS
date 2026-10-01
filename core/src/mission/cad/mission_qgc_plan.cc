@@ -123,38 +123,31 @@ std::string compact_json(cJSON* value) {
     return result;
 }
 
-bool append_extension_array(cJSON* target,
-                            const MissionDocument& document,
-                            const char* key,
-                            std::string& error) {
-    const auto it = document.extensions.find(key);
-    if (it == document.extensions.end()) return true;
-    std::unique_ptr<cJSON, decltype(&cJSON_Delete)> array(
-        cJSON_Parse(it->second.c_str()), cJSON_Delete);
-    if (!array || !cJSON_IsArray(array.get())) {
-        error = std::string("mission document extension ") + key +
-                " is not a JSON array";
-        return false;
-    }
-    for (cJSON* item = array->child; item != nullptr; item = item->next) {
-        cJSON_AddItemToArray(target, cJSON_Duplicate(item, true));
+bool append_complex_items(cJSON* target,
+                          const MissionDocument& document,
+                          std::string& error) {
+    for (const MissionComplexItem& complex : document.complex_items) {
+        std::unique_ptr<cJSON, decltype(&cJSON_Delete)> item(
+            cJSON_Parse(complex.json.c_str()), cJSON_Delete);
+        if (!item || !cJSON_IsObject(item.get())) {
+            error = "mission document complex item '" + complex.id +
+                    "' is not a JSON object";
+            return false;
+        }
+        cJSON_AddItemToArray(target, cJSON_Duplicate(item.get(), true));
     }
     return true;
 }
 
-void append_opaque_item(MissionDocument& document,
-                        const char* key,
-                        cJSON* item) {
-    std::unique_ptr<cJSON, decltype(&cJSON_Delete)> array(nullptr, cJSON_Delete);
-    const auto existing = document.extensions.find(key);
-    if (existing != document.extensions.end()) {
-        array.reset(cJSON_Parse(existing->second.c_str()));
+void append_complex_item(MissionDocument& document, cJSON* item, int index) {
+    MissionComplexItem complex;
+    complex.id = "plan-complex-item-" + std::to_string(index + 1);
+    complex.item_type = string_field(item, "complexItemType");
+    if (complex.item_type.empty()) {
+        complex.item_type = string_field(item, "type");
     }
-    if (!array || !cJSON_IsArray(array.get())) {
-        array.reset(cJSON_CreateArray());
-    }
-    cJSON_AddItemToArray(array.get(), cJSON_Duplicate(item, true));
-    document.extensions[key] = compact_json(array.get());
+    complex.json = compact_json(item);
+    document.complex_items.push_back(std::move(complex));
 }
 
 void add_rally_points(cJSON* root,
@@ -469,7 +462,7 @@ std::string export_qgc_plan_json(
         add_number_or_null(params, entity.altitude_m);
         cJSON_AddItemToArray(items, item);
     }
-    if (!append_extension_array(items, document, "qgc_plan.complex_items", error)) {
+    if (!append_complex_items(items, document, error)) {
         return {};
     }
 
@@ -522,7 +515,7 @@ bool import_qgc_plan_json(
 
     MissionDocument parsed = document;
     parsed.entities.clear();
-    parsed.extensions.erase("qgc_plan.complex_items");
+    parsed.complex_items.clear();
     parsed.extensions.erase("geoFence");
     parsed.extensions.erase("rallyPoints");
     parsed.rally_points.clear();
@@ -612,10 +605,12 @@ bool import_qgc_plan_json(
 
         const std::string item_type = string_field(item, "type");
         if (item_type != "SimpleItem") {
-            append_opaque_item(parsed, "qgc_plan.complex_items", item);
+            append_complex_item(parsed, item, index);
             add_warning(
                 warnings,
-                "QGC item type '" + item_type + "' preserved as an opaque extension");
+                "QGC item type '" + item_type +
+                    "' preserved as a complex item (read-only, not yet "
+                    "semantically editable)");
             continue;
         }
 
@@ -705,6 +700,7 @@ bool import_qgc_plan_json(
     document.geo_fence = std::move(parsed.geo_fence);
     document.defaults = parsed.defaults;
     document.entities = std::move(parsed.entities);
+    document.complex_items = std::move(parsed.complex_items);
     document.extensions = std::move(parsed.extensions);
     return true;
 }

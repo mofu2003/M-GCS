@@ -38,7 +38,7 @@ params = [param1, param2, param3, param4, latitude, longitude, altitude]
 
 | QGC 字段 | M-GCS 映射 |
 | --- | --- |
-| `type` | `SimpleItem` 映射为实体；其他类型原样保留到 `extensions["qgc_plan.complex_items"]` |
+| `type` | `SimpleItem` 映射为实体；其他类型提升为正式 `MissionComplexItem` |
 | `frame` | `entity.frame`，导入时归一化 `_INT` 帧 5/6/11 |
 | `command` | `entity.command`，实体类型由后端命令目录反推 |
 | `autoContinue` | `entity.autocontinue` |
@@ -49,15 +49,19 @@ params = [param1, param2, param3, param4, latitude, longitude, altitude]
 | `altitudeMode` / `altitude` / `AMSLAltAboveTerrain` | 不保留，导入产生 warning |
 
 不在命令目录中的 MAV_CMD 可以进入文档，但会返回 warning；后续校验会把不支持的命令
-标为错误，调用方不应忽略这项诊断。ComplexItem、GeoFence 和 Rally 不进入实体列表，
-但在再次导出同一 `.plan` 时会按原始 JSON 返回。
+标为错误，调用方不应忽略这项诊断。ComplexItem、GeoFence 和 Rally 不进入实体列表。
+GeoFence 和 Rally 已进入正式文档模型；ComplexItem 以 `MissionComplexItem` 形式保存
+`id`、`item_type`（取 `complexItemType`，回退 `type`）和原始 JSON，再次导出同一
+`.plan` 时会按该 JSON 重建完整 ComplexItem。
 
 ## 导出边界
 
 `.plan` 不静默 flatten 设计意图：
 
-- `survey_grid` / `corridor` 导出仍返回错误，不展开成普通航点；它们不是 opaque
+- `survey_grid` / `corridor` 导出仍返回错误，不展开成普通航点；它们不是输入中保留的
   QGC ComplexItem。
+- `complex_items` 导出时按原始 JSON 放回 `mission.items`，保持 Survey、CorridorScan
+  等条目往返无损；M-GCS 目前不语义化编辑其内部字段。
 - disabled 实体无法由 QGC `SimpleItem` 表达，导出返回错误。
 - entity label / notes 无法无损写入 SimpleItem，导出返回 warning。
 - 未设置 home 时导出 `plannedHomePosition: null`，并返回 warning。
@@ -74,8 +78,8 @@ params = [param1, param2, param3, param4, latitude, longitude, altitude]
 4. firmware profile、vehicle type 和 cruise speed 在受支持取值范围内保持一致。
 
 不保证保留 `doJumpId`、QGC 地形/海拔模式、hover speed、label、notes 和参数化测绘
-意图；这些字段必须通过错误或 warnings 显式暴露。ComplexItem 通过 opaque `extensions`
-参与文本 round-trip；Rally 和 GeoFence 已进入正式文档模型。
+意图；这些字段必须通过错误或 warnings 显式暴露。ComplexItem、Rally 和 GeoFence 已
+进入正式文档模型，参与文本 round-trip。
 
 ## 参考实现
 

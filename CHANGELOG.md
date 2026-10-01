@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.44 - 2026-10-01
+
+### Changed
+
+- QGC ComplexItem（Survey、CorridorScan 等）从 opaque `extensions` 提升为正式
+  `MissionComplexItem` 文档模型，保存 `id`、`item_type` 和原始 JSON 载荷。
+- QGC `.plan` 导入会把 `type != SimpleItem` 的条目按 `complexItemType`（回退
+  `type`）识别为 complex item；导出时重新生成完整的 QGC ComplexItem JSON，
+  确保 Survey/Corridor 等复杂任务往返无损。
+- 复杂任务的导入告警改为“只读保留、暂不可语义化编辑”，明确当前能力边界。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.43 - 2026-10-01
 
 ### Changed

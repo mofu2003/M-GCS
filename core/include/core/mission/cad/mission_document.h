@@ -73,6 +73,12 @@ struct MissionGeoFence {
     float breach_return_altitude_m = 0.0f;
 };
 
+struct MissionComplexItem {
+    std::string id;
+    std::string item_type;
+    std::string json;
+};
+
 struct MissionDefaults {
     uint8_t frame = static_cast<uint8_t>(CoordFrame::GlobalRelAlt);
     float altitude_m = 50.0f;
@@ -133,6 +139,7 @@ struct MissionDocument {
     MissionHome home;
     std::vector<MissionRallyPoint> rally_points;
     MissionGeoFence geo_fence;
+    std::vector<MissionComplexItem> complex_items;
     MissionDefaults defaults;
     uint64_t revision = 1;
     int64_t updated_at_ms = 0;

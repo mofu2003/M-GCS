@@ -115,7 +115,11 @@ ComplexItem、GeoFence 和 Rally 可无损保留文本 round-trip，但尚不能
 支持文档 JSON 和 `.plan` 双向映射；ComplexItem 与 GeoFence 仍保持 opaque。
 
 `0.0.43` 将 GeoFence version 2 提升为正式模型，覆盖 polygon、circle、inclusion 和
-breach-return；ComplexItem 仍保持 opaque。
+breach-return。
+
+`0.0.44` 将 QGC ComplexItem 从 opaque `extensions` 提升为正式
+`MissionComplexItem` 模型，保存 `id`、`item_type`（`complexItemType`，回退 `type`）
+和原始 JSON；`.plan` 往返无损，内部字段暂为只读。
 
 ## 首轮结果
 

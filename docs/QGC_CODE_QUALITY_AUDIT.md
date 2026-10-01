@@ -36,10 +36,11 @@ QGC 在本文涉及的多数通用架构和任务系统中领先，但 ArduPilot
 
 行数不等于质量，但说明 QGC 的测试和领域覆盖远高于 M-GCS。M-GCS 的优势是体积小、修改路径短、单次审计可以读完主要模块。
 
-当前基线为 `0.0.43`。Flutter 领域 FFI 适配器和 MAVLink adapter 内部职责已经拆分
+当前基线为 `0.0.44`。Flutter 领域 FFI 适配器和 MAVLink adapter 内部职责已经拆分
 完成，参数写入和批量刷新具备校验、拒绝、重试、状态跟踪、版本重映射（含前缀）、
-canonical 覆盖率报告和多机型 profile 标识；QGC Rally 和 GeoFence 已正式建模，仅
-ComplexItem 仍以 opaque 保留。任务真实编辑模型、参数页深度、链路和平台覆盖仍是主要差距。
+canonical 覆盖率报告和多机型 profile 标识；QGC ComplexItem、GeoFence 和 Rally 均已
+正式建模，ComplexItem 内部字段仍为只读保留。任务真实编辑模型、参数页深度、链路和
+平台覆盖仍是主要差距。
 
 ## 评分
 
@@ -128,7 +129,7 @@ M-GCS 的模拟测试质量不错，但覆盖面小：
 
 ### 第二层：领域模型补齐
 
-- 增加 QGC `.plan` ComplexItem opaque 保留
+- 建立 QGC `.plan` ComplexItem 正式保留模型（已完成）
 - 建立独立 GeoFence/Rally 文档模型
 - 将 Fence/Rally 与任务文件组合保存
 - 保留 Survey/Corridor 的设计意图，不导出时强行展开
@@ -157,8 +158,9 @@ QGC 和 MP 都是 GPL 系项目，M-GCS 当前是 MIT。因此“参考和替换
 ## 推荐下一步
 
 1. 完成任务错误结果、参数状态和日志/校准错误语义对齐。
-2. 完成 QGC `.plan` 的 ComplexItem、GeoFence、Rally 无损保留。
-3. 建立 Fence/Rally 独立文档模型，接入现有 mission document 和 FFI。
+2. 完成 QGC `.plan` 的 ComplexItem、GeoFence、Rally 无损保留（已完成）。
+3. 建立 Fence/Rally/ComplexItem 独立文档模型，接入现有 mission document 和 FFI
+   （已完成，ComplexItem 内部字段仍只读）。
 4. 按 QGC AndroidSerial 结构完成 Android 权限、设备发现、拔插和重连验收。
 5. 用同一套审计方法检查 Windows/Linux 串口链路。
 

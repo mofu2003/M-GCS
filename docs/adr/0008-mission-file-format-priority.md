@@ -44,7 +44,8 @@ M-GCS 同时支持 ArduPilot 和 PX4。如果只保留一种文件格式，会�
 - UI 必须区分“保存任务”“导出给 MP / ArduPilot”和“导出给 QGC / PX4”，不能只显示含糊的“保存”。
 - 导出格式选择需要同时考虑 firmware profile、vehicle type、任务复杂度和用户选择。
 - `.waypoints` 导出遇到 Survey/Corridor/GeoFence/Rally 时必须 warning 或拒绝，不能静默展开后覆盖原任务。
-- `.plan` 导入可以保留 QGC 复杂项的 opaque 数据，后续逐步提升为 M-GCS 领域模型。
+- `.plan` 导入把 QGC 复杂项保留为 M-GCS 领域模型（ComplexItem、GeoFence、Rally），
+  不静默丢弃；ComplexItem 内部字段暂为只读，后续逐步语义化。
 - 格式推荐逻辑和警告需要单元测试，至少覆盖 ArduPilot、PX4、未知固件、复杂测绘和简单航点五种场景。
 
 ## 实施项
@@ -52,4 +53,4 @@ M-GCS 同时支持 ArduPilot 和 PX4。如果只保留一种文件格式，会�
 1. 增加任务文件格式推荐接口或内部策略函数。
 2. 前端保存/导出入口显示推荐格式和丢失数据警告。
 3. 保持 `.waypoints` 与 `.plan` 两条导入/导出路径及其互操作测试。
-4. 后续把 GeoFence/Rally/ComplexItem 从 opaque 保留提升为独立领域模型。
+4. GeoFence/Rally/ComplexItem 已提升为独立领域模型；ComplexItem 内部字段语义化仍待推进。
