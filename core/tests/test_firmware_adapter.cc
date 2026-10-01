@@ -83,6 +83,13 @@ static void test_ardupilot_parameter_remapping() {
           remap.canonical_name(4, 5, "WPNAV_SPEED") == "WP_SPD");
     CHECK("canonical reverse mapping keeps unknown names",
           remap.canonical_name(4, 5, "UNKNOWN_PARAM") == "UNKNOWN_PARAM");
+
+    ParamRemapping plane;
+    plane.load_ardupilot_plane_tables();
+    CHECK("plane Q pilot speed alias maps for old firmware",
+          plane.remap(4, 5, "Q_PILOT_SPD_DN") == "Q_PILOT_SPEED_DN");
+    CHECK("arming skip-check alias maps for old firmware",
+          plane.remap(4, 5, "ARMING_SKIPCHK") == "ARMING_CHECK");
 }
 
 int main() {

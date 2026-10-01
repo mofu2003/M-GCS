@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.38 - 2026-10-01
+
+### Changed
+
+- 参数元数据覆盖报告现在按固件版本的 canonical 参数名统计，旧固件中的
+  `WPNAV_*` 等名称会映射到当前描述库名称，不再被误报为缺失。
+- 补充 QGC ArduPilot 4.7 常见重映射：`PILOT_SPD_DN`、`Q_PILOT_SPD_DN` 和
+  `ARMING_SKIPCHK`。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.37 - 2026-10-01
 
 ### Changed

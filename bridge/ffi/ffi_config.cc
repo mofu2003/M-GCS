@@ -288,7 +288,18 @@ MGCORE_API char* mg_config_get_metadata_coverage(mg_core_t* core) {
         names.reserve(params.size());
         for (const auto& param : params) names.push_back(param.name);
     }
-    const auto coverage = db.coverage(profile, names);
+    mg::core::config::ParamCoverage coverage;
+    coverage.total = static_cast<int>(names.size());
+    for (const auto& name : names) {
+        const auto canonical = ffi_param_canonical_name(core, name);
+        if (db.get(profile, canonical).found) {
+            coverage.described++;
+        } else {
+            coverage.fallback++;
+            coverage.missing.push_back(name);
+        }
+    }
+    std::sort(coverage.missing.begin(), coverage.missing.end());
     const int percent = coverage.total > 0
         ? (coverage.described * 100) / coverage.total
         : 0;

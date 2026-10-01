@@ -191,6 +191,8 @@ void ParamRemapping::load_ardupilot_copter_tables() {
 
     // EKF
     add(4, 7, "EK3_FLOW_MAX",    "EK3_MAX_FLOW");
+
+    add(4, 7, "PILOT_SPD_DN",    "PILOT_SPEED_DN");
 }
 
 void ParamRemapping::load_ardupilot_plane_tables() {
@@ -214,6 +216,9 @@ void ParamRemapping::load_ardupilot_plane_tables() {
     // ARSPD
     add(4, 7, "ARSPD_FBW_MIN_M",  "ARSPD_FBW_MIN");
     add(4, 7, "ARSPD_FBW_MAX_M",  "ARSPD_FBW_MAX");
+
+    add(4, 7, "Q_PILOT_SPD_DN",  "Q_PILOT_SPEED_DN");
+    add(4, 7, "ARMING_SKIPCHK",  "ARMING_CHECK");
 }
 
 void ParamRemapping::load_ardupilot_rover_tables() {
@@ -225,6 +230,7 @@ void ParamRemapping::load_ardupilot_rover_tables() {
     // Rover speed parameters
     add(4, 7, "CRUISE_SPEED_M",  "CRUISE_SPEED");
     add(4, 7, "CRUISE_THROTTLE", "CRUISE_THROTTLE");
+    add(4, 7, "ARMING_SKIPCHK",  "ARMING_CHECK");
 }
 
 } // namespace mg::core::firmware

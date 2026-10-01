@@ -104,6 +104,11 @@ static void test_ardupilot_profiles() {
     CHECK("coverage lists fallback parameters",
           coverage.fallback == 1 && coverage.missing.size() == 1 &&
               coverage.missing.front() == "MGC_UNKNOWN");
+    const auto canonical_coverage = db.coverage(
+        "copter", {"WP_SPD", "WP_RADIUS_M", "WP_SPD_UP"});
+    CHECK("canonical ArduPilot names are covered",
+          canonical_coverage.described == canonical_coverage.total &&
+              canonical_coverage.fallback == 0);
 }
 
 static void test_chinese_translation_overlay() {
