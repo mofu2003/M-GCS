@@ -283,7 +283,7 @@ static void test_unclassified_parameter_group() {
     CHECK("metadata coverage reports loaded parameters",
           coverage != nullptr && strstr(coverage, "\"total\":36") != nullptr);
     CHECK("metadata coverage reports fallback and missing name",
-          coverage != nullptr && strstr(coverage, "\"fallback\":8") != nullptr &&
+          coverage != nullptr && strstr(coverage, "\"fallback\":1") != nullptr &&
               strstr(coverage, "\"MGC_UNKNOWN\"") != nullptr);
     if (coverage) mg_free_string(coverage);
 }

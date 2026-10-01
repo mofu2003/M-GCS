@@ -877,6 +877,30 @@
           "min": 0,
           "max": 100,
           "unit": "%"
+        },
+        "WPNAV_SPEED": {
+          "display_name": "Waypoint Horizontal Speed",
+          "description": "Legacy waypoint horizontal speed parameter",
+          "type": "float",
+          "unit": "cm/s"
+        },
+        "WPNAV_SPEED_UP": {
+          "display_name": "Waypoint Climb Speed",
+          "description": "Legacy waypoint climb speed parameter",
+          "type": "float",
+          "unit": "cm/s"
+        },
+        "WPNAV_RADIUS": {
+          "display_name": "Waypoint Radius",
+          "description": "Legacy waypoint acceptance radius parameter",
+          "type": "float",
+          "unit": "cm"
+        },
+        "PILOT_SPEED_DN": {
+          "display_name": "Pilot Downward Speed",
+          "description": "Legacy pilot-controlled descent speed parameter",
+          "type": "float",
+          "unit": "cm/s"
         }
       }
     },
@@ -934,6 +958,41 @@
           "min": 1,
           "max": 50,
           "unit": "s"
+        }
+      }
+    },
+    "arming": {
+      "display_name": "Arming Checks",
+      "description": "Pre-arm safety checks",
+      "fixed_params": {
+        "ARMING_CHECK": {
+          "display_name": "Arming Checks",
+          "description": "Bitmask of pre-arm checks performed before arming",
+          "type": "int",
+          "increment": 1
+        }
+      }
+    },
+    "throttle": {
+      "display_name": "Throttle",
+      "description": "Throttle and hover settings",
+      "fixed_params": {
+        "THR_MID": {
+          "display_name": "Hover Throttle",
+          "description": "Throttle level required for hover",
+          "type": "int"
+        }
+      }
+    },
+    "legacy_serial": {
+      "display_name": "Legacy Telemetry",
+      "description": "Legacy telemetry parameter aliases",
+      "fixed_params": {
+        "TELEM1_BAUD": {
+          "display_name": "Telemetry 1 Baud Rate",
+          "description": "Legacy telemetry port baud-rate parameter alias",
+          "type": "int",
+          "requires_reboot": true
         }
       }
     }

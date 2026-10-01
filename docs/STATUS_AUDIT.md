@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.38`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.39`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -84,6 +84,8 @@ bash tools/audit_status.sh
   缺失参数名，用于按真实设备参数集补齐元数据。
 - `PARAM-011`：覆盖率按固件 canonical 名称计算，旧固件的 `WPNAV_*` 不会被误报为
   缺失；补充 `PILOT_SPD_DN`、`Q_PILOT_SPD_DN`、`ARMING_SKIPCHK` 重映射。
+- `PARAM-012`：根据覆盖率补齐高频 ArduPilot 参数基础描述，模拟参数集覆盖率从
+  77% 提升到 97%；剩余 fallback 是测试专用未知参数。
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项
@@ -105,8 +107,8 @@ state/error 历史。前端后续可统一消费同一套 operation 状态。
 
 参数写入已经具备 pending/confirmed/failed、超时重发、目标信息、PARAM_ERROR 明确
 拒绝、描述库写入校验、批量刷新重试/状态跟踪、ArduPilot 版本参数重映射（含前缀）、
-未分类参数回退、canonical 覆盖率报告和常见 4.7 重映射。下一项继续补真实参数页深度
-和更多机型专属描述。
+未分类参数回退、canonical 覆盖率报告、高频 common 参数和常见 4.7 重映射。下一项
+继续补真实参数页深度和更多机型专属描述。
 
 ### `DEAD-001`：固件刷写占位
 

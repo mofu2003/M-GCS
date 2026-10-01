@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.39 - 2026-10-01
+
+### Changed
+
+- 根据覆盖率报告补齐高频 ArduPilot 参数基础元数据：旧版 `WPNAV_SPEED`、
+  `WPNAV_SPEED_UP`、`WPNAV_RADIUS`、`PILOT_SPEED_DN`，以及 `ARMING_CHECK`、
+  `THR_MID`、`TELEM1_BAUD`。
+- 模拟参数集覆盖率从 77% 提升到 97%，唯一 fallback 保留为测试用未知参数
+  `MGC_UNKNOWN`；不伪造缺失参数的完整范围或枚举。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.38 - 2026-10-01
 
 ### Changed
