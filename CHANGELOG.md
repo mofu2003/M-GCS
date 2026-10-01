@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.23 - 2026-10-01
+
+### Changed
+
+- 完成第二阶段 B 的第四个内部重构：新增 `CalibrationFfiBackend`，将校准启动、取消、
+  状态读取和加速度计姿态确认的动态绑定与 JSON 解包从 `ConnectionController` 迁出。
+- 校准状态机、取消收敛、MAV_CAL 进度映射、六面校准流程和 UI 状态保持在主控制器中，
+  校准页面行为和现有 FFI 契约不变。
+
+### Verification
+
+- `flutter analyze lib test` 通过。
+- Flutter 测试 `20/20` 通过。
+- 后端 offline/simulation `34/34` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.22 - 2026-10-01
 
 ### Changed

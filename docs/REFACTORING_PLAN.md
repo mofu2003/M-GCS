@@ -54,6 +54,8 @@ Servo/RC、系统状态和 freshness 的状态仍由 `ConnectionController` 管�
 拆参数、校准和飞行命令适配器，每次只迁移一个领域并保持门禁通过。参数 FFI 绑定现已
 迁移到 `flutter_shell/lib/connection/parameter_ffi_backend.dart`，参数缓存、元数据批处理、
 写入队列和确认逻辑仍由 `ConnectionController` 管理。
+校准 FFI 绑定现已迁移到 `flutter_shell/lib/connection/calibration_ffi_backend.dart`，
+校准状态机、轮询、六面校准姿态确认和 UI 状态仍由 `ConnectionController` 管理。
 
 ## 首轮结果
 

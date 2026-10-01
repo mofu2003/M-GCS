@@ -11,6 +11,7 @@ import '../mission/mission_document_ffi_backend.dart';
 import '../mission/mission_document_models.dart';
 import 'telemetry_ffi_backend.dart';
 import 'parameter_ffi_backend.dart';
+import 'calibration_ffi_backend.dart';
 
 final class SerialPortInfo {
   const SerialPortInfo({
@@ -286,11 +287,6 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>) _getWaveformInstances;
   late final Pointer<Utf8> Function(Pointer<Void>, int, int) _setStreamInterval;
   late final Pointer<Utf8> Function(Pointer<Void>) _requestFirmwareVersion;
-  late final Pointer<Utf8> Function(Pointer<Void>, int, int) _calibrationStart;
-  late final Pointer<Utf8> Function(Pointer<Void>) _calibrationCancel;
-  late final Pointer<Utf8> Function(Pointer<Void>) _calibrationGetStatus;
-  late final Pointer<Utf8> Function(Pointer<Void>, int)
-  _calibrationAccelConfirm;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _close;
@@ -319,6 +315,7 @@ final class ConnectionController extends ChangeNotifier {
   MissionDocumentFfiBackend? _missionBackend;
   TelemetryFfiBackend? _telemetryBackend;
   ParameterFfiBackend? _parameterBackend;
+  CalibrationFfiBackend? _calibrationBackend;
 
   MissionDocumentController get missionPlanning =>
       _missionPlanning ??= MissionDocumentController(
@@ -334,6 +331,9 @@ final class ConnectionController extends ChangeNotifier {
 
   ParameterFfiBackend get parameterBackend =>
       _parameterBackend ??= ParameterFfiBackend(_library, _core);
+
+  CalibrationFfiBackend get calibrationBackend =>
+      _calibrationBackend ??= CalibrationFfiBackend(_library, _core);
 
   final List<SerialPortInfo> ports = [];
   final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
@@ -563,8 +563,8 @@ final class ConnectionController extends ChangeNotifier {
       AccelerometerCalibrationMode.simple => 4,
     };
     try {
-      final result = _readJson(_calibrationStart(_core, 1, nativeMode));
-      if (result is! Map<String, Object?> || result['success'] != true) {
+      final result = calibrationBackend.start(1, nativeMode);
+      if (result['success'] != true) {
         throw StateError(_nativeError(result, '启动加速度计校准失败'));
       }
       _startCalibrationPolling();
@@ -592,8 +592,8 @@ final class ConnectionController extends ChangeNotifier {
         CalibrationType.barometer => 3,
         CalibrationType.radio => 4,
       };
-      final result = _readJson(_calibrationStart(_core, nativeType, 1));
-      if (result is! Map<String, Object?> || result['success'] != true) {
+      final result = calibrationBackend.start(nativeType, 1);
+      if (result['success'] != true) {
         throw StateError(_nativeError(result, '启动校准失败'));
       }
       _startCalibrationPolling();
@@ -608,8 +608,8 @@ final class ConnectionController extends ChangeNotifier {
   Future<void> confirmAccelerometerPosition(int position) async {
     if (!isConnected || !calibrationStatus.active) return;
     try {
-      final result = _readJson(_calibrationAccelConfirm(_core, position));
-      if (result is! Map<String, Object?> || result['success'] != true) {
+      final result = calibrationBackend.confirmAccelerometerPosition(position);
+      if (result['success'] != true) {
         throw StateError(_nativeError(result, '确认姿态失败'));
       }
       await _pollCalibrationStatus();
@@ -638,8 +638,8 @@ final class ConnectionController extends ChangeNotifier {
 
     Object? cancellationError;
     try {
-      final result = _readJson(_calibrationCancel(_core));
-      if (result is! Map<String, Object?> || result['success'] != true) {
+      final result = calibrationBackend.cancel();
+      if (result['success'] != true) {
         final message = _nativeError(result, '取消校准失败');
         // A stale UI snapshot can outlive the native calibration state. In
         // that case the local clear above is already the correct end state.
@@ -673,8 +673,7 @@ final class ConnectionController extends ChangeNotifier {
   Future<void> _pollCalibrationStatus() async {
     if (_disposed || sessionId == null) return;
     try {
-      final raw = _readJson(_calibrationGetStatus(_core));
-      if (raw is! Map<String, Object?>) throw const FormatException('校准状态格式无效');
+      final raw = calibrationBackend.status();
       final next = CalibrationStatus(
         active: raw['active'] == true,
         type: _calibrationType(raw['type']?.toString()),
@@ -1140,26 +1139,6 @@ final class ConnectionController extends ChangeNotifier {
       _close = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
             'mg_connection_close',
-          )
-          .asFunction();
-      _calibrationStart = _library
-          .lookup<
-            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32, Int32)>
-          >('mg_calibration_start')
-          .asFunction();
-      _calibrationCancel = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_calibration_cancel',
-          )
-          .asFunction();
-      _calibrationGetStatus = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_calibration_get_status',
-          )
-          .asFunction();
-      _calibrationAccelConfirm = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
-            'mg_calibration_accel_confirm',
           )
           .asFunction();
       _getSerialUartNames = _library
