@@ -27,14 +27,17 @@ QGC 在本文涉及的多数通用架构和任务系统中领先，但 ArduPilot
 
 | 项目 | 规模 |
 | --- | ---: |
-| M-GCS `core/src + core/include + bridge/ffi` | 约 35,515 行 |
-| M-GCS `core/tests + tests` | 约 11,659 行 |
+| M-GCS `core/src + core/include + bridge/ffi` | 约 36,010 行 |
+| M-GCS `core/tests + tests` | 约 11,819 行 |
 | QGC 选定后端模块 | 约 71,236 行 |
 | QGC `test/` | 约 72,006 行 |
 | M-GCS 默认 offline/simulation | 34 个测试 |
 | M-GCS Flutter 测试 | 20 个测试 |
 
 行数不等于质量，但说明 QGC 的测试和领域覆盖远高于 M-GCS。M-GCS 的优势是体积小、修改路径短、单次审计可以读完主要模块。
+
+当前基线为 `0.0.25`。Flutter 领域 FFI 适配器和 MAVLink 状态容器已经拆分；这会改善
+可维护性，但不足以单独提高本表评分，任务、参数、链路和平台覆盖仍是主要差距。
 
 ## 评分
 

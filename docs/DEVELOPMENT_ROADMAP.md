@@ -5,7 +5,10 @@
 
 ## 方向摘要
 
-M-GCS 当前已有任务文档编辑、后端校验/编译、任务上传/下载/验证、`.waypoints` 互操作、地图 Home/飞机位置和基本引导操作。近期不应继续堆叠零散页面，而应优先把已有安全敏感工作流做成可靠闭环，再扩展格式和领域覆盖，随后补足运维诊断与平台实机验证。
+M-GCS 当前已有任务文档编辑、后端校验/编译、任务上传/下载/验证、`.waypoints` / QGC
+`.plan` SimpleItem 互操作、地图 Home/飞机位置和基本引导操作。近期不应继续堆叠零散
+页面，而应优先把已有安全敏感工作流做成可靠闭环，再扩展复杂格式和领域覆盖，随后
+补足运维诊断与平台实机验证。
 
 目标不是逐项复制 Mission Planner（MP）或 QGroundControl（QGC），而是按模块选择
 质量更高的实现：任务模型、链路生命周期、跨平台结构和测试治理优先参考 QGC；
@@ -42,7 +45,7 @@ M-GCS Core -> FFI -> Flutter
 | --- | --- | --- | --- |
 | 任务规划 | 任务文档、命令目录、测绘实体、校验/编译、上传/下载/验证、operations 进度与取消、回读核对、脏状态、拖拽排序；Flutter 地图规划面板 | 两者均采用显式 Read/Write 或 Download/Upload；覆盖本地未保存内容前先确认 | 复杂 QGC 任务项、GeoFence/Rally 和更细的跨固件错误语义仍未补齐 |
 | 地图与飞行操作 | Home/飞机标记、地图偏好保存、引导操作及确认 | QGC 按飞行状态、机型和 capability 控制动作可用性；关键操作前确认 | 继续核对定位有效性、能力差异和异常状态呈现；避免对不支持动作显示可执行入口 |
-| 任务格式与相关领域 | `.waypoints` 互操作；围栏/Rally 有独立后端接口 | QGC `.plan` 将任务及相关规划信息组织为可保存文件；MP 有成熟 ArduPilot 任务与参数流程 | QGC `.plan` 尚未接入统一任务文档；围栏/Rally 尚无统一编辑、持久化和文件工作流 |
+| 任务格式与相关领域 | `.waypoints` 互操作；QGC `.plan` SimpleItem 与 Home/metadata 已接入；围栏/Rally 有独立后端接口 | QGC `.plan` 将任务及相关规划信息组织为可保存文件；MP 有成熟 ArduPilot 任务与参数流程 | `.plan` 尚缺 ComplexItem/GeoFence/Rally 的无损或 opaque 保留；围栏/Rally 尚无统一编辑、持久化和文件工作流 |
 | 诊断与长操作 | 有连接/系统/遥测诊断及 operation 后端 API | QGC 将连接、车辆状态、命令结果和进度反馈串成连续工作流；MP 提供面向 ArduPilot 的丰富检查 | Flutter 尚未完整使用聚合诊断和长任务取消/统一进度；不同页面状态体验不一致 |
 | 平台质量 | macOS 主开发路径；Windows/Linux 构建路径存在；Android USB Host 基础工程存在 | MP 覆盖 Windows 为主的 ArduPilot 场景；QGC 重点支持桌面和移动平台 | Windows 尚缺系统化真机验收；Linux/Android 串口和关键工作流需明确支持级别并验证 |
 

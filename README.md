@@ -95,7 +95,7 @@ bridge/ffi/ffi_api.h
 ## 发布
 
 ```bash
-tools/release.sh 0.0.13
+tools/release.sh <x.y.z>
 ```
 
 脚本更新版本文件，不提交、不打标签、不访问远端。push 需要用户明确要求。

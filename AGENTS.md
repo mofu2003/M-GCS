@@ -35,7 +35,7 @@ flutter_shell/  →  bridge/ffi/  →  core/  →  third_party/
 提交前必须执行，并在失败时修复后重跑：
 
 ```bash
-# 后端门禁（约 35 秒，31 个 offline/simulation 测试）
+# 后端门禁（约 35 秒，34 个 offline/simulation 测试）
 ctest --test-dir build_check --output-on-failure --no-tests=error -L "offline|simulation" -LE "hardware|manual"
 
 # 前端门禁

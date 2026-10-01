@@ -1,5 +1,8 @@
 # 项目结构
 
+当前版本基线：`0.0.25`。本文件只描述代码组织，具体接口和状态以
+[`ARCHITECTURE.md`](ARCHITECTURE.md) 与 [`STATUS_AUDIT.md`](STATUS_AUDIT.md) 为准。
+
 ## 顶层目录
 
 ```text
@@ -19,7 +22,8 @@ M-GCS/
 ## Core
 
 - `core/src/transport/`：串口、TCP、UDP、内存链路、端口发现和连接看门狗。
-- `core/src/mavlink/`：MAVLink adapter、命令队列、参数缓存和任务传输。
+- `core/src/mavlink/`：MAVLink adapter、内部状态容器、命令队列、参数缓存和任务传输；
+  `mavlink_adapter_state.h` 已从 `mavlink_adapter_internal.h` 分离。
 - `core/src/vehicle/`：单飞控会话模型与多会话管理。
 - `core/src/mission/`：任务文档、命令目录、任务编译、survey 生成和旧任务兼容路径。
 - `core/src/calibration/`：陀螺仪、加速度计、磁力计、气压计和遥控器校准。
@@ -39,7 +43,8 @@ M-GCS/
 
 ## Flutter
 
-- `flutter_shell/lib/connection/`：Dart FFI、连接控制器、遥测轮询和任务后端适配。
+- `flutter_shell/lib/connection/`：Dart FFI、连接控制器、遥测/参数/校准/飞行命令后端适配。
+- `flutter_shell/lib/mission/mission_document_ffi_backend.dart`：任务文档 FFI 适配器。
 - `flutter_shell/lib/map/`：地图、WGS-84/GCJ-02 转换、标记和地图交互。
 - `flutter_shell/lib/mission/`：任务文档模型、控制器、任务面板和编辑弹窗。
 - `flutter_shell/lib/configuration_workspace.dart`：配置、校准、遥测和飞控参数界面。

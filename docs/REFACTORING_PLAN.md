@@ -31,21 +31,23 @@
 - `0.0.17`：Mission FFI 拆分。
 - `0.0.18`：operations 与 diagnostics 拆分。
 - `0.0.19`：磁力计校准按 MP/QGC 的 MAV_CAL 流程修复，并完成任务 Home/启动状态对齐。
+- `0.0.20` 到 `0.0.24`：Flutter 控制器拆出任务、遥测、参数、校准和飞行命令适配器。
+- `0.0.25`：MAVLink adapter 状态容器拆出 `mavlink_adapter_state.h`。
 
 ## 后续里程碑
 
 | 版本 | 重构范围 | 完成标准 |
 | --- | --- | --- |
-| 下一阶段 A | 任务验证与差异诊断 | 回读差异在 Flutter 中显示 `index/field/expected/actual`；归一化 frame、默认参数和 Home；失败时保留本地任务并给出恢复路径 |
-| 下一阶段 B | Flutter 控制器拆分 | 将 `ConnectionController` 内部拆成连接、遥测、参数、校准、飞行命令和任务适配器；保留旧门面，逐步迁移页面 |
-| 下一阶段 C | MAVLink 内部拆分 | 将 `MavlinkAdapter::Impl` 的消息分发、遥测处理、任务协议、参数协议、命令和日志处理拆成内部模块；不改变 FFI |
+| 已完成 A | 任务验证与差异诊断 | 回读差异在 Flutter 中显示 `index/field/expected/actual`；归一化 frame、默认参数和 Home；失败时保留本地任务并给出恢复路径 |
+| 已完成 B | Flutter 控制器拆分 | 将 `ConnectionController` 内部拆成连接、遥测、参数、校准、飞行命令和任务适配器；保留旧门面，逐步迁移页面 |
+| 当前 C | MAVLink 内部拆分 | 将 `MavlinkAdapter::Impl` 的消息分发、遥测处理、任务协议、参数协议、命令和日志处理拆成内部模块；不改变 FFI |
 | 下一阶段 D | 参数系统增强 | 参考 QGC FactSystem 的 pending/confirmed/failed 语义，参考 MP 的 ArduPilot 元数据和参数覆盖 |
 | 下一阶段 E | 任务领域补齐 | QGC `.plan` ComplexItem 保留、GeoFence/Rally 文档模型、ArduPilot 能力矩阵和往返测试 |
 | 后续 | 平台真实验收 | Windows 串口/任务/参数/校准、Linux 串口、Android USB 生命周期；构建成功不能替代设备验收 |
 
 ### 当前执行进度
 
-第二阶段 B 已开始：任务文档 FFI 绑定已迁移到
+第二阶段 B 已完成：任务文档 FFI 绑定已迁移到
 `flutter_shell/lib/mission/mission_document_ffi_backend.dart`。`ConnectionController`
 继续持有共享 Core 和连接状态，但不再直接实现 `MissionDocumentBackend`，任务页面契约
 保持不变。遥测 FFI 绑定现已迁移到
@@ -60,9 +62,9 @@ Servo/RC、系统状态和 freshness 的状态仍由 `ConnectionController` 管�
 RTL、降落、起飞、解锁、模式切换、任务启动、引导点、暂停、环绕和设置 Home 的安全
 门控及状态确认仍由 `ConnectionController` 管理。
 
-第二阶段 C 已开始：`mavlink_adapter_state.h` 已拆出遥测、链路质量、日志下载和
-Command ACK 等待状态。`mavlink_adapter_internal.h` 继续逐步释放消息处理、任务协议、
-参数协议、命令和日志处理的实现职责，每个切片独立通过门禁。
+第二阶段 C 已开始并发布到 `0.0.25`：`mavlink_adapter_state.h` 已拆出遥测、链路质量、
+日志下载和 Command ACK 等待状态。`mavlink_adapter_internal.h` 继续逐步释放消息处理、
+任务协议、参数协议、命令和日志处理的实现职责，每个切片独立通过门禁。
 
 ## 首轮结果
 

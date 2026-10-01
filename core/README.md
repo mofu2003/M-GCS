@@ -8,8 +8,9 @@
 - `src/mavlink/`：MAVLink 适配器、发送器、命令队列、参数缓存和任务传输。
 - `src/transport/`：串口、TCP、UDP、内存链路、端口发现和连接管理器。
 - `src/vehicle/`：飞控模型和多飞控管理器。
-- `src/mission/`：MAVLink 任务编辑、航点传输和测绘辅助能力；`mission/cad`
-  已包含前端无关的规划文档、revision、undo/redo、命令目录、校验、编译、估算和持久化。
+- `src/mission/`：任务文档、revision、undo/redo、命令目录、校验、编译、估算、测绘和
+  互操作。`mission/cad` 是历史内部目录名，不代表当前产品概念；当前统一使用
+  “任务文档”和“任务规划”。
 - `src/geofence/`：围栏数据管理和校验。
 - `src/calibration/`：传感器校准状态机和各传感器策略。
 - `src/firmware/`：ArduPilot/PX4 固件 profile、模式映射和参数重映射。
@@ -24,6 +25,7 @@
 
 - `src/mavlink/mavlink_adapter.cc`
 - `src/mavlink/mavlink_senders.cc`
+- `src/mavlink/mavlink_adapter_internal.h`
 - `src/mavlink/command_queue.cc`
 - `src/mavlink/mission_transfer.cc`
 - `src/mavlink/param_cache.cc`
@@ -39,7 +41,8 @@
 
 - Windows：保留 Win32 串口、Winsock 和硬件测试脚本入口。
 - Linux：使用 POSIX filesystem、BSD sockets 和 POSIX 串口路径。
-- macOS：串口使用 POSIX `termios`；较早环境通过过完整构建和默认测试，当前 checkout 需先生成 MAVLink C 头再重新验证。
+- macOS：串口使用 POSIX `termios`；当前 checkout 已通过默认构建、34/34 后端门禁和
+  Flutter/macOS debug 验证。首次构建仍需先生成 MAVLink C 头。
 - Android：Gradle/CMake 构建 `libmgcore.so`；filesystem 通过 JNI + AssetManager
   提取随 APK 分发的 JSON 数据；USB Host 串口按 QGC 的
   `usb-serial-for-android` + `SerialInputOutputManager` + JNI 回调接入。
@@ -52,4 +55,5 @@
 4. 真实硬件测试工具放在 `tests/manual/` 或顶层 `tests/`，不得进入默认 CI。
 5. 跨平台实现必须显式隔离平台 API，不能让 Windows、Linux、macOS、Android 的专有头文件泄漏到其他平台编译路径。
 6. 修改 transport 或 connection manager 后，至少运行 `test_transport_links` 和默认 offline/simulation 门禁。
-7. Mission CAD 的文档、几何、约束和编译属于 core，不依赖任何具体前端；`MissionPlan` 是其编译输出，而不是 CAD 的源模型。
+7. 任务文档的几何、约束和编译属于 core，不依赖任何具体前端；`MissionPlan` 是编译输出，
+   而不是可编辑任务文档本身。

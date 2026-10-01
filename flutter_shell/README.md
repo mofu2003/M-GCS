@@ -1,36 +1,49 @@
 # M-GCS Flutter Shell
 
-Current version: `0.0.10`.
+Current version: `0.0.25` (source of truth: `pubspec.yaml`).
 
-The shell contains the map and a cross-platform configuration workspace.
-The configuration sidebar, toolbar, search, and light/dark backgrounds are
-Flutter-rendered; macOS-specific code is limited to optional window chrome.
-Connection, telemetry, sensor waveforms, and calibration remain available in
-the workspace, subject to each platform's native backend support.
+The shell is the cross-platform presentation layer for M-GCS. It contains the
+map, connection workspace, telemetry and waveform views, mission planning,
+configuration pages, calibration flows, and parameter editing. It talks to the
+native core only through `bridge/ffi/ffi_api.h`; it does not import MAVLink or
+reimplement backend protocol state.
 
-UI text uses one bundled font family, `MiSans`, on every platform, so macOS and
-Windows render identically. The family is defined in a single place,
-`lib/theme/mg_typography.dart` (`MgFonts`), and the font files live in
-`assets/fonts/` together with their license. See `docs/adr/0007-unified-font-stack.md`
-for the selection data and the license obligations.
+## Architecture
 
-The map reuses the raster-tile catalog. It starts with
-Gaode standard tiles and supports Gaode satellite, satellite-with-road-labels,
-OpenStreetMap HOT, and OpenHikingMap. No AMap JavaScript key is required for
-this existing tile-based integration.
+- `lib/connection/connection_controller.dart` owns the shared native library
+  lifetime, connection state, polling, state convergence, and UI notifications.
+- Domain ABI bindings are split into `MissionDocumentFfiBackend`,
+  `TelemetryFfiBackend`, `ParameterFfiBackend`, `CalibrationFfiBackend`, and
+  `FlightCommandFfiBackend`.
+- `lib/mission/` contains the mission document model, controller, planning
+  panel, map interaction, and file interchange entry points.
+- `lib/map/` contains raster tiles, aircraft/Home markers, WGS-84/GCJ-02
+  conversion, and map interaction.
+- `lib/theme/` is the single source for fonts, typography, metrics, and colors.
 
-Run with:
+## UI Rules
+
+All platforms use the bundled `MiSans` family defined by `MgFonts`. Page code
+must use `MgTypography`, `MgColors`, and `MgMetrics` instead of raw font sizes,
+colors, or platform font names. Numbers use tabular figures; only headings may
+use a heavier weight.
+
+The map reuses the raster-tile catalog and currently supports Gaode standard,
+Gaode satellite, satellite-with-road-labels, OpenStreetMap HOT, and
+OpenHikingMap. No AMap JavaScript key is required for this tile integration.
+
+The map connection control supports serial, UDP, and TCP endpoints. Every mode
+opens a backend session, waits for a heartbeat, and disconnects by session ID.
+
+## Run And Verify
 
 ```sh
+flutter pub get
 flutter run -d macos
+flutter analyze lib test
+flutter test
 ```
 
-The initial window opens at desktop workspace size (up to 1440 × 900) and has a
-minimum size suitable for the map and status bar.
-
-The map's **连接飞控** control opens a connection popover with
-**串口 / UDP / TCP** tabs. Serial mode enumerates
-ports and selects a baud rate; UDP mode binds a local address and port; TCP
-mode connects to a remote address and port. All three open a backend session,
-wait for heartbeat, and disconnect by session ID. The macOS build embeds
-`mgcore.dylib` from the repository backend build.
+The macOS build embeds `mgcore.dylib` from the repository backend build. Native
+core changes require an app restart; Dart hot reload does not replace the
+already loaded shared library.

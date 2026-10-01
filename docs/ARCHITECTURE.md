@@ -32,8 +32,13 @@ ILink
 ### 连接和协议
 
 `ConnectionManager` 管理链路打开、等待心跳、已连接、断链和清理；
-`MavlinkAdapter` 隔离生成的 MAVLink 头；`CommandQueue` 负责命令 ACK、超时和重试；
+`MavlinkAdapter` 隔离生成的 MAVLink 头；`mavlink_adapter_state.h` 单独承载遥测、
+链路质量、日志下载和 ACK 等待状态；`CommandQueue` 负责命令 ACK、超时和重试；
 `ParamCache`、`MissionTransfer` 和 `MavlinkFtpClient` 分别负责参数、任务和文件传输。
+
+`MavlinkAdapter::Impl` 仍在继续拆分。当前先冻结公共 FFI 和消息语义，再逐步把
+遥测处理、任务协议、参数协议、命令和日志处理移出内部头文件；这是一项内部重构，
+不改变生成代码、JSON、发送顺序或回调时序。
 
 ### Vehicle
 
@@ -47,8 +52,8 @@ ACK/超时/拒绝传到 FFI。
 命令参数；`MissionPlan` 是编译后的 MAVLink 目标模型，不是编辑状态的唯一来源。
 
 任务编译和校验属于后端，前端只提供编辑和渲染。`survey_grid` / `corridor` 由
-`SurveyCalculator` 在后端展开；`.waypoints` 互操作也在后端完成。编辑、校验、保存
-不写飞控，上传和从飞控读取是显式操作。
+`SurveyCalculator` 在后端展开；`.waypoints` 和 QGC `.plan` SimpleItem 互操作也在
+后端完成。编辑、校验、保存不写飞控，上传和从飞控读取是显式操作。
 
 `mg_mission_doc_*` 是已经发布的兼容 ABI 名称；它们不改变当前产品术语。当前设计概念
 统一称为“任务文档”和“任务规划”。
@@ -71,9 +76,13 @@ FFI 只暴露 C 兼容类型和稳定 JSON envelope。新增接口必须同时�
 
 ## Flutter 设计
 
-Flutter 通过 `ConnectionController` 绑定 FFI。地图坐标按地图源在 GCJ-02 与 WGS-84
-之间转换。任务面板使用 `MissionDocumentController`；命令下拉和参数表单来自后端
-命令目录。UI 统一使用 `MgColors`、`MgTypography`、`MgMetrics` 和 `MgFonts`。
+Flutter 通过 `ConnectionController` 作为状态门面绑定 FFI。任务文档、遥测、参数、
+校准和飞行命令已经分别由 `MissionDocumentFfiBackend`、`TelemetryFfiBackend`、
+`ParameterFfiBackend`、`CalibrationFfiBackend` 和 `FlightCommandFfiBackend`
+持有动态符号绑定；控制器继续负责生命周期、轮询、状态收敛和 `notifyListeners()`。
+地图坐标按地图源在 GCJ-02 与 WGS-84 之间转换。任务面板使用
+`MissionDocumentController`；命令下拉和参数表单来自后端命令目录。UI 统一使用
+`MgColors`、`MgTypography`、`MgMetrics` 和 `MgFonts`。
 
 ## 平台
 

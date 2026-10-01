@@ -1,6 +1,9 @@
 # QGC / MP 可借鉴项对照表
 
-本文件把 M-GCS 路线表 A-D 中的剩余工作，对照本地 QGroundControl 与 Mission Planner 源码，记录可以直接沿用、需要改写或暂不适合照搬的部分。它是工程参考，不改变 M-GCS 的 FFI、Flutter 或 Core 边界。
+本文件把 M-GCS 路线表 A-D 中的剩余工作，对照本地 QGroundControl 与 Mission Planner
+源码，记录可以直接沿用、需要改写或暂不适合照搬的部分。路线表 E 是依赖 A-D 结果的
+0.1.0 产品化门槛，不在这里单独展开上游复用项。它是工程参考，不改变 M-GCS 的 FFI、
+Flutter 或 Core 边界。
 
 ## 使用原则
 

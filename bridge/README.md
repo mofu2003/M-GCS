@@ -29,7 +29,8 @@
 
 - `mg_connection_get_diagnostics()`：连接、心跳、活动飞控和目标系统诊断。
 - `mg_operations_get_snapshot()`：参数同步和任务传输的统一操作视图。
-- `mg_operations_cancel()`：统一取消入口，目前对无活动任务返回明确 no-op。
+- `mg_operations_cancel()`：统一取消参数、任务、校准和日志操作；无活动操作时返回
+  `canceled:false`，不会把已完成或失败的传输追认为取消。
 - `mg_telemetry_get_dashboard_snapshot()`：仪表盘所需遥测、freshness 和 validity 聚合。
 - `mg_system_get_diagnostics()`：一次性导出系统诊断。
 

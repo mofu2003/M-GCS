@@ -64,7 +64,10 @@
 
 ## 后续调整
 
-前端应用已经从本分支移除，只保留 `core/`、`bridge/ffi/` 和后端测试。前端通过 `bridge/ffi/ffi_api.h` 的 C ABI 接入，具体前端实现不在本仓库。
+前端应用曾经从本分支移除，只保留 `core/`、`bridge/ffi/` 和后端测试。这个历史状态
+后来已经调整：当前仓库重新包含 `flutter_shell/`，它通过 `bridge/ffi/ffi_api.h` 的
+C ABI 接入后端。原始决策“后端保持 UI 无关、FFI 是唯一边界”仍然有效；本段保留历史
+变化，当前产品结构以 [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) 为准。
 
 ## 复用说明
 

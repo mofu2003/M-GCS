@@ -10,7 +10,7 @@
 | `git diff --check` | 通过 |
 | `dart tools/check_ui_tokens.dart` | 通过 |
 | Flutter analyze | 通过 |
-| Flutter test | 19/19 |
+| Flutter test | 20/20 |
 | 后端 offline/simulation | 34/34 |
 | macOS debug 构建 | 通过 |
 | Windows build/preflight | workflow 统一调用预检脚本；脚本会先生成 MAVLink 头，再构建 bundle 并校验关键 FFI 导出。未在本机 Windows 复核 |
@@ -53,6 +53,8 @@ bash tools/audit_status.sh
 - `EVENT-001`：`MG_EVENT_WAYPOINT_REACHED` 已接线并带 `seq`。
 - `SURVEY-001`：`survey_grid` / `corridor` 已成为参数化任务实体。
 - `INTEROP-001`：支持 MP/QGC `QGC WPL 110` `.waypoints` 导入导出。
+- `INTEROP-002`：支持 QGC `.plan` 的 `SimpleItem`、Home、默认速度和机型/固件元数据
+  导入导出；复杂项、非空 GeoFence/Rally 和无法无损表达的字段不会静默丢弃。
 - `MISSION-002`：支持从飞控读取任务并导入任务文档，归一化 `_INT` frame。
 - `MISSION-003`：Flutter 任务规划 UI、地图单击、新增/编辑航点、引导操作已接入。
 - `TEST-001` / `TEST-002` / `TEST-003`：真实 UI FFI、飞行命令、批量参数变更集已有模拟测试。
@@ -93,17 +95,18 @@ Home、默认速度和固件/机型元数据，并对复杂项、非空 GeoFence
 的字段返回明确错误或 warnings。地理围栏/Rally 的统一文档仍未实现；任务规划页面已
 接入回读验证、脏状态提示、校验诊断定位、地图/列表选中和拖动排序。
 
-### `REFACTOR-001`：任务 FFI 适配器已从 Flutter 主控制器迁出
+### `REFACTOR-001`：Flutter 适配器已拆分，MAVLink 内部类仍在收敛
 
-`MissionDocumentFfiBackend` 现在独立负责任务文档相关的动态符号绑定、JSON envelope、
-任务传输进度和文件互操作；`ConnectionController` 只提供共享 Core、动态库和连接状态
-回调。公开 `MissionDocumentBackend` 契约和任务页面行为不变。当前仅完成任务领域，
-遥测相关绑定也已迁移到 `TelemetryFfiBackend`；连接控制器继续负责状态缓存、轮询和
-通知。参数动态绑定也已迁移到 `ParameterFfiBackend`，参数缓存、元数据批处理和写入
-确认仍在连接控制器中。校准和飞行命令适配器仍在主控制器中，后续逐域迁移。
-校准动态绑定也已迁移到 `CalibrationFfiBackend`，校准状态机、取消收敛和进度轮询仍由
-连接控制器负责。飞行命令动态绑定也已迁移到 `FlightCommandFfiBackend`，QGC/MP 的
-模式门控、解锁确认和安全流程仍由连接控制器负责。
+Flutter 的领域 FFI 绑定已从 `ConnectionController` 中拆出：
+`MissionDocumentFfiBackend`、`TelemetryFfiBackend`、`ParameterFfiBackend`、
+`CalibrationFfiBackend` 和 `FlightCommandFfiBackend` 分别持有动态符号和 JSON 解包；
+控制器继续负责连接状态、轮询、参数/任务状态机、安全门控和 UI 通知。该阶段在
+`0.0.20` 到 `0.0.24` 之间完成，公开后端契约未变化。
+
+MAVLink 内部拆分从 `0.0.25` 开始：`mavlink_adapter_state.h` 已迁出遥测最新值、
+链路质量、日志下载和 Command ACK 等待状态。`mavlink_adapter_internal.h` 仍包含
+消息处理实现，后续继续按遥测、任务协议、参数协议、命令和日志拆分；在全部完成前，
+这些内部模块不能视为稳定的独立接口。
 
 ## 当前工作区
 

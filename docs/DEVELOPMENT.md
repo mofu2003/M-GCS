@@ -6,6 +6,7 @@
 - 代码分层：`flutter_shell -> bridge/ffi -> core -> third_party`。
 - 默认测试只包含 `offline` 和 `simulation`；hardware/manual 必须显式运行。
 - 默认预检：`tools/preflight.sh`。
+- 当前已复核门禁：后端 `34/34`、Flutter `20/20`、UI token 和 macOS debug 构建通过。
 
 ## 上游实现策略
 
@@ -141,7 +142,7 @@ flutter run -d windows
 ## 版本发布
 
 ```bash
-tools/release.sh 0.0.13
+tools/release.sh <x.y.z>
 ```
 
 脚本只更新 CMake、pubspec、README、CHANGELOG；随后补 CHANGELOG、跑完整预检、本地

@@ -2,6 +2,9 @@
 
 研究日期：2026-09-29
 
+> 本文是字体选型时的研究快照，不随每个版本自动重测；当前强制规则以
+> [ADR 0007](adr/0007-unified-font-stack.md) 和 `MgFonts` 为准。
+
 ## 结论
 
 原始参考：mac 端当时实际渲染的是 **Helvetica Neue（西文/数字）+ PingFang SC（中文）**，
