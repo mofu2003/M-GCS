@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.33`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.34`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -74,6 +74,8 @@ bash tools/audit_status.sh
   去重解析并返回 resolved/sent/unknown/duplicates。
 - `PARAM-006`：批量刷新具备 1 秒超时、最多 2 次重发、PARAM_VALUE 完成和 PARAM_ERROR
   立即失败；`mg_params_get_refresh_status` 提供 active/total/completed/pending/round/failed。
+- `PARAM-007`：参数写入和精确刷新使用 ArduPilot 固件版本重映射；旧固件上的
+  `WP_SPD` 会转换为 `WPNAV_SPEED`，新固件、PX4 和未知参数保持原名。
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项
@@ -94,8 +96,8 @@ state/error 历史。前端后续可统一消费同一套 operation 状态。
 ### `PARAM-002`：参数元数据和覆盖仍可继续增强
 
 参数写入已经具备 pending/confirmed/failed、超时重发、目标信息、PARAM_ERROR 明确
-拒绝、描述库写入校验，以及批量刷新的重试和状态跟踪。下一项转向分固件参数覆盖和
-真实 ArduPilot 参数页缺口，不盲目复制全量参数库。
+拒绝、描述库写入校验、批量刷新重试/状态跟踪，以及 ArduPilot 版本参数重映射。下一项
+继续补真实参数页缺口、版本覆盖和跨固件差异，不盲目复制全量参数库。
 
 ### `DEAD-001`：固件刷写占位
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.34 - 2026-10-01
+
+### Changed
+
+- 参数写入和精确刷新现在会经过 ArduPilot 固件版本参数重映射：例如旧固件收到
+  `WP_SPD` 时会转换为 `WPNAV_SPEED`，新固件保持原名。
+- `mg_params_set`、`mg_config_write_param`、`mg_config_write_params` 和
+  `mg_params_refresh` 使用重映射后的参数名查缓存并发送；未知版本、PX4 和未知参数
+  保持原样。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.33 - 2026-10-01
 
 ### Changed

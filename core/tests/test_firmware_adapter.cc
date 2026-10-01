@@ -1,4 +1,5 @@
 #include "core/firmware/firmware_adapter.h"
+#include "core/firmware/param_remapping.h"
 
 #include <cstdio>
 #include <string>
@@ -12,6 +13,7 @@ static int g_failed = 0;
 } while (0)
 
 using mg::core::firmware::FirmwareAdapter;
+using mg::core::firmware::ParamRemapping;
 
 static void test_ardupilot_vehicle_families() {
     fprintf(stderr, "\n[Group] ArduPilot normalized vehicle families\n");
@@ -67,11 +69,24 @@ static void test_px4_vehicle_families() {
     CHECK("PX4 VTOL normalized family", vtol.normalized_vehicle_name() == "VTOL");
 }
 
+static void test_ardupilot_parameter_remapping() {
+    fprintf(stderr, "\n[Group] ArduPilot parameter remapping\n");
+    ParamRemapping remap;
+    remap.load_ardupilot_copter_tables();
+    CHECK("4.7 new WP name maps to old WPNAV name",
+          remap.remap(4, 5, "WP_SPD") == "WPNAV_SPEED");
+    CHECK("4.7 firmware keeps new parameter name",
+          remap.remap(4, 7, "WP_SPD") == "WP_SPD");
+    CHECK("unknown parameter name passes through",
+          remap.remap(4, 5, "UNKNOWN_PARAM") == "UNKNOWN_PARAM");
+}
+
 int main() {
     fprintf(stderr, "=== Firmware Adapter Classification Tests ===\n");
 
     test_ardupilot_vehicle_families();
     test_px4_vehicle_families();
+    test_ardupilot_parameter_remapping();
 
     fprintf(stderr, "\n=== Results: %d/%d passed ===\n", g_passed, g_passed + g_failed);
     return g_failed > 0 ? 1 : 0;

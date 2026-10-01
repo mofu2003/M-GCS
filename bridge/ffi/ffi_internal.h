@@ -21,6 +21,7 @@
 #include "core/calibration/calibration_service.h"
 #include "core/config/param_descriptors.h"
 #include "core/firmware/firmware_adapter.h"
+#include "core/firmware/firmware_plugin.h"
 #include "core/settings/flight_logging_service.h"
 #include "core/telemetry/telemetry_ring_buffer.h"
 #include "core/telemetry/waveform_buffer.h"
@@ -216,6 +217,28 @@ inline std::string ffi_param_profile(mg_core_t* core) {
     if (family == "FixedWing") return "plane";
     if (family == "VTOL") return "vtol";
     return "";
+}
+
+/// Translate a canonical (new) parameter name to the name expected by the
+/// detected firmware version. Unknown versions and non-ArduPilot firmware
+/// pass through unchanged.
+inline std::string ffi_param_vehicle_name(mg_core_t* core,
+                                          const std::string& param_name) {
+    auto* mav = get_active_mavlink(core);
+    if (!mav) return param_name;
+    const auto hb = mav->latest_heartbeat();
+    const auto version = mav->latest_firmware_version();
+    if (!hb.has_value() || !version.has_value()) return param_name;
+
+    mg::core::firmware::FirmwareAdapter adapter;
+    adapter.detect(hb->autopilot_type, hb->vehicle_type);
+    auto plugin = mg::core::firmware::create_firmware_plugin(adapter.firmware_kind());
+    if (!plugin || !plugin->has_param_remapping()) return param_name;
+    return plugin->remap_param_name(
+        adapter.vehicle_kind(),
+        version->firmware_major,
+        version->firmware_minor,
+        param_name);
 }
 
 /// Get a parameter value by name (returns 0 if not found or no connection).

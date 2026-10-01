@@ -173,11 +173,12 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
             continue;
         }
 
-        if (available.count(entry) == 0) {
+        const std::string vehicle_name = ffi_param_vehicle_name(core, entry);
+        if (available.count(vehicle_name) == 0) {
             unknown.push_back(entry);
             continue;
         }
-        if (seen.insert(entry).second) resolved.push_back(entry);
+        if (seen.insert(vehicle_name).second) resolved.push_back(vehicle_name);
         else duplicates++;
     }
     cJSON_Delete(root);
@@ -276,14 +277,17 @@ MGCORE_API char* mg_params_set(mg_core_t* core, const char* param_name, float pa
         return fail(MG_ERROR_INVALID_STATE, "params not loaded; call mg_params_request_all() first and wait for completion");
     }
 
+    const std::string vehicle_name = ffi_param_vehicle_name(core, param_name);
     uint8_t mav_type = static_cast<uint8_t>(param_type);
     if (mav_type == 0) {
-        auto p = mav->get_param_by_name(param_name);
+        auto p = mav->get_param_by_name(vehicle_name.c_str());
+        if (!p.has_value()) p = mav->get_param_by_name(param_name);
         if (!p.has_value()) return fail(MG_ERROR_NOT_FOUND, "parameter not found in cache");
         mav_type = p->type;
     }
 
-    if (mav->set_param(active_target_sys(core), active_target_comp(core), param_name, param_value, mav_type)) {
+    if (mav->set_param(active_target_sys(core), active_target_comp(core),
+                       vehicle_name.c_str(), param_value, mav_type)) {
         return ok();
     }
     return fail(MG_ERROR_SEND_FAILED, "send failed");

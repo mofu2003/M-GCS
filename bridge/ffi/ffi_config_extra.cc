@@ -103,10 +103,13 @@ MGCORE_API char* mg_config_write_param(mg_core_t* core, const char* param_name, 
     }
 
     auto* mav = get_active_mavlink(core);
-    auto cached = mav->get_param_by_name(param_name);
+    const std::string vehicle_name = ffi_param_vehicle_name(core, param_name);
+    auto cached = mav->get_param_by_name(vehicle_name.c_str());
+    if (!cached.has_value()) cached = mav->get_param_by_name(param_name);
     uint8_t type = cached.has_value() ? cached->type : 9; // MAV_PARAM_TYPE_REAL32
 
-    if (mav->set_param(active_target_sys(core), active_target_comp(core), param_name, value, type)) {
+    if (mav->set_param(active_target_sys(core), active_target_comp(core),
+                       vehicle_name.c_str(), value, type)) {
         return ok();
     }
     return fail(MG_ERROR_SEND_FAILED, "set_param failed");
@@ -156,10 +159,13 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
             continue;
         }
 
-        auto cached = mav->get_param_by_name(pname);
+        const std::string vehicle_name = ffi_param_vehicle_name(core, pname);
+        auto cached = mav->get_param_by_name(vehicle_name.c_str());
+        if (!cached.has_value()) cached = mav->get_param_by_name(pname);
         uint8_t type = cached.has_value() ? cached->type : 9;
 
-        if (mav->set_param(active_target_sys(core), active_target_comp(core), pname, pvalue, type)) {
+        if (mav->set_param(active_target_sys(core), active_target_comp(core),
+                           vehicle_name.c_str(), pvalue, type)) {
             written++;
         } else {
             failed_count++;
