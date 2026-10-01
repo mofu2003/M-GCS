@@ -404,7 +404,7 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
 
   @override
   Future<MissionVerificationResult> verifyMissionDocument({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async => verificationResult;
 
   @override
@@ -437,7 +437,7 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
 
   @override
   Future<MissionVerificationResult> verifyFence({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async => fenceVerificationResult;
 
   @override
@@ -469,7 +469,7 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
 
   @override
   Future<MissionVerificationResult> verifyRally({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async => rallyVerificationResult;
 
   @override

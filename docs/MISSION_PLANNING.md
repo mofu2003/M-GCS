@@ -206,6 +206,10 @@ GeoFence 与 Rally 是独立的 MAVLink mission type，不计入航点任务上�
 `MISSION_ITEM_REACHED` 统计已到达项（按 seq 去重），最后一项到达即 `finished:true`。
 `current_index` 已去掉 ArduPilot 的 home 偏移，可直接对应任务面板里的项序号。
 
+回读核对（`mg_mission_doc_verify`）按米制容差比较经纬度：飞控内部把位置存成 float 度，
+往返有约 0.1–0.5 m 量化误差，因此容差不应小于该量级（默认 1 m）。非位置命令的坐标帧
+差异属等价表示，归入 `normalizations` 而不是 `differences`。
+
 参数化测绘实体或禁用实体仍不能无损导出为普通 `.plan`；`hoverSpeed`、地形高度模式、
 null 参数和不在命令目录中的 MAV_CMD 会通过 `warnings` 报告。围栏和 Rally 的统一编辑
 文档仍未实现。

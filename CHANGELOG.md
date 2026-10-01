@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.0.58 - 2026-10-02
+
+### Fixed
+
+- 任务回读核对不再把 ArduPilot 的位置量化误差当成差异：`x`/`y` 以前用 degE7 整数
+  精确比较，完全没用 `tolerance`；而飞控内部把经纬度存成 float 度，往返会带来
+  约 0.1–0.5 m 误差，导致几乎每次上传都报“回读发现差异”。现在按当地尺度把米制
+  容差换算成 degE7 阈值再比较（纬度 111320 m/度，经度按 cos(lat) 折算）。
+- 非位置命令（DO_/CONDITION_ 等）的坐标帧差异归入 `normalizations`：飞控对这类
+  命令统一按 frame 0 存，我们文档会带默认帧 3，属等价表示，不再报成差异。
+- Flutter 侧默认核对容差从 0.1 m 调整为 1.0 m，与 ArduPilot 的存储精度匹配。
+
+### Verification
+
+- 用本地 ArduPlane SITL（UDP）实测：同一份 4 项任务，0.1 m 容差报 4 处差异，
+  1.0 m 容差 `matches:true`、0 处差异。
+- 新增 `test_sim_mission_document` 用例，模拟飞控侧 float 量化：1 m 容差判定一致、
+  0.05 m 容差仍能报出量化差异。
+- 后端 offline/simulation `35/35` 通过；Flutter 测试 `22/22` 通过；
+  UI token 检查和 macOS debug 构建通过；完整 `tools/preflight.sh` 通过。
+
 ## 0.0.57 - 2026-10-01
 
 ### Fixed

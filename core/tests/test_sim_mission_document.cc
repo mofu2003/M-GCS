@@ -20,8 +20,53 @@ static int g_fail = 0;
     } \
 } while (0)
 
+/// ArduPilot 把任务位置存成 float 度，往返会产生约 0.1–0.5 m 的量化误差。
+/// 核对必须用米制容差比较经纬度，而不是整数精确比较，否则每次上传都报差异。
+static void test_verify_tolerates_position_quantization() {
+    fprintf(stderr, "\n[Group] Verify tolerance vs ArduPilot float storage\n");
+    MockVehicleTestEnv env;
+    for (int i = 0; i < 15; ++i) env.tick(100);
+
+    char* result = mg_mission_doc_create(
+        env.core, R"({"metadata":{"name":"tolerance"}})");
+    if (result) mg_free_string(result);
+    result = mg_mission_doc_apply(
+        env.core,
+        R"({"operation":"add","expected_revision":1,"entity":{"type":"waypoint","command":16,"lat":31.227,"lon":121.49,"alt_m":50,"params":[0,2,0,0]}})");
+    if (result) mg_free_string(result);
+    result = mg_mission_doc_upload(env.core, 2);
+    if (result) mg_free_string(result);
+    for (int i = 0; i < 60; ++i) env.tick(50);
+
+    // 模拟飞控侧用 float 存经纬度：31.227 -> 312269984（degE7）。
+    auto stored = env.mock->stored_mission();
+    for (auto& item : stored) {
+        if (item.x == 0 && item.y == 0) continue;
+        item.x = static_cast<int32_t>(
+            std::lround(static_cast<float>(item.x / 1e7) * 1e7));
+        item.y = static_cast<int32_t>(
+            std::lround(static_cast<float>(item.y / 1e7) * 1e7));
+    }
+    env.mock->set_mission(stored);
+
+    result = mg_mission_download(env.core);
+    if (result) mg_free_string(result);
+    for (int i = 0; i < 60; ++i) env.tick(50);
+
+    result = mg_mission_doc_verify(env.core, 1.0);
+    CHECK(result && strstr(result, "\"matches\":true"),
+          "1 m tolerance ignores ArduPilot position quantization");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_verify(env.core, 0.05);
+    CHECK(result && strstr(result, "\"matches\":false"),
+          "sub-decimeter tolerance still reports the quantization");
+    if (result) mg_free_string(result);
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Simulation Tests ===\n");
+    test_verify_tolerates_position_quantization();
     MockVehicleTestEnv env;
     for (int i = 0; i < 15; ++i) env.tick(100);
 

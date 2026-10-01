@@ -250,7 +250,7 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
 
   @override
   Future<MissionVerificationResult> verifyMissionDocument({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async {
     final response =
         _readJson(_missionDocVerify(_core, toleranceMeters)) as JsonMap;
@@ -287,7 +287,7 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
 
   @override
   Future<MissionVerificationResult> verifyFence({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async {
     final response =
         _readJson(_missionDocVerifyFence(_core, toleranceMeters)) as JsonMap;
@@ -344,7 +344,7 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
 
   @override
   Future<MissionVerificationResult> verifyRally({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async {
     final response =
         _readJson(_missionDocVerifyRally(_core, toleranceMeters)) as JsonMap;

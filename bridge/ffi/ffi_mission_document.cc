@@ -19,6 +19,9 @@
 
 namespace {
 
+/// 1 度纬度约 111.32 km；用来把米制 tolerance 换算成 degE7 / 度阈值。
+constexpr double kMetersPerDegreeLatitude = 111320.0;
+
 const mg::core::mission::cad::MissionCommandDescriptor* command_descriptor(
     uint16_t command) {
     const auto& catalog = mg::core::mission::cad::mission_command_catalog();
@@ -1191,7 +1194,18 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
         if (expected.frame != actual.frame) {
             const auto normalized_actual_frame =
                 mg::core::mission::cad::normalize_mission_frame(actual.frame);
-            if (expected.frame != normalized_actual_frame) {
+            // 非位置命令（DO_/CONDITION_ 等）没有地理坐标，MAVLink frame 对它们
+            // 没有执行语义：飞控统一按 0 存，我们的文档会带上默认帧。这类差异
+            // 归一到 normalizations，和下面的 x/y 处理保持一致。
+            if (descriptor && !descriptor->requires_position &&
+                normalized_actual_frame == 0) {
+                add_normalization(
+                    index,
+                    "frame",
+                    std::to_string(expected.frame),
+                    std::to_string(actual.frame),
+                    "非位置命令的坐标帧不参与任务执行");
+            } else if (expected.frame != normalized_actual_frame) {
                 add_difference(
                     index,
                     "frame",
@@ -1224,7 +1238,24 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
         // geographic position. ArduPilot may write zero or a placeholder
         // coordinate back for those items; QGC treats them as non-coordinate
         // mission items as well.
-        if (descriptor && descriptor->requires_position && expected.x != actual.x) {
+        // 经纬度按 degE7 存储，但 ArduPilot 内部把位置存成 float 度，往返会带来
+        // 约 0.1–0.5 m 的量化误差。以前这里用整数精确比较，导致几乎每次上传都
+        // 报"坐标差异"。这里把米制 tolerance 换算成当地 degE7 阈值再比较。
+        const double expected_latitude_deg = expected.x / 1e7;
+        const double lat_tolerance_e7 =
+            tolerance > 0.0 ? tolerance / kMetersPerDegreeLatitude * 1e7 : 0.0;
+        double longitude_scale =
+            std::cos(expected_latitude_deg * 3.14159265358979323846 / 180.0);
+        if (!(longitude_scale > 0.2)) longitude_scale = 0.2;
+        const double lon_tolerance_e7 = lat_tolerance_e7 / longitude_scale;
+        const bool position_x_matches =
+            std::abs(static_cast<double>(expected.x) - actual.x) <=
+            lat_tolerance_e7;
+        const bool position_y_matches =
+            std::abs(static_cast<double>(expected.y) - actual.y) <=
+            lon_tolerance_e7;
+
+        if (descriptor && descriptor->requires_position && !position_x_matches) {
             add_difference(
                 index,
                 "x",
@@ -1238,7 +1269,7 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                 std::to_string(actual.x),
                 "非位置命令的坐标不参与任务执行");
         }
-        if (descriptor && descriptor->requires_position && expected.y != actual.y) {
+        if (descriptor && descriptor->requires_position && !position_y_matches) {
             add_difference(
                 index,
                 "y",

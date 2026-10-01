@@ -35,7 +35,7 @@ abstract interface class MissionDocumentBackend {
   Future<MissionDocument> importMissionDocumentFromVehicle();
 
   Future<MissionVerificationResult> verifyMissionDocument({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   });
 
   /// 围栏是独立的 MAVLink mission type，不随任务上传。下面这组接口与任务
@@ -48,7 +48,7 @@ abstract interface class MissionDocumentBackend {
 
   Future<MissionDocument> importFenceFromVehicle();
 
-  Future<MissionVerificationResult> verifyFence({double toleranceMeters = 0.1});
+  Future<MissionVerificationResult> verifyFence({double toleranceMeters = 1.0});
 
   Future<MissionTransferProgress> getFenceTransferProgress();
 
@@ -63,7 +63,7 @@ abstract interface class MissionDocumentBackend {
 
   Future<MissionDocument> importRallyFromVehicle();
 
-  Future<MissionVerificationResult> verifyRally({double toleranceMeters = 0.1});
+  Future<MissionVerificationResult> verifyRally({double toleranceMeters = 1.0});
 
   Future<MissionTransferProgress> getRallyTransferProgress();
 

@@ -127,7 +127,7 @@ final class MissionDocumentController extends ChangeNotifier {
 
   /// 上传后必须回读核对；一次上传返回只代表传输已开始。
   Future<MissionVerificationResult?> upload({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async {
     final current = document;
     if (current == null) {
@@ -209,7 +209,7 @@ final class MissionDocumentController extends ChangeNotifier {
   }
 
   Future<MissionVerificationResult> verify({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async {
     MissionVerificationResult? result;
     await _run('正在核对飞控任务…', rethrowErrors: true, () async {
@@ -223,7 +223,7 @@ final class MissionDocumentController extends ChangeNotifier {
 
   /// 下发围栏：上传 → 等待 → 回读 → 核对。围栏是独立 mission type，不随任务上传。
   Future<MissionVerificationResult?> uploadFence({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async {
     final current = document;
     if (current == null) throw StateError('任务文档尚未初始化');
@@ -259,7 +259,7 @@ final class MissionDocumentController extends ChangeNotifier {
       });
 
   Future<MissionVerificationResult> verifyFence({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async {
     MissionVerificationResult? result;
     await _run('正在核对飞控围栏…', rethrowErrors: true, () async {
@@ -280,7 +280,7 @@ final class MissionDocumentController extends ChangeNotifier {
 
   /// 下发 Rally 点：上传 → 等待 → 回读 → 核对。
   Future<MissionVerificationResult?> uploadRally({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async {
     final current = document;
     if (current == null) throw StateError('任务文档尚未初始化');
@@ -315,7 +315,7 @@ final class MissionDocumentController extends ChangeNotifier {
       });
 
   Future<MissionVerificationResult> verifyRally({
-    double toleranceMeters = 0.1,
+    double toleranceMeters = 1.0,
   }) async {
     MissionVerificationResult? result;
     await _run('正在核对飞控 Rally 点…', rethrowErrors: true, () async {
