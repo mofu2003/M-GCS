@@ -31,10 +31,10 @@ bash tools/audit_status.sh
 
 | 项目 | 数量 |
 | --- | ---: |
-| FFI exports | 288 |
+| FFI exports | 298 |
 | Flutter 使用 | 65 |
-| 测试触达 | 202 |
-| 前端和测试都未触达 | 84 |
+| 测试触达 | 214 |
+| 前端和测试都未触达 | 83 |
 
 这些数字必须由 `tools/audit_status.sh` 生成，不手工维护。无人区不等于可删除，公开
 兼容 ABI 仍需遵守 API Catalog 的冻结规则。
@@ -120,8 +120,7 @@ bash tools/audit_status.sh
 - `COMPLEX-001`：QGC ComplexItem（Survey、CorridorScan 等）提升为正式
   `MissionComplexItem` 模型，保存 `id`、`item_type` 和原始 JSON，`.plan` 往返无损；
   新增 `entity_insert_index` 后导出时与普通航点按原顺序交错；内部字段目前只读，
-  暂不语义化编辑，校验层以 `complex_item.unsupported` 错误阻断编译/上传，避免静默
-  丢弃复杂项。
+  暂不语义化编辑。最初的“一律阻断上传”策略已由 `COMPLEX-002` 收窄。
 - `COMPLEX-002`：复用 QGC 存在 `TransectStyleComplexItem.Items` 里的已算好任务项，
   `expand_complex_item_entities` / `expand_document_entities` 在编译和估算时按
   `entity_insert_index` 展开复杂项，含可展开复杂项的任务可正常校验/编译/上传；
@@ -130,6 +129,16 @@ bash tools/audit_status.sh
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项
+
+本节的判定口径与“能不能停”见 [完成定义与后端维护收口](DEFINITION_OF_DONE.md)。
+概览：
+
+| 条目 | 性质 | 说明 |
+| --- | --- | --- |
+| `PARAM-002` | 产品决策 | 未确定覆盖率阈值，无阈值则无终止点 |
+| `DEAD-001` | 产品决策 | 固件刷写需确认做或标为 out of scope |
+| `VIDEO-001` | 环境阻塞 | 本机无 FFmpeg 开发环境，改动无法编译验证 |
+| `UI-001` / `UI-002` | 前端 | 后端接口已就绪，属 `flutter_shell` 工作 |
 
 ### `UI-001`：聚合诊断尚未接入 Flutter
 
@@ -152,22 +161,35 @@ state/error 历史。前端后续可统一消费同一套 operation 状态。
 Rover/Sub/Tracker profile 标识。任务领域中 Rally、GeoFence 和 ComplexItem 均已
 正式建模；ComplexItem 内部字段仍为只读保留。
 
+**阻塞**：这是无边界加深项，需要先确定覆盖率阈值才能判定完成；在阈值确定前不应
+继续扩大投入。
+
 ### `DEAD-001`：固件刷写占位
 
 `FirmwareFlasher` 仍是未接通的占位实现；`mg_firmware_flash` 诚实返回 not supported。
 除非要实现完整下载和 bootloader 流程，否则不只改状态接口。
+
+**阻塞**：属于产品取舍。要么计划实现完整流程，要么明确标为 out of scope 并关闭该条。
 
 ### `VIDEO-001`：FFmpeg 回调并发风险
 
 启用 FFmpeg 时，`FFmpegDecoder` 的 frame callback 需要进一步做并发保护；当前默认构建
 未启用 FFmpeg，因此尚未改动和验证。
 
+**阻塞**：本机没有 FFmpeg 开发环境，改动无法编译与运行验证；需要先具备验证条件。
+
 ### 任务规划边界
 
 `.waypoints` 与 QGC `.plan` 的任务文件互操作已可用：`.plan` 支持普通 SimpleItem、
-Home、默认速度和固件/机型元数据，并对复杂项、非空 GeoFence/Rally 和无法无损表达
-的字段返回明确错误或 warnings。地理围栏/Rally 的统一文档仍未实现；任务规划页面已
-接入回读验证、脏状态提示、校验诊断定位、地图/列表选中和拖动排序。
+Home、默认速度和固件/机型元数据；ComplexItem、GeoFence、Rally 均已进入正式文档模型
+并往返无损。ComplexItem 复用 QGC 存入的 `TransectStyleComplexItem.Items` 展开参与
+编译/估算/上传，缺少该区段的复杂项仍以 `complex_item.unsupported` 阻断。GeoFence 与
+Rally 按 QGC 编码编译，可上传、下载、回读文档并 verify（`mg_mission_doc_*_fence` /
+`*_rally`）。无法无损表达的字段返回明确错误或 warnings。
+
+仍未实现：在 M-GCS 内编辑 ComplexItem 内部字段（几何来自 QGC，当前只读），以及
+围栏/Rally/ComplexItem 的统一编辑工作流。任务规划页面已接入回读验证、脏状态提示、
+校验诊断定位、地图/列表选中和拖动排序。
 
 ### `REFACTOR-001` 已完成
 

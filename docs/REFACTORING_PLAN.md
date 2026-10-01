@@ -154,6 +154,10 @@ breach-return 点及高度），区分于阻断上传的复杂项：围栏/Rally
 不再自己重算 Survey 几何；`expand_document_entities` 让编译/估算按插入位置展开复杂项，
 `complex_item.unsupported` 收窄为“确实无法展开”的情况。
 
+阶段 E 至此收口：后端维护循环的退出条件（复杂任务可编译、围栏/Rally 闭环）已达成，
+剩余项属于产品决策（参数阈值、固件刷写取舍）、环境阻塞（FFmpeg 并发）或前端/真机
+工作。判定口径见 [完成定义与后端维护收口](DEFINITION_OF_DONE.md)。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

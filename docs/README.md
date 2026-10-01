@@ -23,14 +23,15 @@ M-GCS 的文档分为三类：
 10. [协作流程](COLLABORATION.md)：任务卡、worktree、独占资源和预检。
 11. [FFI API Catalog](../bridge/ffi/API_CATALOG.md)：稳定 ABI、兼容入口和错误语义。
 12. [现状审计](STATUS_AUDIT.md)：当前事实、已修复问题和剩余风险。
-13. [后续发展计划](DEVELOPMENT_ROADMAP.md)：与 MP/QGC 的取舍、阶段路线、依赖和验收条件。
-14. [QGC/MP 可借鉴项对照](QGC_MP_BACKPORT_MAP.md)：按 A-D 阶段列出可复用模块；
+13. [完成定义与后端维护收口](DEFINITION_OF_DONE.md)：什么算“做完”，后端维护循环的退出条件与剩余阻塞。
+14. [后续发展计划](DEVELOPMENT_ROADMAP.md)：与 MP/QGC 的取舍、阶段路线、依赖和验收条件。
+15. [QGC/MP 可借鉴项对照](QGC_MP_BACKPORT_MAP.md)：按 A-D 阶段列出可复用模块；
     E 是依赖前四阶段的 0.1.0 产品化门槛，不单独列上游复用项。
-15. [MP / QGC 上游实现择优准则](UPSTREAM_CODE_SELECTION.md)：按模块选择质量更高的上游实现，不按项目整体站队。
-16. [QGC 代码质量审计](QGC_CODE_QUALITY_AUDIT.md)：M-GCS 与 QGC 的评分、差距和逐步替换策略。
-17. [分阶段重构计划](REFACTORING_PLAN.md)：执行中的模块拆分、版本里程碑和验收条件。
-18. [架构图](architecture-diagrams.html)：当前结构和门禁基线的可视化总览。
-19. [ADR 0009：混合上游实现策略](adr/0009-hybrid-upstream-implementation-strategy.md)：MP、QGC、官方 MAVLink 和 M-GCS 边界的组合规则。
+16. [MP / QGC 上游实现择优准则](UPSTREAM_CODE_SELECTION.md)：按模块选择质量更高的上游实现，不按项目整体站队。
+17. [QGC 代码质量审计](QGC_CODE_QUALITY_AUDIT.md)：M-GCS 与 QGC 的评分、差距和逐步替换策略。
+18. [分阶段重构计划](REFACTORING_PLAN.md)：执行中的模块拆分、版本里程碑和验收条件。
+19. [架构图](architecture-diagrams.html)：当前结构和门禁基线的可视化总览。
+20. [ADR 0009：混合上游实现策略](adr/0009-hybrid-upstream-implementation-strategy.md)：MP、QGC、官方 MAVLink 和 M-GCS 边界的组合规则。
 
 ## 研究参考
 

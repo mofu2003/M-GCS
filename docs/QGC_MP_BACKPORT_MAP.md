@@ -31,10 +31,10 @@ Flutter 或 Core 边界。
 | M-GCS 方向 | QGC 参考 | MP 参考 | 建议 |
 | --- | --- | --- | --- |
 | QGC `.plan` 文件 | `MissionManager/MissionController.cc` 的 `load/save`、`PlanMasterController`、`MissionItem.cc`、`ComplexMissionItem` | `.waypoints` 读写 | 已完成 SimpleItem、旧 `coordinate`、`ComplexItem`、`geoFence`、`rallyPoints` 的文件结构映射 |
-| Survey / Corridor | `SurveyComplexItem`、`CorridorScanComplexItem`、`TransectStyleComplexItem`、`SurveyPlanCreator` | Grid / Survey 计算逻辑 | 当前 M-GCS 有自有 survey/corridor；后续参数命名、相机和重叠率字段优先按 QGC 对齐 |
-| GeoFence | `GeoFenceManager`、`GeoFenceController`、`GeoFenceMapVisuals.qml` | MP Fence 配置与任务编辑 | 当前只做非空拒绝；下一步建立 M-GCS Fence 文档模型、polygon/circle 类型、capability 和文件格式 |
-| Rally Points | `RallyPointManager`、`RallyPointController`、`RallyPointMapVisuals.qml` | MP Rally/集结点流程 | 建立 Rally 独立实体、读写能力、确认和任务文件共存关系，不硬塞进普通 waypoint 列表 |
-| 任务文件无损失往返 | QGC `PlanMasterController` 的 mission/geoFence/rally 组合文件 | MP `.waypoints`、任务保存/读取 | M-GCS 文档已增加正式 fence/rally/complexItem 容器字段；ComplexItem 内部字段仍只读，未知复杂项会明确告警 |
+| Survey / Corridor | `SurveyComplexItem`、`CorridorScanComplexItem`、`TransectStyleComplexItem`、`SurveyPlanCreator` | Grid / Survey 计算逻辑 | M-GCS 既有自有 survey/corridor；QGC ComplexItem 的展开直接复用其存入的 `TransectStyleComplexItem.Items`，不再自己重推几何。后续参数命名、相机和重叠率字段继续按 QGC 对齐 |
+| GeoFence | `GeoFenceManager`、`GeoFenceController`、`GeoFenceMapVisuals.qml` | MP Fence 配置与任务编辑 | 已完成 Fence 文档模型（polygon/circle/inclusion/breach-return）、几何校验、按 QGC 编码的编译/上传/下载/回读/verify |
+| Rally Points | `RallyPointManager`、`RallyPointController`、`RallyPointMapVisuals.qml` | MP Rally/集结点流程 | 已完成 Rally 独立模型、读写、编译/上传/下载/回读/verify，不硬塞进普通 waypoint 列表 |
+| 任务文件无损失往返 | QGC `PlanMasterController` 的 mission/geoFence/rally 组合文件 | MP `.waypoints`、任务保存/读取 | M-GCS 文档已有正式 fence/rally/complexItem 容器字段；ComplexItem 可展开参与编译（几何来自 QGC，内部字段仍只读），无法展开的复杂项会明确告警 |
 
 ## C：诊断、长任务和参数可追踪
 
@@ -58,8 +58,8 @@ Flutter 或 Core 边界。
 ## 推荐优先级
 
 1. **参数和任务错误语义**：先对齐 QGC 的 ACK/超时/拒绝/取消错误文本和终态，不改外部 FFI 名称。
-2. **QGC `.plan` 完整格式**：ComplexItem、GeoFence、Rally 已无损保留（ComplexItem 内部字段仍只读）。
-3. **Fence/Rally 文档模型**：独立于 waypoint，避免继续用普通航点模拟。
+2. **QGC `.plan` 完整格式**：ComplexItem、GeoFence、Rally 已无损保留并可参与编译/上传/回读/verify（ComplexItem 内部字段仍只读）。
+3. **Fence/Rally 文档模型**：已完成，独立于 waypoint，不再用普通航点模拟。
 4. **Android USB 真机**：权限、attach/detach、USB 重连、任务/参数/校准流程验收。
 5. **Windows/Linux 真机**：串口、断线重连、参数和任务上传下载。
 

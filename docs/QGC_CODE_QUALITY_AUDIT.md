@@ -39,8 +39,10 @@ QGC 在本文涉及的多数通用架构和任务系统中领先，但 ArduPilot
 当前基线为 `0.0.53`。Flutter 领域 FFI 适配器和 MAVLink adapter 内部职责已经拆分
 完成，参数写入和批量刷新具备校验、拒绝、重试、状态跟踪、版本重映射（含前缀）、
 canonical 覆盖率报告和多机型 profile 标识；QGC ComplexItem、GeoFence 和 Rally 均已
-正式建模，ComplexItem 内部字段仍为只读保留。任务真实编辑模型、参数页深度、链路和
-平台覆盖仍是主要差距。
+正式建模并接入编译/上传/回读/verify（ComplexItem 复用 QGC 存入的
+`TransectStyleComplexItem.Items` 展开，内部字段仍只读）。任务真实编辑模型、
+参数页深度、链路和平台覆盖仍是主要差距。收口判定见
+[完成定义与后端维护收口](DEFINITION_OF_DONE.md)。
 
 ## 评分
 
@@ -157,11 +159,14 @@ QGC 和 MP 都是 GPL 系项目，M-GCS 当前是 MIT。因此“参考和替换
 
 ## 推荐下一步
 
-1. 完成任务错误结果、参数状态和日志/校准错误语义对齐。
+1. 完成任务错误结果、参数状态和日志/校准错误语义对齐（进行中）。
 2. 完成 QGC `.plan` 的 ComplexItem、GeoFence、Rally 无损保留（已完成）。
 3. 建立 Fence/Rally/ComplexItem 独立文档模型，接入现有 mission document 和 FFI
-   （已完成，ComplexItem 内部字段仍只读）。
-4. 按 QGC AndroidSerial 结构完成 Android 权限、设备发现、拔插和重连验收。
-5. 用同一套审计方法检查 Windows/Linux 串口链路。
+   （已完成；ComplexItem 可展开参与编译，内部字段仍只读）。
+4. 按 QGC AndroidSerial 结构完成 Android 权限、设备发现、拔插和重连验收（需要设备）。
+5. 用同一套审计方法检查 Windows/Linux 串口链路（需要设备）。
+
+后端侧剩余项（参数阈值、固件刷写取舍、FFmpeg 并发）与阻塞原因见
+[完成定义与后端维护收口](DEFINITION_OF_DONE.md)。
 
 关联文档：[QGC / MP 可借鉴项对照表](QGC_MP_BACKPORT_MAP.md)、[后续发展计划](DEVELOPMENT_ROADMAP.md)。

@@ -29,6 +29,9 @@ third_party/          MAVLink 定义、cJSON 等第三方源码
 - Flutter 地图、Home/飞机标记、引导操作、任务规划面板、配置和校准页面。
 - 统一 MiSans 字体、macOS 风格组件和设计 token 检查。
 
+维护状态和“什么算做完”见 [完成定义与后端维护收口](docs/DEFINITION_OF_DONE.md)
+与 [当前状态审计](docs/STATUS_AUDIT.md)。
+
 ## 快速验证
 
 第一次构建先生成 MAVLink 头：

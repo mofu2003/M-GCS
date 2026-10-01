@@ -8,6 +8,10 @@
 - 默认预检：`tools/preflight.sh`。
 - 当前已复核门禁：后端 `35/35`、Flutter `20/20`、UI token 和 macOS debug 构建通过。
 
+判断“还有多少没做完”时，先看
+[完成定义与后端维护收口](DEFINITION_OF_DONE.md) 和
+[现状审计](STATUS_AUDIT.md) 的“当前剩余项”，不要凭感觉继续扩大范围。
+
 ## 上游实现策略
 
 M-GCS 采用“MP 负责 ArduPilot 语义、QGC 负责通用框架、官方 MAVLink 负责协议”的组合策略：
