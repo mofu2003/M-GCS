@@ -26,6 +26,7 @@
 
 - `src/mavlink/mavlink_adapter.cc`
 - `src/mavlink/mavlink_adapter_handlers.cc`
+- `src/mavlink/mavlink_adapter_mission.cc`
 - `src/mavlink/mavlink_senders.cc`
 - `src/mavlink/mavlink_adapter_internal.h`
 - `src/mavlink/command_queue.cc`

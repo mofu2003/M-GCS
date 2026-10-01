@@ -34,6 +34,7 @@
 - `0.0.20` 到 `0.0.24`：Flutter 控制器拆出任务、遥测、参数、校准和飞行命令适配器。
 - `0.0.25`：MAVLink adapter 状态容器拆出 `mavlink_adapter_state.h`。
 - `0.0.26`：30 个消息处理器拆出 `mavlink_adapter_handlers.cc`。
+- `0.0.27`：任务协议和发送辅助函数拆出 `mavlink_adapter_mission.cc`。
 
 ## 后续里程碑
 
@@ -63,10 +64,10 @@ Servo/RC、系统状态和 freshness 的状态仍由 `ConnectionController` 管�
 RTL、降落、起飞、解锁、模式切换、任务启动、引导点、暂停、环绕和设置 Home 的安全
 门控及状态确认仍由 `ConnectionController` 管理。
 
-第二阶段 C 已开始并发布到 `0.0.26`：`mavlink_adapter_state.h` 已拆出遥测、链路质量、
-日志下载和 Command ACK 等待状态，`mavlink_adapter_handlers.cc` 已承接 30 个消息处理器。
-`mavlink_adapter_internal.h` 继续逐步释放任务协议、参数协议、命令和日志处理的实现
-职责，每个切片独立通过门禁。
+第二阶段 C 已开始并发布到 `0.0.27`：`mavlink_adapter_state.h` 已拆出遥测、链路质量、
+日志下载和 Command ACK 等待状态，`mavlink_adapter_handlers.cc` 已承接 30 个消息处理器，
+`mavlink_adapter_mission.cc` 已承接任务协议。`mavlink_adapter_internal.h` 继续逐步释放
+参数协议、命令和日志处理的实现职责，每个切片独立通过门禁。
 
 ## 首轮结果
 

@@ -246,7 +246,6 @@ struct MavlinkAdapter::Impl {
     // 处理扩展系统状态
     void handle_extended_sys_state(const mavlink_message_t& m);
 
-
     // 处理振动数据
     void handle_vibration(const mavlink_message_t& m);
 
@@ -283,205 +282,32 @@ struct MavlinkAdapter::Impl {
     // ================================================================
 
     // 按 mission_type 选择对应的传输状态（委托 mission_transfer.h 自由函数）
-    MissionTransferState& select_transfer(uint8_t mission_type) {
-        return mg::core::mavlink::select_transfer(mission, rally, fence, mission_type);
-    }
+    MissionTransferState& select_transfer(uint8_t mission_type);
 
     // 查找当前正在上传的传输状态（委托 mission_transfer.h 自由函数）
-    MissionTransferState* find_uploading() {
-        return mg::core::mavlink::find_uploading(mission, rally, fence);
-    }
+    MissionTransferState* find_uploading();
 
     // 处理任务计数消息（开始下载）
-    void handle_mission_count(const mavlink_message_t& m) {
-        mavlink_mission_count_t mc;
-        mavlink_msg_mission_count_decode(&m, &mc);
-
-        auto& state = select_transfer(mc.mission_type);
-        state.record_recv();
-        state.download_total = mc.count;
-        state.download_seq = 0;
-        state.plan.items.clear();
-        ++state.plan_revision;
-        state.plan.items.reserve(mc.count);
-        state.progress = mg::core::mission::MissionTransferProgress{};
-        state.progress.state = mg::core::mission::MissionState::Downloading;
-        state.progress.total = mc.count;
-        state.progress.received = 0;
-
-        if (mc.count == 0) {
-            state.progress.state = mg::core::mission::MissionState::Idle;
-            state.plan.valid = true;
-            state.last_completed_download_revision = state.plan_revision;
-            ++state.completed_download_count;
-        } else {
-            send_mission_request_int(m.sysid, m.compid, 0);
-            state.record_send(m.sysid, m.compid, [this, &state, sys = m.sysid, comp = m.compid]() {
-                send_mission_request_int(sys, comp, state.download_seq);
-            });
-        }
-    }
+    void handle_mission_count(const mavlink_message_t& m);
 
     // 处理任务项（INT 格式，用于下载接收）
-    void handle_mission_item_int(const mavlink_message_t& m) {
-        mavlink_mission_item_int_t mi;
-        mavlink_msg_mission_item_int_decode(&m, &mi);
-
-        mg::core::mission::MissionItem item{};
-        item.seq = mi.seq;
-        item.frame = mi.frame;
-        item.command = mi.command;
-        item.current = mi.current;
-        item.autocontinue = mi.autocontinue;
-        item.param1 = mi.param1;
-        item.param2 = mi.param2;
-        item.param3 = mi.param3;
-        item.param4 = mi.param4;
-        item.x = mi.x;
-        item.y = mi.y;
-        item.z = mi.z;
-        item.mission_type = mi.mission_type;
-
-        auto& state = select_transfer(mi.mission_type);
-        if (mi.seq >= state.plan.items.size()) {
-            state.plan.items.resize(mi.seq + 1);
-        }
-        state.plan.items[mi.seq] = item;
-        ++state.plan_revision;
-        state.download_seq = mi.seq + 1;
-        state.progress.received = state.download_seq;
-        state.record_recv();
-
-        if (state.download_seq < state.download_total) {
-            send_mission_request_int(m.sysid, m.compid, state.download_seq);
-            state.record_send(m.sysid, m.compid, [this, &state, sys = m.sysid, comp = m.compid]() {
-                send_mission_request_int(sys, comp, state.download_seq);
-            });
-        } else {
-            state.plan.valid = true;
-            state.last_completed_download_revision = state.plan_revision;
-            ++state.completed_download_count;
-            send_mission_ack(m.sysid, m.compid, MAV_MISSION_ACCEPTED);
-            state.progress.state = mg::core::mission::MissionState::Idle;
-            state.resend_fn = nullptr;
-        }
-    }
+    void handle_mission_item_int(const mavlink_message_t& m);
 
     // 处理旧版任务项（浮点格式，用于兼容下载接收）
-    void handle_mission_item(const mavlink_message_t& m) {
-        mavlink_mission_item_t mi;
-        mavlink_msg_mission_item_decode(&m, &mi);
+    void handle_mission_item(const mavlink_message_t& m);
 
-        mg::core::mission::MissionItem item{};
-        item.seq = mi.seq;
-        item.frame = mi.frame;
-        item.command = mi.command;
-        item.current = mi.current;
-        item.autocontinue = mi.autocontinue;
-        item.param1 = mi.param1;
-        item.param2 = mi.param2;
-        item.param3 = mi.param3;
-        item.param4 = mi.param4;
-        if (mi.frame == MAV_FRAME_GLOBAL ||
-            mi.frame == MAV_FRAME_GLOBAL_RELATIVE_ALT ||
-            mi.frame == MAV_FRAME_GLOBAL_TERRAIN_ALT) {
-            item.x = static_cast<int32_t>(mi.x * 1e7f);
-            item.y = static_cast<int32_t>(mi.y * 1e7f);
-        } else {
-            item.x = static_cast<int32_t>(mi.x);
-            item.y = static_cast<int32_t>(mi.y);
-        }
-        item.z = mi.z;
-        item.mission_type = mi.mission_type;
-
-        auto& state = select_transfer(mi.mission_type);
-        if (mi.seq >= state.plan.items.size()) {
-            state.plan.items.resize(mi.seq + 1);
-        }
-        state.plan.items[mi.seq] = item;
-        ++state.plan_revision;
-        state.download_seq = mi.seq + 1;
-        state.progress.received = state.download_seq;
-        state.record_recv();
-
-        if (state.download_seq < state.download_total) {
-            send_mission_request_int(m.sysid, m.compid, state.download_seq);
-            state.record_send(m.sysid, m.compid, [this, &state, sys = m.sysid, comp = m.compid]() {
-                send_mission_request_int(sys, comp, state.download_seq);
-            });
-        } else {
-            state.plan.valid = true;
-            state.last_completed_download_revision = state.plan_revision;
-            ++state.completed_download_count;
-            send_mission_ack(m.sysid, m.compid, MAV_MISSION_ACCEPTED);
-            state.progress.state = mg::core::mission::MissionState::Idle;
-            state.resend_fn = nullptr;
-        }
-    }
-
-    void mark_mission_item_sent(MissionTransferState& state, uint16_t seq) {
-        state.upload_seq = seq + 1;
-        state.progress.sent = state.upload_seq;
-    }
+    void mark_mission_item_sent(MissionTransferState& state, uint16_t seq);
 
     // 处理任务请求（INT 格式，用于上传响应）
-    void handle_mission_request_int(const mavlink_message_t& m) {
-        mavlink_mission_request_int_t mr;
-        mavlink_msg_mission_request_int_decode(&m, &mr);
-
-        auto* state = find_uploading();
-        if (!state || mr.seq >= state->upload_total) return;
-
-        state->record_recv();
-        auto item = state->plan.items[mr.seq];
-        send_mission_item_int(m.sysid, m.compid, item);
-        mark_mission_item_sent(*state, mr.seq);
-        state->record_send(m.sysid, m.compid, [this, sys = m.sysid, comp = m.compid, item]() {
-            send_mission_item_int(sys, comp, item);
-        });
-    }
+    void handle_mission_request_int(const mavlink_message_t& m);
 
     // 处理旧版任务请求（非 INT 格式，用旧版 MISSION_ITEM 回复）
-    void handle_mission_request(const mavlink_message_t& m) {
-        mavlink_mission_request_t mr;
-        mavlink_msg_mission_request_decode(&m, &mr);
-
-        auto* state = find_uploading();
-        if (!state || mr.seq >= state->upload_total) return;
-
-        state->record_recv();
-        auto item = state->plan.items[mr.seq];
-        send_mission_item(m.sysid, m.compid, item);
-        mark_mission_item_sent(*state, mr.seq);
-        state->record_send(m.sysid, m.compid, [this, sys = m.sysid, comp = m.compid, item]() {
-            send_mission_item(sys, comp, item);
-        });
-    }
+    void handle_mission_request(const mavlink_message_t& m);
 
     // 处理任务确认消息
-    void handle_mission_ack(const mavlink_message_t& m) {
-        mavlink_mission_ack_t ack;
-        mavlink_msg_mission_ack_decode(&m, &ack);
+    void handle_mission_ack(const mavlink_message_t& m);
 
-        auto& state = select_transfer(ack.mission_type);
-        state.record_recv();
-        state.resend_fn = nullptr;
-        state.progress.result = ack.type;
-        state.progress.state = mg::core::mission::MissionState::Idle;
 
-        if (ack.type == MAV_MISSION_ACCEPTED) {
-            if (state.progress.received > 0 || state.progress.sent >= state.progress.total) {
-                state.plan.valid = true;
-            }
-        } else {
-            const char* label = (ack.mission_type == MAV_MISSION_TYPE_RALLY) ? "Rally" :
-                                (ack.mission_type == MAV_MISSION_TYPE_FENCE) ? "Fence" : "Task";
-            state.progress.error =
-                std::string(label) + " rejected: " +
-                mg::core::mission::mission_result_message(ack.type);
-        }
-    }
-    
     // 处理日志条目列表
     void handle_log_entry(const mavlink_message_t& m) {
         mavlink_log_entry_t le;
@@ -564,69 +390,27 @@ struct MavlinkAdapter::Impl {
     }
 
     // 处理当前任务航点
-    void handle_mission_current(const mavlink_message_t& m) {
-        mavlink_mission_current_t mc;
-        mavlink_msg_mission_current_decode(&m, &mc);
-        mission.plan.current_index = mc.seq;
-    }
-    
+    void handle_mission_current(const mavlink_message_t& m);
+
+
     // 处理任务航点到达通知
-    void handle_mission_item_reached(const mavlink_message_t& m) {
-        mavlink_mission_item_reached_t mr;
-        mavlink_msg_mission_item_reached_decode(&m, &mr);
-        if (tel.mission_reached_cb) deferred_cbs.push_back([cb = tel.mission_reached_cb, seq = mr.seq]() { cb(seq); });
-    }
-    
+    void handle_mission_item_reached(const mavlink_message_t& m);
+
+
     // 任务发送辅助函数
     // 请求下载下一个任务项
-    bool send_mission_request_int(uint8_t sysid, uint8_t compid, uint16_t seq) {
-        mavlink_msg_mission_request_int_pack(
-            255, 0, &msg,
-            sysid, compid, seq, 0);
-        return send_msg();
-    }
-    
+    bool send_mission_request_int(uint8_t sysid, uint8_t compid, uint16_t seq);
+
+
     // 发送任务确认
-    bool send_mission_ack(uint8_t sysid, uint8_t compid, uint8_t type) {
-        mavlink_msg_mission_ack_pack(
-            255, 0, &msg,
-            sysid, compid, type, 0, 0);
-        return send_msg();
-    }
-    
+    bool send_mission_ack(uint8_t sysid, uint8_t compid, uint8_t type);
+
+
     // 发送任务项（INT 格式）
-    bool send_mission_item_int(uint8_t sysid, uint8_t compid, const mg::core::mission::MissionItem& item) {
-        mavlink_msg_mission_item_int_pack(
-            255, 0, &msg,
-            sysid, compid,
-            item.seq, item.frame, item.command,
-            item.current, item.autocontinue,
-            item.param1, item.param2, item.param3, item.param4,
-            item.x, item.y, item.z,
-            item.mission_type);
-        return send_msg();
-    }
+    bool send_mission_item_int(uint8_t sysid, uint8_t compid, const mg::core::mission::MissionItem& item);
 
     // 发送任务项（旧版浮点格式），用于兼容只请求 MISSION_ITEM 的飞控。
-    bool send_mission_item(uint8_t sysid, uint8_t compid, const mg::core::mission::MissionItem& item) {
-        float x = static_cast<float>(item.x);
-        float y = static_cast<float>(item.y);
-        if (item.frame == MAV_FRAME_GLOBAL ||
-            item.frame == MAV_FRAME_GLOBAL_RELATIVE_ALT ||
-            item.frame == MAV_FRAME_GLOBAL_TERRAIN_ALT) {
-            x = static_cast<float>(static_cast<double>(item.x) / 1e7);
-            y = static_cast<float>(static_cast<double>(item.y) / 1e7);
-        }
-        mavlink_msg_mission_item_pack(
-            255, 0, &msg,
-            sysid, compid,
-            item.seq, item.frame, item.command,
-            item.current, item.autocontinue,
-            item.param1, item.param2, item.param3, item.param4,
-            x, y, item.z,
-            item.mission_type);
-        return send_msg();
-    }
+    bool send_mission_item(uint8_t sysid, uint8_t compid, const mg::core::mission::MissionItem& item);
 
     // 发送 PARAM_REQUEST_READ（按索引请求单个参数）
     bool send_param_request_read_by_index(uint8_t sysid, uint8_t compid, int16_t param_index) {

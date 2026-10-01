@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>M-GCS 架构图（v0.0.26）</title>
+<title>M-GCS 架构图（v0.0.27）</title>
 <style>
   :root{
     --bg:#f6f7f9;
@@ -120,7 +120,7 @@
 
 <h1>M-GCS 架构图</h1>
 <div class="sub">
-  版本 v0.0.26 · 更新于 2026-10-01 ·
+  版本 v0.0.27 · 更新于 2026-10-01 ·
   结构说明以本文为准，精确行数和消费统计用 <code>tools/audit_status.sh</code> 复核
 </div>
 
@@ -166,7 +166,7 @@
     <div class="layer l-core">
       <h3>③ 领域层 · C++17 Core <span class="path">core/</span></h3>
       <p class="desc">协议解析、连接生命周期、安全敏感命令、任务/参数传输、遥测缓存、校准、固件适配。
-      <b>61 个实现文件 ≈ 17,639 行</b>，72 个公开头文件。不得依赖任何 UI 框架。</p>
+      <b>62 个实现文件 ≈ 17,902 行</b>，72 个公开头文件。不得依赖任何 UI 框架。</p>
       <div class="kpi">
         <span>transport · mavlink · vehicle · mission · calibration</span>
         <span>firmware · telemetry · config · geofence · ftp · log</span>
@@ -456,8 +456,9 @@
     <div class="box">
       <div class="t">协议层 · <code>MavlinkAdapter</code></div>
       <div class="m">
-        <code>mavlink_adapter.cc</code> 625 + <code>internal.h</code> 769 + <code>state.h</code> 180<br>
+        <code>mavlink_adapter.cc</code> 625 + <code>internal.h</code> 553 + <code>state.h</code> 180<br>
         <code>mavlink_adapter_handlers.cc</code> 632 —— 30 个消息处理器<br>
+        <code>mavlink_adapter_mission.cc</code> 263 —— 任务协议与发送辅助函数<br>
         <code>mavlink_senders.cc</code> 1,035<br>
         <code>command_queue</code> 95（ACK 超时重发）<br>
         <code>param_cache</code> 263 · <code>mission_transfer</code> 63
@@ -551,11 +552,11 @@
   <div style="display:flex;flex-wrap:wrap;gap:4px 22px">
     <span>编写：<b style="font-weight:600">WorkBuddy（AI 助手）</b></span>
     <span>日期：<b style="font-weight:600">2026-09-30</b></span>
-    <span>依据版本：tag <code>v0.0.26</code></span>
+    <span>依据版本：tag <code>v0.0.27</code></span>
     <span>复核状态：<b style="font-weight:600;color:var(--ok)">本地门禁已通过</b></span>
   </div>
   <div style="margin-top:6px">
-    数据来源：本仓库 v0.0.26 实测统计，门禁状态为 2026-10-01 本机运行结果
+    数据来源：本仓库 v0.0.27 实测统计，门禁状态为 2026-10-01 本机运行结果
     （<code>ctest</code> 34/34、<code>flutter analyze</code> 无告警、<code>flutter test</code> 20/20）。
     本文件为人工可读的图，权威文字描述仍以
     <code>docs/ARCHITECTURE.md</code> 与 <code>bridge/ffi/API_CATALOG.md</code> 为准；

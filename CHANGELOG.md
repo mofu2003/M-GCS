@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.27 - 2026-10-01
+
+### Changed
+
+- 完成第二阶段 C 的第三项 MAVLink 内部拆分：新增
+  `core/src/mavlink/mavlink_adapter_mission.cc`，将任务计数、任务项、任务请求、任务
+  ACK、当前航点和到达通知，以及任务发送辅助函数共 15 个方法移出头文件。
+- `mavlink_adapter_internal.h` 从 769 行降到 553 行；`process()` 的锁范围、消息顺序、
+  任务超时检查和延迟回调执行位置未改变，任务上传/下载和 FFI 行为保持不变。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.26 - 2026-10-01
 
 ### Changed
