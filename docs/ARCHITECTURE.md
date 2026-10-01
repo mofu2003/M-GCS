@@ -33,12 +33,13 @@ ILink
 
 `ConnectionManager` 管理链路打开、等待心跳、已连接、断链和清理；
 `MavlinkAdapter` 隔离生成的 MAVLink 头；`mavlink_adapter_state.h` 单独承载遥测、
-链路质量、日志下载和 ACK 等待状态；`CommandQueue` 负责命令 ACK、超时和重试；
+链路质量、日志下载和 ACK 等待状态；`mavlink_adapter_handlers.cc` 承载当前已迁出的
+消息处理器；`CommandQueue` 负责命令 ACK、超时和重试；
 `ParamCache`、`MissionTransfer` 和 `MavlinkFtpClient` 分别负责参数、任务和文件传输。
 
-`MavlinkAdapter::Impl` 仍在继续拆分。当前先冻结公共 FFI 和消息语义，再逐步把
-遥测处理、任务协议、参数协议、命令和日志处理移出内部头文件；这是一项内部重构，
-不改变生成代码、JSON、发送顺序或回调时序。
+`MavlinkAdapter::Impl` 仍在继续拆分。当前先冻结公共 FFI 和消息语义，再逐步把任务
+协议、参数协议、命令和日志处理移出内部头文件；这是一项内部重构，不改变生成代码、
+JSON、发送顺序或回调时序。
 
 ### Vehicle
 

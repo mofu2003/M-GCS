@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.26 - 2026-10-01
+
+### Changed
+
+- 完成第二阶段 C 的第二项 MAVLink 内部拆分：新增
+  `core/src/mavlink/mavlink_adapter_handlers.cc`，将心跳、系统状态、GPS、IMU、姿态、
+  VFR HUD、参数值、命令 ACK、校准进度、RC、Servo、位置、电池、振动、ESC、ADS-B、
+  视频流以及相机/云台共 30 个消息处理器移出头文件。
+- `mavlink_adapter_internal.h` 从 1269 行降到 769 行；`process()` 的锁范围、消息顺序、
+  超时检查和延迟回调执行位置未改变，公开 FFI 和 MAVLink 行为保持不变。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.25 - 2026-10-01
 
 ### Changed

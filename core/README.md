@@ -5,7 +5,8 @@
 ## 目录说明
 
 - `include/core/`：后端和桥接层内部使用的公共 C++ 头文件。
-- `src/mavlink/`：MAVLink 适配器、发送器、命令队列、参数缓存和任务传输。
+- `src/mavlink/`：MAVLink 适配器、内部状态、out-of-line 消息处理器、发送器、命令队列、
+  参数缓存和任务传输。
 - `src/transport/`：串口、TCP、UDP、内存链路、端口发现和连接管理器。
 - `src/vehicle/`：飞控模型和多飞控管理器。
 - `src/mission/`：任务文档、revision、undo/redo、命令目录、校验、编译、估算、测绘和
@@ -24,6 +25,7 @@
 以下路径涉及连接、协议状态机或飞控命令，修改时必须配套聚焦验证：
 
 - `src/mavlink/mavlink_adapter.cc`
+- `src/mavlink/mavlink_adapter_handlers.cc`
 - `src/mavlink/mavlink_senders.cc`
 - `src/mavlink/mavlink_adapter_internal.h`
 - `src/mavlink/command_queue.cc`

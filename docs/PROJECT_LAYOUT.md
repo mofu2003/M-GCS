@@ -1,6 +1,6 @@
 # 项目结构
 
-当前版本基线：`0.0.25`。本文件只描述代码组织，具体接口和状态以
+当前版本基线：`0.0.26`。本文件只描述代码组织，具体接口和状态以
 [`ARCHITECTURE.md`](ARCHITECTURE.md) 与 [`STATUS_AUDIT.md`](STATUS_AUDIT.md) 为准。
 
 ## 顶层目录
@@ -22,8 +22,9 @@ M-GCS/
 ## Core
 
 - `core/src/transport/`：串口、TCP、UDP、内存链路、端口发现和连接看门狗。
-- `core/src/mavlink/`：MAVLink adapter、内部状态容器、命令队列、参数缓存和任务传输；
-  `mavlink_adapter_state.h` 已从 `mavlink_adapter_internal.h` 分离。
+- `core/src/mavlink/`：MAVLink adapter、内部状态容器、消息处理器、命令队列、参数缓存
+  和任务传输；`mavlink_adapter_state.h` 和 `mavlink_adapter_handlers.cc` 已从
+  `mavlink_adapter_internal.h` 分离。
 - `core/src/vehicle/`：单飞控会话模型与多会话管理。
 - `core/src/mission/`：任务文档、命令目录、任务编译、survey 生成和旧任务兼容路径。
 - `core/src/calibration/`：陀螺仪、加速度计、磁力计、气压计和遥控器校准。
