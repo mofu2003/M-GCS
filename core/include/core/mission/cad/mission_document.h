@@ -43,6 +43,12 @@ struct MissionHome {
     float altitude_m = 0.0f;
 };
 
+struct MissionRallyPoint {
+    double latitude = std::numeric_limits<double>::quiet_NaN();
+    double longitude = std::numeric_limits<double>::quiet_NaN();
+    float altitude_m = 0.0f;
+};
+
 struct MissionDefaults {
     uint8_t frame = static_cast<uint8_t>(CoordFrame::GlobalRelAlt);
     float altitude_m = 50.0f;
@@ -101,6 +107,7 @@ struct MissionDocument {
     int schema_version = kMissionDocumentSchemaVersion;
     MissionDocumentMetadata metadata;
     MissionHome home;
+    std::vector<MissionRallyPoint> rally_points;
     MissionDefaults defaults;
     uint64_t revision = 1;
     int64_t updated_at_ms = 0;

@@ -23,7 +23,7 @@ QGC 的 `MissionController`、`MissionItem` 和 `SimpleMissionItem`，不是从�
 | `mission.plannedHomePosition` | `home` | `[lat, lon, alt]`；null 或缺失时 home 为未设置 |
 | `mission.items[]` | `entities[]` | 只接受 `SimpleItem`，顺序映射为 `order` |
 | 根 `geoFence.polygon` | `extensions["geoFence"]` | 非空时原样保留并产生 warning；不参与该任务文档的实体编辑 |
-| 根 `rallyPoints.points` | `extensions["rallyPoints"]` | 非空时原样保留并产生 warning；不参与该任务文档的实体编辑 |
+| 根 `rallyPoints.points` | `rally_points[]` | version 2 映射为正式 Rally 点；旧 version 1 忽略并告警 |
 
 ## `SimpleItem` 映射
 
@@ -74,8 +74,8 @@ params = [param1, param2, param3, param4, latitude, longitude, altitude]
 4. firmware profile、vehicle type 和 cruise speed 在受支持取值范围内保持一致。
 
 不保证保留 `doJumpId`、QGC 地形/海拔模式、hover speed、label、notes 和参数化测绘
-意图；这些字段必须通过错误或 warnings 显式暴露。ComplexItem、GeoFence 和 Rally
-通过 opaque `extensions` 参与文本 round-trip，但 M-GCS 不能编辑其内部字段。
+意图；这些字段必须通过错误或 warnings 显式暴露。ComplexItem 和 GeoFence 通过
+opaque `extensions` 参与文本 round-trip；Rally 已进入正式文档模型，可读写经纬度和高度。
 
 ## 参考实现
 

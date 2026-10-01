@@ -181,6 +181,69 @@ void append_opaque_item(MissionDocument& document,
     cJSON_AddItemToArray(array.get(), cJSON_Duplicate(item, true));
     document.extensions[key] = compact_json(array.get());
 }
+
+void add_rally_points(cJSON* root,
+                      const MissionDocument& document,
+                      const char* key) {
+    cJSON* rally = cJSON_AddObjectToObject(root, key);
+    cJSON_AddNumberToObject(rally, "version", 2);
+    cJSON* points = cJSON_AddArrayToObject(rally, "points");
+    for (const MissionRallyPoint& point : document.rally_points) {
+        cJSON* coordinate = cJSON_CreateArray();
+        add_number_or_null(coordinate, point.latitude);
+        add_number_or_null(coordinate, point.longitude);
+        add_number_or_null(coordinate, point.altitude_m);
+        cJSON_AddItemToArray(points, coordinate);
+    }
+}
+
+bool parse_rally_points(cJSON* root,
+                        MissionDocument& document,
+                        std::vector<std::string>& warnings,
+                        std::string& error) {
+    cJSON* rally = object_field(root, "rallyPoints");
+    if (!rally) return true;
+    if (!cJSON_IsObject(rally)) {
+        error = "QGC rallyPoints must be an object";
+        return false;
+    }
+    int version = 0;
+    if (!int_field(rally, "version", version)) {
+        error = "QGC rallyPoints.version is required";
+        return false;
+    }
+    if (version == 1) {
+        add_warning(warnings, "old QGC rallyPoints version 1 is ignored");
+        return true;
+    }
+    if (version != 2) {
+        error = "QGC rallyPoints supports version 2";
+        return false;
+    }
+    cJSON* points = object_field(rally, "points");
+    if (!points || !cJSON_IsArray(points)) {
+        error = "QGC rallyPoints.points must be an array";
+        return false;
+    }
+    const int count = cJSON_GetArraySize(points);
+    document.rally_points.reserve(static_cast<size_t>(count));
+    for (int index = 0; index < count; ++index) {
+        cJSON* coordinate = cJSON_GetArrayItem(points, index);
+        if (!coordinate || !cJSON_IsArray(coordinate) ||
+            cJSON_GetArraySize(coordinate) != 3) {
+            error = "QGC rally point " + std::to_string(index) +
+                    " must be a three-value coordinate";
+            return false;
+        }
+        MissionRallyPoint point;
+        point.latitude = number_or_nan(cJSON_GetArrayItem(coordinate, 0));
+        point.longitude = number_or_nan(cJSON_GetArrayItem(coordinate, 1));
+        point.altitude_m = static_cast<float>(
+            number_or_nan(cJSON_GetArrayItem(coordinate, 2)));
+        document.rally_points.push_back(point);
+    }
+    return true;
+}
 } // namespace
 
 std::string export_qgc_plan_json(
@@ -284,7 +347,7 @@ std::string export_qgc_plan_json(
     }
 
     add_extension_object_or_empty(root.get(), document, "geoFence", "polygon");
-    add_extension_object_or_empty(root.get(), document, "rallyPoints", "points");
+    add_rally_points(root.get(), document, "rallyPoints");
 
     char* printed = cJSON_Print(root.get());
     if (!printed) {
@@ -335,17 +398,14 @@ bool import_qgc_plan_json(
     parsed.extensions.erase("qgc_plan.complex_items");
     parsed.extensions.erase("geoFence");
     parsed.extensions.erase("rallyPoints");
+    parsed.rally_points.clear();
 
     cJSON* geo_fence = object_field(root.get(), "geoFence");
     if (has_nonempty_array(root.get(), "geoFence", "polygon")) {
         parsed.extensions["geoFence"] = compact_json(geo_fence);
         add_warning(warnings, "QGC GeoFence preserved as an opaque extension");
     }
-    cJSON* rally_points = object_field(root.get(), "rallyPoints");
-    if (has_nonempty_array(root.get(), "rallyPoints", "points")) {
-        parsed.extensions["rallyPoints"] = compact_json(rally_points);
-        add_warning(warnings, "QGC Rally points preserved as an opaque extension");
-    }
+    if (!parse_rally_points(root.get(), parsed, warnings, error)) return false;
 
     int firmware_type = 0;
     if (int_field(mission, "firmwareType", firmware_type)) {
@@ -518,6 +578,7 @@ bool import_qgc_plan_json(
 
     document.home = parsed.home;
     document.metadata = parsed.metadata;
+    document.rally_points = std::move(parsed.rally_points);
     document.defaults = parsed.defaults;
     document.entities = std::move(parsed.entities);
     document.extensions = std::move(parsed.extensions);

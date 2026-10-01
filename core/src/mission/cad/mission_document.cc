@@ -604,6 +604,17 @@ std::string serialize_mission_document(const MissionDocument& document) {
         defaults, "altitude_m", document.defaults.altitude_m);
     cJSON_AddNumberToObject(defaults, "speed_ms", document.defaults.speed_ms);
 
+    if (!document.rally_points.empty()) {
+        cJSON* rally_points = cJSON_AddArrayToObject(root, "rally_points");
+        for (const MissionRallyPoint& point : document.rally_points) {
+            cJSON* item = cJSON_CreateObject();
+            add_optional_number(item, "lat", point.latitude);
+            add_optional_number(item, "lon", point.longitude);
+            cJSON_AddNumberToObject(item, "alt_m", point.altitude_m);
+            cJSON_AddItemToArray(rally_points, item);
+        }
+    }
+
     cJSON_AddNumberToObject(root, "revision", document.revision);
     cJSON_AddNumberToObject(root, "updated_at_ms", document.updated_at_ms);
 
@@ -729,6 +740,25 @@ bool deserialize_mission_document(
             static_cast<int>(CoordFrame::GlobalRelAlt)));
         parsed.defaults.altitude_m = get_float(defaults, "altitude_m", 50.0f);
         parsed.defaults.speed_ms = get_float(defaults, "speed_ms", 12.0f);
+    }
+
+    cJSON* rally_points = get_item(root, "rally_points");
+    if (rally_points && cJSON_IsArray(rally_points)) {
+        const int count = cJSON_GetArraySize(rally_points);
+        parsed.rally_points.reserve(static_cast<size_t>(count));
+        for (int i = 0; i < count; ++i) {
+            cJSON* item = cJSON_GetArrayItem(rally_points, i);
+            if (!item || !cJSON_IsObject(item)) {
+                cJSON_Delete(root);
+                error = "rally point must be an object";
+                return false;
+            }
+            MissionRallyPoint point;
+            point.latitude = get_double(item, "lat", point.latitude);
+            point.longitude = get_double(item, "lon", point.longitude);
+            point.altitude_m = get_float(item, "alt_m", point.altitude_m);
+            parsed.rally_points.push_back(point);
+        }
     }
 
     const uint64_t revision = get_u64(root, "revision", 1);

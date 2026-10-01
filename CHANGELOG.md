@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.42 - 2026-10-01
+
+### Changed
+
+- Rally 不再只保存在 opaque `extensions` 中：任务文档新增正式 `rally_points` 模型，
+  支持经纬度和高度，并随任务文档 JSON 一起保存和恢复。
+- QGC `.plan` 的 `rallyPoints` version 2 会映射到正式 Rally 模型，导出时重新生成
+  QGC 点数组；旧 version 1 继续忽略并给出 warning。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.41 - 2026-10-01
 
 ### Changed

@@ -111,6 +111,9 @@ RTL、降落、起飞、解锁、模式切换、任务启动、引导点、暂�
 阶段 E 已开始并发布到 `0.0.41`：任务文档增加 opaque `extensions`，QGC `.plan` 的
 ComplexItem、GeoFence 和 Rally 可无损保留文本 round-trip，但尚不能编辑或校验内部字段。
 
+`0.0.42` 将 QGC Rally version 2 从 opaque 区段提升为正式 `MissionRallyPoint` 模型，
+支持文档 JSON 和 `.plan` 双向映射；ComplexItem 与 GeoFence 仍保持 opaque。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

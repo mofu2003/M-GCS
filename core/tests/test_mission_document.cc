@@ -38,6 +38,7 @@ static MissionDocument valid_document() {
     document.home.altitude_m = 20.0f;
     document.defaults.altitude_m = 50.0f;
     document.defaults.speed_ms = 10.0f;
+    document.rally_points.push_back({39.9, 116.4, 30.0f});
 
     MissionEntity takeoff;
     takeoff.id = "takeoff-1";
@@ -140,6 +141,9 @@ static void test_document_roundtrip() {
     CHECK(error.empty(), "deserialize reports no error");
     CHECK(restored.metadata.id == original.metadata.id, "metadata id roundtrips");
     CHECK(restored.home.set, "home flag roundtrips");
+    CHECK(restored.rally_points.size() == 1 &&
+              std::fabs(restored.rally_points[0].latitude - 39.9) < 1e-6,
+          "rally points roundtrip through document JSON");
     CHECK(restored.entities.size() == original.entities.size(), "entity count roundtrips");
     CHECK(restored.entities[1].latitude == original.entities[1].latitude, "latitude roundtrips");
 
@@ -753,6 +757,31 @@ static void test_qgc_plan_interchange() {
     CHECK(fence_export.find("\"geoFence\"") != std::string::npos &&
               fence_export.find("39.91") != std::string::npos,
           "opaque GeoFence is restored on QGC export");
+
+    const std::string rally_plan = R"({
+        "fileType": "Plan",
+        "rallyPoints": {"version": 2, "points": [[39.9, 116.4, 30], [39.91, 116.41, 40]]},
+        "mission": {
+            "version": 2,
+            "firmwareType": 3,
+            "vehicleType": 2,
+            "plannedHomePosition": [39.9, 116.4, 20],
+            "items": []
+        }
+    })";
+    MissionDocument rallied;
+    warnings.clear();
+    error.clear();
+    CHECK(import_qgc_plan_json(rally_plan, rallied, warnings, error),
+          "QGC Rally points import into the formal document model");
+    CHECK(rallied.rally_points.size() == 2 &&
+              std::fabs(rallied.rally_points[0].latitude - 39.9) < 1e-6 &&
+              std::fabs(rallied.rally_points[1].longitude - 116.41) < 1e-6,
+          "Rally point coordinates are preserved");
+    const std::string rally_export = export_qgc_plan_json(rallied, warnings, error);
+    CHECK(rally_export.find("\"rallyPoints\"") != std::string::npos &&
+              rally_export.find("39.91") != std::string::npos,
+          "formal Rally points are restored on QGC export");
 
     MissionDocument survey_document;
     MissionEntity survey;
