@@ -10,6 +10,33 @@
 
 namespace mg::core::mavlink {
 
+namespace {
+
+const char* param_error_text(uint8_t error) {
+    switch (error) {
+    case MAV_PARAM_ERROR_DOES_NOT_EXIST:
+        return "parameter does not exist";
+    case MAV_PARAM_ERROR_VALUE_OUT_OF_RANGE:
+        return "parameter value is out of range";
+    case MAV_PARAM_ERROR_PERMISSION_DENIED:
+        return "parameter write permission denied";
+    case MAV_PARAM_ERROR_COMPONENT_NOT_FOUND:
+        return "parameter component not found";
+    case MAV_PARAM_ERROR_READ_ONLY:
+        return "parameter is read-only";
+    case MAV_PARAM_ERROR_TYPE_UNSUPPORTED:
+        return "parameter type is unsupported";
+    case MAV_PARAM_ERROR_TYPE_MISMATCH:
+        return "parameter type mismatch";
+    case MAV_PARAM_ERROR_READ_FAIL:
+        return "parameter read failed";
+    default:
+        return "parameter write rejected";
+    }
+}
+
+} // namespace
+
 void MavlinkAdapter::Impl::handle_heartbeat(const mavlink_message_t& m)
 {
     mavlink_heartbeat_t hb;
@@ -210,6 +237,26 @@ void MavlinkAdapter::Impl::handle_param_value(const mavlink_message_t& m)
 
     if (tel.param_cb)
         deferred_cbs.push_back([cb = tel.param_cb, info]() { cb(info); });
+}
+
+void MavlinkAdapter::Impl::handle_param_error(const mavlink_message_t& m)
+{
+    mavlink_param_error_t error{};
+    mavlink_msg_param_error_decode(&m, &error);
+    const std::string name(error.param_id, strnlen(error.param_id, sizeof(error.param_id)));
+    const auto pending = pc.pending_writes.find(name);
+    if (pending == pc.pending_writes.end()) {
+        return;
+    }
+    if ((pending->second.target_sys != 0 && pending->second.target_sys != m.sysid) ||
+        (pending->second.target_comp != 0 && pending->second.target_comp != m.compid)) {
+        return;
+    }
+
+    pc.reject_write(
+        name,
+        std::string("parameter write rejected: ") + param_error_text(error.error),
+        deferred_cbs);
 }
 
 void MavlinkAdapter::Impl::handle_command_ack(const mavlink_message_t& m)

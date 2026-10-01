@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.30 - 2026-10-01
+
+### Changed
+
+- 补上阶段 D 的参数明确拒绝路径：识别标准 MAVLink `PARAM_ERROR`，在收到
+  `does not exist`、`out of range`、`permission denied`、`read-only`、类型不匹配等
+  错误时立即把对应 pending 写入标记为 `failed`，保留映射后的原因并移除重试队列。
+- 增加协议层和参数状态机测试，覆盖 PARAM_ERROR 路由、失败终态和失败回调；
+  不修改公开 FFI 字段和参数写入调用方式。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.29 - 2026-10-01
 
 ### Changed

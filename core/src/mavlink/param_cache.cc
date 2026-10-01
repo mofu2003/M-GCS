@@ -124,6 +124,36 @@ bool ParamCache::complete_write(
     return false;
 }
 
+bool ParamCache::reject_write(
+    const std::string& name,
+    const std::string& error,
+    std::vector<std::function<void()>>& deferred_cbs) {
+    const auto it = pending_writes.find(name);
+    if (it == pending_writes.end()) {
+        return false;
+    }
+
+    auto pending = it->second;
+    if (pending.result_cb) {
+        auto cb = pending.result_cb;
+        deferred_cbs.push_back([cb]() { cb(false); });
+    }
+
+    float actual_value = pending.value;
+    if (const auto current = param_map.find(name); current != param_map.end()) {
+        actual_value = current->second.value;
+    }
+    complete_write(pending.history_id, false, actual_value, error);
+    pending_writes.erase(it);
+    write_retry_queue.erase(
+        std::remove_if(
+            write_retry_queue.begin(),
+            write_retry_queue.end(),
+            [&name](const PendingWrite& queued) { return queued.name == name; }),
+        write_retry_queue.end());
+    return true;
+}
+
 void ParamCache::on_param_received(uint16_t index) {
     if (download_state == DownloadState::Idle ||
         download_state == DownloadState::Complete ||

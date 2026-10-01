@@ -103,6 +103,9 @@ void MavlinkAdapter::Impl::process(const mavlink_message_t& m)
         case MAVLINK_MSG_ID_PARAM_VALUE:
             handle_param_value(m);
             break;
+        case MAVLINK_MSG_ID_PARAM_ERROR:
+            handle_param_error(m);
+            break;
         case MAVLINK_MSG_ID_COMMAND_ACK:
             handle_command_ack(m);
             break;

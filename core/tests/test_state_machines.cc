@@ -307,6 +307,33 @@ static void test_param_cache() {
           "queued parameter retry preserves target sys/component");
     pc.write_retry_queue.clear();
 
+    bool rejected_callback = false;
+    const uint64_t rejected_id = pc.record_write_request("REJECT_PARAM", 4.0f, 9, 1, 1);
+    pc.pending_writes["REJECT_PARAM"].result_cb = [&rejected_callback](bool success) {
+        rejected_callback = !success;
+    };
+    cbs.clear();
+    CHECK(pc.reject_write("REJECT_PARAM", "parameter write rejected: read-only", cbs),
+          "explicit parameter rejection removes pending write");
+    CHECK(pc.pending_writes.count("REJECT_PARAM") == 0,
+          "rejected parameter write leaves no pending entry");
+    const auto rejected_record = std::find_if(
+        pc.write_history.begin(),
+        pc.write_history.end(),
+        [rejected_id](const ParamCache::WriteRecord& record) {
+            return record.id == rejected_id;
+        });
+    CHECK(rejected_record != pc.write_history.end() &&
+              rejected_record->state == ParamCache::WriteState::Failed,
+          "rejected parameter write is marked failed");
+    CHECK(rejected_record != pc.write_history.end() &&
+              rejected_record->error == "parameter write rejected: read-only",
+          "rejected parameter write preserves the reason");
+    for (auto& callback : cbs) {
+        callback();
+    }
+    CHECK(rejected_callback, "rejected parameter write invokes failure callback");
+
     const uint64_t timeout_id = pc.record_write_request("TIMEOUT_PARAM", 1.0f, 9);
     pc.pending_writes["TIMEOUT_PARAM"].retry_count = PARAM_WRITE_MAX_RETRIES;
     pc.pending_writes["TIMEOUT_PARAM"].send_time =

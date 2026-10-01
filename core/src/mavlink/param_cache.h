@@ -127,6 +127,12 @@ struct ParamCache {
         float actual_value,
         const std::string& error = {});
 
+    /// 将当前 pending 写入标记为 failed，并移除后续重试。
+    bool reject_write(
+        const std::string& name,
+        const std::string& error,
+        std::vector<std::function<void()>>& deferred_cbs);
+
     /// 收到 PARAM_VALUE 后更新状态
     void on_param_received(uint16_t index);
 

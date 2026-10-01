@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.29`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.30`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -66,6 +66,8 @@ bash tools/audit_status.sh
   FFI、JSON 和 MAVLink 行为未变化。
 - `PARAM-001`：参数写入超时后会真正重发 PARAM_SET，并保留目标 sysid/compid；重试
   耗尽进入 failed，发送失败会立即清理 pending，避免后续确认误关联旧请求。
+- `PARAM-003`：标准 `PARAM_ERROR` 会立即终止对应写入并映射为 failed，支持
+  does-not-exist、out-of-range、permission-denied、read-only 和类型错误等原因。
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项
@@ -85,9 +87,10 @@ state/error 历史。前端后续可统一消费同一套 operation 状态。
 
 ### `PARAM-002`：参数元数据和覆盖仍可继续增强
 
-参数写入已经具备 pending/confirmed/failed、超时重发和目标信息，但还没有达到 QGC
-FactSystem 的参数数据库、完整枚举/范围元数据、批量刷新策略和分固件覆盖水平。下一项
-应先以真实 ArduPilot 参数页和元数据缺口为依据，不盲目复制全量参数库。
+参数写入已经具备 pending/confirmed/failed、超时重发、目标信息和 PARAM_ERROR 明确
+拒绝，但还没有达到 QGC FactSystem 的参数数据库、完整枚举/范围元数据、批量刷新策略
+和分固件覆盖水平。下一项应先以真实 ArduPilot 参数页和元数据缺口为依据，不盲目复制
+全量参数库。
 
 ### `DEAD-001`：固件刷写占位
 

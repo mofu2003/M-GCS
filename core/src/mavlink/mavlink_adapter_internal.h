@@ -155,6 +155,9 @@ struct MavlinkAdapter::Impl {
     // 处理参数值（下载接收 + 写入确认）
     void handle_param_value(const mavlink_message_t& m);
 
+    // 处理参数写入明确拒绝
+    void handle_param_error(const mavlink_message_t& m);
+
     // 处理命令确认（路由到命令队列 + 唤醒旧 waiter）
     void handle_command_ack(const mavlink_message_t& m);
 

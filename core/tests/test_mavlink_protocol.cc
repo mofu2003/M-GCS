@@ -18,6 +18,7 @@
 #include <chrono>
 #include <vector>
 #include <atomic>
+#include <algorithm>
 
 static int g_passed = 0;
 static int g_failed = 0;
@@ -131,6 +132,32 @@ static void test_param_name_encoding() {
         CHECK("name length=16", p->name.length() == 16);
         CHECK("name matches exactly", p->name == "SERIAL6_PROTOCOL");
     }
+}
+
+static void test_param_error_rejects_pending_write() {
+    fprintf(stderr, "\n[Group] Param Protocol - PARAM_ERROR\n");
+    TestFixture f;
+    const auto status = f.adapter.set_param_status(
+        1, 1, "TEST_PARAM", 5.0f, MAV_PARAM_TYPE_REAL32);
+    CHECK("PARAM_SET accepted", static_cast<bool>(status));
+
+    mavlink_message_t msg;
+    mavlink_msg_param_error_pack(
+        1, 1, &msg, 255, 1, "TEST_PARAM", -1,
+        MAV_PARAM_ERROR_VALUE_OUT_OF_RANGE);
+    f.inject(msg);
+
+    const auto history = f.adapter.param_change_history();
+    const auto record = std::find_if(
+        history.begin(), history.end(), [](const auto& item) {
+            return item.name == "TEST_PARAM";
+        });
+    CHECK("PARAM_ERROR leaves a write record", record != history.end());
+    CHECK("PARAM_ERROR marks write failed",
+          record != history.end() && record->state == "failed");
+    CHECK("PARAM_ERROR keeps rejection reason",
+          record != history.end() &&
+              record->error.find("out of range") != std::string::npos);
 }
 
 static void test_command_ack() {
@@ -518,6 +545,7 @@ int main() {
     test_heartbeat_px4_copter();
     test_param_value_decode();
     test_param_name_encoding();
+    test_param_error_rejects_pending_write();
     test_command_ack();
     test_command_ack_timeout();
     test_gps_decode();
