@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import '../mission/mission_document_controller.dart';
 import '../mission/mission_document_ffi_backend.dart';
 import '../mission/mission_document_models.dart';
+import 'telemetry_ffi_backend.dart';
 
 final class SerialPortInfo {
   const SerialPortInfo({
@@ -279,16 +280,10 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>) _listPorts;
   late final int Function(Pointer<Void>, Pointer<Utf8>) _open;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _getSessionState;
-  late final Pointer<Utf8> Function(Pointer<Void>, int) _getSessionStatus;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getFirmwareType;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getVehicleFirmware;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getFirmwareVersion;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getSensorHealth;
   late final int Function(Pointer<Void>, Pointer<Float>, int, int, int, int)
   _readWaveform;
   late final Pointer<Utf8> Function(Pointer<Void>) _getWaveformInstances;
   late final Pointer<Utf8> Function(Pointer<Void>, int, int) _setStreamInterval;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getTelemetryFreshness;
   late final Pointer<Utf8> Function(Pointer<Void>) _requestFirmwareVersion;
   late final Pointer<Utf8> Function(Pointer<Void>) _requestAllParameters;
   late final Pointer<Utf8> Function(Pointer<Void>) _getAllParameters;
@@ -308,16 +303,9 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>) _calibrationGetStatus;
   late final Pointer<Utf8> Function(Pointer<Void>, int)
   _calibrationAccelConfirm;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getServoOutputs;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getRcChannels;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getGlobalPosition;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getHomePosition;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getVfrHud;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _close;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getVehicleSummary;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getExtendedSysState;
   late final Pointer<Utf8> Function(Pointer<Void>) _commandRtl;
   late final Pointer<Utf8> Function(Pointer<Void>) _commandLand;
   late final Pointer<Utf8> Function(Pointer<Void>, double) _commandTakeoff;
@@ -341,6 +329,7 @@ final class ConnectionController extends ChangeNotifier {
 
   MissionDocumentController? _missionPlanning;
   MissionDocumentFfiBackend? _missionBackend;
+  TelemetryFfiBackend? _telemetryBackend;
 
   MissionDocumentController get missionPlanning =>
       _missionPlanning ??= MissionDocumentController(
@@ -350,6 +339,9 @@ final class ConnectionController extends ChangeNotifier {
           isConnected: () => isConnected,
         ),
       );
+
+  TelemetryFfiBackend get telemetryBackend =>
+      _telemetryBackend ??= TelemetryFfiBackend(_library, _core);
 
   final List<SerialPortInfo> ports = [];
   final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
@@ -1147,31 +1139,6 @@ final class ConnectionController extends ChangeNotifier {
             'mg_connection_get_session_state',
           )
           .asFunction();
-      _getSessionStatus = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
-            'mg_vehicle_get_session_status',
-          )
-          .asFunction();
-      _getFirmwareType = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_firmware_get_type',
-          )
-          .asFunction();
-      _getVehicleFirmware = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_vehicle_get_firmware',
-          )
-          .asFunction();
-      _getFirmwareVersion = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_vehicle_get_firmware_version',
-          )
-          .asFunction();
-      _getSensorHealth = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_sensors_get_health',
-          )
-          .asFunction();
       _readWaveform = _library
           .lookup<
             NativeFunction<
@@ -1195,11 +1162,6 @@ final class ConnectionController extends ChangeNotifier {
           .lookup<
             NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32, Int32)>
           >('mg_stream_set_interval')
-          .asFunction();
-      _getTelemetryFreshness = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_telemetry_get_freshness',
-          )
           .asFunction();
       _requestFirmwareVersion = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
@@ -1260,31 +1222,6 @@ final class ConnectionController extends ChangeNotifier {
             'mg_calibration_accel_confirm',
           )
           .asFunction();
-      _getServoOutputs = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_servo_get_outputs',
-          )
-          .asFunction();
-      _getRcChannels = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_rc_get_channels',
-          )
-          .asFunction();
-      _getGlobalPosition = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_vehicle_get_global_position',
-          )
-          .asFunction();
-      _getHomePosition = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_vehicle_get_home_position',
-          )
-          .asFunction();
-      _getVfrHud = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_vehicle_get_vfr_hud',
-          )
-          .asFunction();
       _getSerialUartNames = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
             'mg_serial_get_uart_names',
@@ -1293,16 +1230,6 @@ final class ConnectionController extends ChangeNotifier {
       _selectVehicle = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
             'mg_vehicle_select',
-          )
-          .asFunction();
-      _getVehicleSummary = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_vehicle_get_summary',
-          )
-          .asFunction();
-      _getExtendedSysState = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_vehicle_get_extended_sys_state',
           )
           .asFunction();
       _commandRtl = _library
@@ -1528,8 +1455,7 @@ final class ConnectionController extends ChangeNotifier {
 
   bool _readVehicleSummaryForCommand() {
     try {
-      final envelope =
-          _readJson(_getVehicleSummary(_core)) as Map<String, Object?>;
+      final envelope = telemetryBackend.vehicleSummary();
       final data = envelope['data'] as Map<String, Object?>? ?? const {};
       vehicleArmed = data['armed'] == true;
       vehicleFlightMode = data['flight_mode'] as String? ?? '';
@@ -1900,8 +1826,7 @@ final class ConnectionController extends ChangeNotifier {
     final previousBatteryPercent = batteryRemainingPercent;
     final previousBatteryVoltage = batteryVoltage;
     try {
-      final envelope =
-          _readJson(_getSessionStatus(_core, id)) as Map<String, Object?>;
+      final envelope = telemetryBackend.sessionStatus(id);
       if (envelope['success'] != true) {
         final error = envelope['error'];
         telemetryError = error is Map<String, Object?>
@@ -2250,7 +2175,7 @@ final class ConnectionController extends ChangeNotifier {
     final oldValid = servoOutputsValid;
     final oldValues = servoOutputs;
     try {
-      final result = _readJson(_getServoOutputs(_core)) as Map<String, Object?>;
+      final result = telemetryBackend.servoOutputs();
       servoOutputsValid = result['valid'] == true;
       final values = result['servos'] as List<Object?>? ?? const [];
       servoOutputs = values
@@ -2268,7 +2193,7 @@ final class ConnectionController extends ChangeNotifier {
     final oldValid = rcChannelsValid;
     final oldValues = rcChannels;
     try {
-      final result = _readJson(_getRcChannels(_core)) as Map<String, Object?>;
+      final result = telemetryBackend.rcChannels();
       rcChannelsValid = result['valid'] == true;
       final values = result['channels'] as List<Object?>? ?? const [];
       rcChannels = values
@@ -2297,8 +2222,7 @@ final class ConnectionController extends ChangeNotifier {
     final oldRelativeAltitude = relativeAltitudeMeters;
     final oldAbsoluteAltitude = absoluteAltitudeMeters;
     try {
-      final envelope =
-          _readJson(_getGlobalPosition(_core)) as Map<String, Object?>;
+      final envelope = telemetryBackend.globalPosition();
       final data = envelope['data'] as Map<String, Object?>?;
       vehiclePositionValid =
           envelope['success'] == true && data?['valid'] == true;
@@ -2319,8 +2243,7 @@ final class ConnectionController extends ChangeNotifier {
       absoluteAltitudeMeters = null;
     }
     try {
-      final envelope =
-          _readJson(_getHomePosition(_core)) as Map<String, Object?>;
+      final envelope = telemetryBackend.homePosition();
       final data = envelope['data'] as Map<String, Object?>?;
       homePositionValid = envelope['success'] == true && data?['valid'] == true;
       homePosition = data == null
@@ -2352,7 +2275,7 @@ final class ConnectionController extends ChangeNotifier {
     final oldAirspeed = airspeedMetersPerSecond;
     final oldGroundSpeed = groundSpeedMetersPerSecond;
     try {
-      final envelope = _readJson(_getVfrHud(_core)) as Map<String, Object?>;
+      final envelope = telemetryBackend.vfrHud();
       final data = envelope['data'] as Map<String, Object?>? ?? const {};
       airspeedMetersPerSecond = (data['airspeed_m_s'] as num?)?.toDouble();
       groundSpeedMetersPerSecond = (data['groundspeed_m_s'] as num?)
@@ -2377,8 +2300,7 @@ final class ConnectionController extends ChangeNotifier {
     final oldLandedState = vehicleLandedState;
     try {
       // 引导操作门控要用到的实时状态（QGC 的 show* 属性）。
-      final summaryEnvelope =
-          _readJson(_getVehicleSummary(_core)) as Map<String, Object?>;
+      final summaryEnvelope = telemetryBackend.vehicleSummary();
       final summaryData =
           summaryEnvelope['data'] as Map<String, Object?>? ?? const {};
       vehicleArmed = summaryData['armed'] == true;
@@ -2386,33 +2308,27 @@ final class ConnectionController extends ChangeNotifier {
       vehicleType = summaryData['vehicle_type'] as int? ?? 0;
       vehicleAutopilotType = summaryData['autopilot_type'] as int? ?? 0;
 
-      final extendedEnvelope =
-          _readJson(_getExtendedSysState(_core)) as Map<String, Object?>;
+      final extendedEnvelope = telemetryBackend.extendedSysState();
       final extendedData =
           extendedEnvelope['data'] as Map<String, Object?>? ?? const {};
       vehicleLandedState = extendedData['landed_state'] as int? ?? 0;
 
-      final firmwareEnvelope =
-          _readJson(_getFirmwareType(_core)) as Map<String, Object?>;
+      final firmwareEnvelope = telemetryBackend.firmwareType();
       firmwareInfo = firmwareEnvelope['success'] == true
           ? firmwareEnvelope['data'] as Map<String, Object?>?
           : null;
 
-      vehicleIdentity =
-          _readJson(_getVehicleFirmware(_core)) as Map<String, Object?>;
+      vehicleIdentity = telemetryBackend.vehicleFirmware();
 
-      final versionEnvelope =
-          _readJson(_getFirmwareVersion(_core)) as Map<String, Object?>;
+      final versionEnvelope = telemetryBackend.firmwareVersion();
       firmwareVersionInfo = versionEnvelope['success'] == true
           ? versionEnvelope['data'] as Map<String, Object?>?
           : null;
 
-      final freshness =
-          _readJson(_getTelemetryFreshness(_core)) as Map<String, Object?>;
+      final freshness = telemetryBackend.telemetryFreshness();
       final groups = freshness['groups'] as Map<String, Object?>?;
       if (groups?['sys_status_fresh'] == true) {
-        sensorHealth =
-            _readJson(_getSensorHealth(_core)) as Map<String, Object?>;
+        sensorHealth = telemetryBackend.sensorHealth();
       } else {
         sensorHealth = null;
       }

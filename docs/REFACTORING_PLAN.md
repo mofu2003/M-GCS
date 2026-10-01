@@ -48,8 +48,10 @@
 第二阶段 B 已开始：任务文档 FFI 绑定已迁移到
 `flutter_shell/lib/mission/mission_document_ffi_backend.dart`。`ConnectionController`
 继续持有共享 Core 和连接状态，但不再直接实现 `MissionDocumentBackend`，任务页面契约
-保持不变。后续按同样方式拆遥测、参数、校准和飞行命令适配器，每次只迁移一个领域并
-保持门禁通过。
+保持不变。遥测 FFI 绑定现已迁移到
+`flutter_shell/lib/connection/telemetry_ffi_backend.dart`，位置、GPS、VFR HUD、Home、
+Servo/RC、系统状态和 freshness 的状态仍由 `ConnectionController` 管理。后续按同样方式
+拆参数、校准和飞行命令适配器，每次只迁移一个领域并保持门禁通过。
 
 ## 首轮结果
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.21 - 2026-10-01
+
+### Changed
+
+- 完成第二阶段 B 的第二个内部重构：新增 `TelemetryFfiBackend`，将会话状态、GPS、
+  位置、Home、VFR HUD、Servo/RC、系统状态和 telemetry freshness 的动态符号绑定与
+  JSON 解包从 `ConnectionController` 迁出。
+- `ConnectionController` 继续负责遥测状态缓存、轮询频率和 UI 通知，遥测页面与地图
+  行为保持不变。
+
+### Verification
+
+- `flutter analyze lib test` 通过。
+- Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 后端 offline/simulation `34/34` 通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.20 - 2026-10-01
 
 ### Changed

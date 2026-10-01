@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.19`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.21`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -98,7 +98,8 @@ Home、默认速度和固件/机型元数据，并对复杂项、非空 GeoFence
 `MissionDocumentFfiBackend` 现在独立负责任务文档相关的动态符号绑定、JSON envelope、
 任务传输进度和文件互操作；`ConnectionController` 只提供共享 Core、动态库和连接状态
 回调。公开 `MissionDocumentBackend` 契约和任务页面行为不变。当前仅完成任务领域，
-其他遥测、参数、校准和飞行命令适配器仍在主控制器中，后续逐域迁移。
+遥测相关绑定也已迁移到 `TelemetryFfiBackend`；连接控制器继续负责状态缓存、轮询和
+通知。参数、校准和飞行命令适配器仍在主控制器中，后续逐域迁移。
 
 ## 当前工作区
 
