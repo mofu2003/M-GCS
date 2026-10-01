@@ -104,57 +104,7 @@ struct MavlinkAdapter::Impl {
     // The common dialect does not list ArduPilot message 191 in its CRC
     // table. Keep a tiny compatibility parser so a valid MAG_CAL_PROGRESS
     // frame still reaches the normal message dispatch path.
-    void feed_mag_progress_compat(const uint8_t* data, size_t size) {
-        for (size_t i = 0; i < size; ++i) {
-            const uint8_t byte = data[i];
-            if (mag_progress_frame_len == 0) {
-                if (byte != MAVLINK_STX) continue;
-                mag_progress_frame[mag_progress_frame_len++] = byte;
-                continue;
-            }
-            if (mag_progress_frame_len >= mag_progress_frame.size()) {
-                mag_progress_frame_len = 0;
-                mag_progress_frame_expected = 0;
-                continue;
-            }
-            mag_progress_frame[mag_progress_frame_len++] = byte;
-            if (mag_progress_frame_len == 3) {
-                const uint8_t payload_len = mag_progress_frame[1];
-                const uint8_t incompat_flags = mag_progress_frame[2];
-                mag_progress_frame_expected = 10u + payload_len + 2u +
-                    ((incompat_flags & 0x01u) ? 13u : 0u);
-            }
-            if (mag_progress_frame_expected == 0 ||
-                mag_progress_frame_len < mag_progress_frame_expected) continue;
-
-            const uint32_t msgid = static_cast<uint32_t>(mag_progress_frame[7]) |
-                (static_cast<uint32_t>(mag_progress_frame[8]) << 8) |
-                (static_cast<uint32_t>(mag_progress_frame[9]) << 16);
-            if (msgid == MAVLINK_MSG_ID_MAG_CAL_PROGRESS) {
-                const uint8_t payload_len = mag_progress_frame[1];
-                const uint16_t crc_offset = static_cast<uint16_t>(10u + payload_len);
-                uint16_t checksum = crc_calculate(&mag_progress_frame[1],
-                                                  static_cast<uint16_t>(9u + payload_len));
-                crc_accumulate(MAVLINK_MSG_ID_MAG_CAL_PROGRESS_CRC, &checksum);
-                const uint16_t received = static_cast<uint16_t>(mag_progress_frame[crc_offset]) |
-                    (static_cast<uint16_t>(mag_progress_frame[crc_offset + 1]) << 8);
-                if (checksum == received && payload_len >= MAVLINK_MSG_ID_MAG_CAL_PROGRESS_MIN_LEN) {
-                    mavlink_message_t message{};
-                    message.len = payload_len;
-                    message.incompat_flags = mag_progress_frame[2];
-                    message.compat_flags = mag_progress_frame[3];
-                    message.seq = mag_progress_frame[4];
-                    message.sysid = mag_progress_frame[5];
-                    message.compid = mag_progress_frame[6];
-                    message.msgid = msgid;
-                    memcpy(_MAV_PAYLOAD_NON_CONST(&message), &mag_progress_frame[10], payload_len);
-                    process(message);
-                }
-            }
-            mag_progress_frame_len = 0;
-            mag_progress_frame_expected = 0;
-        }
-    }
+    void feed_mag_progress_compat(const uint8_t* data, size_t size);
 
     mutable mg::core::platform::Mutex mtx;  // 加锁保护所有可变状态
 
@@ -169,15 +119,7 @@ struct MavlinkAdapter::Impl {
         return send_cb(buf, len);
     }
 
-    bool send_command_queue_entry(const CommandQueueEntry& e) {
-        mavlink_msg_command_long_pack(
-            255, 0, &msg,
-            e.target_sys, e.target_comp,
-            e.command, e.confirmation,
-            e.params[0], e.params[1], e.params[2], e.params[3],
-            e.params[4], e.params[5], e.params[6]);
-        return send_msg();
-    }
+    bool send_command_queue_entry(const CommandQueueEntry& e);
 
     // ================================================================
     // 消息处理器（在 process() 中持锁调用）
@@ -307,104 +249,24 @@ struct MavlinkAdapter::Impl {
     // 处理任务确认消息
     void handle_mission_ack(const mavlink_message_t& m);
 
-
     // 处理日志条目列表
-    void handle_log_entry(const mavlink_message_t& m) {
-        mavlink_log_entry_t le;
-        mavlink_msg_log_entry_decode(&m, &le);
-        LogEntry entry;
-        entry.id = le.id;
-        entry.time_utc = le.time_utc;
-        entry.size_bytes = le.size;
-        log_state.entries.push_back(entry);
-    }
+    void handle_log_entry(const mavlink_message_t& m);
 
     // 处理日志数据块（完成时写入文件）
-    void handle_log_data(const mavlink_message_t& m) {
-        if (!log_state.downloading) return;
-        mavlink_log_data_t ld;
-        mavlink_msg_log_data_decode(&m, &ld);
-        if (ld.id != log_state.download_id) return;
-
-        const uint32_t end = ld.ofs + ld.count;
-        // 日志列表提供了已知大小时，忽略飞控偶发发送到文件尾之外的字节，
-        // 避免额外字节被计入完成条件或写入本地文件。
-        const uint32_t write_end = log_state.download_size > 0
-            ? std::min(end, log_state.download_size)
-            : end;
-        if (write_end > log_state.download_data.size()) {
-            log_state.download_data.resize(write_end);
-        }
-        if (write_end > log_state.download_received.size()) {
-            log_state.download_received.resize(write_end, 0);
-        }
-        for (uint32_t i = 0; i < ld.count; ++i) {
-            const auto index = ld.ofs + i;
-            if (log_state.download_size > 0 && index >= log_state.download_size) {
-                break;
-            }
-            log_state.download_data[index] = ld.data[i];
-            if (!log_state.download_received[index]) {
-                log_state.download_received[index] = 1;
-                ++log_state.download_received_bytes;
-            }
-        }
-        log_state.download_ofs = write_end;
-        log_state.download_last_data_at = std::chrono::steady_clock::now();
-        if (log_state.download_size == 0 && ld.count < 90) {
-            log_state.download_size = end;
-        }
-
-        const bool complete =
-            (log_state.download_size > 0 &&
-             log_state.download_received_bytes >= log_state.download_size) ||
-            (ld.count == 0 && log_state.download_size == 0);
-        if (complete) {
-            // 延迟文件写入到锁外执行，避免在 Impl::mtx 锁内做阻塞 I/O
-            auto filepath = log_state.download_filepath;
-            auto data = std::move(log_state.download_data);
-            if (log_state.download_size > 0 && data.size() > log_state.download_size) {
-                data.resize(log_state.download_size);
-            }
-            deferred_cbs.push_back([filepath, data = std::move(data)]() {
-                FILE* f = fopen(filepath.c_str(), "wb");
-                if (f) {
-                    size_t written = fwrite(data.data(), 1, data.size(), f);
-                    fclose(f);
-                    if (written != data.size()) {
-                        MGC_LOG_WARN("[MavlinkAdapter] Log file write incomplete: %zu / %zu bytes", written, data.size());
-                    }
-                } else {
-                    MGC_LOG_ERROR("[MavlinkAdapter] Failed to open log file: %s", filepath.c_str());
-                }
-            });
-            log_state.downloading = false;
-            log_state.download_completed = true;
-        } else {
-            mavlink_msg_log_request_data_pack(
-                255, 0, &msg,
-                log_state.download_target_sys, log_state.download_target_comp,
-                log_state.download_id, log_state.download_ofs, 90);
-            send_msg();
-        }
-    }
+    void handle_log_data(const mavlink_message_t& m);
 
     // 处理当前任务航点
     void handle_mission_current(const mavlink_message_t& m);
 
-
     // 处理任务航点到达通知
     void handle_mission_item_reached(const mavlink_message_t& m);
-
 
     // 任务发送辅助函数
     // 请求下载下一个任务项
     bool send_mission_request_int(uint8_t sysid, uint8_t compid, uint16_t seq);
 
-
     // 发送任务确认
     bool send_mission_ack(uint8_t sysid, uint8_t compid, uint8_t type);
-
 
     // 发送任务项（INT 格式）
     bool send_mission_item_int(uint8_t sysid, uint8_t compid, const mg::core::mission::MissionItem& item);
@@ -413,139 +275,14 @@ struct MavlinkAdapter::Impl {
     bool send_mission_item(uint8_t sysid, uint8_t compid, const mg::core::mission::MissionItem& item);
 
     // 发送 PARAM_REQUEST_READ（按索引请求单个参数）
-    bool send_param_request_read_by_index(uint8_t sysid, uint8_t compid, int16_t param_index) {
-        char empty_name[16] = {};
-        mavlink_msg_param_request_read_pack(
-            255, 0, &msg,
-            sysid, compid, empty_name, param_index);
-        return send_msg();
-    }
+    bool send_param_request_read_by_index(uint8_t sysid, uint8_t compid, int16_t param_index);
 
     // 处理参数超时（在 process() 中调用）
-    void process_param_timeouts() {
-        int action = pc.check_timeouts(deferred_cbs);
-        switch (action) {
-            case 1: {
-                // 重试 PARAM_REQUEST_LIST
-                mavlink_msg_param_request_list_pack(
-                    255, 0, &msg, pc.target_sys, pc.target_comp);
-                send_msg();
-                break;
-            }
-            case 2: {
-                // 请求缺失参数批次
-                for (uint16_t idx : pc.batch_queue) {
-                    send_param_request_read_by_index(pc.target_sys, pc.target_comp, idx);
-                }
-                break;
-            }
-            default: break;
-        }
-    }
+    void process_param_timeouts();
 
     // 处理完整解码的 MAVLink 消息（获取锁，处理后在锁外执行回调）
-    void process(const mavlink_message_t& m) {
-        std::vector<std::function<void()>> callbacks;
-        {
-            mg::core::platform::LockGuard lk(mtx);
-            msg_count++;
-            link_quality.observe(m);
+    void process(const mavlink_message_t& m);
 
-            switch (m.msgid) {
-            case MAVLINK_MSG_ID_HEARTBEAT:           handle_heartbeat(m); break;
-            case MAVLINK_MSG_ID_SYS_STATUS:          handle_sys_status(m); break;
-            case MAVLINK_MSG_ID_GPS_RAW_INT:         handle_gps(m); break;
-            case MAVLINK_MSG_ID_SCALED_IMU:          handle_scaled_imu(m, 0); break;
-            case MAVLINK_MSG_ID_SCALED_IMU2:         handle_scaled_imu(m, 1); break;
-            case MAVLINK_MSG_ID_SCALED_IMU3:         handle_scaled_imu(m, 2); break;
-            case MAVLINK_MSG_ID_SCALED_PRESSURE:     handle_scaled_pressure(m); break;
-            case MAVLINK_MSG_ID_ATTITUDE:            handle_attitude(m); break;
-            case MAVLINK_MSG_ID_VFR_HUD:             handle_vfr_hud(m); break;
-            case MAVLINK_MSG_ID_AUTOPILOT_VERSION:   handle_autopilot_version(m); break;
-            case MAVLINK_MSG_ID_PARAM_VALUE:         handle_param_value(m); break;
-            case MAVLINK_MSG_ID_COMMAND_ACK:         handle_command_ack(m); break;
-            case MAVLINK_MSG_ID_COMMAND_LONG:        handle_command_long(m); break;
-            case 191:                                 handle_mag_cal_progress(m); break;
-            case MAVLINK_MSG_ID_MAG_CAL_REPORT:       handle_mag_cal_report(m); break;
-            case MAVLINK_MSG_ID_RC_CHANNELS:        handle_rc_channels(m); break;
-            case MAVLINK_MSG_ID_SERVO_OUTPUT_RAW:   handle_servo_output_raw(m); break;
-            case MAVLINK_MSG_ID_STATUSTEXT:        handle_statustext(m); break;
-            case MAVLINK_MSG_ID_GLOBAL_POSITION_INT: handle_global_position(m); break;
-            case MAVLINK_MSG_ID_HOME_POSITION:        handle_home_position(m); break;
-            case MAVLINK_MSG_ID_MISSION_COUNT:       handle_mission_count(m); break;
-            case MAVLINK_MSG_ID_MISSION_ITEM:        handle_mission_item(m); break;
-            case MAVLINK_MSG_ID_MISSION_ITEM_INT:    handle_mission_item_int(m); break;
-            case MAVLINK_MSG_ID_MISSION_REQUEST_INT: handle_mission_request_int(m); break;
-            case MAVLINK_MSG_ID_MISSION_REQUEST:     handle_mission_request(m); break;
-            case MAVLINK_MSG_ID_MISSION_ACK:         handle_mission_ack(m); break;
-            case MAVLINK_MSG_ID_MISSION_CURRENT:     handle_mission_current(m); break;
-            case MAVLINK_MSG_ID_MISSION_ITEM_REACHED: handle_mission_item_reached(m); break;
-            case MAVLINK_MSG_ID_BATTERY_STATUS:      handle_battery_status(m); break;
-            case MAVLINK_MSG_ID_HIGHRES_IMU:         handle_highres_imu(m); break;
-            case MAVLINK_MSG_ID_EXTENDED_SYS_STATE:  handle_extended_sys_state(m); break;
-            // PREARM_CHECK_STATUS not in standard MAVLink v2.0 headers (ArduPilot extension)
-            case MAVLINK_MSG_ID_VIBRATION:            handle_vibration(m); break;
-            case MAVLINK_MSG_ID_ESC_STATUS:            handle_esc_status(m); break;
-            // WIND_ESTIMATE not in standard MAVLink v2.0 common headers
-            case MAVLINK_MSG_ID_LOG_ENTRY:               handle_log_entry(m); break;
-            case MAVLINK_MSG_ID_LOG_DATA:                handle_log_data(m); break;
-            case MAVLINK_MSG_ID_DISTANCE_SENSOR:        handle_distance_sensor(m); break;
-            case MAVLINK_MSG_ID_ADSB_VEHICLE:           handle_adsb_vehicle(m); break;
-            case 110: { // FILE_TRANSFER_PROTOCOL
-                mavlink_file_transfer_protocol_t ftp_message{};
-                mavlink_msg_file_transfer_protocol_decode(&m, &ftp_message);
-                ftp.handle_ftp_message(ftp_message);
-                break;
-            }
-            // 相机/云台消息
-            case 261:   /* CAMERA_INFORMATION */         handle_camera_information(m); break;
-            case 254:   /* CAMERA_CAPTURE_STATUS */      handle_camera_capture_status(m); break;
-            case 269:   /* VIDEO_STREAM_INFORMATION */  handle_video_stream_information(m); break;
-            case 280:   /* GIMBAL_MANAGER_INFORMATION */  handle_gimbal_manager_info(m); break;
-            case 281:   /* GIMBAL_MANAGER_STATUS */       handle_gimbal_manager_status(m); break;
-            default: break;
-            }
-
-            // 超时检查节流：每 100ms 检查一次，避免每条消息都扫描队列
-            auto now = std::chrono::steady_clock::now();
-            auto since_check = std::chrono::duration_cast<std::chrono::milliseconds>(
-                now - last_timeout_check_).count();
-            if (since_check >= 100) {
-                last_timeout_check_ = now;
-
-                // 命令队列超时检查
-                auto timed_out = cmd_queue.check_timeouts(
-                    [this](const CommandQueueEntry& e) -> bool {
-                        return send_command_queue_entry(e);
-                    });
-                for (auto& entry : timed_out) {
-                    if (entry.result_cb) {
-                        CommandAckInfo fail_info{};
-                        fail_info.command = entry.command;
-                        fail_info.result = 4;  // MAV_RESULT_FAILED
-                        fail_info.result_text = "command ack timeout - no response";
-                        deferred_cbs.push_back([cb = entry.result_cb, fail_info = std::move(fail_info)]() { cb(fail_info); });
-                    }
-                }
-                cmd_queue.purge();
-
-                // 任务传输超时检查
-                mission.check_timeout();
-                rally.check_timeout();
-                fence.check_timeout();
-
-                // 参数下载/写入超时
-                process_param_timeouts();
-            }
-
-            // 将延迟回调移出，以便在锁释放后执行
-            callbacks = std::move(deferred_cbs);
-            deferred_cbs.clear();
-        } // LockGuard 在此释放（RAII）
-
-        // 在锁外执行回调（防止 POSIX 死锁）
-        for (auto& cb : callbacks) { cb(); }
-    }
 };
 
 } // namespace mg::core::mavlink

@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.27`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.28`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -61,6 +61,9 @@ bash tools/audit_status.sh
 - `CONTRACT-001` / `DEPRECATION-001`：参数入口和兼容入口规则已登记。
 - `TESTGUARD-001` / `TOOL-001` / `TOOL-002`：架构守卫和审计统计不再静默空转。
 - `CLEANUP-001`：组件画廊已明确为开发工具，不进入主流程。
+- `REFACTOR-001`：Flutter 领域 FFI 适配器已拆分；MAVLink adapter 已完成状态、消息
+  处理器、任务协议、参数协议、日志、命令发送和 `process()` 分发的内部拆分，公开
+  FFI、JSON 和 MAVLink 行为未变化。
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项
@@ -95,20 +98,12 @@ Home、默认速度和固件/机型元数据，并对复杂项、非空 GeoFence
 的字段返回明确错误或 warnings。地理围栏/Rally 的统一文档仍未实现；任务规划页面已
 接入回读验证、脏状态提示、校验诊断定位、地图/列表选中和拖动排序。
 
-### `REFACTOR-001`：Flutter 适配器已拆分，MAVLink 内部类仍在收敛
+### `REFACTOR-001` 已完成
 
-Flutter 的领域 FFI 绑定已从 `ConnectionController` 中拆出：
-`MissionDocumentFfiBackend`、`TelemetryFfiBackend`、`ParameterFfiBackend`、
-`CalibrationFfiBackend` 和 `FlightCommandFfiBackend` 分别持有动态符号和 JSON 解包；
-控制器继续负责连接状态、轮询、参数/任务状态机、安全门控和 UI 通知。该阶段在
-`0.0.20` 到 `0.0.24` 之间完成，公开后端契约未变化。
-
-MAVLink 内部拆分从 `0.0.25` 开始：`mavlink_adapter_state.h` 已迁出遥测最新值、
-链路质量、日志下载和 Command ACK 等待状态。`0.0.26` 把 30 个消息处理器迁到
-`mavlink_adapter_handlers.cc`；`0.0.27` 又把任务协议及发送辅助函数迁到
-`mavlink_adapter_mission.cc`，头文件从 1269 行降到 553 行。参数协议、命令超时和
-日志处理仍需要继续拆分；`process()` 的锁和分发边界暂未移动，因此这些内部模块在
-全部完成前不能视为稳定的独立接口。
+Flutter 领域 FFI 适配器在 `0.0.20` 到 `0.0.24` 完成拆分。MAVLink adapter 在
+`0.0.25` 到 `0.0.28` 完成状态、消息处理器、任务协议、参数协议、日志、命令发送和
+`process()` 分发的内部拆分。`mavlink_adapter_internal.h` 当前只保留 `Impl` 状态、
+方法声明和底层 `send_msg()`；后续只对新领域扩展重复该边界，不再为拆分而拆分。
 
 ## 当前工作区
 

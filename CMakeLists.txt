@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(mgcore VERSION 0.0.27 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
+project(mgcore VERSION 0.0.28 LANGUAGES CXX DESCRIPTION "mgroundcontrol C++ Core Engine")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -99,8 +99,12 @@ set(CJSON_INCLUDE_DIR   ${MGCORE_ROOT_DIR}/third_party/cjson)
 set(MGCORE_SOURCES
     # Core
     core/src/mavlink/mavlink_adapter.cc
+    core/src/mavlink/mavlink_adapter_command.cc
+    core/src/mavlink/mavlink_adapter_dispatch.cc
     core/src/mavlink/mavlink_adapter_handlers.cc
+    core/src/mavlink/mavlink_adapter_log.cc
     core/src/mavlink/mavlink_adapter_mission.cc
+    core/src/mavlink/mavlink_adapter_params.cc
     core/src/mavlink/mavlink_senders.cc
     core/src/mavlink/command_queue.cc
     core/src/mavlink/param_cache.cc

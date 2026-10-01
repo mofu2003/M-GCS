@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.0.28 - 2026-10-01
+
+### Changed
+
+- 完成第二阶段 C 的收口拆分：新增 `mavlink_adapter_command.cc`、
+  `mavlink_adapter_params.cc`、`mavlink_adapter_log.cc` 和
+  `mavlink_adapter_dispatch.cc`，迁出命令队列发送、参数请求/超时、日志接收、
+  MAG_CAL_PROGRESS 兼容解析和 `process()` 消息分发。
+- `mavlink_adapter_internal.h` 从 553 行降到 290 行，现在只保留 `Impl` 状态、
+  方法声明和底层 `send_msg()`；`process()` 的锁范围、消息顺序、超时检查和锁外回调
+  执行语义保持不变。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.27 - 2026-10-01
 
 ### Changed

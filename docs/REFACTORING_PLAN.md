@@ -35,6 +35,7 @@
 - `0.0.25`：MAVLink adapter 状态容器拆出 `mavlink_adapter_state.h`。
 - `0.0.26`：30 个消息处理器拆出 `mavlink_adapter_handlers.cc`。
 - `0.0.27`：任务协议和发送辅助函数拆出 `mavlink_adapter_mission.cc`。
+- `0.0.28`：参数、日志、命令发送和 `process()` 分发拆出独立实现文件。
 
 ## 后续里程碑
 
@@ -42,8 +43,8 @@
 | --- | --- | --- |
 | 已完成 A | 任务验证与差异诊断 | 回读差异在 Flutter 中显示 `index/field/expected/actual`；归一化 frame、默认参数和 Home；失败时保留本地任务并给出恢复路径 |
 | 已完成 B | Flutter 控制器拆分 | 将 `ConnectionController` 内部拆成连接、遥测、参数、校准、飞行命令和任务适配器；保留旧门面，逐步迁移页面 |
-| 当前 C | MAVLink 内部拆分 | 将 `MavlinkAdapter::Impl` 的消息分发、遥测处理、任务协议、参数协议、命令和日志处理拆成内部模块；不改变 FFI |
-| 下一阶段 D | 参数系统增强 | 参考 QGC FactSystem 的 pending/confirmed/failed 语义，参考 MP 的 ArduPilot 元数据和参数覆盖 |
+| 已完成 C | MAVLink 内部拆分 | 将 `MavlinkAdapter::Impl` 的消息分发、遥测处理、任务协议、参数协议、命令和日志处理拆成内部模块；不改变 FFI |
+| 当前 D | 参数系统增强 | 参考 QGC FactSystem 的 pending/confirmed/failed 语义，参考 MP 的 ArduPilot 元数据和参数覆盖 |
 | 下一阶段 E | 任务领域补齐 | QGC `.plan` ComplexItem 保留、GeoFence/Rally 文档模型、ArduPilot 能力矩阵和往返测试 |
 | 后续 | 平台真实验收 | Windows 串口/任务/参数/校准、Linux 串口、Android USB 生命周期；构建成功不能替代设备验收 |
 
@@ -64,10 +65,11 @@ Servo/RC、系统状态和 freshness 的状态仍由 `ConnectionController` 管�
 RTL、降落、起飞、解锁、模式切换、任务启动、引导点、暂停、环绕和设置 Home 的安全
 门控及状态确认仍由 `ConnectionController` 管理。
 
-第二阶段 C 已开始并发布到 `0.0.27`：`mavlink_adapter_state.h` 已拆出遥测、链路质量、
-日志下载和 Command ACK 等待状态，`mavlink_adapter_handlers.cc` 已承接 30 个消息处理器，
-`mavlink_adapter_mission.cc` 已承接任务协议。`mavlink_adapter_internal.h` 继续逐步释放
-参数协议、命令和日志处理的实现职责，每个切片独立通过门禁。
+第二阶段 C 已完成并发布到 `0.0.28`：`mavlink_adapter_state.h` 承接状态，
+`mavlink_adapter_handlers.cc` 承接消息处理器，`mavlink_adapter_mission.cc` 承接任务协议，
+`mavlink_adapter_command.cc`、`mavlink_adapter_params.cc` 和
+`mavlink_adapter_log.cc` 承接剩余协议辅助，`mavlink_adapter_dispatch.cc` 承接原始帧兼容
+解析和消息分发。`mavlink_adapter_internal.h` 当前只保留 `Impl` 状态、声明和底层发送。
 
 ## 首轮结果
 

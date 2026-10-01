@@ -25,8 +25,12 @@
 以下路径涉及连接、协议状态机或飞控命令，修改时必须配套聚焦验证：
 
 - `src/mavlink/mavlink_adapter.cc`
+- `src/mavlink/mavlink_adapter_command.cc`
+- `src/mavlink/mavlink_adapter_dispatch.cc`
 - `src/mavlink/mavlink_adapter_handlers.cc`
+- `src/mavlink/mavlink_adapter_log.cc`
 - `src/mavlink/mavlink_adapter_mission.cc`
+- `src/mavlink/mavlink_adapter_params.cc`
 - `src/mavlink/mavlink_senders.cc`
 - `src/mavlink/mavlink_adapter_internal.h`
 - `src/mavlink/command_queue.cc`
