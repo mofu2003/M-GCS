@@ -3,6 +3,8 @@
  */
 #include "param_cache.h"
 
+#include <algorithm>
+
 namespace mg::core::mavlink {
 
 namespace {
@@ -29,6 +31,7 @@ void ParamCache::start_download(uint8_t sys, uint8_t comp) {
     missing_indices.clear();
     failed_indices.clear();
     batch_queue.clear();
+    write_retry_queue.clear();
     for (const auto& [name, pending] : pending_writes) {
         complete_write(
             pending.history_id,
@@ -64,7 +67,9 @@ bool ParamCache::cancel_download() {
 uint64_t ParamCache::record_write_request(
     const std::string& name,
     float value,
-    uint8_t type) {
+    uint8_t type,
+    uint8_t target_sys,
+    uint8_t target_comp) {
     if (const auto existing = pending_writes.find(name); existing != pending_writes.end()) {
         complete_write(
             existing->second.history_id,
@@ -73,6 +78,12 @@ uint64_t ParamCache::record_write_request(
             "superseded by a newer parameter write");
         pending_writes.erase(existing);
     }
+    write_retry_queue.erase(
+        std::remove_if(
+            write_retry_queue.begin(),
+            write_retry_queue.end(),
+            [&name](const PendingWrite& pending) { return pending.name == name; }),
+        write_retry_queue.end());
     const uint64_t id = next_write_id++;
     WriteRecord record;
     record.id = id;
@@ -89,6 +100,8 @@ uint64_t ParamCache::record_write_request(
     pending.name = name;
     pending.value = value;
     pending.type = type;
+    pending.target_sys = target_sys;
+    pending.target_comp = target_comp;
     pending.history_id = id;
     pending.send_time = std::chrono::steady_clock::now();
     pending_writes[name] = std::move(pending);
@@ -240,6 +253,7 @@ int ParamCache::check_timeouts(std::vector<std::function<void()>>& deferred_cbs)
             if (it->second.retry_count < PARAM_WRITE_MAX_RETRIES) {
                 it->second.retry_count++;
                 it->second.send_time = now;
+                write_retry_queue.push_back(it->second);
             } else {
                 if (it->second.result_cb) {
                     auto cb = it->second.result_cb;

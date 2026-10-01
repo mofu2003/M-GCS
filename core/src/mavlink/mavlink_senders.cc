@@ -557,7 +557,8 @@ Status MavlinkAdapter::set_param_status(uint8_t target_system, uint8_t target_co
     mg::core::platform::LockGuard lk(impl_->mtx);
     if (!impl_->send_cb) { return Status::error(ErrorCode::NotConnected, "no send callback registered"); }
     const uint64_t history_id = impl_->pc.record_write_request(
-        param_id, param_value, param_type);
+        param_id, param_value, param_type,
+        target_system, target_component);
     mavlink_msg_param_set_pack(
         255, 0, &impl_->msg,
         target_system, target_component,
@@ -568,6 +569,7 @@ Status MavlinkAdapter::set_param_status(uint8_t target_system, uint8_t target_co
             false,
             param_value,
             "send_msg failed for PARAM_SET");
+        impl_->pc.pending_writes.erase(param_id);
         return Status::error(ErrorCode::SendFailed, "send_msg failed for PARAM_SET");
     }
     return Status::ok();

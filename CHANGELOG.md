@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.29 - 2026-10-01
+
+### Changed
+
+- 完成阶段 D 的第一个参数写入增强：`PendingWrite` 记录目标 sysid/compid；
+  PARAM_SET 超时后不再只增加重试计数，而是通过 `process_param_timeouts()` 真正重发，
+  重试耗尽仍进入 `failed` 并保留错误原因。
+- 发送 PARAM_SET 失败时立即清理 pending 状态，避免后续 PARAM_VALUE 或超时误更新同一
+  写入记录；参数下载、写入历史、FFI 和 `pending / confirmed / failed` 字段保持不变。
+
+### Verification
+
+- 后端 offline/simulation `34/34` 通过。
+- Flutter analyze 和 Flutter 测试 `20/20` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.28 - 2026-10-01
 
 ### Changed

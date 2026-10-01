@@ -281,14 +281,31 @@ static void test_param_cache() {
     pc.start_download(1, 1);
     CHECK(!pc.download_cancelled, "restart clears cancelled terminal state");
 
-    const uint64_t history_id = pc.record_write_request("TEST_PARAM", 3.5f, 9);
+    const uint64_t history_id = pc.record_write_request("TEST_PARAM", 3.5f, 9, 7, 1);
     CHECK(pc.write_history.size() == 1, "parameter write request enters history");
     CHECK(pc.write_history.back().state == ParamCache::WriteState::Pending,
           "parameter write history starts pending");
+    CHECK(pc.pending_writes["TEST_PARAM"].target_sys == 7 &&
+              pc.pending_writes["TEST_PARAM"].target_comp == 1,
+          "pending parameter write keeps target sys/component");
     CHECK(pc.complete_write(history_id, true, 3.5f),
           "parameter write history records confirmation");
     CHECK(pc.write_history.back().state == ParamCache::WriteState::Confirmed,
           "confirmed parameter write is marked confirmed");
+
+    pc.record_write_request("RETRY_PARAM", 2.0f, 9, 1, 1);
+    pc.pending_writes["RETRY_PARAM"].send_time =
+        std::chrono::steady_clock::now() - std::chrono::seconds(2);
+    cbs.clear();
+    pc.check_timeouts(cbs);
+    CHECK(pc.write_retry_queue.size() == 1,
+          "timed-out parameter write is queued for retransmission");
+    CHECK(pc.pending_writes["RETRY_PARAM"].retry_count == 1,
+          "queued parameter retry increments retry count");
+    CHECK(pc.write_retry_queue.front().target_sys == 1 &&
+              pc.write_retry_queue.front().target_comp == 1,
+          "queued parameter retry preserves target sys/component");
+    pc.write_retry_queue.clear();
 
     const uint64_t timeout_id = pc.record_write_request("TIMEOUT_PARAM", 1.0f, 9);
     pc.pending_writes["TIMEOUT_PARAM"].retry_count = PARAM_WRITE_MAX_RETRIES;

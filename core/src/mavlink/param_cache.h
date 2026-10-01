@@ -74,12 +74,15 @@ struct ParamCache {
         std::string name;
         float value;
         uint8_t type;
+        uint8_t target_sys = 0;
+        uint8_t target_comp = 0;
         uint64_t history_id = 0;
         int retry_count = 0;
         std::chrono::steady_clock::time_point send_time;
         std::function<void(bool success)> result_cb;
     };
     std::unordered_map<std::string, PendingWrite> pending_writes;
+    std::vector<PendingWrite> write_retry_queue;
 
     enum class WriteState : uint8_t {
         Pending = 0,
@@ -113,7 +116,9 @@ struct ParamCache {
     uint64_t record_write_request(
         const std::string& name,
         float value,
-        uint8_t type);
+        uint8_t type,
+        uint8_t target_sys = 0,
+        uint8_t target_comp = 0);
 
     /// 更新参数写入终态；找不到记录时返回 false。
     bool complete_write(

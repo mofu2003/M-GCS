@@ -71,6 +71,10 @@ RTL、降落、起飞、解锁、模式切换、任务启动、引导点、暂�
 `mavlink_adapter_log.cc` 承接剩余协议辅助，`mavlink_adapter_dispatch.cc` 承接原始帧兼容
 解析和消息分发。`mavlink_adapter_internal.h` 当前只保留 `Impl` 状态、声明和底层发送。
 
+第三阶段 D 已开始并发布到 `0.0.29`：参数写入超时会真正重发 PARAM_SET，`PendingWrite`
+记录目标 sysid/compid，发送失败会清理 pending。pending/confirmed/failed 的后续工作
+转向元数据、批量刷新和固件差异，不改变现有 FFI 字段。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.28`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.29`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -64,6 +64,8 @@ bash tools/audit_status.sh
 - `REFACTOR-001`：Flutter 领域 FFI 适配器已拆分；MAVLink adapter 已完成状态、消息
   处理器、任务协议、参数协议、日志、命令发送和 `process()` 分发的内部拆分，公开
   FFI、JSON 和 MAVLink 行为未变化。
+- `PARAM-001`：参数写入超时后会真正重发 PARAM_SET，并保留目标 sysid/compid；重试
+  耗尽进入 failed，发送失败会立即清理 pending，避免后续确认误关联旧请求。
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项
@@ -80,6 +82,12 @@ bash tools/audit_status.sh
 页面仍由各页等待。operations 快照现在还包含 `calibration` 和 `log`，对应的校准与日志
 下载取消也已接入；`mg_system_get_diagnostics` 还包含最近参数写入的 requested/actual/
 state/error 历史。前端后续可统一消费同一套 operation 状态。
+
+### `PARAM-002`：参数元数据和覆盖仍可继续增强
+
+参数写入已经具备 pending/confirmed/failed、超时重发和目标信息，但还没有达到 QGC
+FactSystem 的参数数据库、完整枚举/范围元数据、批量刷新策略和分固件覆盖水平。下一项
+应先以真实 ArduPilot 参数页和元数据缺口为依据，不盲目复制全量参数库。
 
 ### `DEAD-001`：固件刷写占位
 

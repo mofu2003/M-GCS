@@ -36,6 +36,30 @@ void MavlinkAdapter::Impl::process_param_timeouts()
     default:
         break;
     }
+
+    if (!pc.write_retry_queue.empty()) {
+        auto retries = std::move(pc.write_retry_queue);
+        pc.write_retry_queue.clear();
+        for (const auto& pending : retries) {
+            const auto current = pc.pending_writes.find(pending.name);
+            if (current == pc.pending_writes.end() ||
+                current->second.history_id != pending.history_id) {
+                continue;
+            }
+            mavlink_msg_param_set_pack(
+                255, 0, &msg,
+                pending.target_sys, pending.target_comp,
+                pending.name.c_str(), pending.value, pending.type);
+            if (!send_msg()) {
+                pc.complete_write(
+                    pending.history_id,
+                    false,
+                    pending.value,
+                    "send_msg failed for PARAM_SET retry");
+                pc.pending_writes.erase(current);
+            }
+        }
+    }
 }
 
 } // namespace mg::core::mavlink
