@@ -122,6 +122,8 @@ class _AMapMapViewState extends State<AMapMapView> {
 
   /// 偏好读完之前不写盘，否则会把默认值覆盖掉用户上次的选择。
   bool _preferencesLoaded = false;
+  /// 本会话是否已经因为首次定位移动过视角。
+  bool _centeredOnVehicle = false;
   Timer? _saveTimer;
   bool _showConnectionPanel = false;
   bool _showMissionPlanning = false;
@@ -138,7 +140,31 @@ class _AMapMapViewState extends State<AMapMapView> {
   @override
   void initState() {
     super.initState();
+    widget.connectionController.addListener(_centerOnVehicleOnce);
     unawaited(_restorePreferences());
+  }
+
+  /// 首次拿到有效定位时把视角拉回飞机。
+  ///
+  /// 地图中心是跨会话保存的，上次可能停在别的地方（例如默认的上海），
+  /// 而飞机在几千公里外，连上了却看不到飞机。只有距离超过 20 km 才动视角，
+  /// 免得覆盖用户正常操作；每个会话只做一次。
+  void _centerOnVehicleOnce() {
+    if (_centeredOnVehicle || !mounted) return;
+    final connection = widget.connectionController;
+    if (!connection.vehiclePositionValid) return;
+    final fix = connection.vehiclePosition;
+    if (fix == null) return;
+    _centeredOnVehicle = true;
+    final distance = wgs84DistanceMeters(
+      _center,
+      LatLng(fix.latitude, fix.longitude),
+    );
+    if (distance < 20000) return;
+    _controller.move(
+      _toTileFrame(fix.latitude, fix.longitude),
+      _zoom < 13 ? 15 : _zoom,
+    );
   }
 
   Future<void> _restorePreferences() async {
@@ -192,6 +218,7 @@ class _AMapMapViewState extends State<AMapMapView> {
 
   @override
   void dispose() {
+    widget.connectionController.removeListener(_centerOnVehicleOnce);
     _saveTimer?.cancel();
     _transientMessage?.remove();
     _transientMessage = null;
