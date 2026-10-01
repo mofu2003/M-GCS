@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.22 - 2026-10-01
+
+### Changed
+
+- 完成第二阶段 B 的第三个内部重构：新增 `ParameterFfiBackend`，将参数请求、参数快照、
+  参数进度、参数描述读取和参数写入的动态绑定与 JSON 解包从 `ConnectionController`
+  迁出。
+- 参数缓存、元数据批处理、写入队列、写入确认和 ArduPilot 参数语义保持在主控制器中，
+  参数页面行为和现有 FFI 契约不变。
+
+### Verification
+
+- `flutter analyze lib test` 通过。
+- Flutter 测试 `20/20` 通过。
+- 后端 offline/simulation `34/34` 通过。
+- UI token 检查和 macOS debug 构建通过。
+- 完整 `tools/preflight.sh` 通过。
+
 ## 0.0.21 - 2026-10-01
 
 ### Changed

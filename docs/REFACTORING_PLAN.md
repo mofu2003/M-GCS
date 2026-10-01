@@ -51,7 +51,9 @@
 保持不变。遥测 FFI 绑定现已迁移到
 `flutter_shell/lib/connection/telemetry_ffi_backend.dart`，位置、GPS、VFR HUD、Home、
 Servo/RC、系统状态和 freshness 的状态仍由 `ConnectionController` 管理。后续按同样方式
-拆参数、校准和飞行命令适配器，每次只迁移一个领域并保持门禁通过。
+拆参数、校准和飞行命令适配器，每次只迁移一个领域并保持门禁通过。参数 FFI 绑定现已
+迁移到 `flutter_shell/lib/connection/parameter_ffi_backend.dart`，参数缓存、元数据批处理、
+写入队列和确认逻辑仍由 `ConnectionController` 管理。
 
 ## 首轮结果
 

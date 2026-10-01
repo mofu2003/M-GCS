@@ -10,6 +10,7 @@ import '../mission/mission_document_controller.dart';
 import '../mission/mission_document_ffi_backend.dart';
 import '../mission/mission_document_models.dart';
 import 'telemetry_ffi_backend.dart';
+import 'parameter_ffi_backend.dart';
 
 final class SerialPortInfo {
   const SerialPortInfo({
@@ -285,19 +286,6 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>) _getWaveformInstances;
   late final Pointer<Utf8> Function(Pointer<Void>, int, int) _setStreamInterval;
   late final Pointer<Utf8> Function(Pointer<Void>) _requestFirmwareVersion;
-  late final Pointer<Utf8> Function(Pointer<Void>) _requestAllParameters;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getAllParameters;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getParameterProgress;
-  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
-  _getParameterByName = _library
-      .lookup<
-        NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
-      >('mg_params_get_by_name')
-      .asFunction();
-  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
-  _readParameterDescriptor;
-  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, double)
-  _writeParameter;
   late final Pointer<Utf8> Function(Pointer<Void>, int, int) _calibrationStart;
   late final Pointer<Utf8> Function(Pointer<Void>) _calibrationCancel;
   late final Pointer<Utf8> Function(Pointer<Void>) _calibrationGetStatus;
@@ -330,6 +318,7 @@ final class ConnectionController extends ChangeNotifier {
   MissionDocumentController? _missionPlanning;
   MissionDocumentFfiBackend? _missionBackend;
   TelemetryFfiBackend? _telemetryBackend;
+  ParameterFfiBackend? _parameterBackend;
 
   MissionDocumentController get missionPlanning =>
       _missionPlanning ??= MissionDocumentController(
@@ -342,6 +331,9 @@ final class ConnectionController extends ChangeNotifier {
 
   TelemetryFfiBackend get telemetryBackend =>
       _telemetryBackend ??= TelemetryFfiBackend(_library, _core);
+
+  ParameterFfiBackend get parameterBackend =>
+      _parameterBackend ??= ParameterFfiBackend(_library, _core);
 
   final List<SerialPortInfo> ports = [];
   final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
@@ -838,8 +830,7 @@ final class ConnectionController extends ChangeNotifier {
     _parameterWriteErrors.clear();
     _parameterRequestStarted = false;
     try {
-      final result =
-          _readJson(_requestAllParameters(_core)) as Map<String, Object?>;
+      final result = parameterBackend.requestAll();
       if (result['success'] != true) {
         final error = result['error'];
         throw StateError(
@@ -917,15 +908,7 @@ final class ConnectionController extends ChangeNotifier {
             continue;
           }
           try {
-            final nativeName = name.toNativeUtf8();
-            late final Map<String, Object?> descriptor;
-            try {
-              descriptor =
-                  _readJson(_readParameterDescriptor(_core, nativeName))
-                      as Map<String, Object?>;
-            } finally {
-              malloc.free(nativeName);
-            }
+            final descriptor = parameterBackend.descriptor(name);
             parameters[name] = parameter.withDescriptor(descriptor);
             _parameterMetadataLoaded.add(name);
             _parameterMetadataAttempts.remove(name);
@@ -1011,21 +994,14 @@ final class ConnectionController extends ChangeNotifier {
 
       for (var attempt = 0; attempt < 3; attempt++) {
         _ensureWriteSession(requestedSessionId, name);
-        final nativeName = name.toNativeUtf8();
-        try {
-          final result =
-              _readJson(_writeParameter(_core, nativeName, value))
-                  as Map<String, Object?>;
-          if (result['success'] != true) {
-            final error = result['error'];
-            throw StateError(
-              error is Map<String, Object?>
-                  ? error['message'] as String? ?? '参数写入失败'
-                  : error as String? ?? '参数写入失败',
-            );
-          }
-        } finally {
-          malloc.free(nativeName);
+        final result = parameterBackend.write(name, value);
+        if (result['success'] != true) {
+          final error = result['error'];
+          throw StateError(
+            error is Map<String, Object?>
+                ? error['message'] as String? ?? '参数写入失败'
+                : error as String? ?? '参数写入失败',
+          );
         }
 
         final acknowledgementTimer = Stopwatch()..start();
@@ -1091,16 +1067,9 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   double? _readParameterValue(String name) {
-    final nativeName = name.toNativeUtf8();
-    try {
-      final result =
-          _readJson(_getParameterByName(_core, nativeName))
-              as Map<String, Object?>;
-      if (result['found'] != true) return null;
-      return (result['value'] as num?)?.toDouble();
-    } finally {
-      malloc.free(nativeName);
-    }
+    final result = parameterBackend.byName(name);
+    if (result['found'] != true) return null;
+    return (result['value'] as num?)?.toDouble();
   }
 
   bool _parameterValuesMatch(double expected, double actual, int mavlinkType) {
@@ -1173,35 +1142,6 @@ final class ConnectionController extends ChangeNotifier {
             'mg_connection_close',
           )
           .asFunction();
-      _requestAllParameters = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_params_request_all',
-          )
-          .asFunction();
-      _getAllParameters = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_params_get_all',
-          )
-          .asFunction();
-      _getParameterProgress = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_params_get_progress',
-          )
-          .asFunction();
-      _readParameterDescriptor = _library
-          .lookup<
-            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
-          >('mg_config_read_param')
-          .asFunction();
-      _writeParameter = _library
-          .lookup<
-            NativeFunction<
-              Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Float)
-            >
-          >('mg_config_write_param')
-          .asFunction<
-            Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, double)
-          >();
       _calibrationStart = _library
           .lookup<
             NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32, Int32)>
@@ -2126,8 +2066,7 @@ final class ConnectionController extends ChangeNotifier {
       final previousReceived = parameterReceived;
       final previousTotal = parameterTotal;
       final previousLoading = parametersLoading;
-      final progress =
-          _readJson(_getParameterProgress(_core)) as Map<String, Object?>;
+      final progress = parameterBackend.progress();
       parameterReceived = progress['received'] as int? ?? 0;
       parameterTotal = progress['total'] as int? ?? 0;
       parametersLoading =
@@ -2141,7 +2080,7 @@ final class ConnectionController extends ChangeNotifier {
         return;
       }
 
-      final rawParameters = _readJson(_getAllParameters(_core));
+      final rawParameters = parameterBackend.all();
       if (rawParameters is! List<Object?>) {
         throw const FormatException('飞控参数列表格式无效');
       }
