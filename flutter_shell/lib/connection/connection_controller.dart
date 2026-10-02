@@ -1340,6 +1340,18 @@ final class ConnectionController extends ChangeNotifier {
     throw StateError('切换飞行模式失败：飞控未进入 $expectedMode');
   }
 
+  /// 解锁。安全敏感动作，调用方（界面）必须先确认。
+  Future<void> armVehicle() async {
+    _requireConnected('解锁');
+    await _armVehicleAndValidate();
+  }
+
+  /// 上锁。飞行中上锁会掉飞机，界面必须确认。
+  Future<void> disarmVehicle() async {
+    _requireConnected('上锁');
+    await _disarmVehicleAndValidate();
+  }
+
   Future<void> _armVehicleAndValidate() async {
     if (vehicleArmed) return;
     _requireCommandSuccess(flightCommandBackend.arm(0), '解锁');
@@ -1350,6 +1362,18 @@ final class ConnectionController extends ChangeNotifier {
       return;
     }
     throw StateError('解锁失败：飞控未报告 armed=true');
+  }
+
+  Future<void> _disarmVehicleAndValidate() async {
+    if (!vehicleArmed) return;
+    _requireCommandSuccess(flightCommandBackend.disarm(0), '上锁');
+    if (await _waitForVehicleState(
+      armed: false,
+      timeout: _armValidationWindow,
+    )) {
+      return;
+    }
+    throw StateError('上锁失败：飞控仍报告 armed=true');
   }
 
   bool _flightModeMatches(String expectedMode) =>

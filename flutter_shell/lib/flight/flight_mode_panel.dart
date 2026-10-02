@@ -36,6 +36,7 @@ class FlightModeFloatingPanel extends StatefulWidget {
 class _FlightModeFloatingPanelState extends State<FlightModeFloatingPanel> {
   Timer? _pollTimer;
   String? _pendingMode;
+  bool _armBusy = false;
 
   @override
   void initState() {
@@ -64,6 +65,71 @@ class _FlightModeFloatingPanelState extends State<FlightModeFloatingPanel> {
     super.dispose();
   }
 
+  /// 解锁 / 上锁。两者都是安全敏感动作，按 MP 的习惯先确认再发。
+  Future<void> _toggleArmed() async {
+    final controller = widget.controller;
+    final armed = controller.vehicleArmed;
+    final confirmed = await _confirm(
+      title: armed ? '上锁？' : '解锁？',
+      message: armed
+          ? '上锁会立即停止电机。飞行中上锁会掉飞机，地面测试请先拆桨。'
+          : '解锁后电机可以转动。请确认机体周围无人、已拆桨或已做好安全防护。',
+      confirmLabel: armed ? '上锁' : '解锁',
+    );
+    if (!confirmed || !mounted) return;
+    setState(() => _armBusy = true);
+    try {
+      if (armed) {
+        await controller.disarmVehicle();
+      } else {
+        await controller.armVehicle();
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        await _confirm(
+          title: armed ? '上锁失败' : '解锁失败',
+          message: '$error',
+          confirmLabel: '知道了',
+          singleAction: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _armBusy = false);
+    }
+  }
+
+  Future<bool> _confirm({
+    required String title,
+    required String message,
+    required String confirmLabel,
+    bool singleAction = false,
+  }) async {
+    final result = await showMacosAlertDialog<bool>(
+      context: context,
+      builder: (dialogContext) => MacosAlertDialog(
+        appIcon: MacosIcon(
+          CupertinoIcons.exclamationmark_triangle,
+          size: 44,
+          color: dialogContext.mgColors.warning,
+        ),
+        title: Text(title),
+        message: Text(message),
+        primaryButton: PushButton(
+          controlSize: ControlSize.large,
+          onPressed: () => Navigator.of(dialogContext).pop(singleAction),
+          child: Text(confirmLabel),
+        ),
+        secondaryButton: PushButton(
+          controlSize: ControlSize.large,
+          secondary: true,
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('取消'),
+        ),
+      ),
+    );
+    return result ?? false;
+  }
+
   Future<void> _selectMode(String name) async {
     if (name == widget.controller.vehicleFlightMode) return;
     setState(() => _pendingMode = name);
@@ -74,14 +140,15 @@ class _FlightModeFloatingPanelState extends State<FlightModeFloatingPanel> {
         await showMacosAlertDialog<void>(
           context: context,
           builder: (dialogContext) => MacosAlertDialog(
-            appIcon: const Icon(
+            appIcon: MacosIcon(
               CupertinoIcons.exclamationmark_triangle,
-              size: 40,
+              size: 44,
+              color: dialogContext.mgColors.warning,
             ),
             title: const Text('切换飞行模式失败'),
             message: Text('$error'),
             primaryButton: PushButton(
-              controlSize: ControlSize.regular,
+              controlSize: ControlSize.large,
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('知道了'),
             ),
@@ -144,7 +211,16 @@ class _FlightModeFloatingPanelState extends State<FlightModeFloatingPanel> {
                       mode: widget.controller.vehicleFlightMode,
                       armed: widget.controller.vehicleArmed,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
+                    _ArmButton(
+                      armed: widget.controller.vehicleArmed,
+                      enabled: widget.controller.isConnected && !_armBusy,
+                      busy: _armBusy,
+                      onPressed: () => unawaited(_toggleArmed()),
+                    ),
+                    const SizedBox(height: 8),
+                    Divider(height: 1, color: colors.divider),
+                    const SizedBox(height: 8),
                     Expanded(child: _buildModeList(context)),
                   ],
                 ),
@@ -186,6 +262,53 @@ class _FlightModeFloatingPanelState extends State<FlightModeFloatingPanel> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 解锁 / 上锁按钮。整行宽，避免和模式列表抢横向空间。
+class _ArmButton extends StatelessWidget {
+  const _ArmButton({
+    required this.armed,
+    required this.enabled,
+    required this.busy,
+    required this.onPressed,
+  });
+
+  final bool armed;
+  final bool enabled;
+  final bool busy;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    // 解锁是"让电机能转"，用危险色提醒；上锁是回到安全态，用普通按钮。
+    final style = armed
+        ? PushButton(
+            controlSize: ControlSize.regular,
+            secondary: true,
+            onPressed: enabled ? onPressed : null,
+            child: const Text('上锁'),
+          )
+        : PushButton(
+            controlSize: ControlSize.regular,
+            onPressed: enabled ? onPressed : null,
+            child: Text(
+              '解锁',
+              style: MacosTheme.of(
+                context,
+              ).typography.body.copyWith(color: colors.onAccent),
+            ),
+          );
+    return SizedBox(
+      width: double.infinity,
+      child: busy
+          ? const Align(
+              alignment: Alignment.center,
+              child: ProgressCircle(radius: 8),
+            )
+          : style,
     );
   }
 }

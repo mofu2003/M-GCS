@@ -16,6 +16,7 @@ final class FlightCommandFfiBackend {
     _land = _lookup1('mg_command_land');
     _takeoff = _lookupTakeoff('mg_command_takeoff');
     _arm = _lookupInt('mg_command_arm');
+    _disarm = _lookupInt('mg_command_disarm');
     _setMode = _lookupMode('mg_command_set_mode');
     _missionStart = _lookup1('mg_mission_start');
     _guidedPause = _lookup1('mg_command_guided_pause');
@@ -32,6 +33,7 @@ final class FlightCommandFfiBackend {
   late final Pointer<Utf8> Function(Pointer<Void>) _land;
   late final Pointer<Utf8> Function(Pointer<Void>, double) _takeoff;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _arm;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _disarm;
   late final Pointer<Utf8> Function(Pointer<Void>, int, int) _setMode;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionStart;
   late final Pointer<Utf8> Function(Pointer<Void>) _guidedPause;
@@ -116,6 +118,8 @@ final class FlightCommandFfiBackend {
       _read(_takeoff(_core, altitudeMeters));
 
   Map<String, Object?> arm(int force) => _read(_arm(_core, force));
+
+  Map<String, Object?> disarm(int force) => _read(_disarm(_core, force));
 
   Map<String, Object?> setMode(int baseMode, int customMode) =>
       _read(_setMode(_core, baseMode, customMode));

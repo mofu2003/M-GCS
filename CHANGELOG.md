@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.0.67 - 2026-10-02
+
+### Added
+
+- 飞行模式操作台新增**解锁 / 上锁**按钮（对标 MP 把 ARM 按钮放在飞行模式旁边）。此前
+  前端只能通过「启动任务」隐式解锁，没有独立的解锁入口。
+- 两个动作都先确认再执行：解锁提示"电机可以转动"，上锁提示"飞行中上锁会掉飞机、地面
+  测试先拆桨"。按钮按当前 `armed` 状态切换，执行中显示进度圈，失败弹窗给出原因。
+- 前端补齐 `mg_command_disarm` 绑定（后端早已实现，Dart 侧一直没接），控制器新增
+  `armVehicle()` / `disarmVehicle()`：发命令后都在 1.5 s 窗口内等心跳确认状态翻转，
+  没翻转就报错，而不是发完就当成功。
+- 修复解锁按钮一点就崩溃的问题：确认弹窗里的按钮传了 `ControlSize.regular`，而
+  `MacosAlertDialog` 断言要求 `ControlSize.large`，导致点击后直接出现 Flutter 错误红屏。
+  已按 `MacosAlertDialog` 的约束改正，对话框外观同时对齐航线规划面板已有的确认弹窗。
+
+### Verification
+
+- Flutter analyze 无问题、测试 `23/23` 通过；UI token 检查与 macOS debug 构建通过；
+  完整 `tools/preflight.sh` 通过。
+- 解锁路径复用「启动任务」已在用的同一个 `_armVehicleAndValidate`；上锁是它的镜像实现。
+
 ## 0.0.66 - 2026-10-02
 
 ### Changed
