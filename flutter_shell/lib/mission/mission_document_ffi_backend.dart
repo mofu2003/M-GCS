@@ -54,6 +54,7 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     _missionDocVerifyRally = _lookupVerify('mg_mission_doc_verify_rally');
     _rallyDownload = _lookup1('mg_rally_download');
     _missionDownload = _lookup1('mg_mission_download');
+    _missionClear = _lookup1('mg_mission_clear');
     _missionExecutionProgress = _lookup1(
       'mg_mission_get_execution_progress',
     );
@@ -102,6 +103,7 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   late final Pointer<Utf8> Function(Pointer<Void>, double) _missionDocVerifyRally;
   late final Pointer<Utf8> Function(Pointer<Void>) _rallyDownload;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDownload;
+  late final Pointer<Utf8> Function(Pointer<Void>) _missionClear;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionExecutionProgress;
   late final Pointer<Utf8> Function(Pointer<Void>) _operationsGetSnapshot;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
@@ -242,6 +244,12 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
         _readJson(_missionExecutionProgress(_core)) as JsonMap;
     _requireSuccess(response);
     return MissionExecutionProgress.fromJson(response);
+  }
+
+  @override
+  Future<void> clearVehicleMission() async {
+    if (!isConnected()) throw StateError('未连接飞控，无法清除飞控任务');
+    _requireSuccess(_readJson(_missionClear(_core)) as JsonMap);
   }
 
   @override

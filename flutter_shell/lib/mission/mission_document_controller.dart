@@ -398,6 +398,14 @@ final class MissionDocumentController extends ChangeNotifier {
 
   /// 轮询任务执行进度。与传输进度不同，这里不设置 busy/status：
   /// 未连接或后端暂不可用时静默保留上一次结果。
+  /// 清空飞控上的任务。日志/围栏/Rally 不受影响；本地文档保持不动。
+  Future<void> clearVehicleMission() =>
+      _run('正在清除飞控任务…', rethrowErrors: true, () async {
+        await backend.clearVehicleMission();
+        executionProgress = null;
+        status = '已清除飞控任务';
+      });
+
   Future<void> refreshExecutionProgress() async {
     if (!initialized) return;
     try {

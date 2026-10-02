@@ -256,6 +256,27 @@ void main() {
     expect(controller.executionProgress?.finished, isTrue);
     expect(controller.executionProgress?.reachedCount, 3);
   });
+
+  test('clearing the vehicle mission leaves the local document alone', () async {
+    final backend = _FakeMissionBackend();
+    final controller = MissionDocumentController(backend: backend);
+
+    await controller.initialize();
+    await controller.addEntity(
+      const MissionEntity(
+        id: 'entity-1',
+        latitude: 31.2,
+        longitude: 121.4,
+        altitudeMeters: 50,
+      ),
+    );
+
+    await controller.clearVehicleMission();
+
+    expect(backend.vehicleMissionClears, 1);
+    expect(controller.status, contains('已清除飞控任务'));
+    expect(controller.document?.entities, hasLength(1));
+  });
 }
 
 final class _FakeMissionBackend implements MissionDocumentBackend {
@@ -480,6 +501,13 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
   @override
   Future<MissionExecutionProgress> getMissionExecutionProgress() async =>
       executionProgress;
+
+  @override
+  Future<void> clearVehicleMission() async {
+    vehicleMissionClears++;
+  }
+
+  int vehicleMissionClears = 0;
 
   MissionExecutionProgress executionProgress =
       const MissionExecutionProgress(valid: true, total: 3);

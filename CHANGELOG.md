@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.0.64 - 2026-10-02
+
+### Added
+
+- 任务中止判定：`mg_mission_get_execution_progress` 新增 `aborted` —— 解锁飞行中离开过
+  任务模式、且最后一项未到达即判中止。带上"最后一项未到达"是为了区分正常收尾：飞控跑完
+  任务后自己也会切 RTL/降落，那时 `reached_end` 已是 true。任务面板据此显示
+  「任务已中止」（危险色 + 警示图标），不再把中断的任务显示成"进行中"。
+- 补上「清除飞控任务」入口：此前后端有 `mg_mission_clear`，但前端完全没有接。现在任务
+  面板动作行有该按钮，按 MP/QGC 的习惯先确认再执行，只清飞控上的任务、不动本地文档。
+
+### Verification
+
+- `test_sim_mission` 新增中止用例：任务模式下解锁后切到 LOITER 且未到终点 => `aborted:true`；
+  同时校验 `reached_end` / `finished` / `aborted` 三者互不干扰。
+- Flutter 新增控制器用例：清除飞控任务后本地文档仍在。测试 `23/23` 通过。
+- 后端 offline/simulation `35/35`；analyze 无问题；UI token 与 macOS debug 构建通过；
+  完整 `tools/preflight.sh` 通过。
+
 ## 0.0.63 - 2026-10-02
 
 ### Changed

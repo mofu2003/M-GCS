@@ -148,6 +148,11 @@ MGCORE_API char* mg_mission_get_execution_progress(mg_core_t* core) {
     // 曾经在任务模式下解锁飞行，之后上锁。
     jb.field("reached_end", progress.reached_end);
     jb.field("finished", get_active_flight_modes(core).mission_fly_completed());
+    // 中止：解锁飞行中离开过任务模式，而且最后一项没到达。带上"未到达"这一条是为了
+    // 区分正常收尾——飞控跑完任务后自己也会切 RTL/降落，那时 reached_end 已经是 true。
+    jb.field("aborted",
+             !progress.reached_end && progress.valid &&
+                 get_active_flight_modes(core).mission_mode_exited_while_armed());
     jb.end_object();
     return to_cstr(jb.str());
 }

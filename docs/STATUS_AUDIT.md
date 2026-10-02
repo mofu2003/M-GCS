@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.63`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.64`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -10,7 +10,7 @@
 | `git diff --check` | 通过 |
 | `dart tools/check_ui_tokens.dart` | 通过 |
 | Flutter analyze | 通过 |
-| Flutter test | 22/22 |
+| Flutter test | 23/23 |
 | 后端 offline/simulation | 35/35 |
 | macOS debug 构建 | 通过 |
 | Windows build/preflight | workflow 统一调用预检脚本；脚本会先生成 MAVLink 头，再构建 bundle 并校验关键 FFI 导出。未在本机 Windows 复核 |

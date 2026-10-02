@@ -275,6 +275,29 @@ static void test_mission_completion_follows_qgc_rules() {
     CHECK(progress && strstr(progress, "\"finished\":false"),
           "a new arm clears the previous mission-complete flag");
     if (progress) mg_free_string(progress);
+
+    // aborted 需要飞控上有任务缓存（valid=true），先给 mock 一份并下载。
+    std::vector<mavlink_mission_item_int_t> cached(3);
+    for (int i = 0; i < 3; i++) {
+        memset(&cached[i], 0, sizeof(mavlink_mission_item_int_t));
+        cached[i].seq = static_cast<uint16_t>(i);
+        cached[i].command = MAV_CMD_NAV_WAYPOINT;
+        cached[i].frame = MAV_FRAME_GLOBAL_RELATIVE_ALT;
+        cached[i].x = static_cast<int32_t>((31.23 + i * 0.01) * 1e7);
+        cached[i].y = static_cast<int32_t>((121.47 + i * 0.01) * 1e7);
+        cached[i].z = 50.0f;
+    }
+    env.mock->set_mission(cached);
+    char* download = mg_mission_download(env.core);
+    if (download) mg_free_string(download);
+    for (int i = 0; i < 60; i++) env.tick(50);
+
+    // 任务模式下解锁后切到非任务模式（LOITER=12）且没飞到终点 => 中止。
+    send_heartbeat(true, 12);
+    progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"aborted\":true"),
+          "leaving mission mode before the last item marks the mission aborted");
+    if (progress) mg_free_string(progress);
 }
 
 int main() {

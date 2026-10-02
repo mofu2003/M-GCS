@@ -109,6 +109,12 @@ public:
     /// 下一次解锁会清掉这个标记，所以它表示"最近一次飞行"的结果。
     bool mission_fly_completed() const;
 
+    /// 本轮解锁飞行中是否**离开过任务模式**（任务模式下解锁后又切到别的模式）。
+    ///
+    /// 光看这一位不能判定"中止"：飞控跑完任务后自己也会切 RTL/降落。调用方要结合
+    /// "最后一项是否到达"来判断，见 `mg_mission_get_execution_progress` 的 `aborted`。
+    bool mission_mode_exited_while_armed() const;
+
     /// 按名字切换模式。MP 的 CMB_modes 与 QGC 的 flightMode 属性都是按名字切。
     /// 名字不识别或未绑定时返回 false。
     bool set_mode(const std::string& mode_name);
@@ -171,6 +177,7 @@ private:
     bool flight_armed_ = false;
     bool flight_in_mission_mode_ = false;
     bool mission_fly_completed_ = false;
+    bool mission_mode_exited_ = false;
 
     // Mode parameters
     float takeoff_altitude_ = 20.0f;

@@ -30,6 +30,9 @@ abstract interface class MissionDocumentBackend {
   /// 任务执行进度（当前项 / 已到达 / 是否跑完）。
   Future<MissionExecutionProgress> getMissionExecutionProgress();
 
+  /// 清空飞控上的任务（保留本地文档）。MP/QGC 覆盖前都会先确认，这里由调用方确认。
+  Future<void> clearVehicleMission();
+
   Future<void> cancelMissionTransfer();
 
   Future<MissionDocument> importMissionDocumentFromVehicle();

@@ -354,6 +354,21 @@ class _MissionPlanningFloatingPanelState
                 ],
               ),
             ),
+            PushButton(
+              controlSize: ControlSize.regular,
+              secondary: true,
+              onPressed: busy || transferring || !connected
+                  ? null
+                  : _clearVehicleMission,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  MacosIcon(CupertinoIcons.trash, size: 13),
+                  SizedBox(width: 6),
+                  Text('清除飞控任务'),
+                ],
+              ),
+            ),
             MacosTooltip(
               message: _mission.dirty ? '请先上传任务' : '解锁并启动任务',
               child: PushButton(
@@ -546,6 +561,18 @@ class _MissionPlanningFloatingPanelState
       if (!confirmed) return;
     }
     await _mutate(_mission.downloadFromVehicle);
+  }
+
+  /// 清空飞控任务：破坏性操作，先确认（MP 的 Clear 与 QGC 的 Remove 都会问）。
+  Future<void> _clearVehicleMission() async {
+    final confirmed = await confirmMissionAction(
+      context,
+      title: '清除飞控任务？',
+      message: '这会删除飞控上已保存的任务，本地任务文档保持不变。',
+      confirmLabel: '清除飞控任务',
+    );
+    if (!confirmed) return;
+    await _mutate(_mission.clearVehicleMission);
   }
 
   Future<void> _uploadToVehicle() async {
@@ -776,6 +803,8 @@ class _MissionExecutionProgressBar extends StatelessWidget {
     // 三档文案：航段飞完（还在返航/降落）与真正任务完成分开，避免提前报"完成"。
     final label = done
         ? '任务完成 · 共 $total 项'
+        : progress.aborted
+        ? '任务已中止 · 共 $total 项'
         : progress.reachedEnd
         ? '航段已完成 · 共 $total 项，等待返航/降落'
         : '任务进度 第 ${(progress.currentIndex + 1).clamp(1, total)}/$total 项 · '
@@ -789,10 +818,14 @@ class _MissionExecutionProgressBar extends StatelessWidget {
               MacosIcon(
                 done
                     ? CupertinoIcons.checkmark_circle
+                    : progress.aborted
+                    ? CupertinoIcons.exclamationmark_triangle
                     : CupertinoIcons.location_north,
                 size: 13,
                 color: done
                     ? colors.success
+                    : progress.aborted
+                    ? colors.danger
                     : progress.reachedEnd
                     ? colors.warning
                     : colors.accent,
@@ -815,6 +848,8 @@ class _MissionExecutionProgressBar extends StatelessWidget {
             height: MgMetrics.motorBarHeight,
             trackColor: done
                 ? colors.success
+                : progress.aborted
+                ? colors.danger
                 : progress.reachedEnd
                 ? colors.warning
                 : colors.accent,
