@@ -153,6 +153,7 @@ bash tools/audit_status.sh
 | `DEAD-001` | 产品决策 | 固件刷写需确认做或标为 out of scope |
 | `VIDEO-001` | 环境阻塞 | 本机无 FFmpeg 开发环境，改动无法编译验证 |
 | `UI-001` / `UI-002` | 前端 | 后端接口已就绪，属 `flutter_shell` 工作 |
+| `JOY-001` 摇杆输入 | 暂不做 | 已调研（见下），用户决定先不实现 |
 
 ### `UI-001`：聚合诊断尚未接入 Flutter
 
@@ -192,6 +193,23 @@ Rover/Sub/Tracker profile 标识。任务领域中 Rally、GeoFence 和 ComplexI
 未启用 FFmpeg，因此尚未改动和验证。
 
 **阻塞**：本机没有 FFmpeg 开发环境，改动无法编译与运行验证；需要先具备验证条件。
+
+### `JOY-001`：摇杆 / 手柄输入（评估过，暂不做）
+
+现状：仓库内没有任何手柄支持（`joystick` / `gamepad` / `SDL` / `hidapi` 均为零）。
+已验证的上游事实：
+
+- QGC 用 SDL2（`src/Joystick/JoystickSDL.*`），主轴发 `MANUAL_CONTROL`，辅助轴可额外映射到
+  RC 5–10 走 `RC_CHANNELS_OVERRIDE`；按载具独立使能。
+- MP 走 RC 通道模拟（`JoystickSetup.cs` 把轴写入 `ch1..ch16`），按钮绑定任意命令
+  （`Joy_ChangeMode`、`Joy_Do_Set_Servo`、`Joy_Do_Set_Relay`、`Joy_Mount_Mode` 等）。
+- ArduPilot `handle_manual_control` 会把 `MANUAL_CONTROL` 当作 GCS 心跳
+  （`sysid_mygcs_seen`），因此**持续发摇杆数据会抑制 GCS 失控保护**；`RC_CHANNELS_OVERRIDE`
+  的超时由 `RC_OVERRIDE_TIME` 决定，该参数为负值时 override 永不过期。
+
+结论：属于中等工作量、且直接给飞机加输入源，安全要求高（断流必须立刻停发、默认不得发
+RC override、使能要确认）。用户 2026-10-02 决定暂不实现；若日后要做，建议先只做
+`MANUAL_CONTROL` + 四主轴 + 死区/反转 + 断流保护，用 SITL 验收后再扩。
 
 ### 任务规划边界
 
