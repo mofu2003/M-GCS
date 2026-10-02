@@ -70,7 +70,7 @@ Menlo）降为两套（西文 + 中文回退）。
 
 ### 最终选型：MiSans（单套）
 
-实测数据见 [字体替代方案调研](../FONT_ALTERNATIVES_RESEARCH.md)。MiSans 是唯一
+实测数据见 [字体替代方案调研](../research/FONT_ALTERNATIVES_RESEARCH.md)。MiSans 是唯一
 同时覆盖汉字与拉丁、且中文相似度可用的候选，因此全应用只用一套字体：
 
 | 候选 | 拉丁 vs Helvetica Neue | 中文 vs PingFang SC | 结论 |

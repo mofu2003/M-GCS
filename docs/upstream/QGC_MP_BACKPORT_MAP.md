@@ -9,7 +9,7 @@ Flutter 或 Core 边界。
 
 - M-GCS 首先服务 ArduPilot。不能把“参考 QGC”或“参考 MP”当成项目站队；同一能力
   先按正确性、状态机、分层、测试、平台覆盖、数据覆盖和许可证比较，选择质量更高
-  的实现。默认分项归属见 [MP / QGC 上游实现择优准则](UPSTREAM_CODE_SELECTION.md)。
+  的实现。默认分项归属见 [MP / QGC 上游实现择优准则](../UPSTREAM_CODE_SELECTION.md)。
 - **优先复用协议字段、状态含义、错误码和交互顺序**，不要重新发明 MAVLink 任务、参数、校准和连接流程。
 - QGC 和 MP 都是 GPL 系项目，M-GCS 当前是 MIT。大段源码不能直接复制进 `core/` 或 `flutter_shell/`，除非项目单独处理许可证。默认可复用其字段、算法、状态机和交互约定，在 M-GCS 的模块边界内实现。
 - UI 只能借鉴工作流和信息层级，不照搬 Qt Widgets/QML 布局。M-GCS 继续使用 `macos_ui` 和现有设计 token。

@@ -105,7 +105,7 @@ ArduPilot 的长期现场积累。正确做法是按能力比较：
 
 ## 关联文档
 
-- [QGC 代码质量审计](QGC_CODE_QUALITY_AUDIT.md)：当前 M-GCS 与 QGC 的分项评分。
-- [QGC / MP 可借鉴项对照表](QGC_MP_BACKPORT_MAP.md)：按开发阶段列出的具体模块。
+- [QGC 代码质量审计](audits/2026-10-01-qgc-quality-audit.md)：当前 M-GCS 与 QGC 的分项评分。
+- [QGC / MP 可借鉴项对照表](upstream/QGC_MP_BACKPORT_MAP.md)：按开发阶段列出的具体模块。
 - [开发约束](CONSTRAINTS.md)：安全、依赖、FFI 和任务文件边界。
 - [后续发展计划](DEVELOPMENT_ROADMAP.md)：阶段目标和验收条件。

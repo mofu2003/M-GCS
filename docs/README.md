@@ -1,6 +1,6 @@
 # 文档索引
 
-当前文档基线：`0.0.71`。本文按“当前规范 / 接口契约 / 历史记录”维护，历史审计和
+当前文档基线：`0.0.72`。本文按“当前规范 / 接口契约 / 历史记录”维护，历史审计和
 ADR 不回溯改写，但会在影响当前判断时添加修订说明。
 
 M-GCS 的文档分为三类：
@@ -9,7 +9,7 @@ M-GCS 的文档分为三类：
 - **接口契约**：`bridge/ffi/API_CATALOG.md` 是公开 C ABI 的分组说明。
 - **历史记录**：`docs/adr/` 的废止决策、`docs/audits/` 的冻结审计和 `CHANGELOG.md` 不回写成当前状态。
 
-## 推荐阅读顺序
+## 当前规范
 
 1. [README](../README.md)：项目范围和快速验证。
 2. [项目结构](PROJECT_LAYOUT.md)：目录职责和生成物边界。
@@ -18,25 +18,26 @@ M-GCS 的文档分为三类：
 5. [开发指南](DEVELOPMENT.md)：构建、测试、发布和平台运行。
 6. [编码规范](ENCODING.md)：文本编码、换行和 Windows 终端约定。
 7. [任务规划契约](MISSION_PLANNING.md)：任务文档、命令目录、编译、传输和互操作。
-8. [QGC `.plan` 互操作](QGC_PLAN_INTERCHANGE.md)：字段映射、往返保证和错误边界。
-9. [故障排查](TROUBLESHOOTING.md)：连接、参数、任务、校准和共享库问题。
-10. [协作流程](COLLABORATION.md)：任务卡、worktree、独占资源和预检。
-11. [FFI API Catalog](../bridge/ffi/API_CATALOG.md)：稳定 ABI、兼容入口和错误语义。
-12. [现状审计](STATUS_AUDIT.md)：当前事实、已修复问题和剩余风险。
-13. [完成定义与后端维护收口](DEFINITION_OF_DONE.md)：什么算“做完”，后端维护循环的退出条件与剩余阻塞。
-14. [后续发展计划](DEVELOPMENT_ROADMAP.md)：与 MP/QGC 的取舍、阶段路线、依赖和验收条件。
-15. [QGC/MP 可借鉴项对照](QGC_MP_BACKPORT_MAP.md)：按 A-D 阶段列出可复用模块；
-    E 是依赖前四阶段的 0.1.0 产品化门槛，不单独列上游复用项。
-16. [MP / QGC 上游实现择优准则](UPSTREAM_CODE_SELECTION.md)：按模块选择质量更高的上游实现，不按项目整体站队。
-17. [QGC 代码质量审计](QGC_CODE_QUALITY_AUDIT.md)：M-GCS 与 QGC 的评分、差距和逐步替换策略。
-18. [分阶段重构计划](REFACTORING_PLAN.md)：执行中的模块拆分、版本里程碑和验收条件。
-19. [架构图](architecture-diagrams.html)：当前结构和门禁基线的可视化总览。
-20. [ADR 0009：混合上游实现策略](adr/0009-hybrid-upstream-implementation-strategy.md)：MP、QGC、官方 MAVLink 和 M-GCS 边界的组合规则。
+8. [故障排查](TROUBLESHOOTING.md)：连接、参数、任务、校准和共享库问题。
+9. [协作流程](COLLABORATION.md)：任务卡、worktree、独占资源和预检。
+10. [FFI API Catalog](../bridge/ffi/API_CATALOG.md)：稳定 ABI、兼容入口和错误语义。
+11. [现状审计](STATUS_AUDIT.md)：当前事实、已修复问题和剩余风险。
+12. [完成定义与后端维护收口](DEFINITION_OF_DONE.md)：什么算“做完”。
+13. [后续发展计划](DEVELOPMENT_ROADMAP.md)：阶段路线、依赖和验收条件。
+14. [MP / QGC 上游实现择优准则](UPSTREAM_CODE_SELECTION.md)：按模块选择高质量上游实现。
+15. [架构图](architecture-diagrams.html)：当前结构和门禁基线的可视化总览。
 
-## 研究参考
+## 上游与互操作
 
-- [字体替代方案调研](FONT_ALTERNATIVES_RESEARCH.md)：字体选择的测量记录，不替代 ADR 0007。
-- [多飞控连接调研](MULTIVEHICLE_CONNECTION_RESEARCH.md)：QGC/MP 连接模型对比，不替代当前架构说明。
+- [QGC `.plan` 互操作](upstream/QGC_PLAN_INTERCHANGE.md)：字段映射、往返保证和错误边界。
+- [QGC/MP 可借鉴项对照](upstream/QGC_MP_BACKPORT_MAP.md)：按阶段列出可复用模块。
+- [QGC 代码质量审计](audits/2026-10-01-qgc-quality-audit.md)：历史质量差距和逐步替换策略。
+
+## 研究与历史
+
+- [字体替代方案调研](research/FONT_ALTERNATIVES_RESEARCH.md)：字体选择的测量记录，不替代 ADR 0007。
+- [多飞控连接调研](research/MULTIVEHICLE_CONNECTION_RESEARCH.md)：QGC/MP 连接模型对比，不替代当前架构说明。
+- [分阶段重构历史](audits/2026-10-03-refactoring-plan.md)：已执行拆分和版本里程碑，不再作为当前规范。
 - [历史审计](audits/)：按 commit/tag 冻结的旧快照，不代表当前状态。
 
 ## 架构决策

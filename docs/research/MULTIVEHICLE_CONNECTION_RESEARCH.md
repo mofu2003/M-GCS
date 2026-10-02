@@ -3,7 +3,7 @@
 研究日期：2026-09-23
 
 > 本文是连接模型的研究快照，源码行号和上游 commit 只对应当时的本地源码；当前产品
-> 边界以 [架构说明](ARCHITECTURE.md)、[开发约束](CONSTRAINTS.md) 和状态审计为准。
+> 边界以 [架构说明](../ARCHITECTURE.md)、[开发约束](../CONSTRAINTS.md) 和状态审计为准。
 
 本文只比较连接、飞控身份/焦点、命令路由和后续 fleet/swarm 边界。源码行号对应本地只读源码快照：QGroundControl `a89def242`（2026-07-20，`fix(Vehicle): clear communicationLost as soon as any link regains comms`）；Mission Planner `a2fcd74d6`（2026-07-11，`MAVLinkInterface: null exception fix ...`）；M-GCS `371c594`（2026-09-23，`feat: separate vehicle connection from active focus`）。行号会随上游版本变化。
 

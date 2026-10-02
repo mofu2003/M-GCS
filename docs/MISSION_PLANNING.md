@@ -238,7 +238,7 @@ RTL/降落，那时 `reached_end` 已是 true。任务面板对这三种状态�
 null 参数和不在命令目录中的 MAV_CMD 会通过 `warnings` 报告。围栏和 Rally 的统一编辑
 文档仍未实现。
 
-完整字段映射和往返保证见 [QGC `.plan` 任务文件互操作](QGC_PLAN_INTERCHANGE.md)。
+完整字段映射和往返保证见 [QGC `.plan` 任务文件互操作](upstream/QGC_PLAN_INTERCHANGE.md)。
 
 ## FFI 入口
 

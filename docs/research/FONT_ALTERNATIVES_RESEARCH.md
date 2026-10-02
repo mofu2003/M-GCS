@@ -3,7 +3,7 @@
 研究日期：2026-09-29
 
 > 本文是字体选型时的研究快照，不随每个版本自动重测；当前强制规则以
-> [ADR 0007](adr/0007-unified-font-stack.md) 和 `MgFonts` 为准。
+> [ADR 0007](../adr/0007-unified-font-stack.md) 和 `MgFonts` 为准。
 
 ## 结论
 
@@ -12,7 +12,7 @@
 
 **最终选型：MiSans 单套**（实测拉丁 78.4% / 中文 74.7%）。它是唯一同时覆盖汉字与
 拉丁、中文相似度又足够用的候选，所以全应用只保留一套字体。决策与许可义务见
-[ADR 0007](adr/0007-unified-font-stack.md)。
+[ADR 0007](../adr/0007-unified-font-stack.md)。
 
 **西文侧高相似度的答案是 TeX Gyre Heros**（实测 **90.5%**），但它只有四档字重，
 w600 会被就近映射到 Bold，且许可为 GUST Font License（非 OFL）。其后的 Arimo 为

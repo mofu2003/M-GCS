@@ -1,6 +1,6 @@
 # QGC `.plan` 任务文件互操作
 
-> 格式优先级见 [ADR 0008](adr/0008-mission-file-format-priority.md)。
+> 格式优先级见 [ADR 0008](../adr/0008-mission-file-format-priority.md)。
 > `.plan` 不删除：它用于 PX4/QGC 工作流和不能由 `.waypoints` 无损表达的复杂规划数据。
 
 本文定义 M-GCS 当前对 QGroundControl `.plan` JSON 的导入和导出范围。实现依据是

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.72 - 2026-10-03
+
+### Changed
+
+- 文档重新分层：当前规范保留在 `docs/` 根目录；QGC/MP 上游对照移入
+  `docs/upstream/`；字体和多机连接调研移入 `docs/research/`；重构计划和质量审计移入
+  `docs/audits/`，并在 `docs/README.md` 重新整理推荐阅读顺序和唯一权威出处。
+- 清理工作区运行产物：移除 `.DS_Store`、SITL `eeprom.bin`、`logs/`、`terrain/` 和
+  临时 `.workbuddy-ai/`；这些内容不再出现在 git 状态中。
+- 更新所有当前文档的版本基线到 `0.0.72`，历史 CHANGELOG 和冻结审计保持原始版本号。
+
+### Verification
+
+- Markdown 本地链接检查：缺失 0。
+- `tools/preflight.sh` 全部通过；后端 offline/simulation `35/35`，Flutter analyze、
+  `24/24` 测试和 macOS debug 构建通过。
+
 ## 0.0.71 - 2026-10-03
 
 ### Fixed
@@ -1269,7 +1286,7 @@
   carries `compass_progress: [{compass_id, completion_pct}]` alongside the
   aggregate `progress`, and the calibration card draws one bar per detected
   compass.
-- `docs/FONT_ALTERNATIVES_RESEARCH.md` and ADR 0007 record how the UI font stack
+- `docs/research/FONT_ALTERNATIVES_RESEARCH.md` and ADR 0007 record how the UI font stack
   was chosen, with per-glyph similarity measurements.
 
 ### Changed

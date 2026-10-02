@@ -58,6 +58,6 @@ MAVLink 和许可证兼容的成熟第三方依赖可以优先直接复用。
 ## 关联文档
 
 - [UPSTREAM_CODE_SELECTION.md](../UPSTREAM_CODE_SELECTION.md)
-- [QGC_MP_BACKPORT_MAP.md](../QGC_MP_BACKPORT_MAP.md)
+- [QGC_MP_BACKPORT_MAP.md](../upstream/QGC_MP_BACKPORT_MAP.md)
 - [CONSTRAINTS.md](../CONSTRAINTS.md)
-- [REFACTORING_PLAN.md](../REFACTORING_PLAN.md)
+- [REFACTORING_PLAN.md](../audits/2026-10-03-refactoring-plan.md)
