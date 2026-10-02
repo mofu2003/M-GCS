@@ -41,7 +41,11 @@ class _FlightModeFloatingPanelState extends State<FlightModeFloatingPanel> {
   void initState() {
     super.initState();
     widget.controller.addListener(_handleControllerChanged);
-    unawaited(widget.controller.refreshFlightModes());
+    // 首帧之后再拉模式表：刷新会同步 notifyListeners，直接在 initState 里调用会在
+    // build 期间触发 setState（"setState() called during build"）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(widget.controller.refreshFlightModes());
+    });
     // 面板只在显示时挂载，轮询随面板出现/消失自动开始和停止。
     _pollTimer = Timer.periodic(
       const Duration(seconds: 1),

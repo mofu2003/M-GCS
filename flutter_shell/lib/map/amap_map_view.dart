@@ -18,6 +18,7 @@ import '../mission/mission_geo.dart';
 import '../mission/mission_planning_panel.dart';
 import 'flight_telemetry_overlay.dart';
 import 'gcj_coordinates.dart';
+import 'vehicle_marker_icon.dart';
 import 'map_preferences.dart';
 
 enum MapStyle { standard, terrain, amap, amapSatellite, amapSatelliteHybrid }
@@ -333,13 +334,16 @@ class _AMapMapViewState extends State<AMapMapView> {
       markers.add(
         Marker(
           point: _toTileFrame(fix.latitude, fix.longitude),
-          width: 36,
-          height: 36,
-          child: _MapMarker(
-            icon: CupertinoIcons.paperplane_fill,
+          width: 42,
+          height: 42,
+          // 按机型画机体剪影（多旋翼/固定翼/VTOL），不再用统一的纸飞机图标。
+          child: VehicleMarkerIcon(
+            kind: vehicleMarkerKindFor(
+              connection.controlProfile,
+              connection.vehicleType,
+            ),
             fill: colors.accent,
-            border: colors.surface,
-            iconColor: colors.onAccent,
+            outline: colors.surface,
             headingDegrees: fix.headingDegrees,
           ),
         ),
@@ -888,31 +892,22 @@ class _MapMarker extends StatelessWidget {
     required this.fill,
     required this.border,
     required this.iconColor,
-    this.headingDegrees,
   });
 
   final IconData icon;
   final Color fill;
   final Color border;
   final Color iconColor;
-  final double? headingDegrees;
 
   @override
   Widget build(BuildContext context) {
-    final badge = Container(
+    return Container(
       decoration: BoxDecoration(
         color: fill,
         shape: BoxShape.circle,
         border: Border.all(color: border, width: 2),
       ),
       child: Center(child: Icon(icon, size: 15, color: iconColor)),
-    );
-    final heading = headingDegrees;
-    if (heading == null || !heading.isFinite) return badge;
-    // 纸飞机图标默认朝右，而航向 0° 是正北，所以额外减 90°。
-    return Transform.rotate(
-      angle: (heading - 90) * math.pi / 180,
-      child: badge,
     );
   }
 }
