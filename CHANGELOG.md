@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.0.60 - 2026-10-02
+
+### Added
+
+- 新增 FFI `mg_flight_get_mode_mapping`：对标 MP 的 `ConfigFlightModes` 页面，读取
+  `FLTMODE1..6`（PX4 为 `COM_FLTMODE1..6`）、模式通道 `FLTMODE_CH` / `MODE_CH`，
+  以及 Copter/Rover 的 `SIMPLE` / `SUPER_SIMPLE` 位掩码；返回值同时给出该机型的模式
+  选项表。写回复用既有 `mg_config_write_params`，不新增写接口。
+- `mg_config_read_param` 对模式档位参数按**当前机型**注入模式名选项：`FLTMODE1..6`
+  现在返回 `{"value":10,"label":"Auto"}` 这类选项，配置页的 6 个档位因此自动渲染成
+  模式名下拉，而不是让用户填数字——这正是 MP 从参数元数据取模式名的做法。
+
+### Verification
+
+- `test_sim_commands` 新增断言：模式档位参数带 `options_from_flight_modes` 并给出
+  可读模式名（`Loiter`）。
+- 用本地 ArduPlane SITL 实测：`mg_flight_get_mode_mapping` 返回 `FLTMODE_CH=8` 与
+  六档实际值（1=Auto、2=RTL、3=Loiter、4=FBWA、5=Stabilize、6=Manual），
+  `mg_config_read_param("FLTMODE1")` 返回完整 Plane 模式选项。
+- 后端 offline/simulation `35/35` 通过；Flutter analyze 无问题、测试 `22/22` 通过；
+  UI token 检查与 macOS debug 构建通过；完整 `tools/preflight.sh` 通过。
+
 ## 0.0.59 - 2026-10-02
 
 ### Added

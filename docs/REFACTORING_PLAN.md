@@ -167,6 +167,10 @@ Flutter 侧补齐围栏/Rally 的绑定、控制器流程和任务面板操作�
 `0.0.59` 新增飞行模式操作台：`mg_flight_get_modes` / `mg_flight_set_mode` 复用固件插件
 已有的模式表，前端按 QGC 的菜单交互和 MP 的按机型取表实现，并解除三个浮层之间的互斥。
 
+`0.0.60` 对齐 MP `ConfigFlightModes`：新增 `mg_flight_get_mode_mapping`（模式通道 +
+六档参数 + 模式选项 + Simple/SuperSimple），并让 `mg_config_read_param` 按机型注入模式名
+选项，配置页的模式档位从填数字变成选名称。
+
 ## 首轮结果
 
 `0.0.14` 已完成任务校验层拆分：

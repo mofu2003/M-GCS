@@ -9,6 +9,7 @@
  */
 #include "ffi_internal.h"
 #include "json_serializers.h"
+#include <cstring>
 // get_desc_db() shared via ffi_internal.h
 
 #define CJSON_NESTING_LIMIT 10
@@ -46,7 +47,31 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
         jb.field("min", desc.min_value);
         jb.field("max", desc.max_value);
     }
-    if (!desc.options.empty()) {
+    // FLTMODE1..6 / COM_FLTMODE1..6 没有随描述库发布取值名称，但飞行模式表里的
+    // custom_mode ↔ 名称是现成的。这里按**当前机型**注入，前端参数控件就会把它渲染
+    // 成模式名下拉，而不是让用户填数字（对标 MP 从参数元数据取模式名）。
+    const bool is_mode_slot =
+        (param_name[0] == 'F' && std::strncmp(param_name, "FLTMODE", 7) == 0 &&
+         param_name[7] >= '1' && param_name[7] <= '6' && param_name[8] == '\0') ||
+        (std::strncmp(param_name, "COM_FLTMODE", 11) == 0 &&
+         param_name[11] >= '1' && param_name[11] <= '6' && param_name[12] == '\0');
+    if (is_mode_slot) {
+        mg::bridge::JsonBuilder opts;
+        opts.begin_array();
+        for (const auto& entry : get_active_flight_modes(core).mode_entries()) {
+            mg::bridge::JsonBuilder o;
+            o.begin_object();
+            o.field("value", static_cast<int>(entry.custom_mode));
+            o.field("label", entry.name);
+            o.end_object();
+            opts.append_json(o.str());
+        }
+        opts.end_array();
+        jb.raw_field("options", opts.str());
+        jb.field("options_from_flight_modes", true);
+    }
+
+    if (!is_mode_slot && !desc.options.empty()) {
         mg::bridge::JsonBuilder opts;
         opts.begin_array();
         for (const auto& opt : desc.options) {

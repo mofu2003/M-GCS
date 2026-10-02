@@ -136,6 +136,12 @@ FlightModeManager::mode_entries() const {
     return fw_plugin_->available_modes(fw_adapter_.vehicle_kind());
 }
 
+std::string FlightModeManager::decode_mode_name(uint32_t custom_mode) const {
+    mg::core::platform::LockGuard lk(mtx_);
+    if (!fw_plugin_) return {};
+    return fw_plugin_->decode_flight_mode(fw_adapter_.vehicle_kind(), custom_mode);
+}
+
 bool FlightModeManager::set_mode(const std::string& mode_name) {
     mg::core::platform::LockGuard lk(mtx_);
     if (!fw_plugin_ || !mavlink_ || mode_name.empty()) return false;

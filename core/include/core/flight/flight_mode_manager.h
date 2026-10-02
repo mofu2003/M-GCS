@@ -98,6 +98,9 @@ public:
     /// 不可切换的项保留但置灰，而不是从列表里删掉。
     std::vector<mg::core::firmware::FlightModeEntry> mode_entries() const;
 
+    /// 把 custom_mode 数值翻译成模式名（HEARTBEAT 反查、模式映射页都用它）。
+    std::string decode_mode_name(uint32_t custom_mode) const;
+
     /// 按名字切换模式。MP 的 CMB_modes 与 QGC 的 flightMode 属性都是按名字切。
     /// 名字不识别或未绑定时返回 false。
     bool set_mode(const std::string& mode_name);

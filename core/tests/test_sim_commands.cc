@@ -177,6 +177,14 @@ static void test_flight_mode_catalog() {
     CHECK(is_failure(bad) && json_has(bad, "unknown flight mode"),
           "unknown mode name is rejected");
     if (bad) mg_free_string(bad);
+
+    // 模式档位参数要带上模式名选项，参数控件才会渲染成名称下拉（MP 的做法）。
+    char* slot = mg_config_read_param(env.core, "FLTMODE1");
+    CHECK(json_has(slot, "\"options_from_flight_modes\":true"),
+          "mode slot parameter declares flight-mode sourced options");
+    CHECK(json_has(slot, "\"label\":\"Loiter\""),
+          "mode slot options carry readable mode names");
+    if (slot) mg_free_string(slot);
 }
 
 static void test_mode_status_tracks_latest_heartbeat() {

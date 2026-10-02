@@ -27,6 +27,10 @@ MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_
 // mg_flight_set_mode 按名字切换，内部转成 base_mode + custom_mode 再发 DO_SET_MODE。
 MGCORE_API char* mg_flight_get_modes(mg_core_t* core);
 MGCORE_API char* mg_flight_set_mode(mg_core_t* core, const char* mode_name);
+// 遥控通道 → 飞行模式的映射（对标 MP 的 ConfigFlightModes 页面）：读取
+// FLTMODE1..6 / COM_FLTMODE1..6、FLTMODE_CH|MODE_CH，以及 Copter/Rover 的
+// SIMPLE / SUPER_SIMPLE 位掩码。写回复用 mg_config_write_params。
+MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core);
 MGCORE_API char* mg_command_rtl(mg_core_t* core);
 MGCORE_API char* mg_command_takeoff(mg_core_t* core, float altitude_m);
 MGCORE_API char* mg_command_land(mg_core_t* core);

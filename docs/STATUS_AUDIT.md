@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.59`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.60`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -127,6 +127,10 @@ bash tools/audit_status.sh
   贴左上角悬浮显示当前模式与模式表（不可切换项置灰），并让连接 / 航线规划 / 飞行模式
   三个浮层可以同时打开。模式表来自既有 `firmware_plugin_ardupilot` /
   `firmware_plugin_px4`，没有新造模式数据。
+- `UI-006`：模式映射配置对标 MP `ConfigFlightModes`。`mg_flight_get_mode_mapping`
+  给出模式通道、六档参数值与名称、可选模式表以及 `SIMPLE`/`SUPER_SIMPLE`；
+  `mg_config_read_param` 按机型注入模式名选项，配置页六档因此渲染为模式名下拉。
+  尚未做：`SIMPLE`/`SUPER_SIMPLE` 位掩码的勾选 UI 与模式通道 PWM 数值显示。
 - `COMPLEX-001`：QGC ComplexItem（Survey、CorridorScan 等）提升为正式
   `MissionComplexItem` 模型，保存 `id`、`item_type` 和原始 JSON，`.plan` 往返无损；
   新增 `entity_insert_index` 后导出时与普通航点按原顺序交错；内部字段目前只读，
