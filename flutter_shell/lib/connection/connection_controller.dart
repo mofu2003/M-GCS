@@ -266,6 +266,25 @@ final class VehicleParameter {
 
 enum SerialConnectionPhase { disconnected, waitingForHeartbeat, connected }
 
+/// 飞控消息（STATUSTEXT）条目。
+class FlightMessage {
+  const FlightMessage({
+    required this.seq,
+    required this.time,
+    required this.severity,
+    required this.severityName,
+    required this.text,
+  });
+
+  final int seq;
+  final DateTime? time;
+
+  /// MAV_SEVERITY：0 emergency … 4 warning … 6 info、7 debug。
+  final int severity;
+  final String severityName;
+  final String text;
+}
+
 enum ConnectionTransport { serial, udp, tcp }
 
 /// 飞行模式表里的一项。`id` 是 MAVLink custom_mode（PX4 为 main/sub 打包值）。
@@ -304,6 +323,7 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
   late final Pointer<Utf8> Function(Pointer<Void>) _getFlightModes;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _getMessages;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _setFlightMode;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _close;
@@ -419,6 +439,10 @@ final class ConnectionController extends ChangeNotifier {
   /// 飞行模式操作台数据：后端按机型给出的完整模式表（含不可切换项）。
   bool flightModesAvailable = false;
   List<FlightModeOption> flightModeOptions = const [];
+
+  /// 飞控消息（STATUSTEXT）历史，供消息框显示。只追加，断开连接时清空。
+  List<FlightMessage> flightMessages = const [];
+  int _lastMessageSeq = 0;
   int vehicleType = 0;
   int vehicleAutopilotType = 0;
 
@@ -1162,6 +1186,13 @@ final class ConnectionController extends ChangeNotifier {
             'mg_flight_get_modes',
           )
           .asFunction();
+      _getMessages = _library
+          .lookup<
+            NativeFunction<
+              Pointer<Utf8> Function(Pointer<Void>, Uint64)
+            >
+          >('mg_telemetry_get_messages')
+          .asFunction();
       _setFlightMode = _library
           .lookup<
             NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
@@ -1190,6 +1221,56 @@ final class ConnectionController extends ChangeNotifier {
 
   void _requireConnected(String action) {
     if (!isConnected) throw StateError('未连接飞控，无法$action');
+  }
+
+  /// 增量拉取飞控消息（只取 seq 比上次大的），追加到本地列表。
+  ///
+  /// 后端保留最近 200 条，这里同样限长，避免长时间连接后无限增长。
+  Future<void> refreshFlightMessages() async {
+    if (!isConnected) return;
+    try {
+      final response =
+          _readJson(_getMessages(_core, _lastMessageSeq))
+              as Map<String, Object?>;
+      if (response['success'] != true) return;
+      final items = (response['messages'] as List<Object?>? ?? const [])
+          .whereType<Map<Object?, Object?>>()
+          .toList(growable: false);
+      if (items.isEmpty) return;
+      final next = <FlightMessage>[...flightMessages];
+      for (final raw in items) {
+        final seq = (raw['seq'] as num?)?.toInt() ?? 0;
+        if (seq <= _lastMessageSeq) continue;
+        _lastMessageSeq = seq;
+        final timestamp = (raw['timestamp_ms'] as num?)?.toInt() ?? 0;
+        next.add(
+          FlightMessage(
+            seq: seq,
+            time: timestamp > 0
+                ? DateTime.fromMillisecondsSinceEpoch(timestamp)
+                : null,
+            severity: (raw['severity'] as num?)?.toInt() ?? 6,
+            severityName: raw['severity_name'] as String? ?? '',
+            text: raw['text'] as String? ?? '',
+          ),
+        );
+      }
+      const maxMessages = 200;
+      if (next.length > maxMessages) {
+        next.removeRange(0, next.length - maxMessages);
+      }
+      flightMessages = next;
+      notifyListeners();
+    } on Object {
+      // 消息拉取失败不影响其它遥测。
+    }
+  }
+
+  /// 只清空本地消息列表；后端缓冲保留（重新连接后不会把清掉的又拉回来，
+  /// 因为 _lastMessageSeq 不回退）。
+  void clearFlightMessages() {
+    flightMessages = const [];
+    notifyListeners();
   }
 
   /// 拉取飞行模式表（模式名 + 是否可切换）。参考 QGC `Vehicle::flightModes()`
@@ -2313,6 +2394,8 @@ final class ConnectionController extends ChangeNotifier {
 
   void _clearTelemetry() {
     telemetryError = null;
+    flightMessages = const [];
+    _lastMessageSeq = 0;
     _clearTelemetryValues();
     parameters.clear();
     _parameterMetadataLoaded.clear();

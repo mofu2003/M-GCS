@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.0.68 - 2026-10-02
+
+### Added
+
+- 新增**飞控消息框**：地图工具栏 `💬 飞控消息` 打开一个浮动面板，按时间列出飞控
+  STATUSTEXT，按严重级别着色（error 及以上危险色、warning 警告色、debug 灰），
+  自动滚到最新，可一键清空。等价于 MP 的 Messages 页 / QGC 的 Messages 面板。
+- 后端 `FlightMessageLog` 保留最近 200 条消息（seq 单调递增、带接收时间与严重级别），
+  新增 FFI `mg_telemetry_get_messages(core, since_seq)` 供前端**增量**拉取；断开连接时
+  前端清空本地列表并重置 seq。
+
+### Verification
+
+- 用本地 SITL 实测：解锁/上锁后拿到
+  `{"seq":1,"severity_name":"info","text":"Throttle armed"}` 与 `"Throttle disarmed"`。
+- 消息历史放在独立 `flight_message_log.h` 并由 `Vehicle` 持有，**没有动
+  `telemetry_cache.h`**（该头有 <17000 字节的体积守卫，接进去会直接撑破）；
+  `test_bridge_architecture_guards` 50/50 通过。
+- 后端 offline/simulation `35/35`；Flutter analyze 无问题、测试 `23/23`；
+  UI token 检查与 macOS debug 构建通过；完整 `tools/preflight.sh` 通过。
+
 ## 0.0.67 - 2026-10-02
 
 ### Added

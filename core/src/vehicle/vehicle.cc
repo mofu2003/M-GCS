@@ -342,6 +342,8 @@ void Vehicle::wire_telemetry_callbacks() {
     mav->on_statustext([weak](const std::string& text, uint8_t severity) {
         auto self = weak.lock(); if (!self) return;
         self->cache_.update_statustext(text, severity);
+        // 消息框要历史，缓存只留最新一条。
+        self->message_log_.add(text, severity);
         // 同理：飞行日志声明采集飞控 STATUSTEXT，但之前没有接线。
         self->flight_log_.on_statustext(severity, text);
         auto snap = self->cache_.snapshot_statustext();

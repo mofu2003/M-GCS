@@ -3,6 +3,7 @@
 #include "core/calibration/calibration_service.h"
 #include "core/camera/camera_manager.h"
 #include "core/flight/flight_mode_manager.h"
+#include "core/telemetry/flight_message_log.h"
 #include "core/geofence/geofence_manager.h"
 #include "core/platform/platform_mutex.h"
 #include "core/sensor/sensor_id_decoder.h"
@@ -96,6 +97,8 @@ public:
     mg::core::video::VideoReceiver& video() { return video_; }
     mg::core::settings::MavlinkLogWriter& mavlink_log() { return mavlink_log_; }
     mg::core::settings::FlightLoggingService& flight_log() { return flight_log_; }
+    /// 飞控消息历史（消息框用）。缓存只留最新一条，历史单独放这里。
+    mg::core::telemetry::FlightMessageLog& message_log() { return message_log_; }
     mg::core::sensor::SensorIdDecoder& sensor_decoder() { return sensor_decoder_; }
     mg::core::telemetry::TelemetryRingBuffer& ring_buffer() { return ring_buffer_; }
 
@@ -156,6 +159,7 @@ private:
     mg::core::video::VideoReceiver video_;
     mg::core::settings::MavlinkLogWriter mavlink_log_;
     mg::core::settings::FlightLoggingService flight_log_;
+    mg::core::telemetry::FlightMessageLog message_log_;
     mg::core::sensor::SensorIdDecoder sensor_decoder_;
     std::shared_ptr<std::atomic<bool>> alive_flag_{std::make_shared<std::atomic<bool>>(true)};
     mg::core::telemetry::TelemetryRingBuffer ring_buffer_;

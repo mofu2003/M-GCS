@@ -209,24 +209,27 @@ inline std::string servo_output_json(const mg::core::mavlink::ServoOutputInfo& s
 }
 
 
+/// STATUSTEXT 的 MAV_SEVERITY 标签（消息框和状态文本共用一份映射）。
+inline const char* statustext_severity_label(uint8_t severity) {
+    switch (severity) {
+        case 0: return "emergency";
+        case 1: return "alert";
+        case 2: return "critical";
+        case 3: return "error";
+        case 4: return "warning";
+        case 5: return "notice";
+        case 6: return "info";
+        case 7: return "debug";
+    }
+    return "unknown";
+}
+
 inline std::string statustext_json(const mg::core::mavlink::StatustextInfo& st) {
     JsonBuilder jb;
     jb.begin_object();
     jb.field("severity", (int)st.severity);
     jb.field("text", std::string(st.text));
-    // Severity label for convenience
-    const char* label = "unknown";
-    switch (st.severity) {
-        case 0: label = "emergency"; break;
-        case 1: label = "alert"; break;
-        case 2: label = "critical"; break;
-        case 3: label = "error"; break;
-        case 4: label = "warning"; break;
-        case 5: label = "notice"; break;
-        case 6: label = "info"; break;
-        case 7: label = "debug"; break;
-    }
-    jb.field("severity_label", label);
+    jb.field("severity_label", statustext_severity_label(st.severity));
     jb.end_object();
     return jb.str();
 }

@@ -59,6 +59,10 @@ MGCORE_API char* mg_waveform_get_instances(mg_core_t* core);
 
 MGCORE_API char* mg_sensors_get_health(mg_core_t* core);
 MGCORE_API char* mg_sensors_get_statustext(mg_core_t* core);
+// 飞控消息历史（STATUSTEXT）。since_seq 传上次拿到的最大 seq，只返回更新的那些，
+// 便于前端增量追加；返回 total 表示已产生的消息总数。
+// 每条含 seq / timestamp_ms / severity / severity_name / text。
+MGCORE_API char* mg_telemetry_get_messages(mg_core_t* core, unsigned long long since_seq);
 MGCORE_API char* mg_health_get_all(mg_core_t* core);
 
 MGCORE_API char* mg_sensor_decode_device_id(mg_core_t* core, int device_id, const char* category);

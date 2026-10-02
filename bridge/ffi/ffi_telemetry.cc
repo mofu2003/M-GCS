@@ -374,3 +374,36 @@ MGCORE_API char* mg_telemetry_get_freshness(mg_core_t* core) {
     jb.end_object();
     return to_cstr(jb.str());
 }
+
+MGCORE_API char* mg_telemetry_get_messages(mg_core_t* core,
+                                            unsigned long long since_seq) {
+    CHECK_CORE(core);
+    auto& log = get_active_vehicle(core)->message_log();
+    const auto entries = log.messages_since(static_cast<uint64_t>(since_seq));
+
+    mg::bridge::JsonBuilder arr;
+    arr.begin_array();
+    for (const auto& entry : entries) {
+        mg::bridge::JsonBuilder item;
+        item.begin_object();
+        item.field("seq", static_cast<unsigned long long>(entry.seq));
+        item.field("timestamp_ms",
+                   static_cast<unsigned long long>(entry.timestamp_ms));
+        item.field("severity", static_cast<int>(entry.severity));
+        item.field("severity_name",
+                   mg::core::telemetry::statustext_severity_label(entry.severity));
+        item.field("text", entry.text);
+        item.end_object();
+        arr.append_json(item.str());
+    }
+    arr.end_array();
+
+    mg::bridge::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("total",
+             static_cast<unsigned long long>(log.count()));
+    jb.raw_field("messages", arr.str());
+    jb.end_object();
+    return to_cstr(jb.str());
+}
