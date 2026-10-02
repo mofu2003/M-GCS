@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.70 - 2026-10-03
+
+### Added
+
+- 命令目录补上 `MAV_CMD_NAV_VTOL_TAKEOFF`（84）与 `MAV_CMD_NAV_VTOL_LAND`（85），
+  此前目录里只有 22/21，VTOL 机型根本找不到垂直起降命令。字段按官方
+  `common.xml` 定义：84 的 `param2` 是过渡航向（5 个枚举值）、`param4` 偏航；
+  85 的 `param1` 是降落方式（3 个枚举值）、`param3` 进场高度、`param4` 偏航。
+- 新增实体类型 `vtol_takeoff` / `vtol_land`，并接入校验（类型↔命令一致性、
+  位置/高度必填）与编译；前端命令下拉由目录驱动，无需改动即可看到这两条。
+
+### Verification
+
+- `test_mission_document` 新增用例：目录含 84/85 且带对应枚举选项；
+  「垂直起飞 → 航点 → 垂直降落」通过校验、不被判 unsupported、编译出 84/85。
+- 用本地 quadplane SITL（`MAV_TYPE=20`）实测：`mg_mission_get_command_catalog`
+  含两条命令；构造的 VTOL 任务上传成功，回读计划里同时出现 `command:84` 与 `command:85`。
+- 后端 offline/simulation `35/35`；Flutter analyze 无问题、测试 `23/23`；
+  UI token 与 macOS debug 构建通过；完整 `tools/preflight.sh` 通过。
+
 ## 0.0.69 - 2026-10-03
 
 ### Fixed

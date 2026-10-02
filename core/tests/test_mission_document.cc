@@ -3,6 +3,7 @@
 #include "ffi_api.h"
 #include "core/mission/cad/mission_document.h"
 #include "core/mission/cad/mission_interchange.h"
+#include "core/mission/cad/mission_command_catalog.h"
 
 #include <cmath>
 #include <cstdio>
@@ -1412,6 +1413,105 @@ static void test_ffi_rally_compile() {
     mg_destroy(core);
 }
 
+/// VTOL 起飞/降落（MAV_CMD 84/85）：QGC 按机型在 22/84 之间选命令，
+/// 我们之前目录里根本没有这两个，用户找不到。
+static void test_vtol_takeoff_and_land_commands() {
+    fprintf(stderr, "\n[Group] VTOL takeoff / land commands\n");
+
+    const auto& catalog = mission_command_catalog();
+    const auto find = [&catalog](uint16_t command) {
+        for (const auto& entry : catalog) {
+            if (entry.command == command) return &entry;
+        }
+        return static_cast<const MissionCommandDescriptor*>(nullptr);
+    };
+
+    const auto* takeoff = find(84);
+    CHECK(takeoff != nullptr && takeoff->name == "NAV_VTOL_TAKEOFF" &&
+              takeoff->entity_type == "vtol_takeoff",
+          "catalog exposes NAV_VTOL_TAKEOFF with a vtol_takeoff entity type");
+    CHECK(takeoff != nullptr && takeoff->requires_position &&
+              takeoff->requires_altitude,
+          "VTOL takeoff requires a position and an altitude");
+    if (takeoff != nullptr) {
+        bool has_transition_heading = false;
+        for (const auto& parameter : takeoff->parameters) {
+            if (parameter.index == 2 && parameter.options.size() == 5) {
+                has_transition_heading = true;
+            }
+        }
+        CHECK(has_transition_heading,
+              "VTOL takeoff param2 carries the MAVLink transition-heading options");
+    }
+
+    const auto* land = find(85);
+    CHECK(land != nullptr && land->name == "NAV_VTOL_LAND" &&
+              land->entity_type == "vtol_land",
+          "catalog exposes NAV_VTOL_LAND with a vtol_land entity type");
+    if (land != nullptr) {
+        bool has_land_options = false;
+        for (const auto& parameter : land->parameters) {
+            if (parameter.index == 1 && parameter.options.size() == 3) {
+                has_land_options = true;
+            }
+        }
+        CHECK(has_land_options,
+              "VTOL land param1 carries the MAVLink land options");
+    }
+
+    // 一个完整的 VTOL 任务：垂直起飞 → 航点 → 垂直降落。
+    MissionDocument document = valid_document();
+    document.entities.clear();
+
+    MissionEntity vertical_takeoff;
+    vertical_takeoff.id = "vtol-takeoff";
+    vertical_takeoff.type = "vtol_takeoff";
+    vertical_takeoff.command = 84;
+    vertical_takeoff.frame = static_cast<uint8_t>(CoordFrame::GlobalRelAlt);
+    vertical_takeoff.latitude = 31.2304;
+    vertical_takeoff.longitude = 121.4737;
+    vertical_takeoff.altitude_m = 60.0f;
+    vertical_takeoff.params = {0.0f, 0.0f, 0.0f, 0.0f};
+    document.entities.push_back(vertical_takeoff);
+
+    MissionEntity waypoint;
+    waypoint.id = "wp-1";
+    waypoint.type = "waypoint";
+    waypoint.command = 16;
+    waypoint.latitude = 31.2404;
+    waypoint.longitude = 121.4837;
+    waypoint.altitude_m = 60.0f;
+    waypoint.params = {0.0f, 2.0f, 0.0f, 0.0f};
+    document.entities.push_back(waypoint);
+
+    MissionEntity vertical_land;
+    vertical_land.id = "vtol-land";
+    vertical_land.type = "vtol_land";
+    vertical_land.command = 85;
+    vertical_land.latitude = 31.2304;
+    vertical_land.longitude = 121.4737;
+    vertical_land.altitude_m = 0.0f;
+    vertical_land.params = {0.0f, 0.0f, 0.0f, 0.0f};
+    document.entities.push_back(vertical_land);
+
+    const auto report = MissionDocumentService::validate_document(document);
+    CHECK(report.valid, "VTOL takeoff / waypoint / VTOL land validates");
+    CHECK(!report_has_code(report, "entity.command_unsupported"),
+          "VTOL commands are in the catalog so they are not flagged unsupported");
+    CHECK(!report_has_code(report, "entity.type_command_mismatch"),
+          "vtol_takeoff/vtol_land entity types match their commands");
+
+    const auto compiled = MissionDocumentService::compile_document(document);
+    CHECK(compiled.valid && compiled.plan.items.size() == 3,
+          "VTOL mission compiles to three items");
+    if (compiled.plan.items.size() == 3) {
+        CHECK(compiled.plan.items[0].command == 84,
+              "first item compiles as NAV_VTOL_TAKEOFF");
+        CHECK(compiled.plan.items[2].command == 85,
+              "last item compiles as NAV_VTOL_LAND");
+    }
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Tests ===\n");
     test_document_editing_history();
@@ -1431,6 +1531,7 @@ int main() {
     test_ffi_waypoints_interchange();
     test_qgc_plan_interchange();
     test_mission_format_recommendation();
+    test_vtol_takeoff_and_land_commands();
     test_ffi_qgc_plan_interchange();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

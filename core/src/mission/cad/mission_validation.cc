@@ -24,7 +24,9 @@ bool type_has_expected_command(
     uint16_t& expected) {
     if (type == "waypoint") expected = static_cast<uint16_t>(NavCommand::NavWaypoint);
     else if (type == "takeoff") expected = static_cast<uint16_t>(NavCommand::NavTakeoff);
+    else if (type == "vtol_takeoff") expected = static_cast<uint16_t>(NavCommand::NavVtolTakeoff);
     else if (type == "land") expected = static_cast<uint16_t>(NavCommand::NavLand);
+    else if (type == "vtol_land") expected = static_cast<uint16_t>(NavCommand::NavVtolLand);
     else if (type == "rtl") expected = static_cast<uint16_t>(NavCommand::NavReturnToLaunch);
     else if (type == "loiter") expected = static_cast<uint16_t>(NavCommand::NavLoiterTurns);
     else return false;
@@ -244,6 +246,8 @@ bool position_command(uint16_t command) {
         case static_cast<uint16_t>(NavCommand::NavLoiterTurns):
         case static_cast<uint16_t>(NavCommand::NavLoiterTime):
         case static_cast<uint16_t>(NavCommand::NavLand):
+        case static_cast<uint16_t>(NavCommand::NavVtolLand):
+        case static_cast<uint16_t>(NavCommand::NavVtolTakeoff):
         case static_cast<uint16_t>(NavCommand::NavSplineWaypoint):
             return true;
         default:

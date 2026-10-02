@@ -69,6 +69,52 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     };
     catalog.push_back(std::move(takeoff));
 
+    // VTOL 起飞/降落：命令来自官方 MAVLink（84/85），参数按 common.xml 的定义，
+    // 不是我们自己发明的字段。QGC 也是按机型在 NAV_TAKEOFF / NAV_VTOL_TAKEOFF
+    // 之间选（MissionController.cc: TakeoffMissionItem(vtol ? 84 : 22)）。
+    MissionCommandDescriptor vtol_takeoff;
+    vtol_takeoff.command = static_cast<uint16_t>(NavCommand::NavVtolTakeoff);
+    vtol_takeoff.name = "NAV_VTOL_TAKEOFF";
+    vtol_takeoff.label = "垂直起飞";
+    vtol_takeoff.entity_type = mission_entity_type_for_command(vtol_takeoff.command);
+    vtol_takeoff.category = "navigation";
+    vtol_takeoff.description = "多旋翼方式垂直起飞，再过渡到固定翼巡航";
+    vtol_takeoff.requires_position = true;
+    vtol_takeoff.requires_altitude = true;
+    vtol_takeoff.parameters = {
+        parameter(2, "transition_heading", "过渡航向", "", MissionParameterType::Enum, 0.0, 0.0, 4.0, true, true),
+        parameter(4, "yaw", "偏航角", "deg"),
+    };
+    vtol_takeoff.parameters[0].options = {
+        {0.0, "载具默认"},
+        {1.0, "朝下一航点"},
+        {2.0, "沿起飞航向"},
+        {3.0, "指定角度"},
+        {4.0, "任意"},
+    };
+    catalog.push_back(std::move(vtol_takeoff));
+
+    MissionCommandDescriptor vtol_land;
+    vtol_land.command = static_cast<uint16_t>(NavCommand::NavVtolLand);
+    vtol_land.name = "NAV_VTOL_LAND";
+    vtol_land.label = "垂直降落";
+    vtol_land.entity_type = mission_entity_type_for_command(vtol_land.command);
+    vtol_land.category = "navigation";
+    vtol_land.description = "固定翼进场后由多旋翼垂直降落";
+    vtol_land.requires_position = true;
+    vtol_land.requires_altitude = true;
+    vtol_land.parameters = {
+        parameter(1, "land_options", "降落方式", "", MissionParameterType::Enum, 0.0, 0.0, 2.0, true, true),
+        parameter(3, "approach_altitude", "进场高度", "m"),
+        parameter(4, "yaw", "偏航角", "deg"),
+    };
+    vtol_land.parameters[0].options = {
+        {0.0, "飞控默认"},
+        {1.0, "固定翼螺旋进场"},
+        {2.0, "固定翼直线进场"},
+    };
+    catalog.push_back(std::move(vtol_land));
+
     MissionCommandDescriptor land;
     land.command = static_cast<uint16_t>(NavCommand::NavLand);
     land.name = "NAV_LAND";

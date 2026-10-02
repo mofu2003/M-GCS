@@ -39,6 +39,8 @@ enum class NavCommand : uint16_t {
     NavLand           = 21,   // MAV_CMD_NAV_LAND
     NavTakeoff        = 22,   // MAV_CMD_NAV_TAKEOFF
     NavSplineWaypoint = 82,   // MAV_CMD_NAV_SPLINE_WAYPOINT
+    NavVtolTakeoff    = 84,   // MAV_CMD_NAV_VTOL_TAKEOFF
+    NavVtolLand       = 85,   // MAV_CMD_NAV_VTOL_LAND
     NavDelay          = 93,   // MAV_CMD_NAV_DELAY
     DoSetSpeed        = 178,  // MAV_CMD_DO_CHANGE_SPEED
     DoSetCamTrigDist  = 206,  // MAV_CMD_DO_SET_CAM_TRIGG_DIST

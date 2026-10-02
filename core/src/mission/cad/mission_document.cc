@@ -1030,7 +1030,9 @@ bool is_parameterized_survey_type(const std::string& type) {
 const char* mission_entity_type_for_command(uint16_t command) {
     switch (command) {
         case static_cast<uint16_t>(NavCommand::NavTakeoff):          return "takeoff";
+        case static_cast<uint16_t>(NavCommand::NavVtolTakeoff):      return "vtol_takeoff";
         case static_cast<uint16_t>(NavCommand::NavLand):             return "land";
+        case static_cast<uint16_t>(NavCommand::NavVtolLand):         return "vtol_land";
         case static_cast<uint16_t>(NavCommand::NavReturnToLaunch):   return "rtl";
         case static_cast<uint16_t>(NavCommand::NavLoiterTurns):
         case static_cast<uint16_t>(NavCommand::NavLoiterTime):
