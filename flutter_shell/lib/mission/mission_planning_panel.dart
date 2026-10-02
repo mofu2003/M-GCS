@@ -773,8 +773,11 @@ class _MissionExecutionProgressBar extends StatelessWidget {
     final reached = progress.reachedCount.clamp(0, total);
     final ratio = total == 0 ? 0.0 : reached / total;
     final done = progress.finished;
+    // 三档文案：航段飞完（还在返航/降落）与真正任务完成分开，避免提前报"完成"。
     final label = done
         ? '任务完成 · 共 $total 项'
+        : progress.reachedEnd
+        ? '航段已完成 · 共 $total 项，等待返航/降落'
         : '任务进度 第 ${(progress.currentIndex + 1).clamp(1, total)}/$total 项 · '
               '已到达 $reached 项';
     return MissionCardFrame(
@@ -788,7 +791,11 @@ class _MissionExecutionProgressBar extends StatelessWidget {
                     ? CupertinoIcons.checkmark_circle
                     : CupertinoIcons.location_north,
                 size: 13,
-                color: done ? colors.success : colors.accent,
+                color: done
+                    ? colors.success
+                    : progress.reachedEnd
+                    ? colors.warning
+                    : colors.accent,
               ),
               const SizedBox(width: 6),
               Expanded(
@@ -806,7 +813,11 @@ class _MissionExecutionProgressBar extends StatelessWidget {
           ProgressBar(
             value: ratio * 100,
             height: MgMetrics.motorBarHeight,
-            trackColor: done ? colors.success : colors.accent,
+            trackColor: done
+                ? colors.success
+                : progress.reachedEnd
+                ? colors.warning
+                : colors.accent,
             backgroundColor: colors.surfaceMuted,
             semanticLabel: label,
           ),

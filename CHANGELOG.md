@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.63 - 2026-10-02
+
+### Changed
+
+- 任务完成判定改为 QGC 的语义（`FlyViewMissionCompleteDialog.qml` 的等价实现）：
+  **曾在任务模式（ArduPilot Auto / PX4 Auto Mission）下解锁飞行，之后上锁**才算
+  `finished`。此前"最后一项到达即完成"会提前报完成——固定翼到达最后一项后还要返航
+  降落；那套判断现在叫 `reached_end`（航段飞完）。
+- `mg_mission_get_execution_progress` 同时返回 `reached_end` 与 `finished`，前者用于
+  "等待返航/降落"的中间态。新一轮解锁会清掉上一轮的完成标记。
+- 任务面板进度条分三档：`任务进度 第 N/M 项 · 已到达 X 项` → `航段已完成 · 共 N 项，
+  等待返航/降落`（警示色）→ `任务完成 · 共 N 项`（成功色）。
+
+### Verification
+
+- `test_sim_mission` 新增 QGC 规则用例：未解锁不完成、GUIDED 解锁飞行后上锁不算完成、
+  AUTO 解锁后上锁判完成、`reached_end` 与 `finished` 相互独立、再次解锁清标记。
+- 后端 offline/simulation `35/35` 通过；Flutter analyze 无问题、测试 `22/22` 通过；
+  UI token 检查与 macOS debug 构建通过；完整 `tools/preflight.sh` 通过。
+
 ## 0.0.62 - 2026-10-02
 
 ### Changed

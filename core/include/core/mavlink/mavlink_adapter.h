@@ -556,7 +556,9 @@ public:
         uint16_t reached_count = 0; // 已到达项数量
         uint16_t last_reached_seq = 0;
         bool has_reached = false;   // 本次任务是否收到过 MISSION_ITEM_REACHED
-        bool finished = false;      // 最后一项已到达
+        // 最后一项已到达。只代表"航段飞完"，固定翼此时还在返航/降落，
+        // 所以不能直接当成任务完成——完成判定见 FlightModeManager::mission_fly_completed()。
+        bool reached_end = false;
     };
 
     MissionExecutionProgress mission_get_execution_progress() const;

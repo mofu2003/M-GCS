@@ -16,7 +16,9 @@ MGCORE_API char* mg_mission_get_progress(mg_core_t* core);
 MGCORE_API char* mg_mission_get_plan(mg_core_t* core);
 // 任务执行进度：MISSION_CURRENT 的当前项 + MISSION_ITEM_REACHED 统计。
 // 返回 valid / current_index（客户端可见，去掉 ArduPilot home 偏移）/ current_seq /
-// total / reached_count / last_reached_seq / finished。
+// total / reached_count / last_reached_seq / reached_end / finished。
+// reached_end 表示最后一项已到达（航段飞完，固定翼此时还在返航降落）；
+// finished 才是任务完成，判定与 QGC 一致：曾在任务模式下解锁、之后上锁。
 MGCORE_API char* mg_mission_get_execution_progress(mg_core_t* core);
 MGCORE_API char* mg_mission_set_current(mg_core_t* core, int seq);
 MGCORE_API char* mg_mission_get_current(mg_core_t* core);

@@ -60,6 +60,29 @@ void FlightModeManager::update_from_heartbeat(uint8_t autopilot_type, uint8_t ve
         // MAV_STATE_ACTIVE = 4, MAV_STATE_IN_FLIGHT = 4
         in_flight_ = armed && (system_status == 4);
 
+        // 任务完成判定（QGC FlyViewMissionCompleteDialog 的等价实现）：
+        // 记录"本轮解锁期间是否进过任务模式"，解锁状态消失时据此置完成标记。
+        const char* auto_mode = fw_plugin_ ? fw_plugin_->auto_mode_name() : nullptr;
+        const bool in_mission_mode =
+            auto_mode != nullptr && current_mode_ == auto_mode;
+        if (armed) {
+            if (!was_armed_) {
+                // 新一轮飞行：清掉上一轮的结果，重新累计。
+                mission_fly_completed_ = false;
+                flight_armed_ = false;
+                flight_in_mission_mode_ = false;
+            }
+            flight_armed_ = true;
+            if (in_mission_mode) flight_in_mission_mode_ = true;
+        } else if (was_armed_) {
+            if (flight_armed_ && flight_in_mission_mode_) {
+                mission_fly_completed_ = true;
+            }
+            flight_armed_ = false;
+            flight_in_mission_mode_ = false;
+        }
+        was_armed_ = armed;
+
         // Record mode change and copy callback under lock
         if (!old_mode.empty() && old_mode != current_mode_) {
             pending_event.old_mode = old_mode;
@@ -140,6 +163,11 @@ std::string FlightModeManager::decode_mode_name(uint32_t custom_mode) const {
     mg::core::platform::LockGuard lk(mtx_);
     if (!fw_plugin_) return {};
     return fw_plugin_->decode_flight_mode(fw_adapter_.vehicle_kind(), custom_mode);
+}
+
+bool FlightModeManager::mission_fly_completed() const {
+    mg::core::platform::LockGuard lk(mtx_);
+    return mission_fly_completed_;
 }
 
 bool FlightModeManager::set_mode(const std::string& mode_name) {

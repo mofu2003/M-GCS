@@ -214,8 +214,66 @@ static void test_mission_execution_progress() {
     env.mock->send_mission_item_reached(static_cast<uint16_t>(items.size() - 1));
     for (int i = 0; i < 10; i++) env.tick(50);
     progress = mg_mission_get_execution_progress(env.core);
+    // 最后一项到达只代表航段飞完，任务完成另有 QGC 式判定（见下一个用例）。
+    CHECK(progress && strstr(progress, "\"reached_end\":true"),
+          "reaching the last mission item reports reached_end");
+    if (progress) mg_free_string(progress);
+}
+
+/// 任务完成判定按 QGC 的语义：在任务模式下解锁飞行、之后上锁才算完成；
+/// 仅"最后一项到达"只是 reached_end（航段飞完，固定翼还要返航降落）。
+static void test_mission_completion_follows_qgc_rules() {
+    fprintf(stderr, "\n[Group] Mission completion follows QGC rules\n");
+    TestEnv env;
+    for (int i = 0; i < 15; i++) env.tick(100);
+
+    // 关掉 mock 的周期心跳，否则它会把注入的解锁/模式状态覆盖掉。
+    env.mock->set_heartbeat_enabled(false);
+
+    auto send_heartbeat = [&env](bool armed, uint32_t custom_mode) {
+        mavlink_message_t hb;
+        const uint8_t base_mode = static_cast<uint8_t>(
+            MAV_MODE_FLAG_CUSTOM_MODE_ENABLED |
+            (armed ? MAV_MODE_FLAG_SAFETY_ARMED : 0));
+        mavlink_msg_heartbeat_pack(
+            1, 1, &hb, MAV_TYPE_FIXED_WING, MAV_AUTOPILOT_ARDUPILOTMEGA,
+            base_mode, custom_mode, MAV_STATE_ACTIVE);
+        auto bytes = std::vector<uint8_t>(MAVLINK_MAX_PACKET_LEN);
+        const uint16_t len = mavlink_msg_to_send_buffer(bytes.data(), &hb);
+        env.link->inject_incoming(bytes.data(), len);
+        env.tick(10);
+    };
+
+    // ArduPlane 的 AUTO 是 custom_mode 10。
+    send_heartbeat(false, 0);
+    char* progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"finished\":false"),
+          "unarmed flight without a mission is not finished");
+    if (progress) mg_free_string(progress);
+
+    // 在 GUIDED（15）解锁飞行：不算任务飞行，上锁后不应判完成。
+    send_heartbeat(true, 15);
+    send_heartbeat(false, 0);
+    progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"finished\":false"),
+          "armed flight outside mission mode does not count as mission complete");
+    if (progress) mg_free_string(progress);
+
+    // 在 AUTO（10）解锁飞行后上锁：QGC 判定的任务完成。
+    send_heartbeat(true, 10);
+    send_heartbeat(false, 0);
+    progress = mg_mission_get_execution_progress(env.core);
     CHECK(progress && strstr(progress, "\"finished\":true"),
-          "reaching the last mission item reports finished");
+          "armed mission-mode flight followed by disarm reports finished");
+    CHECK(progress && strstr(progress, "\"reached_end\":false"),
+          "reached_end stays false when no mission item was reached");
+    if (progress) mg_free_string(progress);
+
+    // 再次解锁开启新一轮飞行，完成标记要清掉。
+    send_heartbeat(true, 10);
+    progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"finished\":false"),
+          "a new arm clears the previous mission-complete flag");
     if (progress) mg_free_string(progress);
 }
 
@@ -227,6 +285,7 @@ int main() {
     test_mission_download_compat_item();
     test_mission_clear();
     test_mission_execution_progress();
+    test_mission_completion_follows_qgc_rules();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

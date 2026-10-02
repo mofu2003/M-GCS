@@ -426,10 +426,10 @@ MavlinkAdapter::mission_get_execution_progress() const {
     progress.reached_count = execution.reached_count;
     progress.last_reached_seq = execution.last_reached_seq;
     progress.has_reached = execution.has_reached;
-    // 原始 seq 的最后一项就是任务最后一项，收到它的 REACHED 即视为任务跑完。
-    progress.finished = progress.valid && execution.has_reached &&
-                        static_cast<uint32_t>(execution.last_reached_seq) + 1 >=
-                            progress.total;
+    // 原始 seq 的最后一项就是任务最后一项，收到它的 REACHED 即代表航段飞完。
+    progress.reached_end =
+        progress.valid && execution.has_reached &&
+        static_cast<uint32_t>(execution.last_reached_seq) + 1 >= progress.total;
     return progress;
 }
 

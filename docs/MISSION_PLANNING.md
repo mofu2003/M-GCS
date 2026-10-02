@@ -203,7 +203,10 @@ GeoFence 与 Rally 是独立的 MAVLink mission type，不计入航点任务上�
 对称，比较文档与飞控的围栏/Rally 并返回差异，用于上传后回读核对。
 
 任务执行进度由 `mg_mission_get_execution_progress` 提供：`MISSION_CURRENT` 给出当前目标项，
-`MISSION_ITEM_REACHED` 统计已到达项（按 seq 去重），最后一项到达即 `finished:true`。
+`MISSION_ITEM_REACHED` 统计已到达项（按 seq 去重），最后一项到达即 `reached_end:true`
+（航段飞完，固定翼此时还在返航降落）。`finished` 才是任务完成，按 QGC
+`FlyViewMissionCompleteDialog` 的语义判定：曾在任务模式下解锁飞行、之后上锁；下一次
+解锁会清掉该标记。
 `current_index` 已去掉 ArduPilot 的 home 偏移，可直接对应任务面板里的项序号。
 
 回读核对（`mg_mission_doc_verify`）按米制容差比较经纬度：飞控内部把位置存成 float 度，

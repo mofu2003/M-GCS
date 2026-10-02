@@ -101,6 +101,14 @@ public:
     /// 把 custom_mode 数值翻译成模式名（HEARTBEAT 反查、模式映射页都用它）。
     std::string decode_mode_name(uint32_t custom_mode) const;
 
+    /// 本轮飞行是否跑完了任务。
+    ///
+    /// 判定逻辑与 QGC `FlyViewMissionCompleteDialog.qml` 一致：**曾经在任务模式
+    /// （AUTO / Auto Mission）下解锁飞行，然后上锁**才叫完成。只看"Heartbeat 最后一项
+    /// 到达"会偏早——固定翼到达最后一项后还要返航降落。
+    /// 下一次解锁会清掉这个标记，所以它表示"最近一次飞行"的结果。
+    bool mission_fly_completed() const;
+
     /// 按名字切换模式。MP 的 CMB_modes 与 QGC 的 flightMode 属性都是按名字切。
     /// 名字不识别或未绑定时返回 false。
     bool set_mode(const std::string& mode_name);
@@ -157,6 +165,12 @@ private:
     uint32_t custom_mode_ = 0;
     uint8_t autopilot_type_ = 0;
     uint8_t vehicle_type_ = 0;
+
+    // 任务完成判定的历史状态（详见 mission_fly_completed()）。
+    bool was_armed_ = false;
+    bool flight_armed_ = false;
+    bool flight_in_mission_mode_ = false;
+    bool mission_fly_completed_ = false;
 
     // Mode parameters
     float takeoff_altitude_ = 20.0f;

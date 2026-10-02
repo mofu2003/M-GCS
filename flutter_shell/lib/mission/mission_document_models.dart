@@ -376,6 +376,7 @@ final class MissionExecutionProgress {
     this.total = 0,
     this.reachedCount = 0,
     this.lastReachedSeq = 0,
+    this.reachedEnd = false,
     this.finished = false,
   });
 
@@ -385,6 +386,9 @@ final class MissionExecutionProgress {
   final int total;
   final int reachedCount;
   final int lastReachedSeq;
+  /// 航段飞完：最后一项已到达。固定翼此时还在返航/降落，不等于任务完成。
+  final bool reachedEnd;
+  /// 任务完成，判定与 QGC 一致：曾在任务模式下解锁飞行，之后上锁。
   final bool finished;
 
   /// 有可判断的飞控任务时才展示进度。
@@ -398,6 +402,7 @@ final class MissionExecutionProgress {
         total: (json['total'] as num?)?.toInt() ?? 0,
         reachedCount: (json['reached_count'] as num?)?.toInt() ?? 0,
         lastReachedSeq: (json['last_reached_seq'] as num?)?.toInt() ?? 0,
+        reachedEnd: json['reached_end'] == true,
         finished: json['finished'] == true,
       );
 }

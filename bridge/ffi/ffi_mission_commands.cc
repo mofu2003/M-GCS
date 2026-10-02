@@ -143,7 +143,11 @@ MGCORE_API char* mg_mission_get_execution_progress(mg_core_t* core) {
     jb.field("total", static_cast<int>(plan.items.size()));
     jb.field("reached_count", static_cast<int>(progress.reached_count));
     jb.field("last_reached_seq", static_cast<int>(progress.last_reached_seq));
-    jb.field("finished", progress.finished);
+    // reached_end：航段飞完（最后一项到达）；
+    // finished：任务完成，按 QGC FlyViewMissionCompleteDialog 的定义——
+    // 曾经在任务模式下解锁飞行，之后上锁。
+    jb.field("reached_end", progress.reached_end);
+    jb.field("finished", get_active_flight_modes(core).mission_fly_completed());
     jb.end_object();
     return to_cstr(jb.str());
 }
