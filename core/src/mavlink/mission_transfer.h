@@ -15,6 +15,7 @@
 #include <functional>
 #include <chrono>
 #include <cstdint>
+#include <vector>
 
 namespace mg::core::mavlink {
 
@@ -61,7 +62,38 @@ struct MissionTransferState {
 
     /// 检查超时，返回 true 表示超时且已重试或放弃
     bool check_timeout();
+
+    /// 清除任务执行进度，但保留任务传输状态。
+    /// 新的上传/下载事务开始时必须调用，避免旧任务的 reached 状态污染新任务。
+    void clear_execution_progress() {
+        reached_count = 0;
+        last_reached_seq = 0;
+        has_reached = false;
+        reached_flags.clear();
+    }
 };
+
+/// 判断传输状态是否正在进行上传或下载。
+inline bool transfer_is_active(const MissionTransferState& state) {
+    using State = mg::core::mission::MissionState;
+    return state.progress.state == State::Uploading ||
+           state.progress.state == State::Downloading;
+}
+
+/// 判断 mission/rally/fence 中是否已有任一传输事务进行中。
+/// QGC PlanManager 在事务进行中拒绝启动第二个事务；这里同样全局串行化。
+inline bool has_active_transfer(const MissionTransferState& mission,
+                                const MissionTransferState& rally,
+                                const MissionTransferState& fence) {
+    return transfer_is_active(mission) ||
+           transfer_is_active(rally) ||
+           transfer_is_active(fence);
+}
+
+/// MAV_MISSION_TYPE_MISSION / FENCE / RALLY 是当前实现的三个有效任务类型。
+inline bool is_valid_mission_type(uint8_t mission_type) {
+    return mission_type == 0 || mission_type == 1 || mission_type == 2;
+}
 
 /// 按 mission_type 选择对应的传输状态
 /// MAV_MISSION_TYPE_RALLY → rally, MAV_MISSION_TYPE_FENCE → fence, 其他 → mission
@@ -85,6 +117,26 @@ inline MissionTransferState* find_uploading(
     if (fence.progress.state == State::Uploading) return &fence;
     if (mission.progress.state == State::Uploading) return &mission;
     return nullptr;
+}
+
+/// 按 mission_type 精确查找正在上传的传输状态。
+/// 未知 mission_type 不再回退到 main mission，避免错误任务类型串写。
+inline MissionTransferState* find_uploading(
+    MissionTransferState& mission,
+    MissionTransferState& rally,
+    MissionTransferState& fence,
+    uint8_t mission_type) {
+    using State = mg::core::mission::MissionState;
+    if (!is_valid_mission_type(mission_type)) return nullptr;
+    auto& state = select_transfer(mission, rally, fence, mission_type);
+    return state.progress.state == State::Uploading ? &state : nullptr;
+}
+
+/// 校验消息来源是否与当前事务的目标飞控/组件一致。
+inline bool transfer_matches_target(const MissionTransferState& state,
+                                    uint8_t sysid,
+                                    uint8_t compid) {
+    return state.target_sys == sysid && state.target_comp == compid;
 }
 
 } // namespace mg::core::mavlink

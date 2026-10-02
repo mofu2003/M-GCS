@@ -147,6 +147,34 @@ static void test_udp_link() {
     CHECK(!link.is_open(), "double close is safe");
 }
 
+static void test_udp_link_close_waits_for_read_thread() {
+    fprintf(stderr, "\n[Group] UDP read thread lifecycle\n");
+
+    const uint16_t port = reserve_udp_port();
+    if (port == 0) {
+        fprintf(stderr, "  [SKIP] UDP bind unavailable in this environment\n");
+        return;
+    }
+
+    LinkDescriptor desc;
+    const std::string endpoint = "127.0.0.1:" + std::to_string(port);
+    desc.id = "udp://" + endpoint;
+    desc.type = "udp";
+    desc.endpoint = endpoint;
+
+    UdpLink link(desc);
+    CHECK(link.open(), "UDP link opens before read thread lifecycle test");
+    link.set_receive_callback([](const uint8_t*, size_t) {});
+    link.close();
+    CHECK(!link.is_open(), "UDP close waits until the read thread is gone");
+
+    // A second bind on the same endpoint verifies that close released the
+    // socket only after the read thread stopped.
+    UdpLink reopened(desc);
+    CHECK(reopened.open(), "UDP endpoint can be reopened after close");
+    reopened.close();
+}
+
 static void test_serial_link() {
     fprintf(stderr, "\n[Group] Serial Link\n");
 
@@ -231,6 +259,7 @@ int main() {
 
     test_tcp_link();
     test_udp_link();
+    test_udp_link_close_waits_for_read_thread();
     test_serial_link();
     test_windows_serial_configuration();
     test_tcp_reconnect();

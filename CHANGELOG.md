@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.0.71 - 2026-10-03
+
+### Fixed
+
+- 修复 VTOL 地面启动任务流程：QGC 的 `Vehicle::fixedWing()` 不包含 VTOL，M-GCS 现在同样
+  只把真正固定翼放入 AUTO+解锁流程；VTOL 改用 `GUIDED -> 解锁 -> MISSION_START`，
+  不再停在已解锁但没有启动任务的状态。
+- `MAV_CMD_DO_REPOSITION` 改为 COMMAND_INT + `MAV_FRAME_GLOBAL`，与 QGC APM 引导逻辑
+  一致；此前 COMMAND_LONG 缺少 frame，ArduPilot 会返回 `MAV_RESULT_UNSUPPORTED`。
+- 引导操作按具体状态给出不可用原因；起飞按 `GUIDED -> 解锁 -> NAV_TAKEOFF` 执行；
+  暂停改为 ArduPilot 的真实暂停模式（Copter Brake、Plane/VTOL Loiter、Rover Hold）。
+- 任务文档、回读核对结果和 dirty 状态绑定当前连接 session；切换飞控后必须先重新读取
+  或创建任务，避免把飞控 A 的任务上传给飞控 B。
+- 任务传输增加单事务门控、mission type 精确路由、来源 sys/comp 和序号校验；重传/下载
+  会清空旧执行进度，命令 ACK 超时会立即唤醒等待者。
+- 参数写入确认同时校验 sysid/compid、类型、请求代次和值；参数缓存、下载完成和 refresh
+  按当前目标组件隔离，旧回包不再污染新会话。
+- TCP/UDP 读线程改为共享状态持有，Windows 超时后不再 CloseHandle 后继续析构导致
+  use-after-free；连接 reset 的阻塞关闭移到锁外。
+- 心跳丢失会回收幽灵 Vehicle/session；关闭 active vehicle 后自动选择剩余车辆。
+- 本地创建的 Survey/Corridor 可导出为 QGC Survey/CorridorScan ComplexItem；无法完整表达
+  时退回 SimpleItem 并返回 warning，不再直接失败。
+- VTOL 飞行模式台接入 `EXTENDED_SYS_STATE.vtol_state`，显示 `MC`、`FW` 和转换状态；
+  单次遥测读取失败保留最后有效状态，不再短暂显示已上锁/未知机型。
+
+### Verification
+
+- 后端 offline/simulation `35/35` 通过，包含新增的任务并发/乱序/来源校验、参数旧回包、
+  多机重连、TCP/UDP 关闭、QGC ComplexItem 往返测试。
+- Flutter analyze、`24/24` 测试和 macOS debug 构建通过；`tools/preflight.sh` 全部通过。
+- ArduPlane QuadPlane SITL 实测：AUTO 地面状态执行引导起飞会切到 GUIDED、解锁并起飞；
+  飞行中“移动到此处”通过 COMMAND_INT 被飞控接受。
+
 ## 0.0.70 - 2026-10-03
 
 ### Added

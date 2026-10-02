@@ -75,8 +75,33 @@ static int json_array_size(const char* json, const char* section,
     return size;
 }
 
+static void test_parallel_transfer_guard() {
+    fprintf(stderr, "\n[Fence / Rally transfer guard]\n");
+    MockVehicleTestEnv env;
+    CHECK("guard test vehicle connects", env.wait_connected());
+
+    mg::core::mission::MissionPlan plan;
+    mg::core::mission::MissionItem item{};
+    item.seq = 0;
+    item.frame = MAV_FRAME_GLOBAL_RELATIVE_ALT;
+    item.command = MAV_CMD_NAV_WAYPOINT;
+    item.x = 399000000;
+    item.y = 1164000000;
+    item.z = 50.0f;
+    item.mission_type = MAV_MISSION_TYPE_FENCE;
+    plan.items.push_back(item);
+
+    CHECK("first fence upload starts", env.mav->fence_upload(1, 1, plan));
+    CHECK("second fence upload is rejected while active",
+          !env.mav->fence_upload(1, 1, plan));
+    CHECK("mission upload is rejected while fence transfer is active",
+          !env.mav->mission_upload(1, 1, plan));
+}
+
 int main() {
     fprintf(stderr, "=== Fence / Rally Mission Simulation Test ===\n");
+
+    test_parallel_transfer_guard();
 
     MockVehicleTestEnv env({}, false);
     CHECK("core created", env.core != nullptr);

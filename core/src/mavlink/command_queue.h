@@ -86,7 +86,12 @@ struct CommandQueueEntry {
     uint16_t    command;          // MAV_CMD_xxx
     uint8_t     target_sys;       // 目标系统 ID
     uint8_t     target_comp;      // 目标组件 ID
+    bool        use_command_int = false;
+    uint8_t     frame = 0;        // MAV_FRAME（COMMAND_INT）
     float       params[7];        // p1-p7，用于重发
+    int32_t     x = 0;            // COMMAND_INT 的位置字段
+    int32_t     y = 0;
+    float       z = 0;
     uint8_t     confirmation = 0; // MAVLink 确认字段（重试时递增）
     int         max_tries = 3;    // 最大尝试次数
     int         try_count = 0;    // 已发送次数

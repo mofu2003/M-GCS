@@ -1,27 +1,53 @@
 /**
  * udp_link.cc - UDP transport implementation
  *
- * Platform-abstracted UDP link.
- * Binds to local host:port, receives datagrams from any source.
- * Automatically learns remote address from first incoming packet.
- *
- * v2.0: Thread safety fixes:
- *   - set_receive_callback() starts read thread if already open
- *   - receive_cb_ protected by cb_mtx_ for cross-thread safety
- *   - has_remote_ is atomic; remote_addr_ written once before thread start
- *   - CreateThread/WaitForSingleObject return values checked
- *   - std::stoi wrapped in try-catch
+ * Platform-abstracted UDP link. The read thread owns a shared ReadState and
+ * never captures the UdpLink object; this keeps close/destructor ordering safe
+ * even when a Windows recvfrom() takes a long time to unwind.
  */
 #include "core/transport/udp_link.h"
 #include "core/log/logging.h"
 #include <chrono>
 #include <cstring>
+#include <memory>
 #include <thread>
 #ifndef _WIN32
 #include <fcntl.h>
 #endif
 
 namespace mg::core::transport {
+
+struct UdpLink::ReadState {
+    std::atomic<bool> opened{false};
+    std::atomic<bool> stop_requested{false};
+    std::atomic<bool> thread_started{false};
+    std::atomic<bool> finished{false};
+    std::atomic<mg_socket_t> sock{MG_INVALID_SOCKET};
+
+    ReceiveCallback receive_cb;
+    mg::core::platform::Mutex cb_mtx;
+
+    sockaddr_in remote_addr{};
+    std::atomic<bool> has_remote{false};
+    mg::core::platform::Mutex remote_mtx;
+
+    mg::core::platform::Mutex done_mtx;
+    mg::core::platform::ConditionVariable done_cv;
+
+    ~ReadState() {
+        const mg_socket_t socket = sock.exchange(MG_INVALID_SOCKET);
+        if (socket != MG_INVALID_SOCKET) {
+            mg::core::platform::socket_close(socket);
+        }
+    }
+
+    void close_socket() {
+        const mg_socket_t socket = sock.exchange(MG_INVALID_SOCKET);
+        if (socket != MG_INVALID_SOCKET) {
+            mg::core::platform::socket_close(socket);
+        }
+    }
+};
 
 // ================================================================
 // Constructor / Destructor
@@ -39,13 +65,13 @@ UdpLink::~UdpLink() {
 // ================================================================
 
 std::string UdpLink::host() const {
-    size_t colon = descriptor_.endpoint.find(':');
+    const size_t colon = descriptor_.endpoint.find(':');
     if (colon == std::string::npos) return descriptor_.endpoint;
     return descriptor_.endpoint.substr(0, colon);
 }
 
 uint16_t UdpLink::port() const {
-    size_t colon = descriptor_.endpoint.find(':');
+    const size_t colon = descriptor_.endpoint.find(':');
     if (colon == std::string::npos) return 0;
     try {
         return static_cast<uint16_t>(std::stoi(descriptor_.endpoint.substr(colon + 1)));
@@ -55,33 +81,85 @@ uint16_t UdpLink::port() const {
     }
 }
 
+std::shared_ptr<UdpLink::ReadState> UdpLink::state_snapshot() const {
+    mg::core::platform::LockGuard lk(state_mtx_);
+    return read_state_;
+}
+
 bool UdpLink::is_open() const {
-    return opened_.load();
+    const auto state = state_snapshot();
+    return state && state->opened.load();
+}
+
+bool UdpLink::start_read_thread(const std::shared_ptr<ReadState>& state) {
+    if (!state || state->thread_started.exchange(true)) return true;
+
+    auto* arg = new std::shared_ptr<ReadState>(state);
+#ifdef _WIN32
+    HANDLE thread = CreateThread(nullptr, 0, read_thread_proc, arg, 0, nullptr);
+    if (!thread) {
+        const DWORD error = GetLastError();
+        delete arg;
+        state->thread_started.store(false);
+        state->finished.store(true);
+        state->done_cv.notify_all();
+        MGC_LOG_ERROR("[UdpLink] Failed to create read thread: %lu",
+                      static_cast<unsigned long>(error));
+        return false;
+    }
+    // The thread owns the state and does not need the Win32 handle after
+    // creation. Closing the handle here cannot terminate the running thread.
+    CloseHandle(thread);
+#else
+    pthread_t thread = 0;
+    if (pthread_create(&thread, nullptr, read_thread_proc, arg) != 0) {
+        delete arg;
+        state->thread_started.store(false);
+        state->finished.store(true);
+        state->done_cv.notify_all();
+        MGC_LOG_ERROR("[UdpLink] Failed to create read thread");
+        return false;
+    }
+    pthread_detach(thread);
+#endif
+    return true;
+}
+
+void UdpLink::wait_for_read_thread(const std::shared_ptr<ReadState>& state) {
+    if (!state || !state->thread_started.load()) return;
+
+    mg::core::platform::UniqueLock lk(state->done_mtx);
+    bool warned = false;
+    while (!state->finished.load()) {
+        if (!state->done_cv.wait_for(lk, std::chrono::seconds(5), [&] {
+                return state->finished.load();
+            })) {
+            if (!warned) {
+                MGC_LOG_WARN("[UdpLink] Read thread has not exited yet; "
+                             "retaining socket/state until it does");
+                warned = true;
+            }
+        }
+    }
 }
 
 void UdpLink::set_receive_callback(ReceiveCallback cb) {
     const bool should_start = static_cast<bool>(cb);
     {
         mg::core::platform::LockGuard lk(cb_mtx_);
-        receive_cb_ = std::move(cb);
+        pending_receive_cb_ = cb;
     }
-    // If already open and no thread yet, start one
-    if (opened_.load() && should_start && !read_thread_) {
-#ifdef _WIN32
-        HANDLE h = CreateThread(nullptr, 0, read_thread_proc, this, 0, nullptr);
-        if (!h) {
-            MGC_LOG_ERROR("[UdpLink] Failed to create read thread: %lu", static_cast<unsigned long>(GetLastError()));
-            return;
-        }
-        read_thread_ = h;
-#else
-        pthread_t tid = 0;
-        if (pthread_create(&tid, nullptr, read_thread_proc, this) != 0) {
-            MGC_LOG_ERROR("[UdpLink] Failed to create read thread");
-            return;
-        }
-        read_thread_ = tid;
-#endif
+
+    const auto state = state_snapshot();
+    if (!state) return;
+
+    {
+        mg::core::platform::LockGuard lk(state->cb_mtx);
+        state->receive_cb = std::move(cb);
+    }
+
+    if (should_start && state->opened.load() && !state->thread_started.load()) {
+        (void)start_read_thread(state);
     }
 }
 
@@ -90,92 +168,99 @@ void UdpLink::set_receive_callback(ReceiveCallback cb) {
 // ================================================================
 
 bool UdpLink::open() {
-    if (opened_.load()) return true;
+    if (is_open()) return true;
 
     if (!mg::core::platform::socket_init()) {
         MGC_LOG_ERROR("[UdpLink] Winsock init failed");
         return false;
     }
 
-    std::string h = host();
-    uint16_t p = port();
+    const std::string h = host();
+    const uint16_t p = port();
     if (p == 0) {
         MGC_LOG_ERROR("[UdpLink] Invalid port in endpoint: %s", descriptor_.endpoint.c_str());
+        mg::core::platform::socket_cleanup();
         return false;
     }
 
-    // Create UDP socket
-    sock_ = static_cast<mg_socket_t>(::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP));
-    if (sock_ == MG_INVALID_SOCKET) {
-        MGC_LOG_ERROR("[UdpLink] Socket creation failed: %d", mg::core::platform::socket_error());
+    const mg_socket_t socket = static_cast<mg_socket_t>(
+        ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP));
+    if (socket == MG_INVALID_SOCKET) {
+        MGC_LOG_ERROR("[UdpLink] Socket creation failed: %d",
+                      mg::core::platform::socket_error());
+        mg::core::platform::socket_cleanup();
         return false;
     }
 
-    // Allow address reuse
+    auto state = std::make_shared<ReadState>();
+    state->sock.store(socket);
+
     int reuse = 1;
-    if (setsockopt(sock_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse)) != 0) {
-        MGC_LOG_WARN("[UdpLink] setsockopt SO_REUSEADDR failed: %d", mg::core::platform::socket_error());
+    if (setsockopt(socket, SOL_SOCKET, SO_REUSEADDR,
+                   reinterpret_cast<const char*>(&reuse), sizeof(reuse)) != 0) {
+        MGC_LOG_WARN("[UdpLink] setsockopt SO_REUSEADDR failed: %d",
+                     mg::core::platform::socket_error());
     }
 
-    // Bind to local address
-    struct sockaddr_in bind_addr{};
+    sockaddr_in bind_addr{};
     bind_addr.sin_family = AF_INET;
     bind_addr.sin_port = htons(p);
     if (h.empty() || h == "0.0.0.0") {
         bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    } else {
-        if (inet_pton(AF_INET, h.c_str(), &bind_addr.sin_addr) != 1) {
-            MGC_LOG_ERROR("[UdpLink] inet_pton failed for %s", h.c_str());
-            mg::core::platform::socket_close(sock_);
-            sock_ = MG_INVALID_SOCKET;
-            return false;
-        }
-    }
-
-    if (::bind(sock_, reinterpret_cast<struct sockaddr*>(&bind_addr), sizeof(bind_addr)) == MG_SOCKET_ERR) {
-        MGC_LOG_ERROR("[UdpLink] Bind to %s:%u failed: %d", h.c_str(), p, mg::core::platform::socket_error());
-        mg::core::platform::socket_close(sock_);
-        sock_ = MG_INVALID_SOCKET;
+    } else if (inet_pton(AF_INET, h.c_str(), &bind_addr.sin_addr) != 1) {
+        MGC_LOG_ERROR("[UdpLink] inet_pton failed for %s", h.c_str());
+        state->close_socket();
+        mg::core::platform::socket_cleanup();
         return false;
     }
 
-    // Set socket to non-blocking for reliable shutdown
+    if (::bind(socket, reinterpret_cast<sockaddr*>(&bind_addr), sizeof(bind_addr)) == MG_SOCKET_ERR) {
+        MGC_LOG_ERROR("[UdpLink] Bind to %s:%u failed: %d",
+                      h.c_str(), p, mg::core::platform::socket_error());
+        state->close_socket();
+        mg::core::platform::socket_cleanup();
+        return false;
+    }
+
 #ifdef _WIN32
     u_long nonblock = 1;
-    ioctlsocket(sock_, FIONBIO, &nonblock);
+    ioctlsocket(socket, FIONBIO, &nonblock);
 #else
-    int flags = fcntl(sock_, F_GETFL, 0);
+    const int flags = fcntl(socket, F_GETFL, 0);
     if (flags >= 0) {
-        fcntl(sock_, F_SETFL, flags | O_NONBLOCK);
+        fcntl(socket, F_SETFL, flags | O_NONBLOCK);
     }
 #endif
 
-    stop_requested_.store(false);
-    opened_.store(true);
+    {
+        // Publish the state while holding cb_mtx_ so a concurrent
+        // set_receive_callback() cannot be lost between these two steps.
+        mg::core::platform::LockGuard lk(cb_mtx_);
+        {
+            mg::core::platform::LockGuard cb_lk(state->cb_mtx);
+            state->receive_cb = pending_receive_cb_;
+        }
+        state->opened.store(true);
+        {
+            mg::core::platform::LockGuard state_lk(state_mtx_);
+            read_state_ = state;
+        }
+    }
 
-    // Start read thread (only if callback already set ? e.g. from wire_callbacks before open)
-    if (receive_cb_) {
-#ifdef _WIN32
-        HANDLE h = CreateThread(nullptr, 0, read_thread_proc, this, 0, nullptr);
-        if (!h) {
-            MGC_LOG_ERROR("[UdpLink] Failed to create read thread: %lu", static_cast<unsigned long>(GetLastError()));
-            mg::core::platform::socket_close(sock_);
-            sock_ = MG_INVALID_SOCKET;
-            opened_.store(false);
-            return false;
+    bool has_callback = false;
+    {
+        mg::core::platform::LockGuard lk(state->cb_mtx);
+        has_callback = static_cast<bool>(state->receive_cb);
+    }
+    if (has_callback && !start_read_thread(state)) {
+        state->opened.store(false);
+        state->close_socket();
+        {
+            mg::core::platform::LockGuard lk(state_mtx_);
+            if (read_state_ == state) read_state_.reset();
         }
-        read_thread_ = h;
-#else
-        pthread_t tid = 0;
-        if (pthread_create(&tid, nullptr, read_thread_proc, this) != 0) {
-            MGC_LOG_ERROR("[UdpLink] Failed to create read thread");
-            mg::core::platform::socket_close(sock_);
-            sock_ = MG_INVALID_SOCKET;
-            opened_.store(false);
-            return false;
-        }
-        read_thread_ = tid;
-#endif
+        mg::core::platform::socket_cleanup();
+        return false;
     }
 
     MGC_LOG_INFO("[UdpLink] Bound to %s:%u", h.c_str(), p);
@@ -183,59 +268,45 @@ bool UdpLink::open() {
 }
 
 // ================================================================
-// Join read thread ? safe to call from any thread
-// ================================================================
-
-void UdpLink::join_read_thread() {
-#ifdef _WIN32
-    if (!read_thread_) return;
-    if (sock_ != MG_INVALID_SOCKET) {
-        ::shutdown(sock_, SD_BOTH);
-    }
-    DWORD wait_ret = WaitForSingleObject(read_thread_, 5000);
-    if (wait_ret == WAIT_TIMEOUT) {
-        MGC_LOG_WARN("[UdpLink] Read thread did not exit within 5s");
-    }
-    CloseHandle(read_thread_);
-    read_thread_ = nullptr;
-#else
-    if (!read_thread_) return;
-    if (sock_ != MG_INVALID_SOCKET) {
-        ::shutdown(sock_, SHUT_RDWR);
-    }
-    int ret = pthread_join(read_thread_, nullptr);
-    if (ret != 0) {
-        MGC_LOG_WARN("[UdpLink] Read thread join failed (%d)", ret);
-    }
-    read_thread_ = 0;
-#endif
-}
-
-// ================================================================
 // Close
 // ================================================================
 
 void UdpLink::close() {
-#ifdef _WIN32
-    if (!opened_.load() && read_thread_ == nullptr && sock_ == MG_INVALID_SOCKET) return;
-#else
-    if (!opened_.load() && read_thread_ == 0 && sock_ == MG_INVALID_SOCKET) return;
-#endif
+    const auto state = state_snapshot();
+    if (!state) return;
 
-    stop_requested_.store(true);
-    set_receive_callback(nullptr);
-
-    // Interrupt blocked recvfrom() and wait for thread exit
-    join_read_thread();
-
-    if (sock_ != MG_INVALID_SOCKET) {
-        mg::core::platform::socket_close(sock_);
-        sock_ = MG_INVALID_SOCKET;
+    {
+        mg::core::platform::LockGuard lk(state_mtx_);
+        if (read_state_ == state) read_state_.reset();
     }
 
+    state->stop_requested.store(true);
+    state->opened.store(false);
+    {
+        mg::core::platform::LockGuard lk(state->cb_mtx);
+        state->receive_cb = nullptr;
+    }
+    {
+        mg::core::platform::LockGuard lk(cb_mtx_);
+        pending_receive_cb_ = nullptr;
+    }
+
+    const mg_socket_t socket = state->sock.load();
+    if (socket != MG_INVALID_SOCKET) {
+        mg::core::platform::socket_shutdown(socket);
+    }
+
+    // Never release the socket/state while the OS read is still running.
+    // If a driver ignores shutdown, this blocks rather than trading safety
+    // for a destructor race.
+    wait_for_read_thread(state);
+    state->close_socket();
     mg::core::platform::socket_cleanup();
-    opened_.store(false);
-    has_remote_.store(false);
+    state->has_remote.store(false);
+    {
+        mg::core::platform::LockGuard lk(state->remote_mtx);
+        state->remote_addr = {};
+    }
     MGC_LOG_INFO("[UdpLink] Closed");
 }
 
@@ -244,19 +315,22 @@ void UdpLink::close() {
 // ================================================================
 
 bool UdpLink::send(const uint8_t* data, size_t size) {
-    if (!opened_.load() || sock_ == MG_INVALID_SOCKET) return false;
-    if (!has_remote_.load()) return false;
+    const auto state = state_snapshot();
+    if (!state || !state->opened.load() || !state->has_remote.load()) return false;
 
-    struct sockaddr_in remote_addr{};
+    const mg_socket_t socket = state->sock.load();
+    if (socket == MG_INVALID_SOCKET) return false;
+
+    sockaddr_in remote_addr{};
     {
-        mg::core::platform::LockGuard lk(remote_mtx_);
-        remote_addr = remote_addr_;
+        mg::core::platform::LockGuard lk(state->remote_mtx);
+        remote_addr = state->remote_addr;
     }
 
-    auto sent = ::sendto(sock_, reinterpret_cast<const char*>(data),
-                         static_cast<int>(size), 0,
-                         reinterpret_cast<struct sockaddr*>(&remote_addr),
-                         sizeof(remote_addr));
+    const auto sent = ::sendto(socket, reinterpret_cast<const char*>(data),
+                               static_cast<int>(size), 0,
+                               reinterpret_cast<sockaddr*>(&remote_addr),
+                               sizeof(remote_addr));
     return sent != MG_SOCKET_ERR;
 }
 
@@ -265,11 +339,13 @@ bool UdpLink::send(const uint8_t* data, size_t size) {
 // ================================================================
 
 void UdpLink::set_remote_address(const std::string& host, uint16_t port) {
-    mg::core::platform::LockGuard lk(remote_mtx_);
-    remote_addr_.sin_family = AF_INET;
-    remote_addr_.sin_port = htons(port);
-    inet_pton(AF_INET, host.c_str(), &remote_addr_.sin_addr);
-    has_remote_.store(true);
+    const auto state = state_snapshot();
+    if (!state) return;
+    mg::core::platform::LockGuard lk(state->remote_mtx);
+    state->remote_addr.sin_family = AF_INET;
+    state->remote_addr.sin_port = htons(port);
+    inet_pton(AF_INET, host.c_str(), &state->remote_addr.sin_addr);
+    state->has_remote.store(true);
 }
 
 // ================================================================
@@ -281,39 +357,48 @@ DWORD WINAPI UdpLink::read_thread_proc(LPVOID lpParam) {
 #else
 void* UdpLink::read_thread_proc(void* lpParam) {
 #endif
-    auto* self = static_cast<UdpLink*>(lpParam);
-    uint8_t buffer[4096];
+    auto* arg = static_cast<std::shared_ptr<ReadState>*>(lpParam);
+    std::shared_ptr<ReadState> state = std::move(*arg);
+    delete arg;
 
-    while (!self->stop_requested_.load()) {
-        struct sockaddr_in sender_addr{};
+    uint8_t buffer[4096];
+    while (!state->stop_requested.load()) {
+        const mg_socket_t socket = state->sock.load();
+        if (socket == MG_INVALID_SOCKET) break;
+
+        sockaddr_in sender_addr{};
 #ifdef _WIN32
         int sender_len = sizeof(sender_addr);
 #else
         socklen_t sender_len = sizeof(sender_addr);
 #endif
-
-        auto received = ::recvfrom(self->sock_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0,
-                                   reinterpret_cast<struct sockaddr*>(&sender_addr), &sender_len);
+        const auto received = ::recvfrom(
+            socket, reinterpret_cast<char*>(buffer), sizeof(buffer), 0,
+            reinterpret_cast<sockaddr*>(&sender_addr), &sender_len);
 
         if (received > 0) {
-            // Learn remote address from first incoming packet
-            if (!self->has_remote_.load()) {
+            if (!state->has_remote.load()) {
                 char addr_str[INET_ADDRSTRLEN]{};
                 inet_ntop(AF_INET, &sender_addr.sin_addr, addr_str, sizeof(addr_str));
-                self->set_remote_address(addr_str, ntohs(sender_addr.sin_port));
-                MGC_LOG_INFO("[UdpLink] Learned remote: %s:%u", addr_str, ntohs(sender_addr.sin_port));
+                {
+                    mg::core::platform::LockGuard lk(state->remote_mtx);
+                    state->remote_addr = sender_addr;
+                    state->has_remote.store(true);
+                }
+                MGC_LOG_INFO("[UdpLink] Learned remote: %s:%u",
+                             addr_str, ntohs(sender_addr.sin_port));
             }
 
             ReceiveCallback cb_copy;
             {
-                mg::core::platform::LockGuard lk(self->cb_mtx_);
-                cb_copy = self->receive_cb_;
+                mg::core::platform::LockGuard lk(state->cb_mtx);
+                cb_copy = state->receive_cb;
             }
             if (cb_copy) {
                 cb_copy(buffer, static_cast<size_t>(received));
             }
         } else if (received == MG_SOCKET_ERR) {
-            int err = mg::core::platform::socket_error();
+            const int err = mg::core::platform::socket_error();
 #ifdef _WIN32
             if (err == WSAEINTR || err == WSAEWOULDBLOCK) {
                 Sleep(10);
@@ -325,17 +410,19 @@ void* UdpLink::read_thread_proc(void* lpParam) {
                 continue;
             }
 #endif
-            if (!self->stop_requested_.load()) {
+            if (!state->stop_requested.load()) {
                 MGC_LOG_ERROR("[UdpLink] Recvfrom error: %d", err);
-                self->opened_.store(false);
+                state->opened.store(false);
             }
             break;
         }
     }
 
-    if (!self->stop_requested_.load()) {
-        self->opened_.store(false);
+    if (!state->stop_requested.load()) {
+        state->opened.store(false);
     }
+    state->finished.store(true);
+    state->done_cv.notify_all();
 
 #ifdef _WIN32
     return 0;

@@ -46,6 +46,27 @@ static char* cmd_result_queued(mg_core_t* core, mg::core::mavlink::MavlinkAdapte
     return fail(MG_ERROR_TIMEOUT, "command ack timeout");
 }
 
+/// COMMAND_INT 版本：ArduPilot 的 DO_REPOSITION 不接受 COMMAND_LONG。
+static char* cmd_int_result_queued(
+        mg_core_t* core, mg::core::mavlink::MavlinkAdapter* mav,
+        uint16_t cmd_id, uint8_t sys, uint8_t comp, uint8_t frame,
+        float p1, float p2, float p3, float p4,
+        int32_t x, int32_t y, float z, int max_wait_ms = 5000) {
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    auto ticket = mav->send_command_int_queued(
+        sys, comp, cmd_id, frame, p1, p2, p3, p4, x, y, z);
+    auto ack = mav->wait_for_command(ticket, max_wait_ms);
+    if (ack.has_value()) {
+        if (ack->result_text.find("timeout") != std::string::npos) {
+            return fail(MG_ERROR_TIMEOUT, ack->result_text.c_str());
+        }
+        if (ack->result == 0) return ok();  // MAV_RESULT_ACCEPTED
+        mg_set_last_error(MG_ERROR_SEND_FAILED);
+        return to_cstr(mg::bridge::command_ack_json(ack.value()));
+    }
+    return fail(MG_ERROR_TIMEOUT, "command ack timeout");
+}
+
 MGCORE_API char* mg_command_arm(mg_core_t* core, int force) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
@@ -120,16 +141,18 @@ MGCORE_API char* mg_command_guided_point(mg_core_t* core,
                                          float yaw, float speed) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
-    // 这里走的是命令队列（COMMAND_LONG），MAV_CMD_DO_REPOSITION 在 COMMAND_LONG
-    // 下的 param5/param6 是「度」，不是度×1e7。飞控收到后会自己做 ×1e7 转换，
-    // 传 lat_e7 会让坐标溢出成垃圾值。需要 1e7 精度的路径见
-    // MavlinkAdapter::cmd_guided_point（COMMAND_INT）。
     float p1 = speed > 0 ? speed : -1.0f;
     float p4 = (yaw >= 0) ? yaw : NAN;
-    auto* result = cmd_result_queued(core, mav, 192,  // MAV_CMD_DO_REPOSITION
+    const int32_t lat_e7 = static_cast<int32_t>(lat * 1e7);
+    const int32_t lon_e7 = static_cast<int32_t>(lon * 1e7);
+    // QGC APMFirmwarePlugin::guidedModeGotoLocation uses COMMAND_INT with
+    // MAV_FRAME_GLOBAL and an AMSL altitude. ArduPilot rejects the same
+    // command over COMMAND_LONG because COMMAND_LONG carries no frame.
+    auto* result = cmd_int_result_queued(
+        core, mav, MAV_CMD_DO_REPOSITION,
         active_target_sys(core), active_target_comp(core),
-        p1, 1.0f, 0, p4,
-        static_cast<float>(lat), static_cast<float>(lon), alt);
+        MAV_FRAME_GLOBAL, p1, 1.0f, 0, p4,
+        lat_e7, lon_e7, alt);
     get_active_flight_log(core).on_command_result("guided_point", result && strstr(result, "\"success\":true"), "queued");
     return result;
 }

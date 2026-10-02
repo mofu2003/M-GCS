@@ -51,6 +51,7 @@ std::vector<CommandQueueEntry> CommandQueue::check_timeouts(
     const std::function<bool(const CommandQueueEntry&)>& resend_fn) {
     auto now = std::chrono::steady_clock::now();
     std::vector<CommandQueueEntry> completed;
+    bool notified = false;
 
     for (auto& e : entries) {
         const bool is_pending = e.state == CommandQueueEntry::State::Pending;
@@ -72,8 +73,10 @@ std::vector<CommandQueueEntry> CommandQueue::check_timeouts(
             e.ack_result = 4;  // MAV_RESULT_FAILED
             e.send_time = now;
             completed.push_back(e);
+            notified = true;
         }
     }
+    if (notified) cv.notify_all();
     return completed;
 }
 

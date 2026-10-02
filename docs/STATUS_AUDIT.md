@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.70`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.71`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -10,7 +10,7 @@
 | `git diff --check` | 通过 |
 | `dart tools/check_ui_tokens.dart` | 通过 |
 | Flutter analyze | 通过 |
-| Flutter test | 23/23 |
+| Flutter test | 24/24 |
 | 后端 offline/simulation | 35/35 |
 | macOS debug 构建 | 通过 |
 | Windows build/preflight | workflow 统一调用预检脚本；脚本会先生成 MAVLink 头，再构建 bundle 并校验关键 FFI 导出。未在本机 Windows 复核 |
@@ -31,9 +31,9 @@ bash tools/audit_status.sh
 
 | 项目 | 数量 |
 | --- | ---: |
-| FFI exports | 298 |
-| Flutter 使用 | 65 |
-| 测试触达 | 214 |
+| FFI exports | 303 |
+| Flutter 使用 | 84 |
+| 测试触达 | 217 |
 | 前端和测试都未触达 | 83 |
 
 这些数字必须由 `tools/audit_status.sh` 生成，不手工维护。无人区不等于可删除，公开
@@ -50,6 +50,10 @@ bash tools/audit_status.sh
 - `HOME-001`：识别飞控后请求 `HOME_POSITION` 和 `EXTENDED_SYS_STATE` 1Hz。
 - `HOME-002`：新增 `mg_command_set_home`，设置 Home 前由 UI 确认。
 - `LOG-001` / `LOCK-001`：飞行日志接入 STATUSTEXT/连接事件，回调移出锁内。
+- `CONN-002`：TCP/UDP 读线程改为共享状态，避免 Windows 超时关闭后的 UAF；
+  心跳丢失回收幽灵 Vehicle/session；关闭 active vehicle 后自动选择剩余车辆。
+- `UI-007`：任务 controller 绑定当前连接 session，切换飞控后禁止跨机上传；VTOL
+  `vtol_state` 接入飞行模式显示；单次遥测读取失败保留最后有效状态。
 - `EVENT-001`：`MG_EVENT_WAYPOINT_REACHED` 已接线并带 `seq`。
 - `SURVEY-001`：`survey_grid` / `corridor` 已成为参数化任务实体。
 - `INTEROP-001`：支持 MP/QGC `QGC WPL 110` `.waypoints` 导入导出。
@@ -57,6 +61,10 @@ bash tools/audit_status.sh
   导入导出；复杂项、非空 GeoFence/Rally 和无法无损表达的字段不会静默丢弃。
 - `MISSION-002`：支持从飞控读取任务并导入任务文档，归一化 `_INT` frame。
 - `MISSION-003`：Flutter 任务规划 UI、地图单击、新增/编辑航点、引导操作已接入。
+- `MISSION-004`：修正 VTOL 地面启动任务流程；VTOL 不再被当成 QGC
+  `Vehicle::fixedWing()`，改为 `GUIDED -> 解锁 -> MISSION_START`。
+- `MISSION-005`：任务传输增加 in-progress 门控、mission type 精确路由、来源
+  sysid/compid 与期望序号校验；重传/下载清空旧执行进度。
 - `TEST-001` / `TEST-002` / `TEST-003`：真实 UI FFI、飞行命令、批量参数变更集已有模拟测试。
 - `CONTRACT-001` / `DEPRECATION-001`：参数入口和兼容入口规则已登记。
 - `TESTGUARD-001` / `TOOL-001` / `TOOL-002`：架构守卫和审计统计不再静默空转。
@@ -78,6 +86,8 @@ bash tools/audit_status.sh
   `WP_SPD` 会转换为 `WPNAV_SPEED`，新固件、PX4 和未知参数保持原名。
 - `PARAM-008`：未分类参数进入稳定的 `other` 分组，保留原始名称、实时值和推断的
   MAVLink 基础类型；`found:false` 明确表示缺少本地扩展元数据。
+- `PARAM-014`：参数写入确认绑定 sysid/compid、类型、值代次；参数缓存、下载完成和
+  refresh 按当前目标组件及索引校验，旧回包不再污染新会话。
 - `PARAM-009`：前缀刷新支持固件版本反查；旧固件缓存里的 `WPNAV_*` 能被
   `WP_*` 刷新请求正确匹配，PX4 和未知版本保持原名。
 - `PARAM-010`：`mg_config_get_metadata_coverage` 报告描述库覆盖率、fallback 数量和
@@ -90,6 +100,8 @@ bash tools/audit_status.sh
   profile 标识，不再落入空 profile；当前使用通用描述回退。
 - `PLAN-001`：QGC `.plan` 的 ComplexItem、GeoFence、Rally 不再导入时静默丢失或直接
   拒绝，全部纳入正式文档模型并在导出时重建。
+- `INTEROP-003`：本地 Survey/Corridor 导出为 QGC `Survey` / `CorridorScan`
+  ComplexItem；无法完整表达时退回 SimpleItem + warning，不再直接失败。
 - `RALLY-001`：QGC Rally version 2 提升为正式 `rally_points` 模型，支持经纬度和
   高度随任务文档 JSON 及 `.plan` 往返。
 - `FENCE-001`：GeoFence 提升为正式模型，覆盖 polygon、circle、inclusion 和

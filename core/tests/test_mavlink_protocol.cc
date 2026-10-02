@@ -94,12 +94,20 @@ static void test_param_value_decode() {
     int cnt = 0;
     f.adapter.on_param([&](const mg::core::mavlink::ParamInfo&) { cnt++; });
     mavlink_message_t msg;
-    mavlink_msg_param_value_pack(1, 1, &msg, "SERVO5_FUNCTION", 4.0f, MAV_PARAM_TYPE_UINT16, 0, 3);
-    f.inject(msg);
-    mavlink_msg_param_value_pack(1, 1, &msg, "ARMING_CHECK", 1.0f, MAV_PARAM_TYPE_INT32, 1, 3);
-    f.inject(msg);
-    mavlink_msg_param_value_pack(1, 1, &msg, "BATT_CAPACITY", 3300.0f, MAV_PARAM_TYPE_REAL32, 2, 3);
-    f.inject(msg);
+    auto pack_param = [&](const char* name, float value, uint8_t type,
+                          uint16_t count, uint16_t index) {
+        mavlink_param_value_t pv{};
+        std::snprintf(pv.param_id, sizeof(pv.param_id), "%s", name);
+        pv.param_value = value;
+        pv.param_type = type;
+        pv.param_count = count;
+        pv.param_index = index;
+        mavlink_msg_param_value_encode(1, 1, &msg, &pv);
+        f.inject(msg);
+    };
+    pack_param("SERVO5_FUNCTION", 4.0f, MAV_PARAM_TYPE_UINT16, 3, 0);
+    pack_param("ARMING_CHECK", 1.0f, MAV_PARAM_TYPE_INT32, 3, 1);
+    pack_param("BATT_CAPACITY", 3300.0f, MAV_PARAM_TYPE_REAL32, 3, 2);
     CHECK("3 params received", cnt == 3);
     CHECK("params_received=3", f.adapter.params_received() == 3);
     auto p1 = f.adapter.get_param_by_name("SERVO5_FUNCTION");

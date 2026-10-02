@@ -32,7 +32,192 @@ static int parse_progress_total(const char* json) {
     return atoi(p + 8);
 }
 
+static float parse_param_value(const char* json) {
+    const char* p = strstr(json, "\"value\":");
+    if (!p) return 0.0f;
+    return static_cast<float>(atof(p + 8));
+}
+
+static void inject_param_value(TestEnv& env,
+                               uint8_t sysid,
+                               uint8_t compid,
+                               const std::string& name,
+                               float value,
+                               uint8_t type,
+                               uint16_t count,
+                               uint16_t index) {
+    char param_id[16] = {};
+    const size_t copy_len = name.size() < sizeof(param_id) - 1
+        ? name.size()
+        : sizeof(param_id) - 1;
+    std::memcpy(param_id, name.data(), copy_len);
+
+    mavlink_message_t message;
+    mavlink_msg_param_value_pack(sysid, compid, &message,
+                                 param_id, value, type, count, index);
+    uint8_t buffer[MAVLINK_MAX_PACKET_LEN] = {};
+    const uint16_t length = mavlink_msg_to_send_buffer(buffer, &message);
+    env.link->inject_incoming(buffer, length);
+}
+
+static bool diagnostics_has_state(TestEnv& env, const char* state) {
+    char* diagnostics = mg_system_get_diagnostics(env.core);
+    const bool found = diagnostics != nullptr && strstr(diagnostics, state) != nullptr;
+    if (diagnostics) mg_free_string(diagnostics);
+    return found;
+}
+
 static bool load_all_params(TestEnv& env);
+
+static void test_param_value_write_validation() {
+    fprintf(stderr, "\n[Group] Parameter write reply validation\n");
+    TestEnv env;
+    env.tick(1100);
+    if (!load_all_params(env)) return;
+
+    // Drop the mock's automatic echo so the test can inject controlled
+    // PARAM_VALUE replies.
+    env.mock->set_param_drop(1);
+    char* set_res = mg_param_set(env.core, "WPNAV_SPEED", 10.0f);
+    CHECK("controlled write request is sent",
+          set_res != nullptr && strstr(set_res, "true") != nullptr);
+    if (set_res) mg_free_string(set_res);
+    env.tick(50);
+
+    inject_param_value(env, 2, 1, "WPNAV_SPEED", 10.0f,
+                       MAV_PARAM_TYPE_REAL32, 36, 0);
+    CHECK("reply from another system does not confirm write",
+          diagnostics_has_state(env, "\"state\":\"pending\""));
+
+    inject_param_value(env, 1, 2, "WPNAV_SPEED", 10.0f,
+                       MAV_PARAM_TYPE_REAL32, 36, 0);
+    CHECK("reply from another component does not confirm write",
+          diagnostics_has_state(env, "\"state\":\"pending\""));
+
+    inject_param_value(env, 1, 1, "WPNAV_SPEED", 10.0f,
+                       MAV_PARAM_TYPE_INT32, 36, 0);
+    CHECK("reply with a different parameter type does not confirm write",
+          diagnostics_has_state(env, "\"state\":\"pending\""));
+
+    inject_param_value(env, 1, 1, "WPNAV_SPEED", 9.0f,
+                       MAV_PARAM_TYPE_REAL32, 36, 0);
+    CHECK("same-name reply with wrong value does not confirm write",
+          diagnostics_has_state(env, "\"state\":\"pending\""));
+
+    char* cached = mg_param_get(env.core, "WPNAV_SPEED");
+    CHECK("mismatched replies do not update the active cache",
+          cached != nullptr && parse_param_value(cached) > 4.9f &&
+              parse_param_value(cached) < 5.1f);
+    if (cached) mg_free_string(cached);
+
+    inject_param_value(env, 1, 1, "WPNAV_SPEED", 10.0f,
+                       MAV_PARAM_TYPE_REAL32, 36, 0);
+    CHECK("matching source, component, type and value confirms write",
+          diagnostics_has_state(env, "\"state\":\"confirmed\""));
+
+    // A delayed reply from an older request generation must not confirm a
+    // newer write to the same parameter.
+    env.mock->set_param_drop(2);
+    char* first = mg_param_set(env.core, "WPNAV_SPEED", 11.0f);
+    if (first) mg_free_string(first);
+    env.tick(50);
+    char* second = mg_param_set(env.core, "WPNAV_SPEED", 12.0f);
+    CHECK("replacement write request is sent",
+          second != nullptr && strstr(second, "true") != nullptr);
+    if (second) mg_free_string(second);
+    env.tick(50);
+
+    inject_param_value(env, 1, 1, "WPNAV_SPEED", 11.0f,
+                       MAV_PARAM_TYPE_REAL32, 36, 0);
+    CHECK("stale-generation value does not confirm replacement write",
+          diagnostics_has_state(env, "\"state\":\"pending\""));
+
+    inject_param_value(env, 1, 1, "WPNAV_SPEED", 12.0f,
+                       MAV_PARAM_TYPE_REAL32, 36, 0);
+    CHECK("current generation value confirms replacement write",
+          diagnostics_has_state(env, "\"state\":\"confirmed\""));
+}
+
+static void test_download_index_completion_and_source_filter() {
+    fprintf(stderr, "\n[Group] Parameter download index and source filtering\n");
+    TestEnv env;
+    env.tick(1100);
+    env.mock->set_param_list_no_response(true);
+
+    char* request = mg_params_request_all(env.core);
+    CHECK("indexed download request is sent",
+          request != nullptr && strstr(request, "\"success\":true") != nullptr);
+    if (request) mg_free_string(request);
+    env.tick(50);
+
+    inject_param_value(env, 2, 1, "WRONG_SYSTEM", 1.0f,
+                       MAV_PARAM_TYPE_REAL32, 3, 0);
+    char* wrong = mg_param_get(env.core, "WRONG_SYSTEM");
+    CHECK("other system parameter is not cached by active download",
+          wrong != nullptr && strstr(wrong, "\"found\":false") != nullptr);
+    if (wrong) mg_free_string(wrong);
+
+    inject_param_value(env, 1, 2, "WRONG_COMPONENT", 1.0f,
+                       MAV_PARAM_TYPE_REAL32, 3, 0);
+    char* progress = mg_params_get_progress(env.core);
+    CHECK("other component parameter does not advance download",
+          parse_progress_received(progress) == 0 && parse_progress_total(progress) == 0);
+    if (progress) mg_free_string(progress);
+
+    inject_param_value(env, 1, 1, "IDX0", 1.0f,
+                       MAV_PARAM_TYPE_REAL32, 3, 0);
+    inject_param_value(env, 1, 1, "IDX2", 3.0f,
+                       MAV_PARAM_TYPE_REAL32, 3, 2);
+    inject_param_value(env, 1, 1, "IDX2_DUPLICATE", 3.0f,
+                       MAV_PARAM_TYPE_REAL32, 3, 2);
+
+    progress = mg_params_get_progress(env.core);
+    CHECK("duplicate index does not complete a missing-index download",
+          parse_progress_received(progress) == 2 && parse_progress_total(progress) == 3);
+    if (progress) mg_free_string(progress);
+    CHECK("download remains active until index 1 arrives",
+          env.mav->param_download_active());
+
+    inject_param_value(env, 1, 1, "IDX1", 2.0f,
+                       MAV_PARAM_TYPE_REAL32, 3, 1);
+    CHECK("download completes after all 0..count-1 indices arrive",
+          !env.mav->param_download_active() && !env.mav->param_download_failed());
+}
+
+static void test_refresh_source_filter() {
+    fprintf(stderr, "\n[Group] Parameter refresh source filtering\n");
+    TestEnv env;
+    env.tick(1100);
+    if (!load_all_params(env)) return;
+
+    env.mock->set_param_drop(1);
+    char* request = mg_params_refresh(env.core, "[\"WPNAV_SPEED\"]");
+    CHECK("refresh request is sent",
+          request != nullptr && strstr(request, "\"success\":true") != nullptr);
+    if (request) mg_free_string(request);
+    env.tick(50);
+
+    char* status = mg_params_get_refresh_status(env.core);
+    CHECK("refresh waits for its target reply",
+          status != nullptr && strstr(status, "\"active\":true") != nullptr &&
+              strstr(status, "\"pending\":1") != nullptr);
+    if (status) mg_free_string(status);
+
+    inject_param_value(env, 2, 1, "WPNAV_SPEED", 5.0f,
+                       MAV_PARAM_TYPE_REAL32, 36, 0);
+    status = mg_params_get_refresh_status(env.core);
+    CHECK("reply from another system does not complete refresh",
+          status != nullptr && strstr(status, "\"active\":true") != nullptr);
+    if (status) mg_free_string(status);
+
+    inject_param_value(env, 1, 1, "WPNAV_SPEED", 5.0f,
+                       MAV_PARAM_TYPE_REAL32, 36, 0);
+    status = mg_params_get_refresh_status(env.core);
+    CHECK("matching target reply completes refresh",
+          status != nullptr && strstr(status, "\"active\":false") != nullptr &&
+              strstr(status, "\"completed\":1") != nullptr);
+    if (status) mg_free_string(status);
+}
 
 static void test_full_download() {
     fprintf(stderr, "\n[Group] Full parameter download\n");
@@ -499,6 +684,9 @@ static void test_change_set_commit_orders_enable_last() {
 int main() {
     fprintf(stderr, "=== Parameter Simulation Tests ===\n");
     test_full_download();
+    test_download_index_completion_and_source_filter();
+    test_param_value_write_validation();
+    test_refresh_source_filter();
     test_cancel_download();
     test_param_get();
     test_param_set();

@@ -215,6 +215,7 @@ class _FlightModeFloatingPanelState extends State<FlightModeFloatingPanel> {
                     _CurrentModeHeader(
                       mode: widget.controller.vehicleFlightMode,
                       armed: widget.controller.vehicleArmed,
+                      vtolState: widget.controller.vehicleVtolState,
                     ),
                     const SizedBox(height: 8),
                     _ArmButton(
@@ -319,10 +320,26 @@ class _ArmButton extends StatelessWidget {
 }
 
 class _CurrentModeHeader extends StatelessWidget {
-  const _CurrentModeHeader({required this.mode, required this.armed});
+  const _CurrentModeHeader({
+    required this.mode,
+    required this.armed,
+    required this.vtolState,
+  });
 
   final String mode;
   final bool armed;
+  final int vtolState;
+
+  String get _displayMode {
+    final base = mode.isEmpty ? '—' : mode;
+    return switch (vtolState) {
+      1 => '$base · 转换到固定翼',
+      2 => '$base · 转换到多旋翼',
+      3 => '$base · MC',
+      4 => '$base · FW',
+      _ => base,
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -338,7 +355,7 @@ class _CurrentModeHeader extends StatelessWidget {
         const SizedBox(width: 6),
         Expanded(
           child: Text(
-            mode.isEmpty ? '—' : mode,
+            _displayMode,
             style: typography.title3,
             overflow: TextOverflow.ellipsis,
           ),

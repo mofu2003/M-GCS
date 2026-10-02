@@ -309,6 +309,8 @@ class _MissionPlanningFloatingPanelState
         .toList(growable: false);
     final canStartMission =
         connected &&
+        _mission.boundToVehicle &&
+        _mission.boundSessionId == widget.controller.sessionId &&
         !busy &&
         !transferring &&
         document != null &&
@@ -343,6 +345,8 @@ class _MissionPlanningFloatingPanelState
               controlSize: ControlSize.regular,
               secondary: true,
               onPressed: busy || transferring || !connected || document == null
+                  || !_mission.boundToVehicle
+                  || _mission.boundSessionId != widget.controller.sessionId
                   ? null
                   : _uploadToVehicle,
               child: const Row(
@@ -2149,16 +2153,17 @@ Future<void> showGuidedActionsDialog(
 class _GuidedAction {
   const _GuidedAction({
     required this.label,
-    required this.enabled,
+    required this.disabledReason,
     required this.confirmMessage,
     required this.run,
     this.needsAltitude = false,
   });
 
   final String label;
-  final bool enabled;
+  final String? disabledReason;
   final String confirmMessage;
   final bool needsAltitude;
+  bool get enabled => disabledReason == null;
   final Future<void> Function({
     required double latitude,
     required double longitude,
@@ -2204,48 +2209,96 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
     // MAV_TYPE_FIXED_WING = 1：QGC 不给固定翼显示“降落”。
     final fixedWing = controller.vehicleType == 1;
     final mode = controller.vehicleFlightMode.toUpperCase();
+    final inAuto = mode.contains('AUTO');
+    final inRtl = mode.contains('RTL');
+    final inLand = mode.contains('LAND');
+    final guidedSupported = controller.supportsGuidedMode;
+    final pauseSupported = controller.supportsPause;
+    final homeReady =
+        controller.homePositionValid &&
+        controller.homePosition?.altitudeMeters != null;
+
+    String? firstDisabled(List<String?> reasons) {
+      for (final reason in reasons) {
+        if (reason != null) return reason;
+      }
+      return null;
+    }
 
     return [
       _GuidedAction(
         label: '移动到此处',
-        enabled: connected && flying,
+        disabledReason: firstDisabled([
+          if (!connected) '未连接飞控',
+          if (!guidedSupported) '当前飞控未声明支持引导模式',
+          if (!flying) '飞机尚未起飞',
+        ]),
         needsAltitude: true,
-        confirmMessage: '飞机会飞往该坐标并保持高度。',
+        confirmMessage: inAuto
+            ? '当前为 AUTO。执行后会切换到 GUIDED，并离开当前任务。'
+            : '飞机会飞往该坐标并保持高度。',
         run: ({required latitude, required longitude, required altitude}) =>
             controller.guidedGoto(latitude, longitude, altitude),
       ),
       _GuidedAction(
         label: '返航 (RTL)',
-        enabled: connected && armed && flying && !mode.contains('RTL'),
+        disabledReason: firstDisabled([
+          if (!connected) '未连接飞控',
+          if (!guidedSupported) '当前飞控未声明支持引导模式',
+          if (!armed) '飞控未解锁',
+          if (!flying) '飞机尚未起飞',
+          if (inRtl) '飞机已在返航模式',
+        ]),
         confirmMessage: '飞机将返回起飞点（Home）并自动降落。',
         run: ({required latitude, required longitude, required altitude}) =>
             controller.guidedReturnToLaunch(),
       ),
       _GuidedAction(
         label: '降落',
-        enabled: connected && armed && !fixedWing && !mode.contains('LAND'),
+        disabledReason: firstDisabled([
+          if (!connected) '未连接飞控',
+          if (!guidedSupported) '当前飞控未声明支持引导模式',
+          if (!armed) '飞控未解锁',
+          if (fixedWing) '固定翼不支持原地引导降落',
+          if (inLand) '飞机已在降落模式',
+        ]),
         confirmMessage: '飞机将在当前位置直接降落。',
         run: ({required latitude, required longitude, required altitude}) =>
             controller.guidedLand(),
       ),
       _GuidedAction(
         label: '起飞',
-        enabled: connected && !flying,
+        disabledReason: firstDisabled([
+          if (!connected) '未连接飞控',
+          if (!controller.supportsGuidedTakeoff) '当前机型不支持引导起飞',
+          if (flying) '飞机已经在空中',
+        ]),
         needsAltitude: true,
-        confirmMessage: '飞控将以该高度起飞并悬停。',
+        confirmMessage: '飞控将进入 GUIDED，解锁后以该高度起飞并悬停。',
         run: ({required latitude, required longitude, required altitude}) =>
             controller.guidedTakeoff(altitude),
       ),
       _GuidedAction(
         label: '暂停/继续',
-        enabled: connected && armed && flying,
+        disabledReason: firstDisabled([
+          if (!connected) '未连接飞控',
+          if (!guidedSupported) '当前飞控未声明支持引导模式',
+          if (!pauseSupported) '当前飞控不支持暂停',
+          if (!armed) '飞控未解锁',
+          if (!flying) '飞机尚未起飞',
+        ]),
         confirmMessage: '飞控会暂停当前动作并原地悬停。',
         run: ({required latitude, required longitude, required altitude}) =>
             controller.guidedPause(),
       ),
       _GuidedAction(
         label: '环绕飞行',
-        enabled: connected && flying,
+        disabledReason: firstDisabled([
+          if (!connected) '未连接飞控',
+          if (!guidedSupported) '当前飞控未声明支持引导模式',
+          if (!flying) '飞机尚未起飞',
+          if (!homeReady) '需要有效的 Home 点和高度',
+        ]),
         needsAltitude: true,
         confirmMessage: '飞控会绕该点盘旋（半径 50 m）。',
         run: ({required latitude, required longitude, required altitude}) =>
@@ -2291,7 +2344,12 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
         break;
       }
     }
-    selectedAction ??= actions.isEmpty ? null : actions.first;
+    selectedAction ??= actions.isEmpty
+        ? null
+        : actions.firstWhere(
+            (action) => action.enabled,
+            orElse: () => actions.first,
+          );
 
     return Center(
       child: MacosSheet(
@@ -2322,8 +2380,10 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
                     labelOf: (label) => label,
                     onChanged: actions.isEmpty
                         ? null
-                        : (label) =>
-                              setState(() => _selectedActionLabel = label),
+                        : (label) => setState(() {
+                            _selectedActionLabel = label;
+                            _error = null;
+                          }),
                   ),
                 ),
                 if (actions.isEmpty) ...[
@@ -2334,10 +2394,10 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
                       context,
                     ).typography.caption1.copyWith(color: colors.textSecondary),
                   ),
-                ] else if (selectedAction?.enabled != true) ...[
+                ] else if (selectedAction?.disabledReason != null) ...[
                   const SizedBox(height: 6),
                   Text(
-                    '当前飞行状态下不能执行该操作。',
+                    selectedAction!.disabledReason!,
                     style: MacosTheme.of(
                       context,
                     ).typography.caption1.copyWith(color: colors.warning),

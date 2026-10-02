@@ -203,40 +203,9 @@ void MavlinkAdapter::Impl::handle_param_value(const mavlink_message_t& m)
     info.type = pv.param_type;
     info.index = pv.param_index;
     info.count = pv.param_count;
-    pc.on_param_value_received(info.name);
 
-    // 检查是否是写入确认（参数名在 pending_writes 中）
-    auto write_it = pc.pending_writes.find(info.name);
-    if (write_it != pc.pending_writes.end()) {
-        bool accepted = (std::abs(write_it->second.value - info.value) < 1e-6f);
-        pc.complete_write(write_it->second.history_id, accepted, info.value,
-                          accepted ? std::string() : "readback value does not match requested value");
-        if (write_it->second.result_cb) {
-            auto cb = write_it->second.result_cb;
-            deferred_cbs.push_back([cb, accepted]() { cb(accepted); });
-        }
-        pc.pending_writes.erase(write_it);
-    }
-
-    // 存储参数
-    pc.param_map[info.name] = info;
-    pc.expected_param_count = pv.param_count;
-
-    // 更新下载状态
-    pc.on_param_received(pv.param_index);
-
-    // 首次收到 count 后构建缺失列表
-    if (pc.expected_param_count > 0 && pc.download_state == ParamCache::DownloadState::Receiving) {
-        // 检查是否全部收到
-        if (pc.param_map.size() >= pc.expected_param_count) {
-            pc.download_state = ParamCache::DownloadState::Complete;
-            pc.download_cancelled = false;
-            pc.download_failed = false;
-            pc.download_error.clear();
-        }
-    }
-
-    if (tel.param_cb)
+    const auto result = pc.handle_param_value(info, m.sysid, m.compid, deferred_cbs);
+    if (result.cache_updated && tel.param_cb)
         deferred_cbs.push_back([cb = tel.param_cb, info]() { cb(info); });
 }
 
@@ -245,7 +214,7 @@ void MavlinkAdapter::Impl::handle_param_error(const mavlink_message_t& m)
     mavlink_param_error_t error{};
     mavlink_msg_param_error_decode(&m, &error);
     const std::string name(error.param_id, strnlen(error.param_id, sizeof(error.param_id)));
-    pc.fail_refresh(name);
+    pc.fail_refresh(name, m.sysid, m.compid);
     const auto pending = pc.pending_writes.find(name);
     if (pending == pc.pending_writes.end()) {
         return;

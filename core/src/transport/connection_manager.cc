@@ -156,10 +156,11 @@ void ConnectionManager::stop_watchdog() {
     watchdog_cv_.notify_all();
     if (watchdog_thread_.joinable()) {
         if (watchdog_thread_.get_id() == std::this_thread::get_id()) {
-            // 如果在看门狗线程自身内部调用 stop_watchdog()，
-            // 这里不能 self-join，只能 detach。
-            // watchdog_running_ 已经置为 false，线程会在下一轮自然退出。
-            watchdog_thread_.detach();
+            // The watchdog is resetting the connection from its own thread.
+            // Leave the std::thread joinable so a concurrent disconnect or
+            // the destructor can join it after this turn finishes. Detaching
+            // here would let the ConnectionManager be destroyed while the
+            // watchdog still owns a raw `this` pointer.
         } else {
             watchdog_thread_.join();
         }
@@ -277,8 +278,9 @@ bool ConnectionManager::connect(LinkType type, const std::string& endpoint, uint
 
     {
         mg::core::platform::LockGuard lk(link_mtx_);  // 加锁保护链路和协议层
-        link_ptr = std::move(link);
-        mavlink_ptr = std::move(mavlink);
+        link_ptr = std::shared_ptr<ILink>(std::move(link));
+        mavlink_ptr = std::shared_ptr<mg::core::mavlink::MavlinkAdapter>(
+            std::move(mavlink));
         wire_callbacks();
         mavlink_ptr->on_heartbeat([this](const mg::core::mavlink::HeartbeatInfo&) {
             record_heartbeat();
@@ -301,15 +303,31 @@ void ConnectionManager::disconnect() {
 // 重置连接：关闭链路、释放协议层、停止看门狗
 void ConnectionManager::reset() {
     stop_watchdog();
+
+    // Do not hold link_mtx_ while close() waits for the transport read
+    // thread. The receive callback still points at mavlink_ptr, so keep the
+    // protocol object alive until the link has fully stopped.
+    std::shared_ptr<ILink> link;
+    std::shared_ptr<mg::core::mavlink::MavlinkAdapter> mavlink;
     {
-        mg::core::platform::LockGuard lk(link_mtx_);  // 加锁保护链路资源
-        if (link_ptr) link_ptr->close();
-        link_ptr.reset();
-        mavlink_ptr.reset();
+        mg::core::platform::LockGuard lk(link_mtx_);
+        link = std::move(link_ptr);
+        mavlink = std::move(mavlink_ptr);
     }
+    if (link) link->close();
+    mavlink.reset();
     last_heartbeat_ms_ = 0;
     last_activity_ms_ = 0;
     transition_to(ConnectionState::Disconnected, "reset");
+}
+
+bool ConnectionManager::send_heartbeat() {
+    std::shared_ptr<mg::core::mavlink::MavlinkAdapter> mavlink;
+    {
+        mg::core::platform::LockGuard lk(link_mtx_);
+        mavlink = mavlink_ptr;
+    }
+    return mavlink && mavlink->send_heartbeat();
 }
 
 // 连接传输层和协议层的回调：传输层接收数据 -> 协议层解析，协议层发送 -> 传输层写出
@@ -325,9 +343,10 @@ void ConnectionManager::wire_callbacks() {
             }
         });
 
+    const std::shared_ptr<ILink> link = link_ptr;
     mavlink_ptr->set_send_callback(
-        [lk = link_ptr.get()](const uint8_t* data, size_t size) -> bool {
-            return lk->send(data, size);
+        [link](const uint8_t* data, size_t size) -> bool {
+            return link->send(data, size);
         });
 }
 

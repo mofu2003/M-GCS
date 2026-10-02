@@ -76,6 +76,11 @@ public:
     /// Disconnect and release transport/protocol resources.
     void disconnect();
 
+    /// Send one GCS heartbeat without holding link_mtx_ during the write.
+    /// The shared adapter reference keeps the callback target alive if a
+    /// concurrent reset tears down the link.
+    bool send_heartbeat();
+
     /// Whether the manager is fully connected and usable.
     bool is_connected() const {
         return state_ == ConnectionState::Connected;
@@ -119,21 +124,23 @@ public:
     /// Test-only wiring hook for injecting a link and protocol adapter.
     void wire_for_test(std::unique_ptr<ILink> link,
                        std::unique_ptr<mg::core::mavlink::MavlinkAdapter> mav) {
-        mg::core::platform::LockGuard lk(link_mtx_);
-        link_ptr = std::move(link);
-        mavlink_ptr = std::move(mav);
-        wire_callbacks();
-        mavlink_ptr->on_heartbeat([this](const mg::core::mavlink::HeartbeatInfo&) {
-            record_heartbeat();
-        });
+        {
+            mg::core::platform::LockGuard lk(link_mtx_);
+            link_ptr = std::shared_ptr<ILink>(std::move(link));
+            mavlink_ptr = std::shared_ptr<mg::core::mavlink::MavlinkAdapter>(std::move(mav));
+            wire_callbacks();
+            mavlink_ptr->on_heartbeat([this](const mg::core::mavlink::HeartbeatInfo&) {
+                record_heartbeat();
+            });
+        }
         transition_to(ConnectionState::WaitingHeartbeat, "wire_for_test");
     }
 
 private:
     // Transport and protocol layers owned by the connection manager.
     mg::core::platform::Mutex link_mtx_;
-    std::unique_ptr<ILink>            link_ptr;
-    std::unique_ptr<mg::core::mavlink::MavlinkAdapter> mavlink_ptr;
+    std::shared_ptr<ILink>            link_ptr;
+    std::shared_ptr<mg::core::mavlink::MavlinkAdapter> mavlink_ptr;
     SerialPortInfo                    port;
 
     // Wire transport callbacks into the protocol layer.

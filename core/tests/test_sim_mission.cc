@@ -5,9 +5,13 @@
  */
 #include "mock_vehicle_test_env.h"
 #include "ffi_api.h"
+#include "command_queue.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <thread>
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -18,6 +22,96 @@ static int g_fail = 0;
 } while (0)
 
 using TestEnv = MockVehicleTestEnv;
+
+static mg::core::mission::MissionPlan make_test_mission_plan(size_t item_count) {
+    mg::core::mission::MissionPlan plan;
+    for (size_t i = 0; i < item_count; ++i) {
+        mg::core::mission::MissionItem item{};
+        item.seq = static_cast<uint16_t>(i);
+        item.frame = MAV_FRAME_GLOBAL_RELATIVE_ALT;
+        item.command = MAV_CMD_NAV_WAYPOINT;
+        item.autocontinue = 1;
+        item.x = static_cast<int32_t>((39.9 + static_cast<double>(i) * 0.01) * 1e7);
+        item.y = static_cast<int32_t>((116.4 + static_cast<double>(i) * 0.01) * 1e7);
+        item.z = 50.0f + static_cast<float>(i) * 10.0f;
+        item.mission_type = MAV_MISSION_TYPE_MISSION;
+        plan.items.push_back(item);
+    }
+    return plan;
+}
+
+static void inject_mavlink_message(TestEnv& env, mavlink_message_t& message) {
+    uint8_t buffer[MAVLINK_MAX_PACKET_LEN] = {};
+    const uint16_t len = mavlink_msg_to_send_buffer(buffer, &message);
+    env.link->inject_incoming(buffer, len);
+}
+
+static void inject_mission_count(TestEnv& env, uint8_t sysid, uint8_t compid,
+                                 uint16_t count, uint8_t mission_type) {
+    mavlink_message_t message;
+    mavlink_msg_mission_count_pack(sysid, compid, &message,
+                                   255, 0, count, mission_type, 0);
+    inject_mavlink_message(env, message);
+}
+
+static void inject_mission_item_int(TestEnv& env, uint8_t sysid, uint8_t compid,
+                                    uint16_t seq, int32_t lat_e7,
+                                    uint8_t mission_type) {
+    mavlink_mission_item_int_t item{};
+    item.seq = seq;
+    item.frame = MAV_FRAME_GLOBAL_RELATIVE_ALT;
+    item.command = MAV_CMD_NAV_WAYPOINT;
+    item.autocontinue = 1;
+    item.x = lat_e7;
+    item.y = 1164000000;
+    item.z = 50.0f;
+    item.mission_type = mission_type;
+
+    mavlink_message_t message;
+    mavlink_msg_mission_item_int_encode(sysid, compid, &message, &item);
+    inject_mavlink_message(env, message);
+}
+
+static void inject_mission_item_float(TestEnv& env, uint8_t sysid, uint8_t compid,
+                                      uint16_t seq, float lat_deg,
+                                      uint8_t mission_type) {
+    mavlink_message_t message;
+    mavlink_msg_mission_item_pack(sysid, compid, &message,
+                                  255, 0, seq, MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                                  MAV_CMD_NAV_WAYPOINT, 0, 1,
+                                  0, 0, 0, 0, lat_deg, 116.4f, 50.0f,
+                                  mission_type);
+    inject_mavlink_message(env, message);
+}
+
+static void inject_mission_request_int(TestEnv& env, uint8_t sysid, uint8_t compid,
+                                       uint16_t seq, uint8_t mission_type) {
+    mavlink_message_t message;
+    mavlink_msg_mission_request_int_pack(sysid, compid, &message,
+                                         255, 0, seq, mission_type);
+    inject_mavlink_message(env, message);
+}
+
+static void inject_mission_request(TestEnv& env, uint8_t sysid, uint8_t compid,
+                                   uint16_t seq, uint8_t mission_type) {
+    mavlink_message_t message;
+    mavlink_msg_mission_request_pack(sysid, compid, &message,
+                                     255, 0, seq, mission_type);
+    inject_mavlink_message(env, message);
+}
+
+static int count_outgoing_messages(const std::vector<uint8_t>& bytes, uint32_t msgid) {
+    mavlink_message_t message{};
+    mavlink_status_t status{};
+    int count = 0;
+    for (uint8_t byte : bytes) {
+        if (mavlink_parse_char(MAVLINK_COMM_2, byte, &message, &status) &&
+            message.msgid == msgid) {
+            ++count;
+        }
+    }
+    return count;
+}
 
 static void test_mission_upload() {
     fprintf(stderr, "\n[Group] Mission upload\n");
@@ -160,6 +254,175 @@ static void test_mission_clear() {
     CHECK(env.mock->mission_clear_received, "mission clear received");
 }
 
+static void test_mission_transfer_guards() {
+    fprintf(stderr, "\n[Group] Mission transfer guards\n");
+    TestEnv env;
+    CHECK(env.wait_connected(), "vehicle connected for transfer guard test");
+
+    // 先制造一次旧任务的执行进度，验证新上传事务开始时会被清空。
+    mavlink_message_t reached;
+    mavlink_msg_mission_item_reached_pack(1, 1, &reached, 1);
+    inject_mavlink_message(env, reached);
+    CHECK(env.mav->mission_get_execution_progress().reached_count == 1,
+          "old execution progress is present before new transaction");
+
+    const auto plan = make_test_mission_plan(2);
+    CHECK(env.mav->mission_upload(1, 1, plan), "first mission upload starts");
+    CHECK(env.mav->mission_get_execution_progress().reached_count == 0,
+          "mission upload clears old execution progress");
+    CHECK(!env.mav->mission_upload(1, 1, plan),
+          "second mission upload is rejected while one is active");
+    CHECK(!env.mav->mission_download(1, 1),
+          "mission download is rejected while upload is active");
+    CHECK(!env.mav->fence_upload(1, 1, plan),
+          "fence upload is rejected while mission transfer is active");
+
+    CHECK(env.mav->mission_cancel(), "active mission transfer can be cancelled");
+    CHECK(env.mav->fence_download(1, 1), "fence download starts after cancel");
+    CHECK(!env.mav->mission_upload(1, 1, plan),
+          "mission upload is rejected while fence transfer is active");
+}
+
+static void test_mission_request_routing() {
+    fprintf(stderr, "\n[Group] Mission request routing\n");
+    TestEnv env;
+    CHECK(env.wait_connected(), "vehicle connected for request routing test");
+
+    const auto plan = make_test_mission_plan(2);
+    CHECK(env.mav->mission_upload(1, 1, plan), "mission upload starts for request routing");
+    env.link->take_outgoing();
+
+    inject_mission_request_int(env, 2, 1, 0, MAV_MISSION_TYPE_MISSION);
+    CHECK(count_outgoing_messages(env.link->take_outgoing(), MAVLINK_MSG_ID_MISSION_ITEM_INT) == 0,
+          "MISSION_REQUEST_INT from wrong system sends no mission item");
+
+    inject_mission_request_int(env, 1, 2, 0, MAV_MISSION_TYPE_MISSION);
+    CHECK(count_outgoing_messages(env.link->take_outgoing(), MAVLINK_MSG_ID_MISSION_ITEM_INT) == 0,
+          "MISSION_REQUEST_INT from wrong component sends no mission item");
+
+    inject_mission_request_int(env, 1, 1, 0, MAV_MISSION_TYPE_FENCE);
+    CHECK(count_outgoing_messages(env.link->take_outgoing(), MAVLINK_MSG_ID_MISSION_ITEM_INT) == 0,
+          "MISSION_REQUEST_INT for another mission type sends no mission item");
+
+    inject_mission_request_int(env, 1, 1, 0, MAV_MISSION_TYPE_MISSION);
+    CHECK(count_outgoing_messages(env.link->take_outgoing(), MAVLINK_MSG_ID_MISSION_ITEM_INT) == 1,
+          "matching MISSION_REQUEST_INT sends the requested item");
+
+    inject_mission_request(env, 2, 1, 1, MAV_MISSION_TYPE_MISSION);
+    CHECK(count_outgoing_messages(env.link->take_outgoing(), MAVLINK_MSG_ID_MISSION_ITEM) == 0,
+          "compat MISSION_REQUEST from wrong system sends no mission item");
+
+    inject_mission_request(env, 1, 1, 1, MAV_MISSION_TYPE_MISSION);
+    CHECK(count_outgoing_messages(env.link->take_outgoing(), MAVLINK_MSG_ID_MISSION_ITEM) == 1,
+          "matching compat MISSION_REQUEST sends the requested item");
+}
+
+static void test_mission_download_protocol_validation() {
+    fprintf(stderr, "\n[Group] Mission download source and sequence validation\n");
+    TestEnv env;
+    CHECK(env.wait_connected(), "vehicle connected for strict download test");
+
+    CHECK(env.mav->mission_download(1, 1), "mission download starts for strict validation");
+    env.link->take_outgoing();
+
+    inject_mission_count(env, 2, 1, 3, MAV_MISSION_TYPE_MISSION);
+    inject_mission_count(env, 1, 2, 3, MAV_MISSION_TYPE_MISSION);
+    inject_mission_count(env, 1, 1, 3, MAV_MISSION_TYPE_FENCE);
+    auto progress = env.mav->mission_get_progress();
+    CHECK(progress.total == 0 && progress.state == mg::core::mission::MissionState::Downloading,
+          "foreign or wrong-type MISSION_COUNT is ignored");
+
+    inject_mission_count(env, 1, 1, 3, MAV_MISSION_TYPE_MISSION);
+    progress = env.mav->mission_get_progress();
+    CHECK(progress.total == 3 && progress.state == mg::core::mission::MissionState::Downloading,
+          "matching MISSION_COUNT starts the download");
+    env.link->take_outgoing();
+
+    inject_mission_item_int(env, 1, 1, 2, 392000000, MAV_MISSION_TYPE_MISSION);
+    CHECK(env.mav->mission_get_plan().items.empty(),
+          "out-of-order MISSION_ITEM_INT is not written into the mission");
+
+    inject_mission_item_int(env, 2, 1, 0, 399000000, MAV_MISSION_TYPE_MISSION);
+    CHECK(env.mav->mission_get_plan().items.empty(),
+          "MISSION_ITEM_INT from the wrong system is ignored");
+
+    inject_mission_item_int(env, 1, 1, 0, 399000000, MAV_MISSION_TYPE_MISSION);
+    auto plan = env.mav->mission_get_plan();
+    CHECK(plan.items.size() == 1 && plan.items[0].x == 399000000,
+          "expected MISSION_ITEM_INT is accepted");
+
+    inject_mission_item_int(env, 1, 1, 0, 401000000, MAV_MISSION_TYPE_MISSION);
+    plan = env.mav->mission_get_plan();
+    CHECK(plan.items.size() == 1 && plan.items[0].x == 399000000,
+          "duplicate MISSION_ITEM_INT does not overwrite the accepted item");
+
+    inject_mission_item_float(env, 2, 1, 1, 40.0f, MAV_MISSION_TYPE_MISSION);
+    CHECK(env.mav->mission_get_plan().items.size() == 1,
+          "compat MISSION_ITEM from the wrong system is ignored");
+
+    inject_mission_item_float(env, 1, 1, 1, 40.0f, MAV_MISSION_TYPE_MISSION);
+    plan = env.mav->mission_get_plan();
+    CHECK(plan.items.size() == 2 && plan.items[1].seq == 1,
+          "expected compat MISSION_ITEM is accepted");
+
+    inject_mission_item_float(env, 1, 1, 1, 41.0f, MAV_MISSION_TYPE_MISSION);
+    CHECK(env.mav->mission_get_plan().items.size() == 2,
+          "duplicate compat MISSION_ITEM is not written twice");
+
+    inject_mission_item_int(env, 1, 1, 2, 401000000, MAV_MISSION_TYPE_MISSION);
+    plan = env.mav->mission_get_plan();
+    progress = env.mav->mission_get_progress();
+    CHECK(plan.items.size() == 3 && plan.valid &&
+              progress.state == mg::core::mission::MissionState::Idle,
+          "sequential final item completes the download without gaps");
+}
+
+static void test_command_queue_timeout_notifies_waiters() {
+    fprintf(stderr, "\n[Group] CommandQueue timeout notification\n");
+
+    using namespace mg::core::mavlink;
+    CommandQueue queue;
+    CommandQueueEntry entry{};
+    entry.id = 1;
+    entry.command = MAV_CMD_COMPONENT_ARM_DISARM;
+    entry.target_sys = 1;
+    entry.target_comp = 1;
+    entry.max_tries = 1;
+    entry.try_count = 1;
+    entry.ack_timeout_ms = 0;
+    entry.send_time = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    queue.entries.push_back(entry);
+
+    mg::core::platform::Mutex mutex;
+    std::atomic<bool> waiting{false};
+    std::atomic<bool> woke{false};
+
+    std::thread waiter([&]() {
+        mg::core::platform::UniqueLock lock(mutex);
+        waiting = true;
+        woke = queue.cv.wait_for(lock, std::chrono::milliseconds(2000), [&]() {
+            return queue.entries[0].state == CommandQueueEntry::State::TimedOut;
+        });
+    });
+
+    while (!waiting.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    const auto start = std::chrono::steady_clock::now();
+    {
+        mg::core::platform::UniqueLock lock(mutex);
+        queue.check_timeouts([](const CommandQueueEntry&) { return true; });
+    }
+    waiter.join();
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start).count();
+
+    CHECK(woke.load(), "timeout waiter is released by notify_all");
+    CHECK(elapsed < 800, "timeout waiter does not wait for the outer timeout");
+}
+
 static void test_mission_execution_progress() {
     fprintf(stderr, "\n[Group] Mission execution progress\n");
     TestEnv env;
@@ -217,6 +480,18 @@ static void test_mission_execution_progress() {
     // 最后一项到达只代表航段飞完，任务完成另有 QGC 式判定（见下一个用例）。
     CHECK(progress && strstr(progress, "\"reached_end\":true"),
           "reaching the last mission item reports reached_end");
+    if (progress) mg_free_string(progress);
+
+    // 相同飞控任务重新下载时，上一轮 reached 状态必须清空。
+    char* redownload = mg_mission_download(env.core);
+    if (redownload) mg_free_string(redownload);
+    for (int i = 0; i < 80; i++) env.tick(50);
+    progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"valid\":true") &&
+              strstr(progress, "\"reached_count\":0") &&
+              strstr(progress, "\"last_reached_seq\":0") &&
+              strstr(progress, "\"reached_end\":false"),
+          "mission download clears execution progress from the previous transfer");
     if (progress) mg_free_string(progress);
 }
 
@@ -307,6 +582,10 @@ int main() {
     test_mission_download();
     test_mission_download_compat_item();
     test_mission_clear();
+    test_mission_transfer_guards();
+    test_mission_request_routing();
+    test_mission_download_protocol_validation();
+    test_command_queue_timeout_notifies_waiters();
     test_mission_execution_progress();
     test_mission_completion_follows_qgc_rules();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);

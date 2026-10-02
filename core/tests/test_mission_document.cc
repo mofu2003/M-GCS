@@ -5,6 +5,9 @@
 #include "core/mission/cad/mission_interchange.h"
 #include "core/mission/cad/mission_command_catalog.h"
 
+#define CJSON_NESTING_LIMIT 10
+#include "cJSON.h"
+
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -663,6 +666,148 @@ static void test_ffi_waypoints_interchange() {
     mg_destroy(core);
 }
 
+// Helpers for asserting the exact QGC ComplexItem JSON shape instead of just
+// checking that the field names appear somewhere in the text.
+static cJSON* json_at(cJSON* object, const char* key) {
+    return object ? cJSON_GetObjectItemCaseSensitive(object, key) : nullptr;
+}
+
+static size_t json_array_size(cJSON* array) {
+    return (array && cJSON_IsArray(array))
+        ? static_cast<size_t>(cJSON_GetArraySize(array))
+        : 0;
+}
+
+static bool json_float_near(cJSON* array, int index, double expected,
+                            double epsilon) {
+    cJSON* item = array ? cJSON_GetArrayItem(array, index) : nullptr;
+    return item && cJSON_IsNumber(item) &&
+           std::fabs(item->valuedouble - expected) < epsilon;
+}
+
+// 本地创建的 survey_grid / corridor 必须导出成 QGC 可重新打开的
+// ComplexItem，而不是报错丢任务。这里同时校验 JSON 结构和展开任务项的
+// 精度，确保 QGC 载入后看到的是同一个测绘区域和同一条航线。
+static void test_qgc_complex_item_export() {
+    fprintf(stderr, "\n[Group] QGC ComplexItem export\n");
+    std::vector<std::string> warnings;
+    std::string error;
+
+    MissionDocument survey_document = valid_document();
+    survey_document.entities.clear();
+    MissionEntity survey;
+    survey.id = "survey-1";
+    survey.type = "survey_grid";
+    survey.latitude = 39.9;
+    survey.longitude = 116.4;
+    survey.survey.width_m = 200.0;
+    survey.survey.length_m = 300.0;
+    survey.survey.altitude_m = 80.0f;
+    survey.survey.speed_ms = 8.0f;
+    survey.survey.angle_deg = 30.0;
+    survey_document.entities.push_back(survey);
+
+    const std::string survey_text =
+        export_qgc_plan_json(survey_document, warnings, error);
+    CHECK(error.empty(), "survey_grid exports to QGC plan without error");
+    CHECK(!survey_text.empty(), "survey_grid export produced JSON");
+
+    cJSON* survey_root = cJSON_Parse(survey_text.c_str());
+    cJSON* survey_mission = json_at(survey_root, "mission");
+    cJSON* survey_items = json_at(survey_mission, "items");
+    CHECK(survey_items && json_array_size(survey_items) == 1,
+          "survey_grid becomes a single complex mission item");
+    cJSON* survey_item = survey_items ? cJSON_GetArrayItem(survey_items, 0) : nullptr;
+    cJSON* survey_type = json_at(survey_item, "complexItemType");
+    CHECK(survey_type && cJSON_IsString(survey_type) &&
+              std::string(survey_type->valuestring) == "survey",
+          "survey_grid complex item type is survey");
+    cJSON* survey_polygon = json_at(survey_item, "polygon");
+    CHECK(json_array_size(survey_polygon) == 4,
+          "survey_grid exports a four-corner polygon");
+    cJSON* survey_transect = json_at(survey_item, "TransectStyleComplexItem");
+    cJSON* survey_embedded_items = json_at(survey_transect, "Items");
+    const MissionCompileResult survey_compiled =
+        MissionDocumentService::compile_document(survey_document);
+    CHECK(survey_embedded_items &&
+              json_array_size(survey_embedded_items) ==
+                  survey_compiled.plan.items.size(),
+          "survey_grid embeds every compiled mission item");
+    CHECK(survey_embedded_items &&
+              json_float_near(
+                  json_at(cJSON_GetArrayItem(survey_embedded_items, 0), "params"),
+                  4, survey_compiled.plan.items[0].x / 1e7, 1e-6),
+          "embedded survey items keep their coordinates");
+    cJSON_Delete(survey_root);
+
+    MissionDocument survey_reimport;
+    warnings.clear();
+    error.clear();
+    CHECK(import_qgc_plan_json(survey_text, survey_reimport, warnings, error),
+          "exported survey complex item re-imports");
+    CHECK(survey_reimport.complex_items.size() == 1 &&
+              survey_reimport.complex_items[0].item_type == "survey",
+          "re-imported survey keeps its complex item type");
+    std::vector<MissionEntity> survey_expanded;
+    error.clear();
+    CHECK(!survey_reimport.complex_items.empty() &&
+              expand_complex_item_entities(
+                  survey_reimport.complex_items[0], survey_expanded, error),
+          "re-imported survey complex item expands");
+    CHECK(survey_expanded.size() == survey_compiled.plan.items.size(),
+          "survey round-trip preserves the expanded item count");
+    bool survey_coordinates_match = survey_expanded.size() == survey_compiled.plan.items.size();
+    for (size_t i = 0; i < survey_expanded.size() && survey_coordinates_match; ++i) {
+        survey_coordinates_match =
+            std::fabs(survey_expanded[i].latitude -
+                      survey_compiled.plan.items[i].x / 1e7) < 1e-6 &&
+            std::fabs(survey_expanded[i].longitude -
+                      survey_compiled.plan.items[i].y / 1e7) < 1e-6;
+    }
+    CHECK(survey_coordinates_match,
+          "survey round-trip preserves expanded coordinates");
+
+    MissionDocument corridor_document = valid_document();
+    corridor_document.entities.clear();
+    MissionEntity corridor;
+    corridor.id = "corridor-1";
+    corridor.type = "corridor";
+    corridor.latitude = 39.9;
+    corridor.longitude = 116.4;
+    corridor.survey.end_latitude = 39.91;
+    corridor.survey.end_longitude = 116.4;
+    corridor.survey.corridor_width_m = 60.0;
+    corridor.survey.altitude_m = 60.0f;
+    corridor_document.entities.push_back(corridor);
+
+    warnings.clear();
+    error.clear();
+    const std::string corridor_text =
+        export_qgc_plan_json(corridor_document, warnings, error);
+    CHECK(error.empty(), "corridor exports to QGC plan without error");
+
+    cJSON* corridor_root = cJSON_Parse(corridor_text.c_str());
+    cJSON* corridor_items = json_at(json_at(corridor_root, "mission"), "items");
+    cJSON* corridor_item =
+        corridor_items ? cJSON_GetArrayItem(corridor_items, 0) : nullptr;
+    cJSON* corridor_type = json_at(corridor_item, "complexItemType");
+    CHECK(corridor_type && cJSON_IsString(corridor_type) &&
+              std::string(corridor_type->valuestring) == "CorridorScan",
+          "corridor complex item type is CorridorScan");
+    CHECK(json_array_size(json_at(corridor_item, "polyline")) == 2,
+          "corridor exports the start/end polyline");
+    cJSON_Delete(corridor_root);
+
+    MissionDocument corridor_reimport;
+    warnings.clear();
+    error.clear();
+    CHECK(import_qgc_plan_json(corridor_text, corridor_reimport, warnings, error),
+          "exported corridor complex item re-imports");
+    CHECK(corridor_reimport.complex_items.size() == 1 &&
+              corridor_reimport.complex_items[0].item_type == "CorridorScan",
+          "re-imported corridor keeps its complex item type");
+}
+
 static void test_qgc_plan_interchange() {
     fprintf(stderr, "\n[Group] QGC .plan interchange\n");
     const MissionDocument document = valid_document();
@@ -927,9 +1072,12 @@ static void test_qgc_plan_interchange() {
     survey_document.entities.push_back(survey);
     warnings.clear();
     error.clear();
-    CHECK(export_qgc_plan_json(survey_document, warnings, error).empty() &&
-              !error.empty(),
-          "parameterized survey export is rejected instead of flattened");
+    const std::string survey_export =
+        export_qgc_plan_json(survey_document, warnings, error);
+    CHECK(error.empty() &&
+              survey_export.find("\"complexItemType\"") != std::string::npos &&
+              survey_export.find("\"survey\"") != std::string::npos,
+          "parameterized survey export becomes a QGC complex item");
 }
 
 static void test_mission_format_recommendation() {
@@ -1530,6 +1678,7 @@ int main() {
     test_waypoints_interchange();
     test_ffi_waypoints_interchange();
     test_qgc_plan_interchange();
+    test_qgc_complex_item_export();
     test_mission_format_recommendation();
     test_vtol_takeoff_and_land_commands();
     test_ffi_qgc_plan_interchange();

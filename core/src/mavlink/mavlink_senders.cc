@@ -217,7 +217,7 @@ bool MavlinkAdapter::cmd_guided_point(uint8_t target_system, uint8_t target_comp
     mavlink_msg_command_int_pack(
         255, 0, &impl_->msg,
         target_system, target_component,
-        MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,  // frame
+        MAV_FRAME_GLOBAL,  // AMSL altitude, matching QGC APM guided goto
         MAV_CMD_DO_REPOSITION,
         0,          // current (0=not current)
         1,          // autocontinue
@@ -243,7 +243,7 @@ bool MavlinkAdapter::cmd_guided_velocity(uint8_t target_system, uint8_t target_c
         255, 0, &impl_->msg,
         0,          // time_boot_ms (ignored)
         target_system, target_component,
-        MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+        MAV_FRAME_GLOBAL,
         type_mask,
         0, 0, 0,    // lat/lon/alt (ignored)
         vx_ms, vy_ms, vz_ms,  // velocity (NED)
@@ -265,26 +265,11 @@ bool MavlinkAdapter::cmd_guided_pause(uint8_t target_system, uint8_t target_comp
 // 从飞控下载任务
 bool MavlinkAdapter::mission_download(uint8_t target_system, uint8_t target_component) {
     mg::core::platform::LockGuard lk(impl_->mtx);
-    impl_->mission.plan.clear();
-    impl_->mission.download_total = 0;
-    impl_->mission.download_seq = 0;
-    impl_->mission.progress = mg::core::mission::MissionTransferProgress{};
-    impl_->mission.progress.state = mg::core::mission::MissionState::Downloading;
-    ++impl_->mission.plan_revision;
-
-    // Request mission list
-    mavlink_msg_mission_request_list_pack(
-        255, 0, &impl_->msg,
-        target_system, target_component, MAV_MISSION_TYPE_MISSION);
-    bool ok = impl_->send_msg();
-    if (ok) {
-        impl_->mission.record_send(target_system, target_component, [this, target_system, target_component]() {
-            mavlink_msg_mission_request_list_pack(
-                255, 0, &impl_->msg, target_system, target_component, MAV_MISSION_TYPE_MISSION);
-            impl_->send_msg();
-        });
+    if (has_active_transfer(impl_->mission, impl_->rally, impl_->fence)) {
+        return false;
     }
-    return ok;
+    return mission_type_download(
+        target_system, target_component, impl_->mission, MAV_MISSION_TYPE_MISSION);
 }
 
 // 上传任务到飞控
@@ -292,31 +277,12 @@ bool MavlinkAdapter::mission_upload(uint8_t target_system, uint8_t target_compon
                                      const mg::core::mission::MissionPlan& plan) {
     mg::core::platform::LockGuard lk(impl_->mtx);
     if (plan.items.empty()) return false;
-    
-    impl_->mission.plan = plan;
-    ++impl_->mission.plan_revision;
-    impl_->mission.last_upload_revision = impl_->mission.plan_revision;
-    impl_->mission.upload_total = static_cast<uint16_t>(plan.items.size());
-    impl_->mission.upload_seq = 0;
-    impl_->mission.progress = mg::core::mission::MissionTransferProgress{};
-    impl_->mission.progress.state = mg::core::mission::MissionState::Uploading;
-    impl_->mission.progress.total = impl_->mission.upload_total;
-    
-    // Send count first - FC will respond with REQUEST_INT for each item
-    mavlink_msg_mission_count_pack(
-        255, 0, &impl_->msg,
-        target_system, target_component,
-        impl_->mission.upload_total, MAV_MISSION_TYPE_MISSION, 0);
-    bool ok = impl_->send_msg();
-    if (ok) {
-        impl_->mission.record_send(target_system, target_component, [this, target_system, target_component]() {
-            mavlink_msg_mission_count_pack(
-                255, 0, &impl_->msg, target_system, target_component,
-                impl_->mission.upload_total, MAV_MISSION_TYPE_MISSION, 0);
-            impl_->send_msg();
-        });
+
+    if (has_active_transfer(impl_->mission, impl_->rally, impl_->fence)) {
+        return false;
     }
-    return ok;
+    return mission_type_upload(
+        target_system, target_component, impl_->mission, plan, MAV_MISSION_TYPE_MISSION);
 }
 
 bool MavlinkAdapter::mission_cancel() {
@@ -441,10 +407,7 @@ MavlinkAdapter::mission_get_execution_progress() const {
 bool MavlinkAdapter::mission_type_download(uint8_t sys, uint8_t comp,
                                             MissionTransferState& state, uint8_t mission_type) {
     state.plan.clear();
-    state.reached_count = 0;
-    state.last_reached_seq = 0;
-    state.has_reached = false;
-    state.reached_flags.clear();
+    state.clear_execution_progress();
     ++state.plan_revision;
     state.download_total = 0;
     state.download_seq = 0;
@@ -458,6 +421,11 @@ bool MavlinkAdapter::mission_type_download(uint8_t sys, uint8_t comp,
             mavlink_msg_mission_request_list_pack(255, 0, &impl_->msg, sys, comp, mission_type);
             impl_->send_msg();
         });
+    } else {
+        state.resend_fn = nullptr;
+        state.progress.state = mg::core::mission::MissionState::Idle;
+        state.progress.result = MAV_MISSION_OPERATION_CANCELLED;
+        state.progress.error = "failed to send mission request list";
     }
     return ok;
 }
@@ -470,9 +438,7 @@ bool MavlinkAdapter::mission_type_upload(uint8_t sys, uint8_t comp,
     if (plan.items.empty()) return false;
 
     state.plan = plan;
-    state.reached_count = 0;
-    state.last_reached_seq = 0;
-    state.has_reached = false;
+    state.clear_execution_progress();
     state.reached_flags.assign(plan.items.size(), 0);
     ++state.plan_revision;
     state.last_upload_revision = state.plan_revision;
@@ -489,6 +455,11 @@ bool MavlinkAdapter::mission_type_upload(uint8_t sys, uint8_t comp,
             mavlink_msg_mission_count_pack(255, 0, &impl_->msg, sys, comp, state.upload_total, mission_type, 0);
             impl_->send_msg();
         });
+    } else {
+        state.resend_fn = nullptr;
+        state.progress.state = mg::core::mission::MissionState::Idle;
+        state.progress.result = MAV_MISSION_OPERATION_CANCELLED;
+        state.progress.error = "failed to send mission count";
     }
     return ok;
 }
@@ -507,12 +478,14 @@ bool MavlinkAdapter::mission_type_clear(uint8_t sys, uint8_t comp,
 
 bool MavlinkAdapter::rally_download(uint8_t target_system, uint8_t target_component) {
     mg::core::platform::LockGuard lk(impl_->mtx);
+    if (has_active_transfer(impl_->mission, impl_->rally, impl_->fence)) return false;
     return mission_type_download(target_system, target_component, impl_->rally, MAV_MISSION_TYPE_RALLY);
 }
 
 bool MavlinkAdapter::rally_upload(uint8_t target_system, uint8_t target_component,
                                    const mg::core::mission::MissionPlan& plan) {
     mg::core::platform::LockGuard lk(impl_->mtx);
+    if (has_active_transfer(impl_->mission, impl_->rally, impl_->fence)) return false;
     return mission_type_upload(target_system, target_component, impl_->rally, plan, MAV_MISSION_TYPE_RALLY);
 }
 
@@ -552,12 +525,14 @@ mg::core::mission::MissionTransferProgress MavlinkAdapter::rally_get_progress() 
 
 bool MavlinkAdapter::fence_download(uint8_t target_system, uint8_t target_component) {
     mg::core::platform::LockGuard lk(impl_->mtx);
+    if (has_active_transfer(impl_->mission, impl_->rally, impl_->fence)) return false;
     return mission_type_download(target_system, target_component, impl_->fence, MAV_MISSION_TYPE_FENCE);
 }
 
 bool MavlinkAdapter::fence_upload(uint8_t target_system, uint8_t target_component,
                                    const mg::core::mission::MissionPlan& plan) {
     mg::core::platform::LockGuard lk(impl_->mtx);
+    if (has_active_transfer(impl_->mission, impl_->rally, impl_->fence)) return false;
     return mission_type_upload(target_system, target_component, impl_->fence, plan, MAV_MISSION_TYPE_FENCE);
 }
 
@@ -1070,6 +1045,49 @@ CommandTicket MavlinkAdapter::send_command_queued(
         command, 0,
         p1, p2, p3, p4, p5, p6, p7);
     if (!impl_->send_msg()) {
+        queued_entry->state = CommandQueueEntry::State::TimedOut;
+        queued_entry->ack_result = 4;  // MAV_RESULT_FAILED
+        impl_->cmd_queue.cv.notify_all();
+    }
+    return ticket;
+}
+
+CommandTicket MavlinkAdapter::send_command_int_queued(
+    uint8_t target_system, uint8_t target_component,
+    uint16_t command, uint8_t frame,
+    float p1, float p2, float p3, float p4,
+    int32_t x, int32_t y, float z,
+    std::function<void(const CommandAckInfo&)> result_cb) {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+
+    CommandRetryPolicy policy;
+    int max_tries, timeout_ms;
+    classify_command(command, policy, max_tries, timeout_ms);
+
+    CommandQueueEntry entry{};
+    entry.id = impl_->cmd_queue.allocate_id();
+    entry.command = command;
+    entry.target_sys = target_system;
+    entry.target_comp = target_component;
+    entry.use_command_int = true;
+    entry.frame = frame;
+    entry.params[0] = p1;
+    entry.params[1] = p2;
+    entry.params[2] = p3;
+    entry.params[3] = p4;
+    entry.x = x;
+    entry.y = y;
+    entry.z = z;
+    entry.max_tries = max_tries;
+    entry.try_count = 1;
+    entry.ack_timeout_ms = timeout_ms;
+    entry.send_time = std::chrono::steady_clock::now();
+    entry.policy = policy;
+    entry.result_cb = std::move(result_cb);
+
+    CommandTicket ticket{entry.id, command};
+    auto* queued_entry = &impl_->cmd_queue.entries.emplace_back(std::move(entry));
+    if (!impl_->send_command_queue_entry(*queued_entry)) {
         queued_entry->state = CommandQueueEntry::State::TimedOut;
         queued_entry->ack_result = 4;  // MAV_RESULT_FAILED
         impl_->cmd_queue.cv.notify_all();

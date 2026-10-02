@@ -4,6 +4,7 @@
 #include "param_cache.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace mg::core::mavlink {
 
@@ -13,6 +14,25 @@ int64_t wall_clock_now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
                std::chrono::system_clock::now().time_since_epoch())
         .count();
+}
+
+bool values_match(float requested, float actual) {
+    return std::fabs(requested - actual) < 1e-6f;
+}
+
+bool target_matches(uint8_t expected_sys,
+                    uint8_t expected_comp,
+                    uint8_t source_sys,
+                    uint8_t source_comp) {
+    // A zero target means the caller has not selected a target yet.  Once a
+    // target is known, both source fields must match exactly.
+    if (expected_sys != 0 && expected_sys != source_sys) {
+        return false;
+    }
+    if (expected_comp != 0 && expected_comp != source_comp) {
+        return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -68,6 +88,10 @@ bool ParamCache::cancel_download() {
     missing_indices.clear();
     batch_queue.clear();
     return true;
+}
+
+bool ParamCache::source_matches_target(uint8_t source_sys, uint8_t source_comp) const {
+    return target_matches(target_sys, target_comp, source_sys, source_comp);
 }
 
 uint64_t ParamCache::record_write_request(
@@ -186,10 +210,39 @@ void ParamCache::on_param_value_received(const std::string& name) {
     }
 }
 
+bool ParamCache::on_param_value_received(const std::string& name,
+                                         uint8_t source_sys,
+                                         uint8_t source_comp) {
+    const auto it = refresh_pending.find(name);
+    if (it == refresh_pending.end() ||
+        !target_matches(it->second.target_sys, it->second.target_comp,
+                        source_sys, source_comp)) {
+        return false;
+    }
+    refresh_pending.erase(it);
+    refresh_completed++;
+    return true;
+}
+
 void ParamCache::fail_refresh(const std::string& name) {
     if (refresh_pending.erase(name) == 0) return;
     refresh_failed.push_back(name);
     refresh_completed++;
+}
+
+bool ParamCache::fail_refresh(const std::string& name,
+                              uint8_t source_sys,
+                              uint8_t source_comp) {
+    const auto it = refresh_pending.find(name);
+    if (it == refresh_pending.end() ||
+        !target_matches(it->second.target_sys, it->second.target_comp,
+                        source_sys, source_comp)) {
+        return false;
+    }
+    refresh_pending.erase(it);
+    refresh_failed.push_back(name);
+    refresh_completed++;
+    return true;
 }
 
 ParamCache::RefreshStatus ParamCache::refresh_status() const {
@@ -203,10 +256,95 @@ ParamCache::RefreshStatus ParamCache::refresh_status() const {
     return status;
 }
 
+ParamCache::ParamValueResult ParamCache::handle_param_value(
+    const ParamInfo& info,
+    uint8_t source_sys,
+    uint8_t source_comp,
+    std::vector<std::function<void()>>& deferred_cbs) {
+    ParamValueResult result;
+
+    // A pending write is a narrow transaction: do not let a same-name reply
+    // confirm it or update the active cache unless every identifying field
+    // matches the request that is still current.
+    const auto pending_it = pending_writes.find(info.name);
+    if (pending_it != pending_writes.end()) {
+        const PendingWrite pending = pending_it->second;
+        const bool matches =
+            target_matches(pending.target_sys, pending.target_comp,
+                           source_sys, source_comp) &&
+            pending.type == info.type &&
+            values_match(pending.value, info.value);
+        if (!matches) {
+            return result;
+        }
+
+        const auto current = pending_writes.find(info.name);
+        if (current == pending_writes.end() ||
+            current->second.history_id != pending.history_id) {
+            return result;
+        }
+
+        complete_write(pending.history_id, true, info.value);
+        if (pending.result_cb) {
+            auto cb = pending.result_cb;
+            deferred_cbs.push_back([cb]() { cb(true); });
+        }
+        pending_writes.erase(current);
+        write_retry_queue.erase(
+            std::remove_if(
+                write_retry_queue.begin(),
+                write_retry_queue.end(),
+                [&pending](const PendingWrite& queued) {
+                    return queued.history_id == pending.history_id;
+                }),
+            write_retry_queue.end());
+        result.write_confirmed = true;
+    }
+
+    // Refresh requests have their own target component and are independent
+    // from the bulk download target.
+    result.refresh_completed =
+        on_param_value_received(info.name, source_sys, source_comp);
+
+    if (!source_matches_target(source_sys, source_comp)) {
+        return result;
+    }
+
+    // QGC keeps the first component count as the authoritative range for the
+    // transaction.  This prevents a later stale/other count from shrinking or
+    // expanding the index set under an active download.
+    if (expected_param_count == 0 && info.count > 0) {
+        expected_param_count = info.count;
+    }
+
+    const bool valid_index =
+        info.index != UINT16_MAX &&
+        (expected_param_count == 0 || info.index < expected_param_count);
+    if (valid_index) {
+        param_map[info.name] = info;
+        on_param_received(info.index, source_sys, source_comp);
+    }
+    result.cache_updated = valid_index;
+    return result;
+}
+
+bool ParamCache::received_all_indices() const {
+    if (expected_param_count == 0) {
+        return false;
+    }
+    for (uint32_t index = 0; index < expected_param_count; ++index) {
+        if (received_indices.count(static_cast<uint16_t>(index)) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void ParamCache::on_param_received(uint16_t index) {
     if (download_state == DownloadState::Idle ||
         download_state == DownloadState::Complete ||
-        download_state == DownloadState::Failed) {
+        download_state == DownloadState::Failed ||
+        index == UINT16_MAX) {
         return;
     }
     const auto now = std::chrono::steady_clock::now();
@@ -230,6 +368,22 @@ void ParamCache::on_param_received(uint16_t index) {
             ? "parameter download failed after retries"
             : std::string();
     }
+    if (download_state == DownloadState::Receiving && received_all_indices()) {
+        download_state = DownloadState::Complete;
+        download_failed = false;
+        download_cancelled = false;
+        download_error.clear();
+    }
+}
+
+bool ParamCache::on_param_received(uint16_t index,
+                                   uint8_t source_sys,
+                                   uint8_t source_comp) {
+    if (!source_matches_target(source_sys, source_comp)) {
+        return false;
+    }
+    on_param_received(index);
+    return true;
 }
 
 int ParamCache::check_timeouts(std::vector<std::function<void()>>& deferred_cbs) {

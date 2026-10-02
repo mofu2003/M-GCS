@@ -226,19 +226,33 @@ std::vector<FlightModeEntry> ArduPilotPlugin::available_modes(VehicleKind vehicl
 }
 
 uint32_t ArduPilotPlugin::capabilities(VehicleKind vehicle) const {
-    // All ArduPilot vehicles support these capabilities
-    uint32_t caps = CapGuidedMode | CapPause | CapTakeoff | CapSetHome | CapCalibration;
+    // Keep the base capabilities conservative; vehicle-specific behavior is
+    // added below. In particular, fixed-wing and rover must not advertise
+    // guided takeoff just because the firmware is ArduPilot.
+    uint32_t caps = CapSetHome | CapCalibration;
 
     ApVehicle av = classify_ap_vehicle(vehicle);
     switch (av) {
         case ApVehicle::Copter:
-            caps |= CapSmartRTL | CapMotorTest;
+            caps |= CapGuidedMode | CapPause | CapTakeoff | CapSmartRTL |
+                    CapMotorTest;
             break;
-        case ApVehicle::Plane:
-            caps |= CapMotorTest;
+        case ApVehicle::Plane: {
+            caps |= CapGuidedMode | CapPause | CapMotorTest;
+            const uint8_t mav_type = static_cast<uint8_t>(vehicle);
+            if (mav_type >= 19 && mav_type <= 24) {
+                caps |= CapTakeoff;  // VTOL takeoff
+            }
             break;
+        }
         case ApVehicle::Rover:
-            caps |= CapSmartRTL;
+            caps |= CapGuidedMode | CapPause | CapSmartRTL;
+            break;
+        case ApVehicle::Sub:
+            caps |= CapGuidedMode | CapPause;
+            break;
+        case ApVehicle::Tracker:
+            caps |= CapGuidedMode;
             break;
         default:
             break;

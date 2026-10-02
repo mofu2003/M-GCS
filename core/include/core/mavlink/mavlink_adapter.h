@@ -875,6 +875,14 @@ public:
         float p5, float p6, float p7,
         std::function<void(const CommandAckInfo&)> result_cb = nullptr);
 
+    /// 入队一个 COMMAND_INT（用于 ArduPilot 的 DO_REPOSITION 等命令）。
+    CommandTicket send_command_int_queued(
+        uint8_t target_system, uint8_t target_component,
+        uint16_t command, uint8_t frame,
+        float p1, float p2, float p3, float p4,
+        int32_t x, int32_t y, float z,
+        std::function<void(const CommandAckInfo&)> result_cb = nullptr);
+
     /// 便捷：arm/disarm 通过队列
     CommandTicket arm_disarm_queued(
         uint8_t target_system, uint8_t target_component,

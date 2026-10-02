@@ -36,7 +36,7 @@ public:
     struct ParamDef { float value; uint8_t type; };
 
     // Monitoring
-    struct CommandRecord { uint16_t command; float p1,p2,p3,p4; int32_t x,y,z; };
+    struct CommandRecord { uint16_t command; float p1,p2,p3,p4; int32_t x,y,z; uint8_t frame; };
     std::vector<CommandRecord> received_cmds;
     std::vector<std::string>   received_params_set;
     std::vector<std::string>   received_param_reads;
@@ -428,7 +428,7 @@ private:
                 (c.target_component != config_.component_id && c.target_component != MAV_COMP_ID_ALL)) {
                 break;
             }
-            received_cmds.push_back({c.command,c.param1,c.param2,c.param3,c.param4,(int32_t)(c.param5*1e7),(int32_t)(c.param6*1e7),(int32_t)c.param7});
+            received_cmds.push_back({c.command,c.param1,c.param2,c.param3,c.param4,(int32_t)(c.param5*1e7),(int32_t)(c.param6*1e7),(int32_t)c.param7,static_cast<uint8_t>(MAV_FRAME_GLOBAL)});
             if(c.command==MAV_CMD_PREFLIGHT_CALIBRATION){cal_start_received=true; last_cal_param1=(uint8_t)c.param1;}
             // 故障注入：前 N 次命令不响应（测试命令重试）
             if(cmd_drop_count_>0 && cmd_dropped_so_far_<cmd_drop_count_){
@@ -443,7 +443,7 @@ private:
             break; }
         case MAVLINK_MSG_ID_COMMAND_INT: {
             mavlink_command_int_t c; mavlink_msg_command_int_decode(&msg,&c);
-            received_cmds.push_back({c.command,c.param1,c.param2,c.param3,c.param4,c.x,c.y,static_cast<int32_t>(c.z)});
+            received_cmds.push_back({c.command,c.param1,c.param2,c.param3,c.param4,c.x,c.y,static_cast<int32_t>(c.z),c.frame});
             if(!cmd_no_response_){
                 mavlink_message_t a; mavlink_msg_command_ack_pack(config_.system_id,config_.component_id,&a,
                     c.command, next_cmd_result_, 0, 0, 0, 0);

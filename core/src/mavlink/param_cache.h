@@ -78,6 +78,8 @@ struct ParamCache {
         uint8_t type;
         uint8_t target_sys = 0;
         uint8_t target_comp = 0;
+        // Unique request generation.  A delayed PARAM_VALUE may only
+        // complete the pending entry that created it.
         uint64_t history_id = 0;
         int retry_count = 0;
         std::chrono::steady_clock::time_point send_time;
@@ -156,9 +158,15 @@ struct ParamCache {
 
     /// PARAM_VALUE 到达时完成对应刷新请求。
     void on_param_value_received(const std::string& name);
+    bool on_param_value_received(const std::string& name,
+                                 uint8_t source_sys,
+                                 uint8_t source_comp);
 
     /// PARAM_ERROR 到达时终止对应刷新请求。
     void fail_refresh(const std::string& name);
+    bool fail_refresh(const std::string& name,
+                      uint8_t source_sys,
+                      uint8_t source_comp);
 
     struct RefreshStatus {
         bool active = false;
@@ -170,8 +178,37 @@ struct ParamCache {
     };
     RefreshStatus refresh_status() const;
 
+    /// PARAM_VALUE 的统一入口。
+    ///
+    /// The value is only cached/download-counted when it comes from the
+    /// current target system/component.  A pending write is only confirmed
+    /// when source system/component, MAV_PARAM_TYPE, value and the current
+    /// request generation all match.  Mismatching replies are ignored so the
+    /// existing pending write can still be completed by the correct reply or
+    /// by the normal timeout path.
+    struct ParamValueResult {
+        bool cache_updated = false;
+        bool refresh_completed = false;
+        bool write_confirmed = false;
+    };
+    ParamValueResult handle_param_value(
+        const ParamInfo& info,
+        uint8_t source_sys,
+        uint8_t source_comp,
+        std::vector<std::function<void()>>& deferred_cbs);
+
+    /// True when every index in the target's 0..count-1 range was received.
+    bool received_all_indices() const;
+
+    /// True when a response from source_sys/source_comp belongs to the
+    /// current download target.  Zero means wildcard for legacy callers.
+    bool source_matches_target(uint8_t source_sys, uint8_t source_comp) const;
+
     /// 收到 PARAM_VALUE 后更新状态
     void on_param_received(uint16_t index);
+    bool on_param_received(uint16_t index,
+                           uint8_t source_sys,
+                           uint8_t source_comp);
 
     /// 检查超时
     /// 返回值: 0=无操作, 1=重试列表请求, 2=请求缺失参数批次, 3=超时放弃

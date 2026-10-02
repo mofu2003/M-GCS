@@ -322,6 +322,9 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>) _requestFirmwareVersion;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
+  late final int Function(Pointer<Void>) _getActiveVehicle;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _cancelOperation;
   late final Pointer<Utf8> Function(Pointer<Void>) _getFlightModes;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _getMessages;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
@@ -336,14 +339,17 @@ final class ConnectionController extends ChangeNotifier {
   CalibrationFfiBackend? _calibrationBackend;
   FlightCommandFfiBackend? _flightCommandBackend;
 
-  MissionDocumentController get missionPlanning =>
-      _missionPlanning ??= MissionDocumentController(
-        backend: _missionBackend ??= MissionDocumentFfiBackend(
-          _library,
-          _core,
-          isConnected: () => isConnected,
-        ),
-      );
+  MissionDocumentController get missionPlanning {
+    final controller = _missionPlanning ??= MissionDocumentController(
+      backend: _missionBackend ??= MissionDocumentFfiBackend(
+        _library,
+        _core,
+        isConnected: () => isConnected,
+      ),
+    );
+    controller.bindSession(sessionId);
+    return controller;
+  }
 
   TelemetryFfiBackend get telemetryBackend =>
       _telemetryBackend ??= TelemetryFfiBackend(_library, _core);
@@ -450,11 +456,20 @@ final class ConnectionController extends ChangeNotifier {
   /// 1=undefined、2=on_ground、3=takeoff、4=in_air、5=landing。
   int vehicleLandedState = 0;
 
-  /// QGC `Vehicle::flying` 的等价判断：只有 landed_state 表明离地才算在飞。
+  /// EXTENDED_SYS_STATE.vtol_state (MAV_VTOL_STATE):
+  /// 0=undefined, 1=transition_to_fw, 2=transition_to_mc, 3=MC, 4=FW.
+  int vehicleVtolState = 0;
+
+  /// QGC `Vehicle::flying` 的等价判断，外加 ArduPilot VTOL 的兼容回退。
+  ///
+  /// ArduPlane 在 QuadPlane 垂直起飞阶段可能仍上报 landed_state=ON_GROUND，
+  /// 即使飞机已经离地爬升。此时仅看 landed_state 会把引导操作全部误判为
+  /// 不可用，所以再用已解锁和相对高度做保守回退。
   bool get vehicleFlying =>
       vehicleLandedState == 3 ||
       vehicleLandedState == 4 ||
-      vehicleLandedState == 5;
+      vehicleLandedState == 5 ||
+      (vehicleArmed && (relativeAltitudeMeters ?? 0).abs() > 2.0);
   Map<String, Object?>? firmwareVersionInfo;
   Map<String, Object?>? sensorHealth;
 
@@ -548,6 +563,22 @@ final class ConnectionController extends ChangeNotifier {
           : VehicleControlProfile.fixedWing;
     }
     return VehicleControlProfile.unknown;
+  }
+
+  bool get supportsGuidedMode => _firmwareCapability('guided_mode');
+  bool get supportsPause => _firmwareCapability('pause');
+
+  /// QGC `APMFirmwarePlugin::_guidedModeTakeoff` only enables takeoff for
+  /// multirotor and VTOL vehicles. Fixed-wing aircraft need a runway takeoff
+  /// and are handled by the mission/AUTO flow instead.
+  bool get supportsGuidedTakeoff => const {
+    2, 3, 4, 13, 14, 15, // MAV_TYPE multirotor family
+    19, 20, 21, 22, 23, 24, // MAV_TYPE VTOL family
+  }.contains(vehicleType);
+
+  bool _firmwareCapability(String name) {
+    final capabilities = firmwareInfo?['capabilities'];
+    return capabilities is Map && capabilities[name] == true;
   }
 
   /// 参数是否正在写入飞控；位掩码这类需要读-改-写的控件用它避免并发覆盖。
@@ -1181,6 +1212,16 @@ final class ConnectionController extends ChangeNotifier {
             'mg_vehicle_select',
           )
           .asFunction();
+      _getActiveVehicle = _library
+          .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
+            'mg_vehicle_get_active',
+          )
+          .asFunction();
+      _cancelOperation = _library
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+          >('mg_operations_cancel')
+          .asFunction();
       _getFlightModes = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
             'mg_flight_get_modes',
@@ -1325,8 +1366,19 @@ final class ConnectionController extends ChangeNotifier {
   void _requireCommandSuccess(Object? raw, String action) {
     if (raw is! JsonMap) throw const FormatException('指令响应格式无效');
     if (raw['success'] == true) return;
-    final reason = raw['error'] ?? raw['result_text'] ?? '飞控拒绝了该指令';
+    final reason = raw['error'] ?? raw['result_text'] ?? _commandAckReason(raw);
     throw StateError('$action失败：$reason');
+  }
+
+  String _commandAckReason(JsonMap raw) {
+    return switch (raw['result_str']) {
+      'temporarily_rejected' => '飞控暂时拒绝了该指令',
+      'denied' => '飞控拒绝了该指令',
+      'unsupported' => '飞控不支持该指令',
+      'failed' => '飞控执行该指令失败',
+      'in_progress' => '飞控仍在执行该指令',
+      _ => '飞控拒绝了该指令',
+    };
   }
 
   /// 移动到此处（QGC 的 Go To Location，走 COMMAND_INT 保证精度）。
@@ -1360,6 +1412,30 @@ final class ConnectionController extends ChangeNotifier {
 
   Future<void> guidedTakeoff(double altitudeMeters) async {
     _requireConnected('起飞');
+    if (vehicleFlying) {
+      throw StateError('起飞失败：飞机已经在空中');
+    }
+    if (!supportsGuidedTakeoff) {
+      throw StateError('起飞失败：当前机型不支持引导起飞');
+    }
+
+    // QGC PX4 flow sends takeoff first and arms after the command is accepted.
+    // ArduPilot requires GUIDED and an armed vehicle before NAV_TAKEOFF.
+    if (vehicleAutopilotType == 12) {
+      _requireCommandSuccess(
+        flightCommandBackend.takeoff(altitudeMeters),
+        '起飞',
+      );
+      if (!vehicleArmed) await _armVehicleAndValidate();
+      return;
+    }
+
+    final fixedWing =
+        controlProfile == VehicleControlProfile.fixedWing ||
+        controlProfile == VehicleControlProfile.planeVtol;
+    final guidedMode = fixedWing ? 15 : 4;
+    await _setFlightModeAndValidate(guidedMode, 'Guided');
+    if (!vehicleArmed) await _armVehicleAndValidate();
     _requireCommandSuccess(flightCommandBackend.takeoff(altitudeMeters), '起飞');
   }
 
@@ -1369,9 +1445,12 @@ final class ConnectionController extends ChangeNotifier {
   /// 多旋翼先进入 GUIDED、解锁后再发 MISSION_START。PX4 统一进入 AUTO_MISSION。
   Future<void> startMission() async {
     _requireConnected('启动任务');
-    final fixedWing =
-        controlProfile == VehicleControlProfile.fixedWing ||
-        controlProfile == VehicleControlProfile.planeVtol;
+    // QGC uses Vehicle::fixedWing() here. ArduPilot VTOL reports the VTOL MAV
+    // type, so it is *not* in QGC's fixed-wing class and must go through the
+    // GUIDED + MISSION_START path instead of being treated like a runway plane.
+    final qgcFixedWing = controlProfile == VehicleControlProfile.fixedWing;
+    final planeFirmware =
+        qgcFixedWing || controlProfile == VehicleControlProfile.planeVtol;
 
     if (vehicleAutopilotType == 12) {
       const px4AutoMissionMode = 0x04040000;
@@ -1380,14 +1459,14 @@ final class ConnectionController extends ChangeNotifier {
       return;
     }
 
-    final autoMode = fixedWing ? 10 : 3;
-    final guidedMode = fixedWing ? 15 : 4;
+    final autoMode = planeFirmware ? 10 : 3;
+    final guidedMode = planeFirmware ? 15 : 4;
     if (vehicleFlying) {
       await _setFlightModeAndValidate(autoMode, 'Auto');
       return;
     }
 
-    if (fixedWing) {
+    if (qgcFixedWing) {
       await _setFlightModeAndValidate(autoMode, 'Auto');
       await _armVehicleAndValidate();
       return;
@@ -1397,7 +1476,9 @@ final class ConnectionController extends ChangeNotifier {
       await _setFlightModeAndValidate(guidedMode, 'Guided');
       await _armVehicleAndValidate();
     }
-    _requireCommandSuccess(flightCommandBackend.missionStart(), '启动任务');
+    if (!qgcFixedWing) {
+      _requireCommandSuccess(flightCommandBackend.missionStart(), '启动任务');
+    }
   }
 
   Future<void> _setFlightModeAndValidate(
@@ -1498,6 +1579,24 @@ final class ConnectionController extends ChangeNotifier {
 
   Future<void> guidedPause() async {
     _requireConnected('暂停');
+    // ArduPilot's guided pause is a flight-mode change, not just a zero
+    // velocity target. A one-shot velocity command can expire and silently
+    // let the mission continue.
+    if (vehicleAutopilotType != 12) {
+      if (vehicleType == 10 || vehicleType == 11) {
+        await _setFlightModeAndValidate(3, 'Hold');
+        return;
+      }
+      if (controlProfile == VehicleControlProfile.copter) {
+        await _setFlightModeAndValidate(17, 'Brake');
+        return;
+      }
+      if (controlProfile == VehicleControlProfile.fixedWing ||
+          controlProfile == VehicleControlProfile.planeVtol) {
+        await _setFlightModeAndValidate(12, 'Loiter');
+        return;
+      }
+    }
     _requireCommandSuccess(flightCommandBackend.guidedPause(), '暂停');
   }
 
@@ -1725,6 +1824,8 @@ final class ConnectionController extends ChangeNotifier {
       );
     }
     sessionId = result;
+    _missionPlanning?.bindSession(result);
+    _ensureActiveSession(result);
     _firmwareVersionRequested = false;
     _parameterRequestStarted = false;
     parametersLoaded = false;
@@ -1762,6 +1863,7 @@ final class ConnectionController extends ChangeNotifier {
     try {
       final state =
           _readJson(_getSessionState(_core, id)) as Map<String, Object?>;
+      _ensureActiveSession(id);
       if (state['success'] != true) {
         _stateTimer?.cancel();
         _telemetryTimer?.cancel();
@@ -1814,6 +1916,30 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
+  void _ensureActiveSession(int id) {
+    try {
+      if (_getActiveVehicle(_core) == id) return;
+      final response = _selectVehicle(_core, id);
+      if (response != nullptr) _freeString(response);
+    } on Object {
+      // The session poll will surface a missing session on the next pass.
+    }
+  }
+
+  void _cancelActiveOperations() {
+    for (final operation in const ['params', 'mission', 'calibration', 'log']) {
+      final name = operation.toNativeUtf8();
+      try {
+        final response = _cancelOperation(_core, name);
+        if (response != nullptr) _freeString(response);
+      } on Object {
+        // Best effort: closing the link still tears down the transport.
+      } finally {
+        malloc.free(name);
+      }
+    }
+  }
+
   Future<void> disconnect() async {
     final id = sessionId;
     if (id == null || _busy) return;
@@ -1821,12 +1947,14 @@ final class ConnectionController extends ChangeNotifier {
     _notifyConnectionChanges();
     notifyListeners();
     try {
+      _cancelActiveOperations();
       final result = _readJson(_close(_core, id)) as Map<String, Object?>;
       if (result['success'] != true) {
         throw StateError(result['error'] as String? ?? '断开连接失败');
       }
       message = '已断开飞控连接';
       sessionId = null;
+      _missionPlanning?.bindSession(null);
       phase = SerialConnectionPhase.disconnected;
       _firmwareVersionRequested = false;
       _parameterRequestStarted = false;
@@ -2316,8 +2444,7 @@ final class ConnectionController extends ChangeNotifier {
       groundSpeedMetersPerSecond = (data['groundspeed_m_s'] as num?)
           ?.toDouble();
     } on Object {
-      airspeedMetersPerSecond = null;
-      groundSpeedMetersPerSecond = null;
+      // Preserve the previous sample; freshness handles stale data.
     }
     return oldAirspeed != airspeedMetersPerSecond ||
         oldGroundSpeed != groundSpeedMetersPerSecond;
@@ -2336,17 +2463,22 @@ final class ConnectionController extends ChangeNotifier {
     try {
       // 引导操作门控要用到的实时状态（QGC 的 show* 属性）。
       final summaryEnvelope = telemetryBackend.vehicleSummary();
-      final summaryData =
-          summaryEnvelope['data'] as Map<String, Object?>? ?? const {};
-      vehicleArmed = summaryData['armed'] == true;
-      vehicleFlightMode = summaryData['flight_mode'] as String? ?? '';
-      vehicleType = summaryData['vehicle_type'] as int? ?? 0;
-      vehicleAutopilotType = summaryData['autopilot_type'] as int? ?? 0;
+      if (summaryEnvelope['success'] == true) {
+        final summaryData =
+            summaryEnvelope['data'] as Map<String, Object?>? ?? const {};
+        vehicleArmed = summaryData['armed'] == true;
+        vehicleFlightMode = summaryData['flight_mode'] as String? ?? '';
+        vehicleType = summaryData['vehicle_type'] as int? ?? 0;
+        vehicleAutopilotType = summaryData['autopilot_type'] as int? ?? 0;
+      }
 
       final extendedEnvelope = telemetryBackend.extendedSysState();
-      final extendedData =
-          extendedEnvelope['data'] as Map<String, Object?>? ?? const {};
-      vehicleLandedState = extendedData['landed_state'] as int? ?? 0;
+      if (extendedEnvelope['success'] == true) {
+        final extendedData =
+            extendedEnvelope['data'] as Map<String, Object?>? ?? const {};
+        vehicleLandedState = extendedData['landed_state'] as int? ?? 0;
+        vehicleVtolState = extendedData['vtol_state'] as int? ?? 0;
+      }
 
       final firmwareEnvelope = telemetryBackend.firmwareType();
       firmwareInfo = firmwareEnvelope['success'] == true
@@ -2368,10 +2500,8 @@ final class ConnectionController extends ChangeNotifier {
         sensorHealth = null;
       }
     } on Object {
-      firmwareInfo = null;
-      vehicleIdentity = null;
-      firmwareVersionInfo = null;
-      sensorHealth = null;
+      // Keep the last valid snapshot. A single failed poll must not make a
+      // connected vehicle look disarmed or change its profile transiently.
     }
     return oldFirmware != jsonEncode(firmwareInfo) ||
         oldIdentity != jsonEncode(vehicleIdentity) ||
@@ -2393,6 +2523,7 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   void _clearTelemetry() {
+    _missionPlanning?.bindSession(null);
     telemetryError = null;
     flightMessages = const [];
     _lastMessageSeq = 0;
@@ -2419,6 +2550,8 @@ final class ConnectionController extends ChangeNotifier {
     vehiclePositionValid = false;
     homePosition = null;
     homePositionValid = false;
+    vehicleLandedState = 0;
+    vehicleVtolState = 0;
     serialHardwareMappings.clear();
     serialHardwareMappingLoading = false;
     serialHardwareMappingError = null;

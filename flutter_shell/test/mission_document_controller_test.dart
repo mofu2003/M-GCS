@@ -8,7 +8,7 @@ void main() {
     'mission document controller edits and validates through backend',
     () async {
       final backend = _FakeMissionBackend();
-      final controller = MissionDocumentController(backend: backend);
+      final controller = MissionDocumentController(backend: backend)..bindSession(1);
 
       await controller.initialize();
       expect(controller.initialized, isTrue);
@@ -64,7 +64,7 @@ void main() {
     'upload performs readback verification and clears dirty state',
     () async {
       final backend = _FakeMissionBackend();
-      final controller = MissionDocumentController(backend: backend);
+      final controller = MissionDocumentController(backend: backend)..bindSession(1);
 
       await controller.initialize();
       await controller.addEntity(
@@ -86,11 +86,35 @@ void main() {
     },
   );
 
+  test('changing vehicle session blocks upload until task reconciliation', () async {
+    final backend = _FakeMissionBackend();
+    final controller = MissionDocumentController(backend: backend)
+      ..bindSession(1);
+
+    await controller.initialize();
+    await controller.addEntity(
+      const MissionEntity(
+        id: 'entity-1',
+        latitude: 31.2,
+        longitude: 121.4,
+        altitudeMeters: 50,
+      ),
+    );
+
+    controller.bindSession(2);
+    expect(controller.requiresVehicleReconciliation, isTrue);
+    await expectLater(controller.upload(), throwsA(isA<StateError>()));
+
+    await controller.downloadFromVehicle();
+    expect(controller.requiresVehicleReconciliation, isFalse);
+    expect(controller.dirty, isFalse);
+  });
+
   test(
     'download from vehicle replaces the draft and clears dirty state',
     () async {
       final backend = _FakeMissionBackend();
-      final controller = MissionDocumentController(backend: backend);
+      final controller = MissionDocumentController(backend: backend)..bindSession(1);
 
       await controller.initialize();
       await controller.addEntity(
@@ -115,7 +139,7 @@ void main() {
     'cancel aborts an active upload without clearing local changes',
     () async {
       final backend = _FakeMissionBackend()..transferCompletionPolls = 100;
-      final controller = MissionDocumentController(backend: backend);
+      final controller = MissionDocumentController(backend: backend)..bindSession(1);
 
       await controller.initialize();
       await controller.addEntity(
@@ -148,7 +172,7 @@ void main() {
         expectedCount: 1,
         vehicleCount: 1,
       );
-    final controller = MissionDocumentController(backend: backend);
+    final controller = MissionDocumentController(backend: backend)..bindSession(1);
 
     await controller.initialize();
     await controller.addEntity(
@@ -176,7 +200,7 @@ void main() {
           expectedCount: 1,
           vehicleCount: 1,
         );
-      final controller = MissionDocumentController(backend: backend);
+      final controller = MissionDocumentController(backend: backend)..bindSession(1);
 
       await controller.initialize();
       await controller.addEntity(
@@ -200,7 +224,7 @@ void main() {
 
   test('fence and rally flows upload, read back and verify', () async {
     final backend = _FakeMissionBackend();
-    final controller = MissionDocumentController(backend: backend);
+    final controller = MissionDocumentController(backend: backend)..bindSession(1);
 
     await controller.initialize();
     await controller.addEntity(
@@ -236,7 +260,7 @@ void main() {
 
   test('mission execution progress polls vehicle feedback', () async {
     final backend = _FakeMissionBackend();
-    final controller = MissionDocumentController(backend: backend);
+    final controller = MissionDocumentController(backend: backend)..bindSession(1);
 
     await controller.initialize();
     await controller.refreshExecutionProgress();
@@ -259,7 +283,7 @@ void main() {
 
   test('clearing the vehicle mission leaves the local document alone', () async {
     final backend = _FakeMissionBackend();
-    final controller = MissionDocumentController(backend: backend);
+    final controller = MissionDocumentController(backend: backend)..bindSession(1);
 
     await controller.initialize();
     await controller.addEntity(

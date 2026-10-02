@@ -6,6 +6,7 @@
 #include "core/platform/platform_socket.h"
 #include "core/platform/platform_mutex.h"
 #include <atomic>
+#include <memory>
 
 namespace mg::core::transport {
 
@@ -29,7 +30,11 @@ public:
     uint16_t port() const;
 
 private:
-    void join_read_thread();
+    struct ReadState;
+
+    bool start_read_thread(const std::shared_ptr<ReadState>& state);
+    void wait_for_read_thread(const std::shared_ptr<ReadState>& state);
+    std::shared_ptr<ReadState> state_snapshot() const;
 #ifdef _WIN32
     static DWORD WINAPI read_thread_proc(LPVOID lpParam);
 #else
@@ -37,20 +42,14 @@ private:
 #endif
 
     LinkDescriptor descriptor_;
-    std::atomic<bool> opened_{false};
-    std::atomic<bool> stop_requested_{false};
-    mg_socket_t sock_ = MG_INVALID_SOCKET;
-#ifdef _WIN32
-    HANDLE read_thread_ = nullptr;
-#else
-    pthread_t read_thread_ = 0;
-#endif
-    ReceiveCallback receive_cb_;
+    // The read thread owns a shared reference to its state. The link may be
+    // destroyed while a blocked OS read is still unwinding; the thread will
+    // release the final state reference itself and close the socket safely.
+    mutable mg::core::platform::Mutex state_mtx_;
+    std::shared_ptr<ReadState> read_state_;
+    ReceiveCallback pending_receive_cb_;
     mg::core::platform::Mutex cb_mtx_;
 
-    struct sockaddr_in remote_addr_{};
-    std::atomic<bool> has_remote_{false};
-    mg::core::platform::Mutex remote_mtx_;
 };
 
 } // namespace mg::core::transport

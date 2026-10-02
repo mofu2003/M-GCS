@@ -419,8 +419,8 @@ static void test_safety_command_encoding() {
         CHECK(is_success(result), "guided point success:true");
         if (result) mg_free_string(result);
 
-        // The mock records COMMAND_LONG param5/param6 as (int32_t)(value*1e7),
-        // so a correctly encoded DO_REPOSITION lands on lat/lon degE7.
+        // ArduPilot rejects DO_REPOSITION over COMMAND_LONG because that
+        // message has no frame field. The GCS must use COMMAND_INT.
         const int32_t expect_lat = 399042000;
         const int32_t expect_lon = 1164074000;
         bool encoded = false;
@@ -430,12 +430,13 @@ static void test_safety_command_encoding() {
             const int32_t dlon = cmd.y - expect_lon;
             if ((dlat < 0 ? -dlat : dlat) < 1000 &&
                 (dlon < 0 ? -dlon : dlon) < 1000 &&
-                cmd.z == 120) {
+                cmd.z == 120 &&
+                cmd.frame == MAV_FRAME_GLOBAL) {
                 encoded = true;
             }
         }
         CHECK(encoded,
-              "DO_REPOSITION carries lat/lon in degrees for COMMAND_LONG");
+              "DO_REPOSITION uses COMMAND_INT with MAV_FRAME_GLOBAL");
     }
 }
 

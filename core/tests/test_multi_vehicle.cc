@@ -193,6 +193,47 @@ int main() {
               "heartbeat identity marks vehicle Connected");
     }
 
+    // 8. Closing the active vehicle selects a remaining vehicle, and a
+    //    watchdog-reset vehicle is reaped instead of remaining as a ghost.
+    {
+        fprintf(stderr, "[Group] Active fallback and ghost session pruning\n");
+        mg::core::vehicle::MultiVehicleManager mgr;
+
+        auto make_waiting_vehicle = [](int id) {
+            auto vehicle = std::make_shared<mg::core::vehicle::Vehicle>(id);
+            auto link = std::make_unique<mg::core::transport::InMemoryLink>();
+            auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
+            link->open();
+            vehicle->conn().wire_for_test(std::move(link), std::move(mav));
+            return vehicle;
+        };
+
+        auto first = make_waiting_vehicle(11);
+        auto second = make_waiting_vehicle(12);
+        mgr.add_for_test(first);
+        mgr.add_for_test(second);
+        mgr.set_active_vehicle(11);
+
+        CHECK(mgr.close_vehicle(11), "closing active vehicle succeeds");
+        CHECK(mgr.active_vehicle() != nullptr, "remaining vehicle becomes active");
+        CHECK(mgr.active_vehicle()->vehicle_id() == 12,
+              "the remaining vehicle is selected as replacement");
+
+        auto connected = make_waiting_vehicle(13);
+        mgr.add_for_test(connected);
+
+        const size_t removed = mgr.remove_disconnected_vehicles();
+        CHECK(removed == 0, "connected vehicle is not reaped while waiting for heartbeat");
+        CHECK(mgr.vehicle_count() == 2, "connected vehicle remains registered");
+
+        mg::core::vehicle::MultiVehicleManager ghost_mgr;
+        ghost_mgr.add_for_test(std::make_shared<mg::core::vehicle::Vehicle>(14));
+        CHECK(ghost_mgr.remove_disconnected_vehicles() == 1,
+              "disconnected ghost session is reaped");
+        CHECK(ghost_mgr.vehicle_count() == 0,
+              "ghost session no longer blocks vehicle id reuse");
+    }
+
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail;
 }

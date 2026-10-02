@@ -25,7 +25,14 @@ void MavlinkAdapter::Impl::handle_mission_count(const mavlink_message_t& m)
     mavlink_mission_count_t mc;
     mavlink_msg_mission_count_decode(&m, &mc);
 
+    if (!is_valid_mission_type(mc.mission_type)) return;
     auto& state = select_transfer(mc.mission_type);
+    if (state.progress.state != mg::core::mission::MissionState::Downloading ||
+        state.download_total != 0 ||
+        !transfer_matches_target(state, m.sysid, m.compid)) {
+        return;
+    }
+
     state.record_recv();
     state.download_total = mc.count;
     state.download_seq = 0;
@@ -59,6 +66,31 @@ void MavlinkAdapter::Impl::handle_mission_item_int(const mavlink_message_t& m)
     mavlink_mission_item_int_t mi;
     mavlink_msg_mission_item_int_decode(&m, &mi);
 
+    if (!is_valid_mission_type(mi.mission_type)) return;
+    auto& state = select_transfer(mi.mission_type);
+    if (state.progress.state != mg::core::mission::MissionState::Downloading ||
+        !transfer_matches_target(state, m.sysid, m.compid)) {
+        return;
+    }
+
+    auto request_expected_item = [this, &state, &mi, &m]() {
+        send_mission_request_int(m.sysid, m.compid, state.download_seq,
+                                 mi.mission_type);
+        state.record_recv();
+        state.record_send(
+            m.sysid, m.compid,
+            [this, &state, sys = m.sysid, comp = m.compid,
+             mission_type = mi.mission_type]() {
+                send_mission_request_int(sys, comp, state.download_seq,
+                                         mission_type);
+            });
+    };
+
+    if (state.download_total == 0 || mi.seq != state.download_seq) {
+        request_expected_item();
+        return;
+    }
+
     mg::core::mission::MissionItem item{};
     item.seq = mi.seq;
     item.frame = mi.frame;
@@ -74,13 +106,10 @@ void MavlinkAdapter::Impl::handle_mission_item_int(const mavlink_message_t& m)
     item.z = mi.z;
     item.mission_type = mi.mission_type;
 
-    auto& state = select_transfer(mi.mission_type);
-    if (mi.seq >= state.plan.items.size()) {
-        state.plan.items.resize(mi.seq + 1);
-    }
+    if (mi.seq >= state.plan.items.size()) state.plan.items.resize(mi.seq + 1);
     state.plan.items[mi.seq] = item;
     ++state.plan_revision;
-    state.download_seq = mi.seq + 1;
+    state.download_seq = static_cast<uint16_t>(mi.seq + 1);
     state.progress.received = state.download_seq;
     state.record_recv();
 
@@ -110,6 +139,31 @@ void MavlinkAdapter::Impl::handle_mission_item(const mavlink_message_t& m)
     mavlink_mission_item_t mi;
     mavlink_msg_mission_item_decode(&m, &mi);
 
+    if (!is_valid_mission_type(mi.mission_type)) return;
+    auto& state = select_transfer(mi.mission_type);
+    if (state.progress.state != mg::core::mission::MissionState::Downloading ||
+        !transfer_matches_target(state, m.sysid, m.compid)) {
+        return;
+    }
+
+    auto request_expected_item = [this, &state, &mi, &m]() {
+        send_mission_request_int(m.sysid, m.compid, state.download_seq,
+                                 mi.mission_type);
+        state.record_recv();
+        state.record_send(
+            m.sysid, m.compid,
+            [this, &state, sys = m.sysid, comp = m.compid,
+             mission_type = mi.mission_type]() {
+                send_mission_request_int(sys, comp, state.download_seq,
+                                         mission_type);
+            });
+    };
+
+    if (state.download_total == 0 || mi.seq != state.download_seq) {
+        request_expected_item();
+        return;
+    }
+
     mg::core::mission::MissionItem item{};
     item.seq = mi.seq;
     item.frame = mi.frame;
@@ -131,13 +185,10 @@ void MavlinkAdapter::Impl::handle_mission_item(const mavlink_message_t& m)
     item.z = mi.z;
     item.mission_type = mi.mission_type;
 
-    auto& state = select_transfer(mi.mission_type);
-    if (mi.seq >= state.plan.items.size()) {
-        state.plan.items.resize(mi.seq + 1);
-    }
+    if (mi.seq >= state.plan.items.size()) state.plan.items.resize(mi.seq + 1);
     state.plan.items[mi.seq] = item;
     ++state.plan_revision;
-    state.download_seq = mi.seq + 1;
+    state.download_seq = static_cast<uint16_t>(mi.seq + 1);
     state.progress.received = state.download_seq;
     state.record_recv();
 
@@ -173,9 +224,14 @@ void MavlinkAdapter::Impl::handle_mission_request_int(const mavlink_message_t& m
     mavlink_mission_request_int_t mr;
     mavlink_msg_mission_request_int_decode(&m, &mr);
 
-    auto* state = find_uploading();
-    if (!state || mr.seq >= state->upload_total)
+    auto* state = mg::core::mavlink::find_uploading(
+        mission, rally, fence, mr.mission_type);
+    if (!state ||
+        !transfer_matches_target(*state, m.sysid, m.compid) ||
+        mr.seq >= state->upload_total ||
+        mr.seq >= state->plan.items.size()) {
         return;
+    }
 
     state->record_recv();
     auto item = state->plan.items[mr.seq];
@@ -190,9 +246,14 @@ void MavlinkAdapter::Impl::handle_mission_request(const mavlink_message_t& m)
     mavlink_mission_request_t mr;
     mavlink_msg_mission_request_decode(&m, &mr);
 
-    auto* state = find_uploading();
-    if (!state || mr.seq >= state->upload_total)
+    auto* state = mg::core::mavlink::find_uploading(
+        mission, rally, fence, mr.mission_type);
+    if (!state ||
+        !transfer_matches_target(*state, m.sysid, m.compid) ||
+        mr.seq >= state->upload_total ||
+        mr.seq >= state->plan.items.size()) {
         return;
+    }
 
     state->record_recv();
     auto item = state->plan.items[mr.seq];

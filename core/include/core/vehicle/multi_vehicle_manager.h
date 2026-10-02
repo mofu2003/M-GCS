@@ -41,6 +41,10 @@ public:
     // 关闭指定 ID 的飞行器
     bool close_vehicle(int vehicle_id);
 
+    // 清理已经丢失链路并回到 Disconnected 的飞行器，避免幽灵 session
+    // 继续占用 vehicle_id 并阻止同名端点的重连。
+    size_t remove_disconnected_vehicles();
+
     // 按飞行器 ID 获取
     Vehicle* get_vehicle(int vehicle_id) const;
     /// Acquire a lifetime lease for work which may race with vehicle removal.

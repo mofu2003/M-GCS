@@ -78,6 +78,19 @@
 本地任务前确认。导入会保留 command/frame/参数/位置，但不能还原参数化测绘意图。
 飞控回读的 `_INT` frame 5/6/11 会归一化为文档使用的 0/3/10。
 
+任务传输是严格的事务：mission、fence、rally 任一类型处于 uploading/downloading 时，
+新的同类或跨类型传输会被拒绝；`MISSION_REQUEST` / `MISSION_REQUEST_INT` 必须按请求里的
+`mission_type` 路由，并校验来源 sysid/compid 与期望序号，不能靠“当前正在上传的那个”
+猜测状态。
+
+Flutter 的 `MissionDocumentController` 绑定当前连接 session。连接飞控 A 后再连接飞控 B，
+本地任务不会被静默当成 B 的任务；必须先从 B 读取任务，或在 B 上创建新任务。
+`mg_operations_cancel("mission")` 仍是任务传输的显式取消入口。
+
+ArduPilot 启动任务遵循 QGC 的机型分类：真正固定翼在地面先进入 AUTO 再解锁；
+多旋翼和 VTOL 先进入 GUIDED，解锁后发送 `MISSION_START`。VTOL 不能因为固件属于
+Plane 就当作 QGC `Vehicle::fixedWing()`。
+
 ### ArduPilot Home 语义
 
 ArduPilot 的 mission 传输列表把 Home 放在第 0 项，后续才是可见任务项；PX4 不使用
@@ -174,7 +187,10 @@ MAVLink `MISSION_ITEM_INT` 的 `degE7` 格式转换为 `int32`，分辨率约为
 `entity_insert_index`，再次导出 `.plan` 时按插入位置与普通航点交错放回；Rally
 version 2 已提升为正式的 `rally_points` 模型；GeoFence 已提升为正式模型，支持
 polygon、circle、inclusion 和 breach-return。ComplexItem 导入会产生“只读保留、
-暂不可语义化编辑”的 warning，因为 M-GCS 暂时不能编辑其内部字段。
+不可语义化编辑”的 warning，因为 M-GCS 目前只保留其原始 JSON 和已展开任务项。
+本地创建的 `survey_grid` / `corridor` 在导出 `.plan` 时会生成 QGC 可重新导入的
+`Survey` / `CorridorScan` ComplexItem；无法无损表达时退回 SimpleItem 并附带 warning，
+不会再因为复杂实体而让整个 `.plan` 导出失败。
 
 复杂项不参与编译。文档含 `complex_items` 时，`validate`、`compile`、上传和回读都会
 返回 `complex_item.unsupported` 错误。QGC 会把 ComplexItem 的已算好任务项写进

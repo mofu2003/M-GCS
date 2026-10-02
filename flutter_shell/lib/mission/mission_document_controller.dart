@@ -27,15 +27,53 @@ final class MissionDocumentController extends ChangeNotifier {
   bool dirty = false;
   bool initialized = false;
   int? selectedEntityIndex;
+  int? _boundSessionId;
+  int? _lastVehicleSessionId;
+  bool requiresVehicleReconciliation = false;
 
   bool get transferActive => transfer?.active ?? false;
+  int? get boundSessionId => _boundSessionId;
+  bool get boundToVehicle => _boundSessionId != null;
+
+  /// Rebinds local mission state to the native connection session.
+  void bindSession(int? sessionId) {
+    if (_boundSessionId == sessionId) return;
+    if (sessionId != null) {
+      if (_lastVehicleSessionId != null &&
+          _lastVehicleSessionId != sessionId) {
+        requiresVehicleReconciliation = true;
+      }
+      _lastVehicleSessionId = sessionId;
+    }
+    _boundSessionId = sessionId;
+    verification = null;
+    dirty = true;
+    status = sessionId == null
+        ? '飞控未连接，任务未绑定飞控'
+        : requiresVehicleReconciliation
+        ? '任务属于其他飞控会话，请先从当前飞控读取或创建任务'
+        : '任务已绑定当前飞控会话';
+    notifyListeners();
+  }
+
+  void _requireVehicleSession() {
+    if (_boundSessionId == null) {
+      throw StateError('任务未绑定到当前飞控，请先连接并重新读取任务');
+    }
+  }
+
+  void _requireVehicleReconciled() {
+    _requireVehicleSession();
+    if (requiresVehicleReconciliation) {
+      throw StateError('任务属于其他飞控会话，请先从当前飞控读取任务或创建新任务');
+    }
+  }
 
   Future<void> initialize() async {
     if (initialized || busy) return;
     await _run('正在初始化任务文档…', () async {
       commandCatalog = await backend.getMissionCommandCatalog();
       document = await backend.getMissionDocument();
-      dirty = false;
       initialized = true;
       await _refreshDerived();
       await _refreshTransfer();
@@ -52,6 +90,7 @@ final class MissionDocumentController extends ChangeNotifier {
         selectedEntityIndex = null;
         dirty = true;
         initialized = true;
+        requiresVehicleReconciliation = false;
       });
 
   Future<void> refresh() => _run(
@@ -136,6 +175,7 @@ final class MissionDocumentController extends ChangeNotifier {
     final currentRevision = current.revision;
     verification = null;
     await _run('正在上传任务…', rethrowErrors: true, () async {
+      _requireVehicleReconciled();
       await backend.uploadMissionDocument(currentRevision);
       await _waitForTransfer('上传任务');
 
@@ -163,6 +203,7 @@ final class MissionDocumentController extends ChangeNotifier {
 
   Future<void> downloadFromVehicle() =>
       _run('正在从飞控读取任务…', rethrowErrors: true, () async {
+        _requireVehicleSession();
         verification = null;
         await backend.startMissionDownload();
         await _waitForTransfer('读取飞控任务');
@@ -173,6 +214,7 @@ final class MissionDocumentController extends ChangeNotifier {
         verification = null;
         selectedEntityIndex = null;
         dirty = false;
+        requiresVehicleReconciliation = false;
         await _refreshDerived();
         status = '已从飞控读取 ${document?.entities.length ?? 0} 个任务项';
       });
@@ -181,6 +223,7 @@ final class MissionDocumentController extends ChangeNotifier {
   /// 上传回读发现差异后复用 transport cache，不重新发起下载。
   Future<void> adoptDownloadedVehicleMission() =>
       _run('正在采用飞控回读任务…', rethrowErrors: true, () async {
+        _requireVehicleSession();
         document = await backend.importMissionDocumentFromVehicle();
         validation = null;
         compileResult = null;
@@ -188,6 +231,7 @@ final class MissionDocumentController extends ChangeNotifier {
         verification = null;
         selectedEntityIndex = null;
         dirty = false;
+        requiresVehicleReconciliation = false;
         await _refreshDerived();
         status = '已采用飞控任务 ${document?.entities.length ?? 0} 个任务项';
       });
@@ -213,6 +257,7 @@ final class MissionDocumentController extends ChangeNotifier {
   }) async {
     MissionVerificationResult? result;
     await _run('正在核对飞控任务…', rethrowErrors: true, () async {
+      _requireVehicleReconciled();
       result = await backend.verifyMissionDocument(
         toleranceMeters: toleranceMeters,
       );
@@ -230,6 +275,7 @@ final class MissionDocumentController extends ChangeNotifier {
     final currentRevision = current.revision;
     fenceVerification = null;
     await _run('正在下发围栏…', rethrowErrors: true, () async {
+      _requireVehicleReconciled();
       await backend.uploadFence(currentRevision);
       await _waitForOperation(backend.getFenceTransferProgress, '下发围栏');
       status = '围栏已下发，正在从飞控回读核对…';
@@ -250,6 +296,7 @@ final class MissionDocumentController extends ChangeNotifier {
   /// 从飞控读取围栏并替换文档的围栏区段。
   Future<void> readFenceFromVehicle() =>
       _run('正在从飞控读取围栏…', rethrowErrors: true, () async {
+        _requireVehicleSession();
         fenceVerification = null;
         await backend.startFenceDownload();
         await _waitForOperation(backend.getFenceTransferProgress, '读取围栏');
@@ -263,6 +310,7 @@ final class MissionDocumentController extends ChangeNotifier {
   }) async {
     MissionVerificationResult? result;
     await _run('正在核对飞控围栏…', rethrowErrors: true, () async {
+        _requireVehicleSession();
       await backend.startFenceDownload();
       await _waitForOperation(backend.getFenceTransferProgress, '回读围栏');
       result = await backend.verifyFence(toleranceMeters: toleranceMeters);
@@ -273,6 +321,7 @@ final class MissionDocumentController extends ChangeNotifier {
 
   Future<void> clearFence() =>
       _run('正在清除飞控围栏…', rethrowErrors: true, () async {
+        _requireVehicleSession();
         fenceVerification = null;
         await backend.clearFence();
         status = '已请求清除飞控围栏';
@@ -287,6 +336,7 @@ final class MissionDocumentController extends ChangeNotifier {
     final currentRevision = current.revision;
     rallyVerification = null;
     await _run('正在下发 Rally 点…', rethrowErrors: true, () async {
+      _requireVehicleReconciled();
       await backend.uploadRally(currentRevision);
       await _waitForOperation(backend.getRallyTransferProgress, '下发 Rally 点');
       status = 'Rally 点已下发，正在从飞控回读核对…';
@@ -306,6 +356,7 @@ final class MissionDocumentController extends ChangeNotifier {
 
   Future<void> readRallyFromVehicle() =>
       _run('正在从飞控读取 Rally 点…', rethrowErrors: true, () async {
+        _requireVehicleSession();
         rallyVerification = null;
         await backend.startRallyDownload();
         await _waitForOperation(backend.getRallyTransferProgress, '读取 Rally 点');
@@ -319,6 +370,7 @@ final class MissionDocumentController extends ChangeNotifier {
   }) async {
     MissionVerificationResult? result;
     await _run('正在核对飞控 Rally 点…', rethrowErrors: true, () async {
+        _requireVehicleSession();
       await backend.startRallyDownload();
       await _waitForOperation(backend.getRallyTransferProgress, '回读 Rally 点');
       result = await backend.verifyRally(toleranceMeters: toleranceMeters);
@@ -329,6 +381,7 @@ final class MissionDocumentController extends ChangeNotifier {
 
   Future<void> clearRally() =>
       _run('正在清除飞控 Rally 点…', rethrowErrors: true, () async {
+        _requireVehicleSession();
         rallyVerification = null;
         await backend.clearRally();
         status = '已请求清除飞控 Rally 点';
@@ -401,6 +454,7 @@ final class MissionDocumentController extends ChangeNotifier {
   /// 清空飞控上的任务。日志/围栏/Rally 不受影响；本地文档保持不动。
   Future<void> clearVehicleMission() =>
       _run('正在清除飞控任务…', rethrowErrors: true, () async {
+        _requireVehicleSession();
         await backend.clearVehicleMission();
         executionProgress = null;
         status = '已清除飞控任务';
@@ -408,6 +462,7 @@ final class MissionDocumentController extends ChangeNotifier {
 
   Future<void> refreshExecutionProgress() async {
     if (!initialized) return;
+    if (!boundToVehicle) return;
     try {
       executionProgress = await backend.getMissionExecutionProgress();
     } on Object {

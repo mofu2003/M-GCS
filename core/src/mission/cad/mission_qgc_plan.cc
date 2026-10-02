@@ -2,6 +2,7 @@
 #include "core/mission/cad/mission_interchange.h"
 
 #include "core/mission/cad/mission_command_catalog.h"
+#include "mission_document_internal.h"
 
 #include "ardupilotmega/mavlink.h"
 
@@ -9,11 +10,16 @@
 #include "cJSON.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <memory>
 #include <string>
 #include <vector>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 namespace mg::core::mission::cad {
 
@@ -209,6 +215,234 @@ void append_complex_item(MissionDocument& document, cJSON* item, int index) {
     complex.entity_insert_index =
         static_cast<uint32_t>(document.entities.size());
     document.complex_items.push_back(std::move(complex));
+}
+
+// --- QGC ComplexItem export ------------------------------------------------
+//
+// M-GCS stores parameterized survey/corridor tasks as design intent
+// (center, size, angle, camera). QGC stores them as a ComplexItem that also
+// carries the expanded MissionItem list. We rebuild the QGC geometry from our
+// design intent and embed the compiled items so the plan opens as an editable
+// Survey / Corridor Scan instead of a flat list of waypoints.
+
+cJSON* simple_item_to_qgc_json(const MissionItem& item) {
+    cJSON* json = cJSON_CreateObject();
+    if (!json) return nullptr;
+    cJSON_AddStringToObject(json, "type", "SimpleItem");
+    cJSON_AddNumberToObject(json, "frame", item.frame);
+    cJSON_AddNumberToObject(json, "command", item.command);
+    cJSON_AddBoolToObject(json, "autoContinue", item.autocontinue != 0);
+
+    cJSON* params = cJSON_AddArrayToObject(json, "params");
+    cJSON_AddItemToArray(params, cJSON_CreateNumber(item.param1));
+    cJSON_AddItemToArray(params, cJSON_CreateNumber(item.param2));
+    cJSON_AddItemToArray(params, cJSON_CreateNumber(item.param3));
+    // NaN yaw is QGC's "no change" sentinel; export it as 0 because JSON has no
+    // NaN literal (matches the flat SimpleItem exporter behavior).
+    cJSON_AddItemToArray(
+        params,
+        cJSON_CreateNumber(std::isfinite(item.param4) ? item.param4 : 0.0f));
+    cJSON_AddItemToArray(params, cJSON_CreateNumber(item.x / 1e7));
+    cJSON_AddItemToArray(params, cJSON_CreateNumber(item.y / 1e7));
+    cJSON_AddItemToArray(params, cJSON_CreateNumber(item.z));
+    return json;
+}
+
+cJSON* camera_calc_json(const MissionSurveySpec& spec) {
+    cJSON* camera = cJSON_CreateObject();
+    if (!camera) return nullptr;
+    cJSON_AddNumberToObject(camera, "version", 2);
+    cJSON_AddNumberToObject(camera, "AdjustedFootprintSide", spec.side_overlap_pct);
+    cJSON_AddNumberToObject(camera, "AdjustedFootprintFrontal", spec.forward_overlap_pct);
+    cJSON_AddNumberToObject(camera, "DistanceToSurface", spec.altitude_m);
+    // 0 = Relative altitude frame, matching our default survey altitude.
+    cJSON_AddNumberToObject(camera, "DistanceMode", 0);
+    cJSON_AddStringToObject(camera, "CameraName", "Manual (no camera specs)");
+    return camera;
+}
+
+cJSON* transect_style_complex_item_json(const MissionSurveySpec& spec,
+                                        const std::vector<MissionItem>& items) {
+    cJSON* transect = cJSON_CreateObject();
+    if (!transect) return nullptr;
+    cJSON_AddNumberToObject(transect, "version", 2);
+    cJSON_AddNumberToObject(transect, "TurnAroundDistance", 0);
+    cJSON_AddBoolToObject(transect, "CameraTriggerInTurnAround", true);
+    cJSON_AddBoolToObject(transect, "HoverAndCapture", false);
+    cJSON_AddBoolToObject(transect, "Refly90Degrees", spec.cross_grid);
+    cJSON_AddNumberToObject(transect, "CameraShots", 0);
+    cJSON_AddItemToObject(transect, "CameraCalc", camera_calc_json(spec));
+
+    cJSON* visual = cJSON_AddArrayToObject(transect, "VisualTransectPoints");
+    for (const MissionItem& item : items) {
+        if (item.command != static_cast<uint16_t>(NavCommand::NavWaypoint)) continue;
+        cJSON* coordinate = cJSON_CreateArray();
+        cJSON_AddItemToArray(coordinate, cJSON_CreateNumber(item.x / 1e7));
+        cJSON_AddItemToArray(coordinate, cJSON_CreateNumber(item.y / 1e7));
+        cJSON_AddItemToArray(visual, coordinate);
+    }
+
+    cJSON* mission_items = cJSON_AddArrayToObject(transect, "Items");
+    for (const MissionItem& item : items) {
+        cJSON* json = simple_item_to_qgc_json(item);
+        if (json) cJSON_AddItemToArray(mission_items, json);
+    }
+    return transect;
+}
+
+// Rectangle polygon for a `survey_grid`: entity lat/lon is the center, the
+// survey length runs along the grid angle and the width perpendicular to it.
+// Mirrors SurveyCalculator::generate_grid, which offsets along NED before
+// rotating by `angle_deg`.
+std::vector<std::array<double, 2>> survey_grid_polygon(const MissionEntity& entity) {
+    const MissionSurveySpec& spec = entity.survey;
+    const double half_length = spec.length_m / 2.0;
+    const double half_width = spec.width_m / 2.0;
+    const double lat_rad = entity.latitude * M_PI / 180.0;
+    const double north_per_deg = 111132.92;
+    const double east_per_deg = 111412.84 * std::cos(lat_rad);
+    const double angle_rad = spec.angle_deg * M_PI / 180.0;
+    const double c = std::cos(angle_rad);
+    const double s = std::sin(angle_rad);
+
+    const double local[4][2] = {
+        {-half_length, -half_width},
+        { half_length, -half_width},
+        { half_length,  half_width},
+        {-half_length,  half_width},
+    };
+
+    std::vector<std::array<double, 2>> polygon;
+    polygon.reserve(4);
+    for (const auto& point : local) {
+        const double north = point[0] * c - point[1] * s;
+        const double east = point[0] * s + point[1] * c;
+        polygon.push_back({
+            entity.latitude + north / north_per_deg,
+            entity.longitude + east / east_per_deg,
+        });
+    }
+    return polygon;
+}
+
+cJSON* survey_complex_item_json(const MissionEntity& entity,
+                                const std::vector<MissionItem>& items,
+                                std::string& fallback_reason) {
+    const MissionSurveySpec& spec = entity.survey;
+    if (!(spec.width_m > 0.0) || !(spec.length_m > 0.0) ||
+        !(spec.altitude_m > 0.0f)) {
+        fallback_reason = "survey dimensions/altitude are invalid";
+        return nullptr;
+    }
+
+    cJSON* item = cJSON_CreateObject();
+    if (!item) return nullptr;
+    cJSON_AddNumberToObject(item, "version", 5);
+    cJSON_AddStringToObject(item, "type", "ComplexItem");
+    cJSON_AddStringToObject(item, "complexItemType", "survey");
+    // QGC derives the sweep direction as 90deg-angle around the polygon
+    // bounding box; our design angle uses the same NED convention.
+    cJSON_AddNumberToObject(item, "angle", spec.angle_deg);
+    cJSON_AddBoolToObject(item, "FlyAlternateTransects", false);
+    cJSON_AddBoolToObject(item, "SplitConcavePolygons", false);
+    cJSON_AddNumberToObject(item, "entryLocation", 0);
+
+    cJSON* polygon = cJSON_AddArrayToObject(item, "polygon");
+    for (const auto& vertex : survey_grid_polygon(entity)) {
+        cJSON* coordinate = cJSON_CreateArray();
+        cJSON_AddItemToArray(coordinate, cJSON_CreateNumber(vertex[0]));
+        cJSON_AddItemToArray(coordinate, cJSON_CreateNumber(vertex[1]));
+        cJSON_AddItemToArray(polygon, coordinate);
+    }
+
+    cJSON_AddItemToObject(item, "TransectStyleComplexItem",
+                          transect_style_complex_item_json(spec, items));
+    return item;
+}
+
+cJSON* corridor_complex_item_json(const MissionEntity& entity,
+                                  const std::vector<MissionItem>& items,
+                                  std::string& fallback_reason) {
+    const MissionSurveySpec& spec = entity.survey;
+    if (!(spec.corridor_width_m > 0.0) || !(spec.altitude_m > 0.0f)) {
+        fallback_reason = "corridor width/altitude are invalid";
+        return nullptr;
+    }
+    if (!std::isfinite(spec.end_latitude) || !std::isfinite(spec.end_longitude)) {
+        fallback_reason = "corridor end point is missing";
+        return nullptr;
+    }
+
+    cJSON* item = cJSON_CreateObject();
+    if (!item) return nullptr;
+    cJSON_AddNumberToObject(item, "version", 2);
+    cJSON_AddStringToObject(item, "type", "ComplexItem");
+    cJSON_AddStringToObject(item, "complexItemType", "CorridorScan");
+    cJSON_AddNumberToObject(item, "CorridorWidth", spec.corridor_width_m);
+    cJSON_AddNumberToObject(item, "EntryPoint", 0);
+
+    cJSON* polyline = cJSON_AddArrayToObject(item, "polyline");
+    cJSON* start = cJSON_CreateArray();
+    cJSON_AddItemToArray(start, cJSON_CreateNumber(entity.latitude));
+    cJSON_AddItemToArray(start, cJSON_CreateNumber(entity.longitude));
+    cJSON_AddItemToArray(polyline, start);
+    cJSON* end = cJSON_CreateArray();
+    cJSON_AddItemToArray(end, cJSON_CreateNumber(spec.end_latitude));
+    cJSON_AddItemToArray(end, cJSON_CreateNumber(spec.end_longitude));
+    cJSON_AddItemToArray(polyline, end);
+
+    // The embedded items were generated from a straight start->end corridor, so
+    // the saved polyline matches them exactly.
+    cJSON_AddItemToObject(item, "TransectStyleComplexItem",
+                          transect_style_complex_item_json(spec, items));
+    return item;
+}
+
+bool survey_entity_to_qgc_complex_item(const MissionEntity& entity,
+                                       const std::vector<MissionItem>& items,
+                                       cJSON** out,
+                                       std::string& fallback_reason) {
+    *out = nullptr;
+    fallback_reason.clear();
+    if (items.empty()) {
+        fallback_reason = "expanded mission items are empty";
+        return false;
+    }
+    if (entity.type == "corridor") {
+        *out = corridor_complex_item_json(entity, items, fallback_reason);
+    } else {
+        *out = survey_complex_item_json(entity, items, fallback_reason);
+    }
+    if (!*out) {
+        if (fallback_reason.empty()) fallback_reason = "failed to build complex item";
+        return false;
+    }
+    return true;
+}
+
+std::vector<MissionEntity> expanded_items_to_entities(
+    const std::vector<MissionItem>& items) {
+    std::vector<MissionEntity> entities;
+    entities.reserve(items.size());
+    for (size_t index = 0; index < items.size(); ++index) {
+        const MissionItem& item = items[index];
+        MissionEntity entity;
+        entity.id = "expanded-item-" + std::to_string(index + 1);
+        entity.type = mission_entity_type_for_command(item.command);
+        entity.command = item.command;
+        entity.frame = item.frame;
+        entity.autocontinue = item.autocontinue;
+        entity.order = static_cast<uint32_t>(index);
+        entity.params[0] = item.param1;
+        entity.params[1] = item.param2;
+        entity.params[2] = item.param3;
+        entity.params[3] = item.param4;
+        entity.latitude = item.x / 1e7;
+        entity.longitude = item.y / 1e7;
+        entity.altitude_m = item.z;
+        entities.push_back(std::move(entity));
+    }
+    return entities;
 }
 
 void add_rally_points(cJSON* root,
@@ -435,15 +669,25 @@ std::string export_qgc_plan_json(
     warnings.clear();
 
     for (const MissionEntity& entity : document.entities) {
-        if (is_parameterized_survey_type(entity.type)) {
-            error = "QGC .plan export cannot represent parameterized survey entity: " +
-                    entity.id;
-            return {};
-        }
         if (!entity.enabled) {
             error = "QGC .plan export cannot represent disabled mission entity: " +
                     entity.id;
             return {};
+        }
+        if (is_parameterized_survey_type(entity.type)) {
+            if (entity.type == "survey_grid" && entity.survey.cross_grid) {
+                add_warning(
+                    warnings,
+                    "survey entity " + entity.id +
+                        " uses a cross grid; QGC Survey cannot reproduce the "
+                        "second pass from its single grid angle");
+            }
+            add_warning(
+                warnings,
+                "survey entity " + entity.id +
+                    " is exported as a QGC complex item; editing its parameters "
+                    "in QGC regenerates the path with QGC geometry");
+            continue;
         }
         if (!entity.label.empty() || !entity.notes.empty()) {
             add_warning(
@@ -541,6 +785,56 @@ std::string export_qgc_plan_json(
     for (size_t index = 0; index < entity_count; ++index) {
         if (!emit_complex_before(index)) return {};
         const MissionEntity& entity = document.entities[index];
+
+        if (is_parameterized_survey_type(entity.type)) {
+            const SurveyResult expanded = detail::expand_survey_entity(entity);
+            cJSON* complex_json = nullptr;
+            std::string fallback_reason;
+            if (!expanded.valid ||
+                !survey_entity_to_qgc_complex_item(
+                    entity, expanded.items, &complex_json, fallback_reason)) {
+                // Never drop the task: degrade to the expanded SimpleItems and
+                // record why the editable ComplexItem could not be built.
+                std::vector<MissionEntity> simple =
+                    expanded_items_to_entities(expanded.items);
+                if (simple.empty()) {
+                    error = "failed to expand survey entity " + entity.id +
+                            ": " + (fallback_reason.empty()
+                                        ? expanded.error
+                                        : fallback_reason);
+                    return {};
+                }
+                add_warning(
+                    warnings,
+                    "survey entity " + entity.id +
+                        " was exported as expanded simple items (" +
+                        (fallback_reason.empty() ? expanded.error
+                                                 : fallback_reason) +
+                        "); QGC will not show it as an editable Survey");
+                for (const MissionEntity& expanded_entity : simple) {
+                    cJSON* item = cJSON_CreateObject();
+                    cJSON_AddStringToObject(item, "type", "SimpleItem");
+                    cJSON_AddNumberToObject(item, "frame", expanded_entity.frame);
+                    cJSON_AddNumberToObject(item, "command", expanded_entity.command);
+                    cJSON_AddBoolToObject(
+                        item, "autoContinue", expanded_entity.autocontinue != 0);
+                    cJSON_AddNumberToObject(item, "doJumpId", sequence++);
+                    cJSON* params = cJSON_AddArrayToObject(item, "params");
+                    for (float value : expanded_entity.params) {
+                        cJSON_AddItemToArray(params, cJSON_CreateNumber(value));
+                    }
+                    add_number_or_null(params, expanded_entity.latitude);
+                    add_number_or_null(params, expanded_entity.longitude);
+                    add_number_or_null(params, expanded_entity.altitude_m);
+                    cJSON_AddItemToArray(items, item);
+                }
+                continue;
+            }
+            cJSON_AddNumberToObject(complex_json, "doJumpId", sequence++);
+            cJSON_AddItemToArray(items, complex_json);
+            continue;
+        }
+
         cJSON* item = cJSON_CreateObject();
         cJSON_AddStringToObject(item, "type", "SimpleItem");
         cJSON_AddNumberToObject(item, "frame", entity.frame);

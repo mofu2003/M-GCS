@@ -44,6 +44,10 @@ ILink
 协议实现位于 `core/src/mavlink/` 的独立 `.cc` 文件中。拆分冻结了公共 FFI 和消息
 语义，不改变生成代码、JSON、发送顺序或回调时序。
 
+TCP/UDP 读线程由共享 `ReadState` 持有 socket、回调和结束条件，链路对象不会在读线程
+尚未退出时被提前析构。ConnectionManager 的 reset 会把阻塞关闭放在锁外，GCS 心跳也
+只复制共享引用后在锁外发送。
+
 ### Vehicle
 
 `Vehicle` 组合连接、飞行模式、校准、日志、遥测缓存、波形、围栏和载荷能力。
@@ -84,6 +88,8 @@ Flutter 通过 `ConnectionController` 作为状态门面绑定 FFI。任务文�
 校准和飞行命令已经分别由 `MissionDocumentFfiBackend`、`TelemetryFfiBackend`、
 `ParameterFfiBackend`、`CalibrationFfiBackend` 和 `FlightCommandFfiBackend`
 持有动态符号绑定；控制器继续负责生命周期、轮询、状态收敛和 `notifyListeners()`。
+任务文档控制器绑定当前 native session；active vehicle 或 session 改变后必须先重新读取
+或创建任务，避免跨飞控误上传。
 地图坐标按地图源在 GCJ-02 与 WGS-84 之间转换。任务面板使用
 `MissionDocumentController`；命令下拉和参数表单来自后端命令目录。UI 统一使用
 `MgColors`、`MgTypography`、`MgMetrics` 和 `MgFonts`。
