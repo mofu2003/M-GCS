@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.0.65 - 2026-10-02
+
+### Added
+
+- 地图上新增「飞机 → Home」虚线，并在连线中点显示距离（`距 Home 1.01 km`）。距离用
+  WGS-84 计算，与任务航段一致；样式刻意和任务航线区分：更细、点划更密、成功色。
+  飞机离 Home 不足 5 m 时不画——此时连线长度为零，标签只会压住飞机和 Home 图标。
+
+### Verification
+
+- 复用地图既有的虚线绘制（`StrokePattern.dashed`）与距离标签（`_DistanceLabel`）路径，
+  与用户已确认可用的任务航段距离标注同源。
+- Flutter analyze 无问题、测试 `23/23` 通过；UI token 检查与 macOS debug 构建通过；
+  完整 `tools/preflight.sh` 通过。
+
 ## 0.0.64 - 2026-10-02
 
 ### Added

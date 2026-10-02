@@ -514,6 +514,75 @@ class _AMapMapViewState extends State<AMapMapView> {
     return labels;
   }
 
+  /// 飞机到 Home 的虚线。
+  ///
+  /// 距离用 WGS-84 算（和任务航段一致），只有显示用的坐标才走瓦片坐标系换算。
+  /// 样式刻意和任务航线不同：更细、点划更密、成功色。
+  /// 贴地时飞机就在 Home 上，零长度连线只会让标签压住图标，所以低于
+  /// [kHomeLineMinDistanceMeters] 不画。
+  static const double kHomeLineMinDistanceMeters = 5.0;
+
+  bool _homeLineVisible() {
+    final connection = widget.connectionController;
+    final home = connection.homePosition;
+    final fix = connection.vehiclePosition;
+    if (!connection.homePositionValid || home == null) return false;
+    if (!connection.vehiclePositionValid || fix == null) return false;
+    return wgs84DistanceMeters(
+          LatLng(fix.latitude, fix.longitude),
+          LatLng(home.latitude, home.longitude),
+        ) >=
+        kHomeLineMinDistanceMeters;
+  }
+
+  List<Polyline> _buildHomeLine(BuildContext context) {
+    final connection = widget.connectionController;
+    final home = connection.homePosition;
+    final fix = connection.vehiclePosition;
+    if (!_homeLineVisible() || home == null || fix == null) return const [];
+    final colors = context.mgColors;
+    return [
+      Polyline(
+        points: [
+          _toTileFrame(fix.latitude, fix.longitude),
+          _toTileFrame(home.latitude, home.longitude),
+        ],
+        color: colors.success.withValues(alpha: 0.72),
+        strokeWidth: 1.6,
+        pattern: StrokePattern.dashed(segments: const [5, 5]),
+      ),
+    ];
+  }
+
+  /// 飞机到 Home 的距离标签，放在连线中点。
+  List<Marker> _buildHomeDistanceLabel(BuildContext context) {
+    final connection = widget.connectionController;
+    final home = connection.homePosition;
+    final fix = connection.vehiclePosition;
+    if (!_homeLineVisible() || home == null || fix == null) return const [];
+    final start = _toTileFrame(fix.latitude, fix.longitude);
+    final end = _toTileFrame(home.latitude, home.longitude);
+    final distance = wgs84DistanceMeters(
+      LatLng(fix.latitude, fix.longitude),
+      LatLng(home.latitude, home.longitude),
+    );
+    return [
+      Marker(
+        point: LatLng(
+          (start.latitude + end.latitude) / 2,
+          (start.longitude + end.longitude) / 2,
+        ),
+        width: 120,
+        height: 22,
+        child: IgnorePointer(
+          child: _DistanceLabel(
+            text: '距 Home ${formatMissionDistance(distance)}',
+          ),
+        ),
+      ),
+    ];
+  }
+
   /// 编辑已有航点：与地图单击新增走同一个编辑框。
   Future<void> _editEntity(
     MissionDocumentController mission,
@@ -567,13 +636,18 @@ class _AMapMapViewState extends State<AMapMapView> {
             // 位置每 100ms 更新一次，只重画标记层，不重建整张地图。
             AnimatedBuilder(
               animation: _markerSources,
-              builder: (context, _) =>
-                  PolylineLayer(polylines: _buildMissionRouteLines(context)),
+              builder: (context, _) => PolylineLayer(
+                polylines: [
+                  ..._buildHomeLine(context),
+                  ..._buildMissionRouteLines(context),
+                ],
+              ),
             ),
             AnimatedBuilder(
               animation: _markerSources,
               builder: (context, _) => MarkerLayer(
                 markers: [
+                  ..._buildHomeDistanceLabel(context),
                   ..._buildMissionDistanceLabels(context),
                   ..._buildMarkers(context, context.mgColors),
                 ],
