@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.61 - 2026-10-02
+
+### Fixed
+
+- 飞行模式操作台改用与航线规划面板一致的外框（`surfaceMuted` + `panelRadius` +
+  分隔线 + 投影 + 标题栏 + 关闭按钮），不再是一个裸列表面板。
+- 修正摆放位置：原来固定 `top:16, left:70`，正好盖在飞行遥测悬浮窗上。现在放在左侧
+  空带（遥测条下方、连接面板上方），并按连接面板是否展开动态让位，三个浮层可同时打开
+  且互不遮挡。
+- 修正面板内部布局：模式列表所在的 `Expanded` 之前拿到无界高度约束，热重载时抛
+  `RenderFlex ... unbounded height`。改为由 `Positioned` 的 top/bottom 给出紧约束。
+
+### Verification
+
+- 热重载后无渲染异常；Flutter analyze 无问题、测试 `22/22` 通过。
+- UI token 检查与 macOS debug 构建通过；完整 `tools/preflight.sh` 通过。
+
 ## 0.0.60 - 2026-10-02
 
 ### Added

@@ -689,10 +689,12 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           ),
         if (_showFlightModePanel)
-          // 左上角悬浮，和右下角的连接面板、右侧的航线规划互不遮挡，可以同时开着。
+          // 左侧空带：上方让开飞行遥测条，下方按连接面板是否打开让位。
+          // top/bottom 同时给出紧约束，面板内部才能用 Expanded 撑满并滚动。
           Positioned(
             left: 70,
-            top: 16,
+            top: 170,
+            bottom: _showConnectionPanel ? 330 : 90,
             child: FlightModeFloatingPanel(
               controller: widget.connectionController,
               onClose: () => setState(() => _showFlightModePanel = false),
