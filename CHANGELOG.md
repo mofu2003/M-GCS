@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.69 - 2026-10-03
+
+### Fixed
+
+- 修复「解锁按钮点了没反应」。确认弹窗的 `primaryButton` 之前 `pop(singleAction)`，
+  而 `singleAction` 默认 `false`——于是点弹窗里的「解锁」被当成"没确认"，`_toggleArmed`
+  直接 return，解锁命令从未发出。现在确认键固定返回 `true`，`singleAction` 只用来决定
+  是否显示取消按钮。
+- 该 bug 同时解释了"消息栏没有输出"：命令没发出去，飞控自然不会回 `Throttle armed`
+  之类的 STATUSTEXT，消息框没内容可显示。修好后解锁成功，消息也随出现了。
+
+### Verification
+
+- 用界面自动化走完整流程验证：点击「解锁」→ 弹窗出现 → 点弹窗「解锁」→ 飞控解锁，
+  面板出现「已解锁」徽标、按钮变为「上锁」。
+- 同一流程下打开消息框，标题旁显示 `6` 条消息并列出时间戳（含解锁产生的
+  `Throttle armed`），确认消息链路正常。
+- Flutter analyze 无问题、测试 `23/23`；UI token 与 macOS debug 构建通过；
+  完整 `tools/preflight.sh` 通过。
+
 ## 0.0.68 - 2026-10-02
 
 ### Added

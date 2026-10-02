@@ -114,17 +114,22 @@ class _FlightModeFloatingPanelState extends State<FlightModeFloatingPanel> {
         ),
         title: Text(title),
         message: Text(message),
+        // 确认键永远返回 true；之前这里 pop 的是 singleAction（默认 false），
+        // 导致在弹窗里点「解锁」被当成"没确认"，命令根本发不出去。
         primaryButton: PushButton(
           controlSize: ControlSize.large,
-          onPressed: () => Navigator.of(dialogContext).pop(singleAction),
+          onPressed: () => Navigator.of(dialogContext).pop(true),
           child: Text(confirmLabel),
         ),
-        secondaryButton: PushButton(
-          controlSize: ControlSize.large,
-          secondary: true,
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('取消'),
-        ),
+        // 单按钮提示（错误弹窗）不需要取消。
+        secondaryButton: singleAction
+            ? null
+            : PushButton(
+                controlSize: ControlSize.large,
+                secondary: true,
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('取消'),
+              ),
       ),
     );
     return result ?? false;
