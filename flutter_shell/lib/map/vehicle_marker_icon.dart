@@ -6,22 +6,19 @@ import '../connection/connection_controller.dart';
 
 /// 本机在地图上的机型剪影。
 ///
-/// 取代原先"圆形徽标 + 纸飞机图标"的画法：多旋翼画交叉机臂 + 四个桨盘，固定翼画
-/// 机身 + 后掠翼 + 尾翼，VTOL 在固定翼剪影上叠四个桨盘。MP / QGC 的地图标记也是按
-/// 机型画对应剪影，而不是所有机型共用一个箭头。
-enum VehicleMarkerKind { multirotor, fixedWing, vtol, rover, unknown }
+/// 只区分两类：多旋翼（交叉机臂 + 四个桨盘）与固定翼（机身 + 后掠翼 + 尾翼）。
+/// VTOL 按固定翼画——它就是带升力桨的飞机；地面车辆等其它机型也回退到固定翼。
+enum VehicleMarkerKind { multirotor, fixedWing }
 
 /// 由控制档位（固件/机型归类）与 MAV_TYPE 决定剪影种类。
 ///
-/// MAV_TYPE 取值来自官方 MAVLink 定义：1 固定翼、2/3/13/14/15/16 多旋翼族、
-/// 4 直升机、10/11 地面车辆、19–25 VTOL 族。
+/// MAV_TYPE 取值来自官方 MAVLink 定义：2/3/13/14/15/16 是多旋翼族（含共轴、三/六/八轴），
+/// 4 直升机；其余（1 固定翼、19–25 VTOL、10/11 地面车辆）统一按固定翼画。
 VehicleMarkerKind vehicleMarkerKindFor(
   VehicleControlProfile profile,
   int mavType,
 ) {
   switch (mavType) {
-    case 1:
-      return VehicleMarkerKind.fixedWing;
     case 2:
     case 3:
     case 4:
@@ -30,24 +27,11 @@ VehicleMarkerKind vehicleMarkerKindFor(
     case 15:
     case 16:
       return VehicleMarkerKind.multirotor;
-    case 10:
-    case 11:
-      return VehicleMarkerKind.rover;
-    case 19:
-    case 20:
-    case 21:
-    case 22:
-    case 23:
-    case 24:
-    case 25:
-      return VehicleMarkerKind.vtol;
   }
-  return switch (profile) {
-    VehicleControlProfile.fixedWing => VehicleMarkerKind.fixedWing,
-    VehicleControlProfile.planeVtol => VehicleMarkerKind.vtol,
-    VehicleControlProfile.copter => VehicleMarkerKind.multirotor,
-    VehicleControlProfile.unknown => VehicleMarkerKind.unknown,
-  };
+  if (mavType != 0) return VehicleMarkerKind.fixedWing;
+  return profile == VehicleControlProfile.copter
+      ? VehicleMarkerKind.multirotor
+      : VehicleMarkerKind.fixedWing;
 }
 
 /// 按机型剪影绘制本机标记，并按航向旋转（剪影默认朝正北）。
@@ -75,9 +59,6 @@ class VehicleMarkerIcon extends StatelessWidget {
     final painter = switch (kind) {
       VehicleMarkerKind.multirotor => _MultirotorPainter(fill, outline),
       VehicleMarkerKind.fixedWing => _FixedWingPainter(fill, outline),
-      VehicleMarkerKind.vtol => _VtolPainter(fill, outline),
-      VehicleMarkerKind.rover => _RoverPainter(fill, outline),
-      VehicleMarkerKind.unknown => _FixedWingPainter(fill, outline),
     };
     final heading = headingDegrees;
     final body = CustomPaint(painter: painter, size: Size.infinite);
@@ -150,7 +131,6 @@ class _MultirotorPainter extends _VehiclePainter {
       Offset(21, 76),
       Offset(79, 76),
     ];
-    // 机臂：中心到四个桨盘。
     for (final rotor in rotors) {
       canvas.drawLine(
         const Offset(50, 50),
@@ -228,60 +208,6 @@ class _FixedWingPainter extends _VehiclePainter {
       ..lineTo(42, 30)
       ..close();
     _finish(canvas, plane);
-    canvas.restore();
-  }
-}
-
-class _VtolPainter extends _VehiclePainter {
-  const _VtolPainter(super.fill, super.outline);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    _FixedWingPainter(fill, outline).paint(canvas, size);
-
-    final scale = math.min(size.width, size.height) / 100.0;
-    canvas.save();
-    canvas.translate(
-      (size.width - 100 * scale) / 2,
-      (size.height - 100 * scale) / 2,
-    );
-    canvas.scale(scale);
-    // 四个升力桨盘叠在翼面上，和 VTOL 的实际构型一致。
-    for (final rotor in const <Offset>[
-      Offset(30, 44),
-      Offset(70, 44),
-      Offset(30, 66),
-      Offset(70, 66),
-    ]) {
-      _circle(canvas, rotor, 11);
-    }
-    canvas.restore();
-  }
-}
-
-class _RoverPainter extends _VehiclePainter {
-  const _RoverPainter(super.fill, super.outline);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final scale = math.min(size.width, size.height) / 100.0;
-    canvas.save();
-    canvas.translate(
-      (size.width - 100 * scale) / 2,
-      (size.height - 100 * scale) / 2,
-    );
-    canvas.scale(scale);
-    final body = Path()
-      ..addRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(center: const Offset(50, 50), width: 46, height: 74),
-          const Radius.circular(10),
-        ),
-      );
-    _finish(canvas, body);
-    for (final axle in const [Offset(20, 34), Offset(20, 66), Offset(80, 34), Offset(80, 66)]) {
-      _circle(canvas, axle, 9);
-    }
     canvas.restore();
   }
 }
