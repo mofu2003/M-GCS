@@ -333,8 +333,8 @@ class _CurrentModeHeader extends StatelessWidget {
   String get _displayMode {
     final base = mode.isEmpty ? '—' : mode;
     return switch (vtolState) {
-      1 => '$base · 转换到固定翼',
-      2 => '$base · 转换到多旋翼',
+      1 => '$base · 正在转换为固定翼',
+      2 => '$base · 正在转换为多旋翼',
       3 => '$base · MC',
       4 => '$base · FW',
       _ => base,

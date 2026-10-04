@@ -90,6 +90,8 @@ Flutter 通过 `ConnectionController` 作为状态门面绑定 FFI。任务文�
 持有动态符号绑定；控制器继续负责生命周期、轮询、状态收敛和 `notifyListeners()`。
 任务文档控制器绑定当前 native session；active vehicle 或 session 改变后必须先重新读取
 或创建任务，避免跨飞控误上传。
+地图上的飞行仪表盘使用现有遥测轮询数据做只读展示，紧凑条与展开网格共用同一状态源；
+引导目标由 GCS 本地记录显示状态，不参与任务上传或飞控控制。
 地图坐标按地图源在 GCJ-02 与 WGS-84 之间转换。任务面板使用
 `MissionDocumentController`；命令下拉和参数表单来自后端命令目录。UI 统一使用
 `MgColors`、`MgTypography`、`MgMetrics` 和 `MgFonts`。

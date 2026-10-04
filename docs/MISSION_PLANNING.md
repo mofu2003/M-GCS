@@ -87,6 +87,10 @@ Flutter 的 `MissionDocumentController` 绑定当前连接 session。连接飞�
 本地任务不会被静默当成 B 的任务；必须先从 B 读取任务，或在 B 上创建新任务。
 `mg_operations_cancel("mission")` 仍是任务传输的显式取消入口。
 
+Flutter 在执行“移动到此处”成功后，会在地图上保留一个 GCS 本地的引导目标图标，
+并在仪表盘显示目标坐标和距离；该图标只用于操作提示，不改变 MissionDocument，
+也不参与任务上传。
+
 ArduPilot 启动任务遵循 QGC 的机型分类：真正固定翼在地面先进入 AUTO 再解锁；
 多旋翼和 VTOL 先进入 GUIDED，解锁后发送 `MISSION_START`。VTOL 不能因为固件属于
 Plane 就当作 QGC `Vehicle::fixedWing()`。

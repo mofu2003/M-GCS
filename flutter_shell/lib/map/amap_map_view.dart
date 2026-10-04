@@ -331,6 +331,25 @@ class _AMapMapViewState extends State<AMapMapView> {
         ),
       );
     }
+    final guidedTarget = connection.guidedTargetPosition;
+    if (connection.guidedTargetValid && guidedTarget != null) {
+      markers.add(
+        Marker(
+          point: _toTileFrame(
+            guidedTarget.latitude,
+            guidedTarget.longitude,
+          ),
+          width: 34,
+          height: 34,
+          child: _MapMarker(
+            icon: CupertinoIcons.placemark,
+            fill: colors.surface,
+            border: colors.warning,
+            iconColor: colors.warning,
+          ),
+        ),
+      );
+    }
     final fix = connection.vehiclePosition;
     if (connection.vehiclePositionValid && fix != null) {
       markers.add(
@@ -671,11 +690,9 @@ class _AMapMapViewState extends State<AMapMapView> {
                       math.max(260.0, constraints.maxWidth - rightInset),
                     )
                   : 680.0;
-              return IgnorePointer(
-                child: FlightTelemetryOverlay(
-                  controller: widget.connectionController,
-                  maxWidth: maxWidth,
-                ),
+              return FlightTelemetryOverlay(
+                controller: widget.connectionController,
+                maxWidth: maxWidth,
               );
             },
           ),

@@ -460,6 +460,11 @@ final class ConnectionController extends ChangeNotifier {
   /// 0=undefined, 1=transition_to_fw, 2=transition_to_mc, 3=MC, 4=FW.
   int vehicleVtolState = 0;
 
+  /// Last accepted guided "move to here" target. This is display state only;
+  /// it does not change mission or guided command logic.
+  VehicleFix? guidedTargetPosition;
+  bool guidedTargetValid = false;
+
   /// QGC `Vehicle::flying` 的等价判断，外加 ArduPilot VTOL 的兼容回退。
   ///
   /// ArduPlane 在 QuadPlane 垂直起飞阶段可能仍上报 landed_state=ON_GROUND，
@@ -1398,6 +1403,14 @@ final class ConnectionController extends ChangeNotifier {
       ),
       '移动到此处',
     );
+    guidedTargetPosition = VehicleFix(
+      latitude: latitude,
+      longitude: longitude,
+      altitudeMeters: altitudeMeters,
+    );
+    guidedTargetValid = true;
+    _notifyTelemetryChanges();
+    notifyListeners();
   }
 
   Future<void> guidedReturnToLaunch() async {
@@ -2552,6 +2565,8 @@ final class ConnectionController extends ChangeNotifier {
     homePositionValid = false;
     vehicleLandedState = 0;
     vehicleVtolState = 0;
+    guidedTargetPosition = null;
+    guidedTargetValid = false;
     serialHardwareMappings.clear();
     serialHardwareMappingLoading = false;
     serialHardwareMappingError = null;
