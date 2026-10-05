@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
@@ -17,7 +16,6 @@ import '../mission/mission_document_controller.dart';
 import '../mission/mission_document_models.dart';
 import '../mission/mission_geo.dart';
 import '../mission/mission_planning_panel.dart';
-import 'flight_telemetry_overlay.dart';
 import 'gcj_coordinates.dart';
 import 'vehicle_marker_icon.dart';
 import 'map_preferences.dart';
@@ -125,6 +123,7 @@ class _AMapMapViewState extends State<AMapMapView> {
 
   /// 偏好读完之前不写盘，否则会把默认值覆盖掉用户上次的选择。
   bool _preferencesLoaded = false;
+
   /// 本会话是否已经因为首次定位移动过视角。
   bool _centeredOnVehicle = false;
   Timer? _saveTimer;
@@ -335,10 +334,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     if (connection.guidedTargetValid && guidedTarget != null) {
       markers.add(
         Marker(
-          point: _toTileFrame(
-            guidedTarget.latitude,
-            guidedTarget.longitude,
-          ),
+          point: _toTileFrame(guidedTarget.latitude, guidedTarget.longitude),
           width: 34,
           height: 34,
           child: _MapMarker(
@@ -675,27 +671,6 @@ class _AMapMapViewState extends State<AMapMapView> {
               ),
             ),
           ],
-        ),
-        Positioned(
-          top: 16,
-          left: 70,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final rightInset = _showMissionPlanning
-                  ? kMissionPanelWidth + 36
-                  : 18;
-              final maxWidth = constraints.maxWidth.isFinite
-                  ? math.min(
-                      680.0,
-                      math.max(260.0, constraints.maxWidth - rightInset),
-                    )
-                  : 680.0;
-              return FlightTelemetryOverlay(
-                controller: widget.connectionController,
-                maxWidth: maxWidth,
-              );
-            },
-          ),
         ),
         Positioned(
           right: 18,

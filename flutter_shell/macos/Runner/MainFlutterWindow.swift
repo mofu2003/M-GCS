@@ -10,6 +10,8 @@ class MainFlutterWindow: NSWindow {
 
     super.awakeFromNib()
 
+    self.title = "M-GCS"
+
     // Slightly tighten the Flutter window content corners while keeping the
     // native macOS window frame and traffic-light controls unchanged.
     self.contentView?.wantsLayer = true

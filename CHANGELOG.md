@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.0.74 - 2026-10-06
+
+### Added
+
+- 新增 QGC 风格主页面顶部状态栏：集中显示连接/待命/解锁/飞行状态、飞行模式、
+  VTOL 模式、GPS 星数与定位类型、电池百分比/电压和链路类型。
+- macOS 标题栏改为真正的原生 `NSWindow` 标题栏，标题文字显示为 `M-GCS`。
+
+### Changed
+
+- macOS 窗口恢复原生不透明标题栏，内容区从标题栏下方开始；移除配置页为透明
+  full-size 标题栏预留的额外高度。
+
+### Removed
+
+- 删除地图上的旧矩形飞行仪表盘，避免与顶部状态栏重复显示同类状态。
+
+### Verification
+
+- `flutter analyze lib test` 通过，Flutter `26/26` 测试通过，macOS debug 构建通过。
+- 后端 offline/simulation 门禁通过。
+
 ## 0.0.73 - 2026-10-05
 
 ### Added

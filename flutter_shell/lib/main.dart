@@ -8,10 +8,18 @@ import 'connection/connection_controller.dart';
 import 'configuration_workspace.dart';
 import 'map/amap_map_view.dart';
 import 'theme/mg_typography.dart';
+import 'widgets/mg_top_status_bar.dart';
 
 Future<void> main() async {
   if (!kIsWeb && Platform.isMacOS) {
-    await const MacosWindowUtilsConfig().apply();
+    WidgetsFlutterBinding.ensureInitialized();
+    await WindowManipulator.initialize(enableWindowDelegate: true);
+    await WindowManipulator.setMaterial(
+      NSVisualEffectViewMaterial.windowBackground,
+    );
+    await WindowManipulator.disableFullSizeContentView();
+    await WindowManipulator.makeTitlebarOpaque();
+    await WindowManipulator.showTitle();
   }
   runApp(const MgcsApp());
 }
@@ -57,13 +65,29 @@ class _MapPageState extends State<MapPage> {
     }
 
     return MacosWindow(
-      child: MacosScaffold(
+      child: Column(
         children: [
-          ContentArea(
-            builder: (context, _) => AMapMapView(
-              connectionController: _connectionController,
-              onOpenConfiguration: () =>
-                  setState(() => _showConfiguration = true),
+          AnimatedBuilder(
+            animation: Listenable.merge([
+              _connectionController.connectionChanges,
+              _connectionController.telemetryChanges,
+              _connectionController.profileChanges,
+            ]),
+            builder: (context, _) => MgTopStatusBar(
+              data: MgTopStatusData.fromController(_connectionController),
+            ),
+          ),
+          Expanded(
+            child: MacosScaffold(
+              children: [
+                ContentArea(
+                  builder: (context, _) => AMapMapView(
+                    connectionController: _connectionController,
+                    onOpenConfiguration: () =>
+                        setState(() => _showConfiguration = true),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

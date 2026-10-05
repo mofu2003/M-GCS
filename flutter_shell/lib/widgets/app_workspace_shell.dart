@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../theme/mg_colors.dart';
@@ -73,11 +71,9 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = _collapsed || constraints.maxWidth < 720;
-        final topInset = Platform.isMacOS ? 28.0 : 0.0;
         return Material(
           color: colors.workspace,
           child: SafeArea(
-            top: !Platform.isMacOS,
             child: Row(
               children: [
                 SizedBox(
@@ -89,7 +85,7 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        SizedBox(height: topInset + 46),
+                        const SizedBox(height: 46),
                         // 折叠按钮是这里唯一的控件：展开时也把它放在与导航图标
                         // 同一条竖轴上，收起时随侧栏整体居中。
                         Row(
@@ -129,8 +125,8 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
                   child: Column(
                     children: [
                       Container(
-                        height: topInset + MgMetrics.toolbarHeight,
-                        padding: EdgeInsets.fromLTRB(24, topInset, 12, 0),
+                        height: MgMetrics.toolbarHeight,
+                        padding: const EdgeInsets.fromLTRB(24, 0, 12, 0),
                         decoration: BoxDecoration(
                           color: colors.toolbar,
                           border: Border(

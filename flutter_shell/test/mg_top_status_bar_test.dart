@@ -1,0 +1,74 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:macos_ui/macos_ui.dart';
+import 'package:mgcs_frontend/widgets/mg_top_status_bar.dart';
+
+void main() {
+  Future<void> show(WidgetTester tester, MgTopStatusData data) async {
+    tester.view.physicalSize = const Size(1200, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MacosTheme(
+        data: MacosThemeData.light(),
+        child: MaterialApp(
+          home: Scaffold(body: MgTopStatusBar(data: data)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('top status bar shows the disconnected state without values', (
+    tester,
+  ) async {
+    await show(
+      tester,
+      const MgTopStatusData(
+        connected: false,
+        armed: false,
+        flying: false,
+        flightMode: '',
+        vtolState: 0,
+        gpsFixType: null,
+        satellitesVisible: null,
+        batteryRemainingPercent: null,
+        batteryVoltage: null,
+        transportLabel: '串口',
+      ),
+    );
+
+    expect(find.text('未连接'), findsNWidgets(2));
+    expect(find.text('—'), findsNWidgets(3));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('top status bar mirrors the active vehicle state', (
+    tester,
+  ) async {
+    await show(
+      tester,
+      const MgTopStatusData(
+        connected: true,
+        armed: true,
+        flying: true,
+        flightMode: 'AUTO',
+        vtolState: 4,
+        gpsFixType: 3,
+        satellitesVisible: 16,
+        batteryRemainingPercent: 78,
+        batteryVoltage: 12.6,
+        transportLabel: '串口',
+      ),
+    );
+
+    expect(find.text('飞行中'), findsOneWidget);
+    expect(find.text('AUTO · FW'), findsOneWidget);
+    expect(find.text('16'), findsOneWidget);
+    expect(find.text('78'), findsOneWidget);
+    expect(find.text('串口'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+}
