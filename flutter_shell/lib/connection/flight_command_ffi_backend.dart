@@ -20,9 +20,13 @@ final class FlightCommandFfiBackend {
     _setMode = _lookupMode('mg_command_set_mode');
     _missionStart = _lookup1('mg_mission_start');
     _guidedPause = _lookup1('mg_command_guided_pause');
+    _changeAltitude = _lookupChangeAltitude('mg_command_change_altitude');
     _setHome = _lookupHome('mg_command_set_home');
     _guidedPoint = _lookupGuidedPoint('mg_command_guided_point');
     _orbit = _lookup2('mg_command_orbit');
+    _setRoi = _lookupRoi('mg_command_set_roi');
+    _changeHeading = _lookupChangeHeading('mg_command_change_heading');
+    _setGlobalOrigin = _lookupGlobalOrigin('mg_command_set_global_origin');
   }
 
   final DynamicLibrary _library;
@@ -37,6 +41,7 @@ final class FlightCommandFfiBackend {
   late final Pointer<Utf8> Function(Pointer<Void>, int, int) _setMode;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionStart;
   late final Pointer<Utf8> Function(Pointer<Void>) _guidedPause;
+  late final Pointer<Utf8> Function(Pointer<Void>, double) _changeAltitude;
   late final Pointer<Utf8> Function(Pointer<Void>, double, double, double)
   _setHome;
   late final Pointer<Utf8> Function(
@@ -49,6 +54,12 @@ final class FlightCommandFfiBackend {
   )
   _guidedPoint;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _orbit;
+  late final Pointer<Utf8> Function(Pointer<Void>, double, double, double)
+  _setRoi;
+  late final Pointer<Utf8> Function(Pointer<Void>, double, double, int)
+  _changeHeading;
+  late final Pointer<Utf8> Function(Pointer<Void>, double, double, double)
+  _setGlobalOrigin;
 
   Pointer<Utf8> Function(Pointer<Void>) _lookup1(String symbol) => _library
       .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(symbol)
@@ -62,10 +73,23 @@ final class FlightCommandFfiBackend {
       >(symbol)
       .asFunction();
 
-  Pointer<Utf8> Function(Pointer<Void>, double) _lookupTakeoff(
+  /// C 侧是 `float altitude_m`，必须绑 `Float`。
+  ///
+  /// 用 `Double` 会把 64 位双精度按位塞进 32 位 float 槽位：45.1 会被读成
+  /// -1.07e8，ArduPilot 直接判坐标非法（MAV_RESULT_DENIED）；15/30/100 这种
+  /// 整数会被读成 0，起飞高度静默失效。float 参数一律用 `Float`。
+  Pointer<Utf8> Function(Pointer<Void>, double) _lookupTakeoff(String symbol) =>
+      _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Float)>>(
+            symbol,
+          )
+          .asFunction();
+
+  /// C 侧是 `float altitude_change_m`，必须绑 `Float`。
+  Pointer<Utf8> Function(Pointer<Void>, double) _lookupChangeAltitude(
     String symbol,
   ) => _library
-      .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Double)>>(
+      .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Float)>>(
         symbol,
       )
       .asFunction();
@@ -84,16 +108,19 @@ final class FlightCommandFfiBackend {
           >(symbol)
           .asFunction();
 
+  /// C 侧是 `(double lat, double lon, float alt_m)`：只有高度是 float。
   Pointer<Utf8> Function(Pointer<Void>, double, double, double) _lookupHome(
     String symbol,
   ) => _library
       .lookup<
         NativeFunction<
-          Pointer<Utf8> Function(Pointer<Void>, Double, Double, Double)
+          Pointer<Utf8> Function(Pointer<Void>, Double, Double, Float)
         >
       >(symbol)
       .asFunction();
 
+  /// C 侧是 `(double lat, double lon, float alt, float yaw, float speed)`：
+  /// 经纬度是 double，高度/航向/速度都是 float。
   Pointer<Utf8> Function(Pointer<Void>, double, double, double, double, double)
   _lookupGuidedPoint(String symbol) => _library
       .lookup<
@@ -102,9 +129,9 @@ final class FlightCommandFfiBackend {
             Pointer<Void>,
             Double,
             Double,
-            Double,
-            Double,
-            Double,
+            Float,
+            Float,
+            Float,
           )
         >
       >(symbol)
@@ -128,6 +155,10 @@ final class FlightCommandFfiBackend {
 
   Map<String, Object?> guidedPause() => _read(_guidedPause(_core));
 
+  /// `altitudeChangeMeters` 为正表示上升（QGC 同）。
+  Map<String, Object?> changeAltitude(double altitudeChangeMeters) =>
+      _read(_changeAltitude(_core, altitudeChangeMeters));
+
   Map<String, Object?> setHome(
     double latitude,
     double longitude,
@@ -150,6 +181,56 @@ final class FlightCommandFfiBackend {
       speedMetersPerSecond,
     ),
   );
+
+  Pointer<Utf8> Function(Pointer<Void>, double, double, double) _lookupRoi(
+    String symbol,
+  ) => _library
+      .lookup<
+        NativeFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Double, Double, Float)
+        >
+      >(symbol)
+      .asFunction();
+
+  /// C 侧 `(float heading_deg, float yaw_rate_dps, int direction)`。
+  Pointer<Utf8> Function(Pointer<Void>, double, double, int)
+  _lookupChangeHeading(String symbol) => _library
+      .lookup<
+        NativeFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Float, Float, Int32)
+        >
+      >(symbol)
+      .asFunction();
+
+  /// C 侧 `(double lat, double lon, float alt_m)`。
+  Pointer<Utf8> Function(Pointer<Void>, double, double, double)
+  _lookupGlobalOrigin(String symbol) => _library
+      .lookup<
+        NativeFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Double, Double, Float)
+        >
+      >(symbol)
+      .asFunction();
+
+  Map<String, Object?> setRoi(
+    double latitude,
+    double longitude,
+    double altitudeMeters,
+  ) => _read(_setRoi(_core, latitude, longitude, altitudeMeters));
+
+  Map<String, Object?> changeHeading(
+    double headingDegrees,
+    double yawRateDegreesPerSecond,
+    int direction,
+  ) => _read(
+    _changeHeading(_core, headingDegrees, yawRateDegreesPerSecond, direction),
+  );
+
+  Map<String, Object?> setGlobalOrigin(
+    double latitude,
+    double longitude,
+    double altitudeMeters,
+  ) => _read(_setGlobalOrigin(_core, latitude, longitude, altitudeMeters));
 
   Map<String, Object?> orbit({
     required double latitude,

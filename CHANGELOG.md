@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.0.75 - 2026-10-07
+
+### Added
+
+- 底部悬浮遥测仪表盘：与 QGC 默认 instrument panel 一致的八项读数（相对高度、
+  距 Home、垂直速度、地速、空速、油门、飞行时间、飞行里程），指标名中文。
+- 地图点击动作菜单（对照 QGC `FlyViewMap.qml` 的 `mapClickDropPanel`）：移动到此处、
+  环绕飞行、在此外设置兴趣点、在此设置 Home、设置估计原点、设置航向；点击处显示
+  准星图标，点击菜单外任何位置即可关闭。
+- 左侧飞行动作条新增「高度」（独立于引导菜单），对应 QGC
+  `guidedModeChangeAltitude`：`SET_POSITION_TARGET_LOCAL_NED` + `LOCAL_OFFSET_NED`。
+- 统一悬浮面板容器 `MgFloatingPanel`：65% 半透明 + 背景模糊 + 圆角 + 描边 + 投影，
+  顶部状态栏、地图工具列、飞行动作条、遥测条、设置菜单、连接/消息/航线规划浮层共用。
+- 新增 FFI：`mg_command_change_heading`（`MAV_CMD_CONDITION_YAW`）、
+  `mg_command_set_global_origin`（`SET_GPS_GLOBAL_ORIGIN`）、
+  `mg_command_change_altitude`。
+- VTOL 任务语义：`NAV_VTOL_TAKEOFF` 可作首项、`NAV_VTOL_LAND` 可作末项。
+
+### Fixed
+
+- **Dart FFI 把 C 的 `float` 参数错误绑定为 `Double`**：`mg_command_guided_point`
+  的高度/航向/速度、`mg_command_set_home` 与 `mg_command_takeoff` 的高度在传参时
+  被按位错读。表现是"移动到此处"时目标高度变成垃圾值——落在合法范围就飞向错误
+  高度（掉高度），落在范围外则被飞控以 `MAV_RESULT_DENIED` 拒绝；起飞高度也可能
+  静默失效。现所有 `float` 参数一律绑 `Float`。
+- 移动到此处对齐 QGC `APMFirmwarePlugin::guidedModeGotoLocation`：不再提供高度输入，
+  目标高度固定取飞机当前 AMSL；拿不到有效海拔时直接拒发，不再退化成相对高度或 0。
+- ROI 高度改用相对 Home 坐标系（与 QGC 的 `MAV_FRAME_GLOBAL_RELATIVE_ALT` 一致）。
+- 环绕飞行改用 QGC 的 COMMAND_INT 形式：`MAV_FRAME_GLOBAL`、`NaN` 速度/圈数、
+  `ORBIT_YAW_BEHAVIOUR_UNCHANGED`，高度取 `home AMSL + 相对高度`。
+- 起飞高度取 `max(飞控最小起飞高度, 用户值)`，并新增飞机位置有效性检查。
+- 顶部状态栏窄窗口（640/720 px）溢出。
+- 飞行模式菜单 `ListTile` 因 `Material` 祖先位置错误触发的断言。
+- 地图点击菜单不选项目无法关闭。
+
+### Changed
+
+- 遥测数据流速率：`GLOBAL_POSITION_INT` 2 Hz → 10 Hz、`GPS_RAW_INT` 2 Hz → 5 Hz，
+  飞机在地图上的移动明显更顺滑。
+- 顶部状态栏移除 `M-GCS` 品牌与飞行模式前的飞机图标。
+- 飞控消息面板移入右上角，与连接面板、航线规划互斥（同一角落只显示一个）。
+- 左侧飞行动作条的起飞/降落/返航改为竖排。
+
+### Removed
+
+- 移除旧的 `mapControlSurface` 色值，并入统一的 `floatingSurface`。
+
+### Verification
+
+- `flutter analyze lib test` 通过，Flutter `51/51` 测试通过，macOS debug 构建通过。
+- 后端 offline/simulation 门禁 `35/35` 通过（含新增的 change_altitude 断言）。
+- 用本地 QuadPlane SITL 实测：引导地图菜单、遥测仪表盘、模式切换、返航/降落。
+
 ## 0.0.74 - 2026-10-06
 
 ### Added

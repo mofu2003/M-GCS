@@ -157,6 +157,19 @@ MGCORE_API char* mg_command_guided_point(mg_core_t* core,
     return result;
 }
 
+MGCORE_API char* mg_command_change_altitude(mg_core_t* core, float altitude_change_m) {
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
+    if (isnan(altitude_change_m)) {
+        return fail(MG_ERROR_INVALID_PARAM, "invalid altitude change");
+    }
+    auto* mav = get_active_mavlink(core);
+    const bool sent = mav->cmd_change_altitude(active_target_sys(core), active_target_comp(core),
+                                               altitude_change_m);
+    get_active_flight_log(core).on_command_result("change_altitude", sent, sent ? "sent" : "send_failed");
+    // SET_POSITION_TARGET_LOCAL_NED 没有 COMMAND_ACK，发出即算成功。
+    return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "change altitude send failed");
+}
+
 MGCORE_API char* mg_command_guided_velocity(mg_core_t* core,
                                             float vx, float vy, float vz) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
@@ -290,6 +303,35 @@ MGCORE_API char* mg_command_stop_roi(mg_core_t* core) {
     if (get_active_mavlink(core)->cmd_roi_stop(active_target_sys(core), active_target_comp(core)))
         return ok();
     return fail(MG_ERROR_SEND_FAILED, "ROI stop send failed");
+}
+
+MGCORE_API char* mg_command_change_heading(mg_core_t* core, float heading_deg,
+                                           float yaw_rate_dps, int direction) {
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
+    const int8_t dir = direction < 0 ? -1 : 1;
+    const bool sent = get_active_mavlink(core)->cmd_change_heading(
+        active_target_sys(core), active_target_comp(core),
+        heading_deg, yaw_rate_dps, dir, true /* relative */);
+    get_active_flight_log(core).on_command_result("change_heading", sent, sent ? "sent" : "send_failed");
+    if (!sent) return fail(MG_ERROR_SEND_FAILED, "change heading send failed");
+    return ok();
+}
+
+MGCORE_API char* mg_command_set_global_origin(mg_core_t* core, double lat,
+                                              double lon, float alt_m) {
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
+    // 与 QGC `Vehicle::setEstimatorOrigin` 一致：先做经纬度合理性检查，
+    // 越界直接本地拒绝，不发无效坐标给飞控。
+    if (!(lat >= -90.0 && lat <= 90.0) || !(lon >= -180.0 && lon <= 180.0) ||
+        (lat == 0.0 && lon == 0.0)) {
+        return fail(MG_ERROR_INVALID_PARAM, "invalid origin lat/lon");
+    }
+    const bool sent = get_active_mavlink(core)->cmd_set_global_origin(
+        active_target_sys(core), active_target_comp(core),
+        lat, lon, alt_m);
+    get_active_flight_log(core).on_command_result("set_global_origin", sent, sent ? "sent" : "send_failed");
+    if (!sent) return fail(MG_ERROR_SEND_FAILED, "set global origin send failed");
+    return ok();
 }
 
 MGCORE_API char* mg_command_landing_gear(mg_core_t* core, bool deploy) {

@@ -30,16 +30,18 @@ void configure_vehicle_telemetry_streams(Vehicle& vehicle) {
     const uint8_t sys = vehicle.system_id();
     const uint8_t comp = vehicle.info().component_id;
 
-    mav->request_message_interval(sys, comp, 1, 1000000);
-    mav->request_message_interval(sys, comp, 24, 500000);
-    mav->request_message_interval(sys, comp, 26, 500000);
-    mav->request_message_interval(sys, comp, 29, 500000);
-    mav->request_message_interval(sys, comp, 30, 100000);
-    mav->request_message_interval(sys, comp, 33, 500000);
-    mav->request_message_interval(sys, comp, 36, 50000);
-    mav->request_message_interval(sys, comp, 65, 50000);
-    mav->request_message_interval(sys, comp, 74, 100000);
-    mav->request_message_interval(sys, comp, 147, 500000);
+    // 速率单位：微秒间隔。前端按 10Hz 轮询遥测缓存，所以位置、姿态、VFR_HUD
+    // 都请求 10Hz——位置流原来是 2Hz，飞机在地图上会一格一格跳。
+    mav->request_message_interval(sys, comp, 1, 1000000);   // SYS_STATUS 1Hz
+    mav->request_message_interval(sys, comp, 24, 200000);   // GPS_RAW_INT 5Hz
+    mav->request_message_interval(sys, comp, 26, 500000);   // SCALED_IMU 2Hz
+    mav->request_message_interval(sys, comp, 29, 500000);   // SCALED_PRESSURE 2Hz
+    mav->request_message_interval(sys, comp, 30, 100000);   // ATTITUDE 10Hz
+    mav->request_message_interval(sys, comp, 33, 100000);   // GLOBAL_POSITION_INT 10Hz
+    mav->request_message_interval(sys, comp, 36, 50000);    // SERVO_OUTPUT_RAW 20Hz
+    mav->request_message_interval(sys, comp, 65, 50000);    // RC_CHANNELS 20Hz
+    mav->request_message_interval(sys, comp, 74, 100000);   // VFR_HUD 10Hz
+    mav->request_message_interval(sys, comp, 147, 500000);  // BATTERY_STATUS 2Hz
 
     MGC_LOG_INFO("[Vehicle %d] Telemetry streams configured", vehicle.vehicle_id());
 }

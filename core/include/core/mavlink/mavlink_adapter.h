@@ -498,7 +498,17 @@ public:
     /// GUIDED: 暂停（悬停在当前位置）
     bool cmd_guided_pause(uint8_t target_system, uint8_t target_component);
 
-    /// 绕指定点以给定半径和速度绕圈
+    /// GUIDED: 在当前位置改变高度（QGC `guidedModeChangeAltitude`）
+    ///
+    /// `altitude_change_m` 为正表示上升。QGC 用 LOCAL_OFFSET_NED 的 position 偏移，
+    /// type_mask=0xFFF8，只动 z。
+    bool cmd_change_altitude(uint8_t target_system, uint8_t target_component,
+                             float altitude_change_m);
+
+    /// 绕指定点以给定半径和速度绕圈（QGC `Vehicle::guidedModeOrbit`）
+    ///
+    /// COMMAND_INT + `MAV_FRAME_GLOBAL`，`altitude_m` 是 AMSL；`velocity_ms <= 0`
+    /// 时发 NaN 让飞控用默认速度，偏航行为固定发 `ORBIT_YAW_BEHAVIOUR_UNCHANGED`。
     bool cmd_orbit(uint8_t target_sys, uint8_t target_comp,
                    double lat, double lon, float radius_m, float velocity_ms, float altitude_m);
 
@@ -507,6 +517,22 @@ public:
 
     /// 取消感兴趣区域
     bool cmd_roi_stop(uint8_t target_sys, uint8_t target_comp);
+
+    /// 设置航向（QGC `APMFirmwarePlugin::guidedModeChangeHeading` 用的
+    /// MAV_CMD_CONDITION_YAW）：偏转角、最大偏航速率、方向、是否相对当前航向。
+    /// 仅多旋翼/潜航器支持，固定翼与 VTOL 在 QGC 里不提供这一项。
+    bool cmd_change_heading(uint8_t target_sys, uint8_t target_comp,
+                            float heading_deg, float yaw_rate_dps,
+                            int8_t direction, bool relative);
+
+    /// 设置 EKF 全局原点（SET_GPS_GLOBAL_ORIGIN 报文）。
+    ///
+    /// 无 GPS 的室内/视觉定位场景用它指定本地坐标原点的经纬高。QGC 优先用
+    /// COMMAND_INT 的 MAV_CMD_DO_SET_GLOBAL_ORIGIN；该命令目前只在 MAVLink 的
+    /// development 方言里（本仓库固定的稳定方言没有生成），所以这里走 QGC 的
+    /// 兼容分支：直接发 SET_GPS_GLOBAL_ORIGIN 报文，ArduPilot 仍然处理它。
+    bool cmd_set_global_origin(uint8_t target_sys, uint8_t target_comp,
+                               double lat, double lon, float alt_m);
 
     /// 收放起落架
     bool cmd_landing_gear(uint8_t target_sys, uint8_t target_comp, bool deploy);

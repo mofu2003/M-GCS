@@ -6,7 +6,7 @@ import 'package:macos_ui/macos_ui.dart';
 
 import '../connection/connection_controller.dart';
 import '../theme/mg_colors.dart';
-import '../theme/mg_typography.dart';
+import '../widgets/mg_floating_panel.dart';
 
 /// 飞控消息框宽度。
 const double kFlightMessagePanelWidth = 360;
@@ -31,7 +31,8 @@ class FlightMessageFloatingPanel extends StatefulWidget {
       _FlightMessageFloatingPanelState();
 }
 
-class _FlightMessageFloatingPanelState extends State<FlightMessageFloatingPanel> {
+class _FlightMessageFloatingPanelState
+    extends State<FlightMessageFloatingPanel> {
   Timer? _pollTimer;
   final ScrollController _scroll = ScrollController();
   int _renderedCount = 0;
@@ -78,21 +79,7 @@ class _FlightMessageFloatingPanelState extends State<FlightMessageFloatingPanel>
     final messages = widget.controller.flightMessages;
     return SizedBox(
       width: kFlightMessagePanelWidth,
-      child: Container(
-        // 与航线规划 / 飞行模式面板共用同一套外框。
-        decoration: BoxDecoration(
-          color: colors.surfaceMuted,
-          borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
-          border: Border.all(color: colors.divider),
-          boxShadow: [
-            BoxShadow(
-              color: colors.shadow,
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
+      child: MgFloatingPanel(
         child: Column(
           children: [
             Padding(
@@ -138,9 +125,7 @@ class _FlightMessageFloatingPanelState extends State<FlightMessageFloatingPanel>
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Text(
-                          widget.controller.isConnected
-                              ? '暂无飞控消息'
-                              : '未连接飞控',
+                          widget.controller.isConnected ? '暂无飞控消息' : '未连接飞控',
                           style: typography.caption1.copyWith(
                             color: colors.textSecondary,
                           ),

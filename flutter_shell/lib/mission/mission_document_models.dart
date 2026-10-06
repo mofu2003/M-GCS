@@ -1,5 +1,9 @@
 typedef JsonMap = Map<String, Object?>;
 
+const int kMavCmdNavTakeoff = 22;
+const int kMavCmdNavVtolTakeoff = 84;
+const int kMavCmdNavVtolLand = 85;
+
 final class MissionDocumentMetadata {
   const MissionDocumentMetadata({
     this.id = '',
@@ -115,6 +119,10 @@ final class MissionEntity {
   final double? altitudeMeters;
   final List<double> params;
   final String notes;
+
+  bool get isTakeoff => command == kMavCmdNavTakeoff;
+  bool get isVtolTakeoff => command == kMavCmdNavVtolTakeoff;
+  bool get isVtolLand => command == kMavCmdNavVtolLand;
 
   factory MissionEntity.fromJson(JsonMap json) => MissionEntity(
     id: json['id'] as String? ?? '',
@@ -387,10 +395,13 @@ final class MissionExecutionProgress {
   final int total;
   final int reachedCount;
   final int lastReachedSeq;
+
   /// 航段飞完：最后一项已到达。固定翼此时还在返航/降落，不等于任务完成。
   final bool reachedEnd;
+
   /// 任务完成，判定与 QGC 一致：曾在任务模式下解锁飞行，之后上锁。
   final bool finished;
+
   /// 任务已中止：解锁飞行中离开过任务模式，且最后一项未到达。
   final bool aborted;
 
@@ -475,6 +486,7 @@ final class MissionVerificationDifference {
   final String expected;
   final String actual;
   final String reason;
+
   /// 围栏/Rally 核对时后端给出的区段名（如 `polygon[0]`、`rally[1]`）。
   final String area;
 

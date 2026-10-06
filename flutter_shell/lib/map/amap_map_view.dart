@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -11,11 +12,14 @@ import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import '../connection_panel.dart';
 import '../flight/flight_message_panel.dart';
-import '../flight/flight_mode_panel.dart';
 import '../mission/mission_document_controller.dart';
 import '../mission/mission_document_models.dart';
 import '../mission/mission_geo.dart';
 import '../mission/mission_planning_panel.dart';
+import '../widgets/mg_map_action_menu.dart';
+import '../widgets/mg_floating_panel.dart';
+
+import '../widgets/mg_telemetry_dashboard.dart';
 import 'gcj_coordinates.dart';
 import 'vehicle_marker_icon.dart';
 import 'map_preferences.dart';
@@ -100,11 +104,15 @@ class AMapMapView extends StatefulWidget {
   const AMapMapView({
     super.key,
     required this.connectionController,
-    this.onOpenConfiguration,
+    this.connectionPanelRequest,
+    this.flightMessagePanelRequest,
+    this.missionPlanningRequest,
   });
 
   final ConnectionController connectionController;
-  final VoidCallback? onOpenConfiguration;
+  final ValueListenable<int>? connectionPanelRequest;
+  final ValueListenable<int>? flightMessagePanelRequest;
+  final ValueListenable<int>? missionPlanningRequest;
 
   @override
   State<AMapMapView> createState() => _AMapMapViewState();
@@ -126,12 +134,19 @@ class _AMapMapViewState extends State<AMapMapView> {
 
   /// 本会话是否已经因为首次定位移动过视角。
   bool _centeredOnVehicle = false;
+  bool _followVehicle = false;
   Timer? _saveTimer;
   bool _showConnectionPanel = false;
-  bool _showFlightModePanel = false;
   bool _showFlightMessagePanel = false;
   bool _showMissionPlanning = false;
   OverlayEntry? _transientMessage;
+
+  /// 地图点击菜单：锚点是点击处在地图控件内的坐标，点位是换算后的 WGS-84 坐标。
+  Offset? _mapActionAnchor;
+  LatLng? _mapActionPoint;
+
+  /// 菜单开着时点了地图上别处：这一下只用来关闭，下一次地图点击不再重开菜单。
+  bool _suppressNextMapTap = false;
   String? _draggingEntityId;
   LatLng? _dragPreviewWgs84;
 
@@ -141,34 +156,95 @@ class _AMapMapViewState extends State<AMapMapView> {
     widget.connectionController.missionPlanning,
   ]);
 
+  /// 飞行动作按钮的显隐/可用性由连接与遥测决定，必须跟着这两路通知重建。
+  late final Listenable _vehicleStatusSources = Listenable.merge([
+    widget.connectionController.connectionChanges,
+    widget.connectionController.telemetryChanges,
+    widget.connectionController.profileChanges,
+  ]);
+
   @override
   void initState() {
     super.initState();
-    widget.connectionController.addListener(_centerOnVehicleOnce);
+    widget.connectionController.addListener(_handleVehicleUpdate);
+    widget.connectionPanelRequest?.addListener(_handleConnectionPanelRequest);
+    widget.flightMessagePanelRequest?.addListener(
+      _handleFlightMessagePanelRequest,
+    );
+    widget.missionPlanningRequest?.addListener(_handleMissionPlanningRequest);
     unawaited(_restorePreferences());
   }
 
-  /// 首次拿到有效定位时把视角拉回飞机。
+  /// 右上角三个浮层互斥：同时只显示一个，免得在同一个角落叠在一起。
+  void _showRightPanel({
+    bool connection = false,
+    bool messages = false,
+    bool mission = false,
+  }) {
+    setState(() {
+      _showConnectionPanel = connection;
+      _showFlightMessagePanel = messages;
+      _showMissionPlanning = mission;
+    });
+  }
+
+  void _handleConnectionPanelRequest() {
+    if (mounted) _showRightPanel(connection: true);
+  }
+
+  void _handleFlightMessagePanelRequest() {
+    if (mounted) _showRightPanel(messages: true);
+  }
+
+  void _handleMissionPlanningRequest() {
+    if (mounted) _showRightPanel(mission: true);
+  }
+
+  /// 遥测定位更新时决定是否移动视角。
   ///
-  /// 地图中心是跨会话保存的，上次可能停在别的地方（例如默认的上海），
-  /// 而飞机在几千公里外，连上了却看不到飞机。只有距离超过 20 km 才动视角，
-  /// 免得覆盖用户正常操作；每个会话只做一次。
-  void _centerOnVehicleOnce() {
-    if (_centeredOnVehicle || !mounted) return;
+  /// 两种情况会动视角：
+  /// - 视角跟随已开启：每次定位更新都居中飞机，不做距离判断；
+  /// - 本会话首次拿到有效定位，且飞机离上次保存的地图中心超过 20 km：
+  ///   地图中心是跨会话保存的，上次可能停在别的地方（例如默认的上海），
+  ///   飞机在几千公里外，连上了却看不到飞机。距离近时不动，免得覆盖用户操作。
+  ///
+  /// 跟随关闭且已经处理过首次定位后直接返回，用户手动拖动的地图不会被抢回去。
+  void _handleVehicleUpdate() {
+    if (!mounted) return;
     final connection = widget.connectionController;
     if (!connection.vehiclePositionValid) return;
     final fix = connection.vehiclePosition;
     if (fix == null) return;
+    if (!shouldMoveCameraToVehicle(
+      followVehicle: _followVehicle,
+      centeredOnce: _centeredOnVehicle,
+    )) {
+      return;
+    }
+
+    final tilePosition = _toTileFrame(fix.latitude, fix.longitude);
+    if (_followVehicle) {
+      _centeredOnVehicle = true;
+      _controller.move(tilePosition, _zoom);
+      return;
+    }
     _centeredOnVehicle = true;
     final distance = wgs84DistanceMeters(
       _center,
       LatLng(fix.latitude, fix.longitude),
     );
     if (distance < 20000) return;
-    _controller.move(
-      _toTileFrame(fix.latitude, fix.longitude),
-      _zoom < 13 ? 15 : _zoom,
-    );
+    _controller.move(tilePosition, _zoom < 13 ? 15 : _zoom);
+  }
+
+  void _toggleFollowVehicle() {
+    final enable = !_followVehicle;
+    setState(() {
+      _followVehicle = enable;
+      // 重新开启跟随时忘记“首次定位已处理”，这样飞机没再移动也会立刻回中。
+      if (enable) _centeredOnVehicle = false;
+    });
+    if (enable) _handleVehicleUpdate();
   }
 
   Future<void> _restorePreferences() async {
@@ -222,7 +298,16 @@ class _AMapMapViewState extends State<AMapMapView> {
 
   @override
   void dispose() {
-    widget.connectionController.removeListener(_centerOnVehicleOnce);
+    widget.connectionController.removeListener(_handleVehicleUpdate);
+    widget.connectionPanelRequest?.removeListener(
+      _handleConnectionPanelRequest,
+    );
+    widget.flightMessagePanelRequest?.removeListener(
+      _handleFlightMessagePanelRequest,
+    );
+    widget.missionPlanningRequest?.removeListener(
+      _handleMissionPlanningRequest,
+    );
     _saveTimer?.cancel();
     _transientMessage?.remove();
     _transientMessage = null;
@@ -253,18 +338,25 @@ class _AMapMapViewState extends State<AMapMapView> {
   ///
   /// 坐标一律先转到当前瓦片所在的坐标系：飞控给的是 WGS-84，高德瓦片是
   /// GCJ-02，不转换会整体偏 100–700 米（Mission Planner 也是这么处理的）。
-  /// 单击地图：规划页开着就新增航点并打开编辑框，否则弹引导操作。
+  /// 单击地图：规划页开着就新增航点并打开编辑框；否则未解锁时弹起飞前操作，
+  /// 已解锁时弹 Guided 操作。
   ///
   /// 与 MP 的右键菜单 / QGC 的 Guided Actions 一致，都是“先选位置再选动作”。
-  Future<void> _handleMapTap(LatLng point) async {
+  Future<void> _handleMapTap(LatLng point, Offset anchor) async {
+    // 菜单已经展开时，点地图上任何位置都只是"关掉它"，不在新位置重开——
+    // 否则不选项目就永远关不掉。
+    if (_suppressNextMapTap) {
+      _suppressNextMapTap = false;
+      return;
+    }
     // 瓦片坐标（可能是 GCJ-02）换算回 WGS-84 再交给文档与飞控。
     final wgs84 = _toWgs84(point);
     final controller = widget.connectionController;
     final mission = controller.missionPlanning;
-    await mission.initialize();
-    if (!mounted) return;
 
     if (_showMissionPlanning) {
+      await mission.initialize();
+      if (!mounted) return;
       await showMissionEntityDialog(
         context,
         controller: controller,
@@ -282,10 +374,203 @@ class _AMapMapViewState extends State<AMapMapView> {
       return;
     }
 
+    // QGC `FlyViewMap.qml`：点击地图直接展开动作列表，而不是先弹一个模态窗口。
+    if (_buildMapActions(wgs84).isEmpty) {
+      _closeMapActionMenu();
+      _showTransientMessage('当前飞行状态没有可用的地图操作。');
+      return;
+    }
+    setState(() {
+      _mapActionAnchor = anchor;
+      _mapActionPoint = wgs84;
+    });
+  }
+
+  void _closeMapActionMenu() {
+    if (_mapActionAnchor == null && _mapActionPoint == null) return;
+    setState(() {
+      _mapActionAnchor = null;
+      _mapActionPoint = null;
+    });
+  }
+
+  /// 触点是否落在地图区域内——只有"点在地图上"才需要吃掉随后那一次 onTap。
+  bool _isPointInsideMap(Offset globalPosition) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return false;
+    return (Offset.zero & box.size).contains(box.globalToLocal(globalPosition));
+  }
+
+  /// 把菜单收在地图范围内：贴着点击点，但不越出边缘。
+  double _menuLeft(BoxConstraints constraints) {
+    final anchor = _mapActionAnchor?.dx ?? 0;
+    final maxLeft = constraints.maxWidth - MgMapActionMenu.width - 8;
+    return anchor.clamp(8.0, maxLeft < 8 ? 8.0 : maxLeft);
+  }
+
+  double _menuTop(BoxConstraints constraints, int actionCount) {
+    final anchor = _mapActionAnchor?.dy ?? 0;
+    final maxTop =
+        constraints.maxHeight - MgMapActionMenu.heightFor(actionCount) - 8;
+    return anchor.clamp(8.0, maxTop < 8 ? 8.0 : maxTop);
+  }
+
+  /// 按 QGC `GuidedActionsController.qml` 的 `show*` 条件挑出菜单项，顺序也照抄。
+  List<MgMapAction> _buildMapActions(LatLng target) {
+    final controller = widget.connectionController;
+    final home = controller.homePosition;
+    final visibility = mapActionVisibility(
+      guidedEnabled: controller.supportsGuidedMode,
+      flying: controller.vehicleFlying,
+      homeReady: controller.homePositionValid && home?.altitudeMeters != null,
+      // QGC 的 showOrbit 要求当前不在任务中；用飞行模式近似判断。
+      missionActive: controller.vehicleFlightMode.toUpperCase().contains(
+        'AUTO',
+      ),
+      hasGpsSensor: controller.hasGpsSensor,
+      supportsChangeHeading: controller.supportsChangeHeading,
+    );
+
+    void select(Future<void> Function() run) {
+      _closeMapActionMenu();
+      unawaited(run());
+    }
+
+    return <MgMapAction>[
+      if (visibility.gotoLocation)
+        MgMapAction(
+          label: '移动到此处',
+          onSelected: () => select(() => _mapGoto(target)),
+        ),
+      if (visibility.orbit)
+        MgMapAction(
+          label: '环绕飞行',
+          onSelected: () => select(() => _mapOrbit(target)),
+        ),
+      if (visibility.roi)
+        MgMapAction(
+          label: '在此外设置兴趣点',
+          onSelected: () => select(() => _mapSetRoi(target)),
+        ),
+      if (visibility.setHome)
+        MgMapAction(
+          label: '在此设置 Home',
+          onSelected: () => select(() => _mapSetHome(target)),
+        ),
+      if (visibility.setEstimatorOrigin)
+        MgMapAction(
+          label: '设置估计原点',
+          onSelected: () => select(() => _mapSetEstimatorOrigin(target)),
+        ),
+      if (visibility.changeHeading)
+        MgMapAction(
+          label: '设置航向',
+          onSelected: () => select(() => _mapSetHeading(target)),
+        ),
+    ];
+  }
+
+  Future<void> _runMapCommand(Future<void> Function() run) async {
+    try {
+      await run();
+    } on Object catch (error) {
+      if (!mounted) return;
+      _showTransientMessage(error.toString());
+    }
+  }
+
+  /// QGC 的 Go to location 只用点击点的经纬度，高度取飞机当前 **AMSL**，
+  /// 也就是“保持现在的高度飞过去”。拿不到绝对高度时必须拒发：DO_REPOSITION
+  /// 用的是 MAV_FRAME_GLOBAL，退化到相对高度或 0 等于命令飞机飞向地面。
+  Future<void> _mapGoto(LatLng target) => _runMapCommand(() async {
+    final controller = widget.connectionController;
+    final absoluteAltitude = controller.absoluteAltitudeMeters;
+    if (!controller.vehiclePositionValid ||
+        absoluteAltitude == null ||
+        absoluteAltitude == 0) {
+      throw StateError('移动到此处失败：还没有有效的海拔高度');
+    }
+    await controller.guidedGoto(
+      target.latitude,
+      target.longitude,
+      absoluteAltitude,
+    );
+  });
+
+  /// QGC 的 Orbit 高度是 `homePosition.altitude + 滑块高度`（AMSL）。
+  Future<void> _mapOrbit(LatLng target) => _runMapCommand(() async {
+    final controller = widget.connectionController;
+    final absoluteAltitude = controller.absoluteAltitudeMeters;
+    if (absoluteAltitude == null || absoluteAltitude == 0) {
+      throw StateError('环绕飞行失败：还没有有效的海拔高度');
+    }
+    await controller.guidedOrbit(
+      latitude: target.latitude,
+      longitude: target.longitude,
+      altitudeMeters: absoluteAltitude,
+    );
+  });
+
+  /// ROI 的高度是**相对 Home**，地图点击没有高度信息时用 0（= Home 高度），
+  /// 与 QGC `APMFirmwarePlugin::guidedModeROI` 的默认一致。
+  Future<void> _mapSetRoi(LatLng target) => _runMapCommand(
+    () => widget.connectionController.guidedSetRoi(
+      target.latitude,
+      target.longitude,
+    ),
+  );
+
+  Future<void> _mapSetHome(LatLng target) async {
+    final controller = widget.connectionController;
+    final confirmed = await confirmMissionAction(
+      context,
+      title: '设置 Home',
+      message: '把 Home 设为该坐标会改变飞控的返航基准（RTL 落点）。是否继续？',
+      confirmLabel: '设为 Home',
+    );
+    if (!confirmed || !mounted) return;
+    await _runMapCommand(
+      () => controller.setVehicleHome(
+        target.latitude,
+        target.longitude,
+        controller.absoluteAltitudeMeters ?? 0,
+      ),
+    );
+  }
+
+  Future<void> _mapSetEstimatorOrigin(LatLng target) =>
+      _runMapCommand(() async {
+        final controller = widget.connectionController;
+        await controller.setEstimatorOrigin(
+          target.latitude,
+          target.longitude,
+          controller.absoluteAltitudeMeters ?? 0,
+        );
+      });
+
+  Future<void> _mapSetHeading(LatLng target) => _runMapCommand(
+    () => widget.connectionController.guidedSetHeading(
+      target.latitude,
+      target.longitude,
+    ),
+  );
+
+  Future<void> _showGuidedAction(String actionLabel) async {
+    final controller = widget.connectionController;
+    if (!controller.isConnected) {
+      _showTransientMessage('连接飞控后才能执行引导操作。');
+      return;
+    }
+    final fix = controller.vehiclePosition;
+    final position = fix == null
+        ? _center
+        : LatLng(fix.latitude, fix.longitude);
+    if (!mounted) return;
     await showGuidedActionsDialog(
       context,
       controller: controller,
-      position: wgs84,
+      position: position,
+      initialActionLabel: actionLabel,
     );
   }
 
@@ -326,6 +611,23 @@ class _AMapMapViewState extends State<AMapMapView> {
             fill: colors.surface,
             border: colors.success,
             iconColor: colors.success,
+          ),
+        ),
+      );
+    }
+    // 地图点击菜单选中的那个点：跟着菜单一起出现/消失。
+    final menuPoint = _mapActionPoint;
+    if (menuPoint != null) {
+      markers.add(
+        Marker(
+          point: _toTileFrame(menuPoint.latitude, menuPoint.longitude),
+          width: 30,
+          height: 30,
+          child: _MapMarker(
+            icon: CupertinoIcons.scope,
+            fill: colors.surface,
+            border: colors.accent,
+            iconColor: colors.accent,
           ),
         ),
       );
@@ -400,8 +702,8 @@ class _AMapMapViewState extends State<AMapMapView> {
                   : null,
               onPanCancel: dragEnabled ? _cancelEntityDrag : null,
               child: _WaypointMarker(
-                position: index + 1,
-                color: colors.accent,
+                label: entity.isVtolTakeoff ? 'T' : '${index + 1}',
+                color: entity.isVtolTakeoff ? colors.warning : colors.accent,
                 selected: mission.selectedEntityIndex == index,
                 dragging: dragging,
               ),
@@ -466,10 +768,35 @@ class _AMapMapViewState extends State<AMapMapView> {
 
   List<_MissionRouteVertex> _missionRouteVertices() {
     final mission = widget.connectionController.missionPlanning;
-    final entities = mission.document?.entities ?? const <MissionEntity>[];
+    final document = mission.document;
+    final entities = document?.entities ?? const <MissionEntity>[];
     final vertices = <_MissionRouteVertex>[];
+    var vtolTakeoffHandled = false;
     for (final entity in entities) {
       if (!entity.enabled) continue;
+      if (entity.isVtolTakeoff) {
+        if (!vtolTakeoffHandled) {
+          vtolTakeoffHandled = true;
+          final home = document?.home;
+          final latitude = home?.latitude;
+          final longitude = home?.longitude;
+          if (home?.set == true &&
+              latitude != null &&
+              longitude != null &&
+              latitude.isFinite &&
+              longitude.isFinite) {
+            vertices.add(
+              _MissionRouteVertex(
+                wgs84: LatLng(latitude, longitude),
+                tileFrame: _toTileFrame(latitude, longitude),
+              ),
+            );
+          }
+        }
+        // ArduPilot 的 VTOL takeoff 只使用高度，水平位置固定为起飞时的当前
+        // XY，QGC 兼容参考点不参与实际航线。
+        continue;
+      }
       final dragging = entity.id == _draggingEntityId;
       final preview = dragging ? _dragPreviewWgs84 : null;
       final latitude = preview?.latitude ?? entity.latitude;
@@ -631,9 +958,17 @@ class _AMapMapViewState extends State<AMapMapView> {
             minZoom: kMinMapZoom,
             maxZoom: kMaxMapZoom,
             // 单击地图：规划页开着就加航点，否则给引导操作。
-            onTap: (_, point) => unawaited(_handleMapTap(point)),
-            onPositionChanged: (camera, hasGesture) =>
-                _scheduleSave(camera.center, camera.zoom),
+            onTap: (tapPosition, point) => unawaited(
+              _handleMapTap(point, tapPosition.relative ?? Offset.zero),
+            ),
+            onPositionChanged: (camera, hasGesture) {
+              // 拖动/缩放地图时收起点击菜单，和 QGC 的行为一致。
+              if (hasGesture) {
+                _suppressNextMapTap = false;
+                _closeMapActionMenu();
+              }
+              _scheduleSave(camera.center, camera.zoom);
+            },
           ),
           children: [
             TileLayer(
@@ -724,30 +1059,50 @@ class _AMapMapViewState extends State<AMapMapView> {
                 valid ? 15 : kDefaultMapZoom,
               );
             },
-            onOpenConfiguration: widget.onOpenConfiguration,
-            // 三个浮层互不排斥，可以同时开着（连接 / 航线规划 / 飞行模式）。
-            onOpenConnection: () =>
-                setState(() => _showConnectionPanel = !_showConnectionPanel),
-            onOpenMissionPlanning: () =>
-                setState(() => _showMissionPlanning = !_showMissionPlanning),
-            onOpenFlightModes: () =>
-                setState(() => _showFlightModePanel = !_showFlightModePanel),
-            onOpenFlightMessages: () => setState(
-              () => _showFlightMessagePanel = !_showFlightMessagePanel,
+            followVehicle: _followVehicle,
+            onToggleFollowVehicle: _toggleFollowVehicle,
+          ),
+        ),
+        Positioned(
+          left: 18,
+          top: 18,
+          child: AnimatedBuilder(
+            animation: _vehicleStatusSources,
+            builder: (context, _) => _FlightActionButtons(
+              controller: widget.connectionController,
+              onAction: (label) => unawaited(_showGuidedAction(label)),
+              onChangeAltitude: () => unawaited(
+                showChangeAltitudeDialog(
+                  context,
+                  controller: widget.connectionController,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          // 悬浮在地图下缘中间：左右各让开地图工具列与底图选择器。
+          left: 72,
+          right: 72,
+          bottom: 18,
+          child: Center(
+            child: AnimatedBuilder(
+              animation: _vehicleStatusSources,
+              builder: (context, _) => MgTelemetryDashboard(
+                data: MgTelemetryDashboardData.fromController(
+                  widget.connectionController,
+                ),
+              ),
             ),
           ),
         ),
         if (_showConnectionPanel)
           Positioned(
-            left: 70,
+            top: 12,
             right: 18,
-            bottom: 18,
-            child: Align(
-              alignment: Alignment.bottomLeft,
-              child: ConnectionFloatingPanel(
-                controller: widget.connectionController,
-                onClose: () => setState(() => _showConnectionPanel = false),
-              ),
+            child: ConnectionFloatingPanel(
+              controller: widget.connectionController,
+              onClose: () => setState(() => _showConnectionPanel = false),
             ),
           ),
         if (_showMissionPlanning)
@@ -764,27 +1119,50 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           ),
         if (_showFlightMessagePanel)
-          // 紧挨飞行模式面板右侧；飞行模式面板收起时补到最左侧。上下留白与它一致，
-          // 这样两个浮层和连接面板可以同时开着且互不遮挡。
+          // 右上角，和连接面板 / 航线规划同一列。固定高度而不是通到底：
+          // 消息是短行，通栏会留一大片空白；340 大约能放下七八条。
           Positioned(
-            left: _showFlightModePanel ? 70 + kFlightModePanelWidth + 12 : 70,
-            top: 170,
-            bottom: _showConnectionPanel ? 330 : 90,
+            top: 12,
+            right: 18,
+            height: 340,
             child: FlightMessageFloatingPanel(
               controller: widget.connectionController,
               onClose: () => setState(() => _showFlightMessagePanel = false),
             ),
           ),
-        if (_showFlightModePanel)
-          // 左侧空带：上方让开飞行遥测条，下方按连接面板是否打开让位。
-          // top/bottom 同时给出紧约束，面板内部才能用 Expanded 撑满并滚动。
-          Positioned(
-            left: 70,
-            top: 170,
-            bottom: _showConnectionPanel ? 330 : 90,
-            child: FlightModeFloatingPanel(
-              controller: widget.connectionController,
-              onClose: () => setState(() => _showFlightModePanel = false),
+        if (_mapActionPoint != null && _mapActionAnchor != null)
+          Positioned.fill(
+            // 只有菜单本体拦截点击，空白处仍然落到地图上。
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final target = _mapActionPoint!;
+                final actions = _buildMapActions(target);
+                if (actions.isEmpty) return const SizedBox.shrink();
+                return Stack(
+                  children: [
+                    Positioned(
+                      left: _menuLeft(constraints),
+                      top: _menuTop(constraints, actions.length),
+                      // TapRegion 覆盖全app：点地图、点面板、点顶部栏都会关闭，
+                      // 点菜单内部不会。
+                      child: TapRegion(
+                        onTapOutside: (event) {
+                          if (_mapActionPoint == null) return;
+                          _suppressNextMapTap = _isPointInsideMap(
+                            event.position,
+                          );
+                          _closeMapActionMenu();
+                        },
+                        child: MgMapActionMenu(
+                          latitude: target.latitude,
+                          longitude: target.longitude,
+                          actions: actions,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
       ],
@@ -1000,36 +1378,19 @@ class _MapControls extends StatelessWidget {
     required this.onZoomIn,
     required this.onZoomOut,
     required this.onReset,
-    this.onOpenConfiguration,
-    required this.onOpenConnection,
-    required this.onOpenMissionPlanning,
-    this.onOpenFlightModes,
-    this.onOpenFlightMessages,
+    required this.followVehicle,
+    required this.onToggleFollowVehicle,
   });
 
   final VoidCallback onZoomIn;
   final VoidCallback onZoomOut;
   final VoidCallback onReset;
-  final VoidCallback? onOpenConfiguration;
-  final VoidCallback onOpenConnection;
-  final VoidCallback onOpenMissionPlanning;
-  final VoidCallback? onOpenFlightModes;
-  final VoidCallback? onOpenFlightMessages;
+  final bool followVehicle;
+  final VoidCallback onToggleFollowVehicle;
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: MgColors.of(context).mapControlSurface,
-      borderRadius: BorderRadius.circular(9),
-      border: Border.all(color: MgColors.of(context).divider),
-      boxShadow: [
-        BoxShadow(
-          color: MgColors.of(context).shadow,
-          blurRadius: 10,
-          offset: const Offset(0, 3),
-        ),
-      ],
-    ),
+  Widget build(BuildContext context) => MgFloatingPanel(
+    borderRadius: BorderRadius.circular(9),
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1037,7 +1398,7 @@ class _MapControls extends StatelessWidget {
         _MapIconButton(icon: Icons.remove, tooltip: '缩小', onPressed: onZoomOut),
         _MapIconButton(
           icon: Icons.my_location,
-          tooltip: '回到默认位置',
+          tooltip: '定位到飞机',
           onPressed: onReset,
         ),
         Padding(
@@ -1045,37 +1406,174 @@ class _MapControls extends StatelessWidget {
           child: Container(height: 1, color: MgColors.of(context).divider),
         ),
         _MapIconButton(
-          icon: CupertinoIcons.slider_horizontal_3,
-          tooltip: '参数配置',
-          onPressed: onOpenConfiguration ?? () {},
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 9),
-          child: Container(height: 1, color: MgColors.of(context).divider),
-        ),
-        _MapIconButton(
-          icon: CupertinoIcons.link,
-          tooltip: '连接飞控',
-          onPressed: onOpenConnection,
-        ),
-        _MapIconButton(
-          icon: CupertinoIcons.map,
-          tooltip: '航线规划',
-          onPressed: onOpenMissionPlanning,
-        ),
-        _MapIconButton(
-          icon: CupertinoIcons.airplane,
-          tooltip: '飞行模式',
-          onPressed: onOpenFlightModes ?? () {},
-        ),
-        _MapIconButton(
-          icon: CupertinoIcons.text_bubble,
-          tooltip: '飞控消息',
-          onPressed: onOpenFlightMessages ?? () {},
+          icon: CupertinoIcons.location_north_fill,
+          tooltip: followVehicle ? '停止视角跟随' : '视角跟随',
+          onPressed: onToggleFollowVehicle,
+          active: followVehicle,
         ),
       ],
     ),
   );
+}
+
+/// 遥测位置更新时是否需要把视角移到飞机。
+///
+/// - 视角跟随开启：始终跟随；
+/// - 尚未做过首次定位：做一次首次居中（是否真的移动还要看距离阈值）；
+/// - 其余情况：不动，保留用户手动拖动的地图。
+@visibleForTesting
+bool shouldMoveCameraToVehicle({
+  required bool followVehicle,
+  required bool centeredOnce,
+}) => followVehicle || !centeredOnce;
+
+/// QGC `GuidedActionsController.qml` 的 Takeoff / Land / RTL 显示规则。
+///
+/// 未飞行只显示 Takeoff；飞行中且非固定翼显示 Land；飞行中显示 RTL。
+/// Takeoff 与 Land 互斥，RTL 独立。
+@visibleForTesting
+({bool takeoff, bool land, bool rtl, bool changeAltitude})
+flightActionVisibility({required bool flying, required bool fixedWing}) => (
+  takeoff: !flying,
+  land: flying && !fixedWing,
+  rtl: flying,
+  // 改变高度只在空中才有意义，和降落/返航同时出现，排在它们下面。
+  changeAltitude: flying,
+);
+
+/// 独立的飞行动作区：尺寸明显大于地图工具按钮，避免把危险动作藏在小图标里。
+class _FlightActionButtons extends StatelessWidget {
+  const _FlightActionButtons({
+    required this.controller,
+    required this.onAction,
+    required this.onChangeAltitude,
+  });
+
+  final ConnectionController controller;
+  final ValueChanged<String> onAction;
+
+  /// “改变高度”是独立入口，不走引导操作菜单。
+  final VoidCallback onChangeAltitude;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = MgColors.of(context);
+    final visibility = flightActionVisibility(
+      flying: controller.vehicleFlying,
+      fixedWing: controller.vehicleType == 1,
+    );
+    final guidedReady =
+        controller.isConnected &&
+        controller.vehicleArmed &&
+        controller.supportsGuidedMode;
+    final buttons = <Widget>[
+      if (visibility.takeoff)
+        _FlightActionButton(
+          icon: CupertinoIcons.arrow_up_circle_fill,
+          label: '起飞',
+          color: colors.success,
+          enabled: controller.isConnected && controller.supportsGuidedTakeoff,
+          onPressed: () => onAction('起飞'),
+        ),
+      if (visibility.land)
+        _FlightActionButton(
+          icon: CupertinoIcons.arrow_down_circle_fill,
+          label: '降落',
+          color: colors.warning,
+          enabled: guidedReady,
+          onPressed: () => onAction('降落'),
+        ),
+      if (visibility.rtl)
+        _FlightActionButton(
+          icon: CupertinoIcons.house_fill,
+          label: '返航',
+          color: colors.accent,
+          enabled: guidedReady,
+          onPressed: () => onAction('返航 (RTL)'),
+        ),
+      // 改变高度：和降落/返航并列的独立入口，不放进引导操作菜单。
+      if (visibility.changeAltitude)
+        _FlightActionButton(
+          icon: Icons.height,
+          label: '高度',
+          color: colors.accent,
+          enabled: guidedReady,
+          onPressed: onChangeAltitude,
+        ),
+    ];
+    return MgFloatingPanel(
+      borderRadius: BorderRadius.circular(9),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        // 竖排：起飞/降落/返航从上往下排，和 QGC 工具栏的图标列一致。
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var index = 0; index < buttons.length; index++) ...[
+              if (index > 0) const SizedBox(height: 6),
+              buttons[index],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FlightActionButton extends StatelessWidget {
+  const _FlightActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = MgColors.of(context);
+    return MacosTooltip(
+      message: label,
+      child: Material(
+        color: colors.transparent,
+        borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+        child: InkWell(
+          onTap: enabled ? onPressed : null,
+          borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+          hoverColor: colors.mapControlHover,
+          child: SizedBox(
+            width: 62,
+            height: 56,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 27,
+                  color: enabled ? color : colors.textTertiary,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: MgTypography.sans(
+                    MgTypography.caption.copyWith(
+                      color: enabled ? colors.textPrimary : colors.textTertiary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MapIconButton extends StatelessWidget {
@@ -1083,11 +1581,13 @@ class _MapIconButton extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onPressed,
+    this.active = false,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -1095,7 +1595,11 @@ class _MapIconButton extends StatelessWidget {
     return MacosTooltip(
       message: tooltip,
       child: MacosIconButton(
-        icon: Icon(icon, size: 18, color: colors.mapControlIcon),
+        icon: Icon(
+          icon,
+          size: 18,
+          color: active ? colors.accent : colors.mapControlIcon,
+        ),
         semanticLabel: tooltip,
         boxConstraints: const BoxConstraints.tightFor(width: 38, height: 38),
         padding: EdgeInsets.zero,
@@ -1110,13 +1614,13 @@ class _MapIconButton extends StatelessWidget {
 /// 地图上的航点标记：一个带编号的小圆点。
 class _WaypointMarker extends StatelessWidget {
   const _WaypointMarker({
-    required this.position,
+    required this.label,
     required this.color,
     this.selected = false,
     this.dragging = false,
   });
 
-  final int position;
+  final String label;
   final Color color;
   final bool selected;
   final bool dragging;
@@ -1135,7 +1639,7 @@ class _WaypointMarker extends StatelessWidget {
         ),
       ),
       child: Text(
-        '$position',
+        label,
         style: MacosTheme.of(
           context,
         ).typography.caption1.copyWith(color: context.mgColors.onAccent),

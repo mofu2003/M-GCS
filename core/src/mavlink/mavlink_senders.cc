@@ -257,6 +257,28 @@ bool MavlinkAdapter::cmd_guided_pause(uint8_t target_system, uint8_t target_comp
     return cmd_guided_velocity(target_system, target_component, 0, 0, 0);
 }
 
+// GUIDED: 改变高度（照 QGC `APMFirmwarePlugin::guidedModeChangeAltitude`）
+//
+// QGC 发的是 SET_POSITION_TARGET_LOCAL_NED + MAV_FRAME_LOCAL_OFFSET_NED，
+// type_mask=0xFFF8（只 position 的 x/y/z 有效），x=y=0、z=-高度变化量。
+// NED 里 z 向下为正，所以上升要发负值。
+bool MavlinkAdapter::cmd_change_altitude(uint8_t target_system, uint8_t target_component,
+                                          float altitude_change_m) {
+    const uint16_t type_mask = 0xFFF8;  // 只使用 position x/y/z
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    mavlink_msg_set_position_target_local_ned_pack(
+        255, 0, &impl_->msg,
+        0,                      // time_boot_ms (ignored)
+        target_system, target_component,
+        MAV_FRAME_LOCAL_OFFSET_NED,
+        type_mask,
+        0, 0, -altitude_change_m,   // x/y 不动，z 向下为正
+        0, 0, 0,                    // velocity (ignored)
+        0, 0, 0,                    // accel (ignored)
+        0, 0);                      // yaw / yaw_rate (ignored)
+    return impl_->send_msg();
+}
+
 
 // ================================================================
 // 任务协议
@@ -956,14 +978,33 @@ MavlinkAdapter::LogDownloadStatus MavlinkAdapter::log_download_status() {
     status.error = impl_->log_state.download_error;
     return status;
 }
-// 绕圈命令
+// 绕圈命令：照 QGC `Vehicle::guidedModeOrbit` 的 COMMAND_INT 形式。
+//
+//   frame  = MAV_FRAME_GLOBAL（z 是 AMSL，和 goto 一致）
+//   param1 = 半径，带符号表示环绕方向
+//   param2 = NaN  用飞控默认速度
+//   param3 = ORBIT_YAW_BEHAVIOUR_UNCHANGED(5) 保持原有偏航行为
+//   param4 = NaN  用飞控默认圈数
+//
+// 用 COMMAND_LONG 表达不了 NaN，也只能把参数塞进 param5/6，所以必须走 COMMAND_INT。
 bool MavlinkAdapter::cmd_orbit(uint8_t target_sys, uint8_t target_comp,
                                 double lat, double lon, float radius_m,
                                 float velocity_ms, float altitude_m) {
-    return send_command_long(target_sys, target_comp,
-        MAV_CMD_DO_ORBIT, 0,
-        radius_m, velocity_ms, 0, 0,
-        static_cast<float>(lat), static_cast<float>(lon), altitude_m);
+    const int32_t lat_e7 = static_cast<int32_t>(lat * 1e7);
+    const int32_t lon_e7 = static_cast<int32_t>(lon * 1e7);
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    mavlink_msg_command_int_pack(
+        255, 0, &impl_->msg,
+        target_sys, target_comp,
+        MAV_FRAME_GLOBAL,
+        MAV_CMD_DO_ORBIT,
+        0, 1,
+        radius_m,
+        velocity_ms > 0 ? velocity_ms : NAN,
+        static_cast<float>(ORBIT_YAW_BEHAVIOUR_UNCHANGED),
+        NAN,
+        lat_e7, lon_e7, altitude_m);
+    return impl_->send_msg();
 }
 
 // 设置感兴趣区域
@@ -973,6 +1014,33 @@ bool MavlinkAdapter::cmd_set_roi(uint8_t target_sys, uint8_t target_comp,
         MAV_CMD_DO_SET_ROI_LOCATION, 0,
         0, 0, 0, 0,
         static_cast<float>(lat), static_cast<float>(lon), alt);
+}
+
+// 设置航向：QGC `APMFirmwarePlugin::guidedModeChangeHeading` 用 CONDITION_YAW，
+// param1=相对/绝对转角、param2=最大偏航速率、param3=方向(±1)、param4=是否相对当前航向。
+bool MavlinkAdapter::cmd_change_heading(uint8_t target_sys, uint8_t target_comp,
+                                         float heading_deg, float yaw_rate_dps,
+                                         int8_t direction, bool relative) {
+    return send_command_long(target_sys, target_comp,
+        MAV_CMD_CONDITION_YAW, 0,
+        heading_deg, yaw_rate_dps, static_cast<float>(direction), relative ? 1.0f : 0.0f,
+        0, 0, 0);
+}
+
+// 设置 EKF 全局原点（SET_GPS_GLOBAL_ORIGIN 报文）。
+//
+// 报文没有 COMMAND_ACK，发出去即完成；QGC 在 COMMAND_INT 版本不可用时也走这条路。
+bool MavlinkAdapter::cmd_set_global_origin(uint8_t target_sys, uint8_t target_comp,
+                                            double lat, double lon, float alt_m) {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    mavlink_msg_set_gps_global_origin_pack(
+        255, 0, &impl_->msg,
+        target_sys,
+        static_cast<int32_t>(lat * 1e7),
+        static_cast<int32_t>(lon * 1e7),
+        static_cast<int32_t>(alt_m * 1000.0f),
+        0);
+    return impl_->send_msg();
 }
 
 // 取消感兴趣区域

@@ -109,6 +109,24 @@ ArduPilot 的 mission 传输列表把 Home 放在第 0 项，后续才是可见�
 `processToScreen` 读取后删除 Home 行一致。缺少该处理会导致 Home 被当作第一个航点，
 任务数量、距离、高度校验和重新上传的 Home 全部错误。
 
+### VTOL Takeoff 与 Transition Direction
+
+QGC 在 VTOL 任务中把 `MAV_CMD_NAV_VTOL_TAKEOFF` 显示为 `Transition Direction`，用于
+提示垂直起飞后的转换方向。它是 QGC 的规划参考，不是必须实际飞抵的普通航点。
+
+ArduPilot 当前实现会主动忽略该任务项的经纬度，只使用高度：飞机在起飞时的当前水平
+位置垂直爬升，达到高度后开始 `MR -> FW` 转换，再飞向后续第一个真实航点。因此 M-GCS
+必须遵守以下显示和验证规则：
+
+- `NAV_VTOL_TAKEOFF` 的坐标在地图上显示为独立的 `T` 参考点，不把它连进实际航线。
+- 规划 Home 有效时，实际路线从 Home 连到后续第一个真实航点；没有规划 Home 时，后续
+  航点之间仍正常连线。
+- 转换方向主要由后续第一个航点决定，界面必须提醒用户不要只依赖 `T` 点位置。
+- `NAV_VTOL_TAKEOFF` 是合法的第一项，`MAV_CMD_NAV_VTOL_LAND` 是合法的最后一项。
+
+前端编辑表单中的 `Transition Heading` 参数按 MAVLink common.xml 保留，用于兼容其他
+固件；当前 ArduPilot 语义不把它等同于“先飞到 T 点”。
+
 进度优先通过 `mg_operations_get_snapshot` 的 `mission` 项读取，状态为
 `downloading`、`uploading`、`waiting_ack` 或 `idle`，并包含百分比、计数、错误和取消
 终态。`mg_operations_cancel("mission")` 会终止当前任务传输、把状态标为

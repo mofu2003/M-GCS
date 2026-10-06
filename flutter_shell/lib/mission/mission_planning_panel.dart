@@ -8,6 +8,7 @@ import 'package:macos_ui/macos_ui.dart';
 import '../connection/connection_controller.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
+import '../widgets/mg_floating_panel.dart';
 import '../widgets/adaptive_popup_button.dart';
 import '../widgets/mac_panel.dart';
 import 'mission_document_controller.dart';
@@ -133,20 +134,7 @@ class _MissionPlanningFloatingPanelState
     final colors = context.mgColors;
     return SizedBox(
       width: kMissionPanelWidth,
-      child: Container(
-        decoration: BoxDecoration(
-          color: colors.surfaceMuted,
-          borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
-          border: Border.all(color: colors.divider),
-          boxShadow: [
-            BoxShadow(
-              color: colors.shadow,
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
+      child: MgFloatingPanel(
         child: Column(
           children: [
             Padding(
@@ -225,9 +213,7 @@ class _MissionPlanningFloatingPanelState
           _buildMissionActions(context, document),
           const SizedBox(height: 8),
           if (_mission.executionProgress?.active ?? false) ...[
-            _MissionExecutionProgressBar(
-              progress: _mission.executionProgress!,
-            ),
+            _MissionExecutionProgressBar(progress: _mission.executionProgress!),
             const SizedBox(height: 8),
           ],
           Expanded(
@@ -344,9 +330,13 @@ class _MissionPlanningFloatingPanelState
             PushButton(
               controlSize: ControlSize.regular,
               secondary: true,
-              onPressed: busy || transferring || !connected || document == null
-                  || !_mission.boundToVehicle
-                  || _mission.boundSessionId != widget.controller.sessionId
+              onPressed:
+                  busy ||
+                      transferring ||
+                      !connected ||
+                      document == null ||
+                      !_mission.boundToVehicle ||
+                      _mission.boundSessionId != widget.controller.sessionId
                   ? null
                   : _uploadToVehicle,
               child: const Row(
@@ -1953,6 +1943,7 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
+    final isVtolTakeoff = _descriptor.command == kMavCmdNavVtolTakeoff;
     final commands = widget.catalog
         .map((descriptor) => descriptor.command)
         .toList();
@@ -1971,7 +1962,9 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
                   children: [
                     Expanded(
                       child: Text(
-                        widget.entity == null ? '添加航点' : '编辑航点',
+                        widget.entity == null
+                            ? '添加${_descriptor.label}'
+                            : '编辑${_descriptor.label}',
                         style: MacosTheme.of(context).typography.title3,
                       ),
                     ),
@@ -2004,7 +1997,7 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
                       if (_descriptor.requiresPosition) ...[
                         Expanded(
                           child: _LabeledField(
-                            label: '纬度',
+                            label: isVtolTakeoff ? '参考纬度' : '纬度',
                             child: MacosTextField(
                               controller: _latitude,
                               padding: _fieldPadding,
@@ -2014,7 +2007,7 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: _LabeledField(
-                            label: '经度',
+                            label: isVtolTakeoff ? '参考经度' : '经度',
                             child: MacosTextField(
                               controller: _longitude,
                               padding: _fieldPadding,
@@ -2036,6 +2029,33 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
                           ),
                         ),
                     ],
+                  ),
+                ],
+                if (isVtolTakeoff) ...[
+                  const SizedBox(height: 8),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colors.surfaceMuted,
+                      borderRadius: BorderRadius.circular(
+                        MgMetrics.controlRadius,
+                      ),
+                      border: Border.all(color: colors.divider),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 7,
+                      ),
+                      child: Text(
+                        'ArduPilot：先在当前水平位置垂直爬升到设定高度，再转固定翼并飞向下一航点。'
+                        '此处经纬度是 MAVLink 兼容参考点，不是要求实际飞抵的航点。',
+                        style: MgTypography.sans(
+                          MgTypography.caption.copyWith(
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ],
                 if (_descriptor.parameters.isNotEmpty) ...[
@@ -2137,17 +2157,321 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
   }
 }
 
+/// “改变高度”对话框。
+///
+/// 这是**独立于引导操作菜单**的入口（挂在左侧飞行动作条里），只负责收一个目标
+/// 高度（相对 Home），再调用 [ConnectionController.guidedChangeAltitude]。
+/// 默认填当前相对高度，和 QGC 的高度滑块从当前值起步一致。
+Future<void> showChangeAltitudeDialog(
+  BuildContext context, {
+  required ConnectionController controller,
+}) async {
+  final current = controller.relativeAltitudeMeters;
+  if (!controller.vehiclePositionValid || current == null) return;
+  await _showFadeDialog<void>(
+    context: context,
+    builder: (dialogContext) => _ChangeAltitudeSheet(
+      controller: controller,
+      initialAltitudeMeters: current,
+    ),
+  );
+}
+
+class _ChangeAltitudeSheet extends StatefulWidget {
+  const _ChangeAltitudeSheet({
+    required this.controller,
+    required this.initialAltitudeMeters,
+  });
+
+  final ConnectionController controller;
+  final double initialAltitudeMeters;
+
+  @override
+  State<_ChangeAltitudeSheet> createState() => _ChangeAltitudeSheetState();
+}
+
+class _ChangeAltitudeSheetState extends State<_ChangeAltitudeSheet> {
+  late final TextEditingController _altitude = TextEditingController(
+    text: widget.initialAltitudeMeters.toStringAsFixed(1),
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _altitude.dispose();
+    super.dispose();
+  }
+
+  Future<void> _execute() async {
+    final target = double.tryParse(_altitude.text.trim());
+    if (target == null || !target.isFinite) {
+      setState(() => _error = '请输入有效的高度');
+      return;
+    }
+    final confirmed = await confirmMissionAction(
+      context,
+      title: '改变高度',
+      message: '飞机会在当前位置升/降到 ${target.toStringAsFixed(1)} m（相对 Home）并悬停。',
+      confirmLabel: '执行',
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await widget.controller.guidedChangeAltitude(target);
+      if (mounted) Navigator.of(context).pop();
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    return Center(
+      child: MacosSheet(
+        insetPadding: EdgeInsets.zero,
+        child: SizedBox(
+          width: 280,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('改变高度', style: MacosTheme.of(context).typography.title3),
+                const SizedBox(height: 2),
+                Text(
+                  '当前 ${widget.initialAltitudeMeters.toStringAsFixed(1)} m（相对 Home）',
+                  style: MacosTheme.of(
+                    context,
+                  ).typography.caption1.copyWith(color: colors.textSecondary),
+                ),
+                const SizedBox(height: 10),
+                _LabeledField(
+                  label: '高度 (m)',
+                  child: MacosTextField(
+                    controller: _altitude,
+                    padding: _fieldPadding,
+                  ),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: MacosTheme.of(
+                      context,
+                    ).typography.caption1.copyWith(color: colors.danger),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    PushButton(
+                      controlSize: ControlSize.regular,
+                      secondary: true,
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('取消'),
+                    ),
+                    const SizedBox(width: 8),
+                    PushButton(
+                      controlSize: ControlSize.regular,
+                      onPressed: _execute,
+                      child: const Text('执行'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 引导操作：门控条件照抄 QGC `GuidedActionsController.qml` 的 `show*` 属性。
 Future<void> showGuidedActionsDialog(
   BuildContext context, {
   required ConnectionController controller,
   required LatLng position,
+  String? initialActionLabel,
 }) async {
   await _showFadeDialog<void>(
     context: context,
-    builder: (dialogContext) =>
-        _GuidedActionsSheet(controller: controller, position: position),
+    builder: (dialogContext) => _GuidedActionsSheet(
+      controller: controller,
+      position: position,
+      initialActionLabel: initialActionLabel,
+    ),
   );
+}
+
+/// 起飞前地图点击菜单。
+///
+/// QGC `FlyViewMap.qml` 在地图点击时先提供 set home / preflight 类动作，只有飞机进入
+/// 飞行状态后才显示 Go to、Orbit、ROI 等 Guided 动作。M-GCS 对应保留“设置 Home”
+/// 和“起飞”两个入口，已解锁后由调用方改走完整 Guided 操作表。
+Future<void> showPreflightMapActionsDialog(
+  BuildContext context, {
+  required ConnectionController controller,
+  required LatLng position,
+}) async {
+  final action = await _showFadeDialog<_PreflightMapAction>(
+    context: context,
+    builder: (dialogContext) =>
+        _PreflightMapActionsSheet(controller: controller, position: position),
+  );
+  if (action == _PreflightMapAction.takeoff && context.mounted) {
+    await showGuidedActionsDialog(
+      context,
+      controller: controller,
+      position: position,
+      initialActionLabel: '起飞',
+    );
+  }
+}
+
+enum _PreflightMapAction { setHome, takeoff }
+
+class _PreflightMapActionsSheet extends StatefulWidget {
+  const _PreflightMapActionsSheet({
+    required this.controller,
+    required this.position,
+  });
+
+  final ConnectionController controller;
+  final LatLng position;
+
+  @override
+  State<_PreflightMapActionsSheet> createState() =>
+      _PreflightMapActionsSheetState();
+}
+
+class _PreflightMapActionsSheetState extends State<_PreflightMapActionsSheet> {
+  String? _error;
+  bool _busy = false;
+
+  String? get _takeoffDisabledReason {
+    final controller = widget.controller;
+    if (!controller.isConnected) return '未连接飞控';
+    if (!controller.supportsGuidedTakeoff) return '当前机型不支持引导起飞';
+    if (controller.vehicleFlying) return '飞机已经在空中';
+    return null;
+  }
+
+  Future<void> _setHome() async {
+    final controller = widget.controller;
+    final altitude =
+        controller.absoluteAltitudeMeters ??
+        controller.vehiclePosition?.altitudeMeters ??
+        0;
+    final confirmed = await confirmMissionAction(
+      context,
+      title: '设置 Home',
+      message: '把 Home 设为该坐标会改变飞控的返航基准（RTL 落点）。是否继续？',
+      confirmLabel: '设为 Home',
+    );
+    if (!confirmed || !mounted) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await controller.setVehicleHome(
+        widget.position.latitude,
+        widget.position.longitude,
+        altitude,
+      );
+      if (mounted) {
+        Navigator.of(context).pop(_PreflightMapAction.setHome);
+      }
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = error.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    final takeoffDisabledReason = _takeoffDisabledReason;
+    return Center(
+      child: MacosSheet(
+        insetPadding: EdgeInsets.zero,
+        child: SizedBox(
+          width: 280,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('起飞前操作', style: MacosTheme.of(context).typography.title3),
+                const SizedBox(height: 2),
+                Text(
+                  '${widget.position.latitude.toStringAsFixed(5)}, '
+                  '${widget.position.longitude.toStringAsFixed(5)}',
+                  style: MacosTheme.of(
+                    context,
+                  ).typography.caption1.copyWith(color: colors.textSecondary),
+                ),
+                const SizedBox(height: 12),
+                PushButton(
+                  controlSize: ControlSize.regular,
+                  secondary: true,
+                  onPressed: _busy ? null : _setHome,
+                  child: const Text('设置 Home 到这里'),
+                ),
+                const SizedBox(height: 7),
+                PushButton(
+                  controlSize: ControlSize.regular,
+                  secondary: true,
+                  onPressed: takeoffDisabledReason != null || _busy
+                      ? null
+                      : () => Navigator.of(
+                          context,
+                        ).pop(_PreflightMapAction.takeoff),
+                  child: const Text('起飞'),
+                ),
+                if (takeoffDisabledReason != null) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    takeoffDisabledReason,
+                    style: MacosTheme.of(
+                      context,
+                    ).typography.caption1.copyWith(color: colors.warning),
+                  ),
+                ],
+                if (_error != null) ...[
+                  const SizedBox(height: 7),
+                  Text(
+                    _error!,
+                    style: MacosTheme.of(
+                      context,
+                    ).typography.caption1.copyWith(color: colors.danger),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: PushButton(
+                    controlSize: ControlSize.regular,
+                    secondary: true,
+                    onPressed: _busy ? null : () => Navigator.of(context).pop(),
+                    child: const Text('取消'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _GuidedAction {
@@ -2173,10 +2497,15 @@ class _GuidedAction {
 }
 
 class _GuidedActionsSheet extends StatefulWidget {
-  const _GuidedActionsSheet({required this.controller, required this.position});
+  const _GuidedActionsSheet({
+    required this.controller,
+    required this.position,
+    this.initialActionLabel,
+  });
 
   final ConnectionController controller;
   final LatLng position;
+  final String? initialActionLabel;
 
   @override
   State<_GuidedActionsSheet> createState() => _GuidedActionsSheetState();
@@ -2186,7 +2515,7 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
   late final TextEditingController _altitude = TextEditingController(
     text: _defaultAltitude().toStringAsFixed(1),
   );
-  String? _selectedActionLabel;
+  late String? _selectedActionLabel = widget.initialActionLabel;
   String? _error;
 
   double _defaultAltitude() {
@@ -2232,13 +2561,23 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
           if (!connected) '未连接飞控',
           if (!guidedSupported) '当前飞控未声明支持引导模式',
           if (!flying) '飞机尚未起飞',
+          // QGC `guidedModeGotoLocation` 在高度未知时直接拒发；这里同样门控。
+          if (controller.absoluteAltitudeMeters == null ||
+              controller.absoluteAltitudeMeters == 0)
+            '还没有有效的海拔高度',
         ]),
-        needsAltitude: true,
+        // QGC 的 Go to location 不给高度输入框：目标高度固定取飞机**当前 AMSL**，
+        // 也就是"保持现在的高度飞过去"。
         confirmMessage: inAuto
             ? '当前为 AUTO。执行后会切换到 GUIDED，并离开当前任务。'
-            : '飞机会飞往该坐标并保持高度。',
-        run: ({required latitude, required longitude, required altitude}) =>
-            controller.guidedGoto(latitude, longitude, altitude),
+            : '飞机会保持当前高度飞往该坐标。',
+        run: ({required latitude, required longitude, required altitude}) {
+          final current = controller.absoluteAltitudeMeters;
+          if (current == null || current == 0) {
+            throw StateError('移动到此处失败：没有有效的海拔高度');
+          }
+          return controller.guidedGoto(latitude, longitude, current);
+        },
       ),
       _GuidedAction(
         label: '返航 (RTL)',
@@ -2259,6 +2598,8 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
           if (!connected) '未连接飞控',
           if (!guidedSupported) '当前飞控未声明支持引导模式',
           if (!armed) '飞控未解锁',
+          // QGC `GuidedActionsController.qml`：Land 只在飞行中出现，地面不给。
+          if (!flying) '飞机尚未起飞',
           if (fixedWing) '固定翼不支持原地引导降落',
           if (inLand) '飞机已在降落模式',
         ]),
@@ -2301,12 +2642,19 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
         ]),
         needsAltitude: true,
         confirmMessage: '飞控会绕该点盘旋（半径 50 m）。',
-        run: ({required latitude, required longitude, required altitude}) =>
-            controller.guidedOrbit(
-              latitude: latitude,
-              longitude: longitude,
-              altitudeMeters: altitude,
-            ),
+        // QGC `GuidedActionsController` 传的是 `homePosition.altitude + 滑块值`
+        // （AMSL），所以这里把用户填的相对高度换算成 AMSL 再下发。
+        run: ({required latitude, required longitude, required altitude}) {
+          final homeAltitude = controller.homePosition?.altitudeMeters;
+          if (homeAltitude == null) {
+            throw StateError('环绕飞行失败：Home 高度未知');
+          }
+          return controller.guidedOrbit(
+            latitude: latitude,
+            longitude: longitude,
+            altitudeMeters: homeAltitude + altitude,
+          );
+        },
       ),
     ];
   }

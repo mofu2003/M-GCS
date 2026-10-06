@@ -60,6 +60,17 @@ void main() {
     expect(restored.params, [15, 0, 0, 0]);
   });
 
+  test('mission entities identify VTOL takeoff and landing commands', () {
+    const takeoff = MissionEntity(command: kMavCmdNavVtolTakeoff);
+    const landing = MissionEntity(command: kMavCmdNavVtolLand);
+    const waypoint = MissionEntity(command: 16);
+
+    expect(takeoff.isVtolTakeoff, isTrue);
+    expect(takeoff.isVtolLand, isFalse);
+    expect(landing.isVtolLand, isTrue);
+    expect(waypoint.isVtolTakeoff, isFalse);
+  });
+
   test(
     'upload performs readback verification and clears dirty state',
     () async {

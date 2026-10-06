@@ -78,11 +78,13 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     vtol_takeoff.label = "垂直起飞";
     vtol_takeoff.entity_type = mission_entity_type_for_command(vtol_takeoff.command);
     vtol_takeoff.category = "navigation";
-    vtol_takeoff.description = "多旋翼方式垂直起飞，再过渡到固定翼巡航";
+    vtol_takeoff.description =
+        "ArduPilot 在当前水平位置垂直起飞到设定高度，再转换为固定翼并飞向后续航点；"
+        "Transition Heading 是 MAVLink 兼容字段，当前 ArduPilot 不按该参考坐标水平飞行";
     vtol_takeoff.requires_position = true;
     vtol_takeoff.requires_altitude = true;
     vtol_takeoff.parameters = {
-        parameter(2, "transition_heading", "过渡航向", "", MissionParameterType::Enum, 0.0, 0.0, 4.0, true, true),
+        parameter(2, "transition_heading", "过渡航向（兼容）", "", MissionParameterType::Enum, 0.0, 0.0, 4.0, true, true),
         parameter(4, "yaw", "偏航角", "deg"),
     };
     vtol_takeoff.parameters[0].options = {

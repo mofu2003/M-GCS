@@ -784,6 +784,7 @@ MissionValidationReport validate_document(const MissionDocument& document) {
     } else {
         const MissionEntity& first = *enabled.front();
         if (first.command != static_cast<uint16_t>(NavCommand::NavTakeoff) &&
+            first.command != static_cast<uint16_t>(NavCommand::NavVtolTakeoff) &&
             first.command != static_cast<uint16_t>(NavCommand::NavWaypoint)) {
             add_diagnostic(
                 report,
@@ -795,6 +796,7 @@ MissionValidationReport validate_document(const MissionDocument& document) {
         }
         const MissionEntity& last = *enabled.back();
         if (last.command != static_cast<uint16_t>(NavCommand::NavLand) &&
+            last.command != static_cast<uint16_t>(NavCommand::NavVtolLand) &&
             last.command != static_cast<uint16_t>(NavCommand::NavReturnToLaunch)) {
             add_diagnostic(
                 report,

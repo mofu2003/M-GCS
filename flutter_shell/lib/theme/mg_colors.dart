@@ -104,9 +104,12 @@ class MgColors {
   Color get mapControlIcon =>
       _pick(const Color(0xFF3B3B3B), const Color(0xFFE5E5E5));
 
-  /// 地图浮动控件的底色。
-  Color get mapControlSurface =>
-      _pick(const Color(0xF5FFFFFF), const Color(0xF52A2B2E));
+  /// 所有悬浮面板的统一底色：65% 不透明。
+  ///
+  /// 顶部状态栏、地图工具列、飞行动作条、遥测条、设置菜单、连接/消息浮层都
+  /// 用它，保证同一套透明度。改这里就是改全局"悬浮窗"观感。
+  Color get floatingSurface =>
+      _pick(const Color(0xA6FFFFFF), const Color(0xA62A2B2E));
 
   /// 地图浮动控件的悬停色。
   Color get mapControlHover =>

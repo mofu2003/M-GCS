@@ -278,19 +278,23 @@ MissionValidation MissionManager::validate() const {
 
     // Check for takeoff as first item (recommended)
     if (!plan_.items.empty()) {
-        bool first_is_takeoff = (plan_.items[0].command == static_cast<uint16_t>(NavCommand::NavTakeoff));
+        bool first_is_takeoff =
+            (plan_.items[0].command == static_cast<uint16_t>(NavCommand::NavTakeoff) ||
+             plan_.items[0].command == static_cast<uint16_t>(NavCommand::NavVtolTakeoff));
         bool first_is_waypoint = (plan_.items[0].command == static_cast<uint16_t>(NavCommand::NavWaypoint));
         if (!first_is_takeoff && !first_is_waypoint) {
-            result.add_warning("First item should be TAKEOFF or WAYPOINT");
+            result.add_warning("First item should be TAKEOFF, VTOL_TAKEOFF or WAYPOINT");
         }
     }
 
     // Check for landing as last item (recommended)
     if (!plan_.items.empty()) {
-        bool last_is_land = (plan_.items.back().command == static_cast<uint16_t>(NavCommand::NavLand));
+        bool last_is_land =
+            (plan_.items.back().command == static_cast<uint16_t>(NavCommand::NavLand) ||
+             plan_.items.back().command == static_cast<uint16_t>(NavCommand::NavVtolLand));
         bool last_is_rtl = (plan_.items.back().command == static_cast<uint16_t>(NavCommand::NavReturnToLaunch));
         if (!last_is_land && !last_is_rtl) {
-            result.add_warning("Last item should be LAND or RTL");
+            result.add_warning("Last item should be LAND, VTOL_LAND or RTL");
         }
     }
 
@@ -310,7 +314,9 @@ MissionValidation MissionManager::validate_item(const MissionItem& item, size_t 
                            item.command == static_cast<uint16_t>(NavCommand::NavLoiterUnlim) ||
                            item.command == static_cast<uint16_t>(NavCommand::NavLoiterTurns) ||
                            item.command == static_cast<uint16_t>(NavCommand::NavLoiterTime) ||
-                           item.command == static_cast<uint16_t>(NavCommand::NavLand));
+                           item.command == static_cast<uint16_t>(NavCommand::NavLand) ||
+                           item.command == static_cast<uint16_t>(NavCommand::NavVtolTakeoff) ||
+                           item.command == static_cast<uint16_t>(NavCommand::NavVtolLand));
 
     if (is_position_cmd) {
         double lat = item.x / 1e7;

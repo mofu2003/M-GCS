@@ -4,7 +4,11 @@ import 'package:macos_ui/macos_ui.dart';
 import 'package:mgcs_frontend/widgets/mg_top_status_bar.dart';
 
 void main() {
-  Future<void> show(WidgetTester tester, MgTopStatusData data) async {
+  Future<void> show(
+    WidgetTester tester,
+    MgTopStatusData data, {
+    VoidCallback? onToggleArm,
+  }) async {
     tester.view.physicalSize = const Size(1200, 600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -14,7 +18,9 @@ void main() {
       MacosTheme(
         data: MacosThemeData.light(),
         child: MaterialApp(
-          home: Scaffold(body: MgTopStatusBar(data: data)),
+          home: Scaffold(
+            body: MgTopStatusBar(data: data, onToggleArm: onToggleArm),
+          ),
         ),
       ),
     );
@@ -37,6 +43,7 @@ void main() {
         batteryRemainingPercent: null,
         batteryVoltage: null,
         transportLabel: '串口',
+        messageCount: 0,
       ),
     );
 
@@ -61,6 +68,7 @@ void main() {
         batteryRemainingPercent: 78,
         batteryVoltage: 12.6,
         transportLabel: '串口',
+        messageCount: 3,
       ),
     );
 
@@ -69,6 +77,79 @@ void main() {
     expect(find.text('16'), findsOneWidget);
     expect(find.text('78'), findsOneWidget);
     expect(find.text('串口'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+
+  for (final width in <double>[980, 820, 760, 720, 660, 640]) {
+    testWidgets('top status bar lays out at ${width.toInt()} px without overflow', (
+      tester,
+    ) async {
+      tester.view.physicalSize = Size(width, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MacosTheme(
+          data: MacosThemeData.light(),
+          child: MaterialApp(
+            home: Scaffold(
+              body: MgTopStatusBar(
+                // 最宽的一档右栏：已连接、未飞行（解锁按钮可见）、高星数、满状态。
+                data: const MgTopStatusData(
+                  connected: true,
+                  armed: false,
+                  flying: false,
+                  flightMode: 'STABILIZE',
+                  vtolState: 0,
+                  gpsFixType: 6,
+                  satellitesVisible: 18,
+                  batteryRemainingPercent: 42,
+                  batteryVoltage: 15.7,
+                  transportLabel: 'UDP 192.168.1.20',
+                  messageCount: 12,
+                ),
+                onOpenFlightMessages: () {},
+                onToggleArm: () {},
+                onOpenFlightMode: () {},
+                onOpenSettings: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('arm action is exposed when connected and disarmed', (
+    tester,
+  ) async {
+    var toggled = false;
+    await show(
+      tester,
+      const MgTopStatusData(
+        connected: true,
+        armed: false,
+        flying: false,
+        flightMode: 'STABILIZE',
+        vtolState: 0,
+        gpsFixType: 3,
+        satellitesVisible: 12,
+        batteryRemainingPercent: 80,
+        batteryVoltage: 12.4,
+        transportLabel: 'UDP',
+        messageCount: 0,
+      ),
+      onToggleArm: () => toggled = true,
+    );
+
+    expect(find.text('解锁'), findsOneWidget);
+    await tester.tap(find.text('解锁'));
+    expect(toggled, isTrue);
     expect(tester.takeException(), isNull);
   });
 }

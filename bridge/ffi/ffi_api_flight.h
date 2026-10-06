@@ -40,6 +40,9 @@ MGCORE_API char* mg_command_guided_point(mg_core_t* core,
                                          float yaw, float speed);
 MGCORE_API char* mg_command_guided_velocity(mg_core_t* core, float vx, float vy, float vz);
 MGCORE_API char* mg_command_guided_pause(mg_core_t* core);
+// 在当前位置改变高度（QGC `APMFirmwarePlugin::guidedModeChangeAltitude`）。
+// altitude_change_m 为正表示上升；底层用 LOCAL_OFFSET_NED 只偏移 z。
+MGCORE_API char* mg_command_change_altitude(mg_core_t* core, float altitude_change_m);
 // 设置飞控 home 点（MAV_CMD_DO_SET_HOME）。
 //
 // 会改变返航（RTL）基准，属于安全敏感操作：调用方应先向用户确认，
@@ -47,9 +50,24 @@ MGCORE_API char* mg_command_guided_pause(mg_core_t* core);
 // affect Return to Home position”。
 MGCORE_API char* mg_command_set_home(mg_core_t* core,
                                      double lat, double lon, float alt_m);
+// 环绕飞行（QGC `Vehicle::guidedModeOrbit`）。json_config 字段：
+//   lat/lon=环绕中心，radius=半径(带符号表示方向)，velocity<=0 表示用飞控默认，
+//   altitude=**AMSL 高度**（QGC 用 home AMSL + 相对高度）。
 MGCORE_API char* mg_command_orbit(mg_core_t* core, const char* json_config);
 MGCORE_API char* mg_command_set_roi(mg_core_t* core, double lat, double lon, float alt);
 MGCORE_API char* mg_command_stop_roi(mg_core_t* core);
+// 机头转向点击方向（QGC 地图菜单的 “Set Heading”）。
+//
+// heading_deg 为相对当前航向的转角（度），direction 为 ±1，yaw_rate_dps 为
+// 最大偏航速率；与 QGC `APMFirmwarePlugin::guidedModeChangeHeading` 发出的
+// MAV_CMD_CONDITION_YAW 参数一致。仅多旋翼/潜航器适用。
+MGCORE_API char* mg_command_change_heading(mg_core_t* core, float heading_deg,
+                                           float yaw_rate_dps, int direction);
+// 设置 EKF 全局原点（QGC 地图菜单的 “Set Estimator Origin”）。
+//
+// 无 GPS 的室内/视觉定位场景用它指定本地坐标原点的经纬高。
+MGCORE_API char* mg_command_set_global_origin(mg_core_t* core, double lat,
+                                              double lon, float alt_m);
 MGCORE_API char* mg_command_landing_gear(mg_core_t* core, bool deploy);
 
 MGCORE_API char* mg_flight_get_available_modes(mg_core_t* core);

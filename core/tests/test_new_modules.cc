@@ -431,6 +431,41 @@ static void test_extended_commands() {
     CHECK(r != nullptr, "landing_gear returns non-null");
     if (r) mg_free_string(r);
 
+    // Change heading（QGC 地图菜单 Set Heading）
+    r = mg_command_change_heading(core, 90.0f, 30.0f, 1);
+    CHECK(r != nullptr, "change_heading returns non-null");
+    if (r) mg_free_string(r);
+
+    // Change altitude（QGC guidedModeChangeAltitude）
+    r = mg_command_change_altitude(core, 10.0f);
+    CHECK(r != nullptr, "change_altitude returns non-null");
+    if (r) mg_free_string(r);
+
+    // 非有限值必须本地拒绝
+    r = mg_command_change_altitude(core, NAN);
+    CHECK(r != nullptr, "change_altitude NaN returns non-null");
+    CHECK(strstr(r, "\"success\":true") == nullptr,
+          "change_altitude rejects NaN");
+    if (r) mg_free_string(r);
+
+    // Set estimator origin（QGC 地图菜单 Set Estimator Origin）
+    r = mg_command_set_global_origin(core, 39.9042, 116.4074, 42.5f);
+    CHECK(r != nullptr, "set_global_origin returns non-null");
+    if (r) mg_free_string(r);
+
+    // 越界经纬度必须本地拒绝，不能把无效坐标发给飞控。
+    r = mg_command_set_global_origin(core, 120.0, 116.4, 10.0f);
+    CHECK(r != nullptr, "set_global_origin invalid lat returns non-null");
+    CHECK(strstr(r, "\"success\":true") == nullptr,
+          "set_global_origin rejects lat > 90");
+    if (r) mg_free_string(r);
+
+    r = mg_command_set_global_origin(core, 39.9, 200.0, 10.0f);
+    CHECK(r != nullptr, "set_global_origin invalid lon returns non-null");
+    CHECK(strstr(r, "\"success\":true") == nullptr,
+          "set_global_origin rejects lon > 180");
+    if (r) mg_free_string(r);
+
     mg_destroy(core);
 }
 

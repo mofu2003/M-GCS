@@ -5,8 +5,10 @@ import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../mission/mission_document_controller.dart';
+import '../mission/mission_geo.dart';
 import '../mission/mission_document_ffi_backend.dart';
 import '../mission/mission_document_models.dart';
 import 'telemetry_ffi_backend.dart';
@@ -433,6 +435,10 @@ final class ConnectionController extends ChangeNotifier {
   double? groundSpeedMetersPerSecond;
   double? relativeAltitudeMeters;
   double? absoluteAltitudeMeters;
+
+  /// QGC instrument panel 的 Climb Rate / Throttle，来源同为 VFR_HUD。
+  double? climbRateMetersPerSecond;
+  double? throttlePercent;
   int? batteryRemainingPercent;
   double? batteryVoltage;
   Map<String, Object?>? firmwareInfo;
@@ -464,6 +470,17 @@ final class ConnectionController extends ChangeNotifier {
   /// it does not change mission or guided command logic.
   VehicleFix? guidedTargetPosition;
   bool guidedTargetValid = false;
+
+  /// QGC `Vehicle::_flightTimerStart()` 的等价统计。
+  ///
+  /// 飞控不直接提供 FlightTime / FlightDistance，QGC 也是地面站本地累计：
+  /// 解锁时清零并开始计时，上锁后停止；每次定位刷新把位移累进总里程。
+  double flightTimeSeconds = 0;
+  double flightDistanceMeters = 0;
+  final Stopwatch _flightStopwatch = Stopwatch();
+  bool _flightStatsArmed = false;
+  double? _lastFlightLatitude;
+  double? _lastFlightLongitude;
 
   /// QGC `Vehicle::flying` 的等价判断，外加 ArduPilot VTOL 的兼容回退。
   ///
@@ -570,6 +587,9 @@ final class ConnectionController extends ChangeNotifier {
     return VehicleControlProfile.unknown;
   }
 
+  /// “设置航向”传给飞控的最大偏航速率，0 表示用飞控默认值。
+  static const double _headingYawRateDegreesPerSecond = 0;
+
   bool get supportsGuidedMode => _firmwareCapability('guided_mode');
   bool get supportsPause => _firmwareCapability('pause');
 
@@ -580,6 +600,59 @@ final class ConnectionController extends ChangeNotifier {
     2, 3, 4, 13, 14, 15, // MAV_TYPE multirotor family
     19, 20, 21, 22, 23, 24, // MAV_TYPE VTOL family
   }.contains(vehicleType);
+
+  /// QGC `APMFirmwarePlugin::minimumTakeoffAltitudeMeters` 的等价实现。
+  ///
+  /// VTOL 依次读 `Q_PILOT_TKO_ALT_M`（4.7+，米）→ `Q_PILOT_TKOFF_ALT`（旧版，厘米）
+  /// → `Q_RTL_ALT`；多旋翼读 `PILOT_TKO_ALT_M` → `PILOT_TKOFF_ALT`（厘米）。
+  /// 用户在界面上填的高度只会把它抬高，不会降低（QGC 同）。
+  double get minimumTakeoffAltitudeMeters {
+    double? read(String name) {
+      final value = parameters[name]?.value;
+      return value != null && value > 0 ? value : null;
+    }
+
+    if (controlProfile == VehicleControlProfile.planeVtol) {
+      return read('Q_PILOT_TKO_ALT_M') ??
+          (read('Q_PILOT_TKOFF_ALT') != null
+              ? read('Q_PILOT_TKOFF_ALT')! / 100.0
+              : null) ??
+          read('Q_RTL_ALT') ??
+          0;
+    }
+    return read('PILOT_TKO_ALT_M') ??
+        (read('PILOT_TKOFF_ALT') != null
+            ? read('PILOT_TKOFF_ALT')! / 100.0
+            : null) ??
+        0;
+  }
+
+  /// 是否支持“设置航向”（原地转向）。
+  ///
+  /// QGC `APMFirmwarePlugin::_isCapable` 只给多旋翼和潜航器
+  /// `ChangeHeadingCapability`，固定翼和 VTOL 都不给，所以这里保持一致。
+  bool get supportsChangeHeading => const {
+    2, 3, 4, 13, 14, 15, // MAV_TYPE multirotor family
+    12, // MAV_TYPE_SUBMARINE
+  }.contains(vehicleType);
+
+  /// 飞控是否上报了 GPS 传感器。
+  ///
+  /// QGC 只在 `!(sensorsPresentBits & MAV_SYS_STATUS_SENSOR_GPS)` 时才显示
+  /// “Set Estimator Origin”（室内/视觉定位场景）。拿不到传感器表时返回 true，
+  /// 宁可少显示这个室内专用入口。
+  bool get hasGpsSensor {
+    final health = sensorHealth;
+    if (health == null) return true;
+    final groups = health['groups'];
+    if (groups is! Map) return true;
+    final navigation = groups['navigation'];
+    if (navigation is! List) return true;
+    for (final item in navigation) {
+      if (item is Map && item['key'] == 'gps') return item['present'] == true;
+    }
+    return true;
+  }
 
   bool _firmwareCapability(String name) {
     final capabilities = firmwareInfo?['capabilities'];
@@ -1234,9 +1307,7 @@ final class ConnectionController extends ChangeNotifier {
           .asFunction();
       _getMessages = _library
           .lookup<
-            NativeFunction<
-              Pointer<Utf8> Function(Pointer<Void>, Uint64)
-            >
+            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Uint64)>
           >('mg_telemetry_get_messages')
           .asFunction();
       _setFlightMode = _library
@@ -1330,7 +1401,8 @@ final class ConnectionController extends ChangeNotifier {
       return;
     }
     try {
-      final response = _readJson(_getFlightModes(_core)) as Map<String, Object?>;
+      final response =
+          _readJson(_getFlightModes(_core)) as Map<String, Object?>;
       if (response['success'] != true) return;
       final options = (response['modes'] as List<Object?>? ?? const [])
           .whereType<Map<Object?, Object?>>()
@@ -1393,6 +1465,12 @@ final class ConnectionController extends ChangeNotifier {
     double altitudeMeters,
   ) async {
     _requireConnected('移动到此处');
+    // QGC `APMFirmwarePlugin::guidedModeGotoLocation` 在高度未知时直接返回、不发指令。
+    // DO_REPOSITION 走 MAV_FRAME_GLOBAL，高度必须是 AMSL 绝对值；这里如果拿到 0
+    // 或非有限值就拒发——否则等于命令飞机飞向地面高度。
+    if (!altitudeMeters.isFinite || altitudeMeters == 0) {
+      throw StateError('移动到此处失败：没有有效的海拔高度');
+    }
     _requireCommandSuccess(
       flightCommandBackend.guidedPoint(
         latitude,
@@ -1431,25 +1509,31 @@ final class ConnectionController extends ChangeNotifier {
     if (!supportsGuidedTakeoff) {
       throw StateError('起飞失败：当前机型不支持引导起飞');
     }
+    // QGC `_guidedModeTakeoff` 在 `altitudeAMSL` 为 NaN 时直接拒绝。
+    if (absoluteAltitudeMeters == null) {
+      throw StateError('起飞失败：飞机位置未知');
+    }
+    // QGC：起飞高度取 `max(飞控最小起飞高度, 用户值)`，用户不可能把它调低。
+    var takeoffAltitude = altitudeMeters;
+    final minimumAltitude = minimumTakeoffAltitudeMeters;
+    if (!takeoffAltitude.isFinite || takeoffAltitude < minimumAltitude) {
+      takeoffAltitude = minimumAltitude;
+    }
 
     // QGC PX4 flow sends takeoff first and arms after the command is accepted.
     // ArduPilot requires GUIDED and an armed vehicle before NAV_TAKEOFF.
     if (vehicleAutopilotType == 12) {
       _requireCommandSuccess(
-        flightCommandBackend.takeoff(altitudeMeters),
+        flightCommandBackend.takeoff(takeoffAltitude),
         '起飞',
       );
       if (!vehicleArmed) await _armVehicleAndValidate();
       return;
     }
 
-    final fixedWing =
-        controlProfile == VehicleControlProfile.fixedWing ||
-        controlProfile == VehicleControlProfile.planeVtol;
-    final guidedMode = fixedWing ? 15 : 4;
-    await _setFlightModeAndValidate(guidedMode, 'Guided');
+    await _setFlightModeAndValidate(_guidedCustomMode, 'Guided');
     if (!vehicleArmed) await _armVehicleAndValidate();
-    _requireCommandSuccess(flightCommandBackend.takeoff(altitudeMeters), '起飞');
+    _requireCommandSuccess(flightCommandBackend.takeoff(takeoffAltitude), '起飞');
   }
 
   /// 按 QGC 的 APM/PX4 Start Mission 流程解锁并启动当前飞控任务。
@@ -1590,6 +1674,30 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
+  /// Guided 模式的自定义模式号：固定翼/VTOL 用 15，多旋翼用 4。
+  int get _guidedCustomMode =>
+      controlProfile == VehicleControlProfile.fixedWing ||
+          controlProfile == VehicleControlProfile.planeVtol
+      ? 15
+      : 4;
+
+  /// 引导菜单的“改变高度”。
+  ///
+  /// 与 QGC `APMFirmwarePlugin::guidedModeChangeAltitude` 一致：
+  /// 目标高度是**相对 Home** 的高度；先切 GUIDED，再发 `LOCAL_OFFSET_NED` 的
+  /// 高度偏移（只动 z）。偏差小于 1 cm 时直接返回，避免无意义地切模式。
+  Future<void> guidedChangeAltitude(double targetAltitudeAboveHome) async {
+    _requireConnected('改变高度');
+    final current = relativeAltitudeMeters;
+    if (!vehiclePositionValid || current == null) {
+      throw StateError('改变高度失败：飞机高度未知');
+    }
+    final delta = targetAltitudeAboveHome - current;
+    if (delta.abs() < 0.01) return;
+    await _setFlightModeAndValidate(_guidedCustomMode, 'Guided');
+    _requireCommandSuccess(flightCommandBackend.changeAltitude(delta), '改变高度');
+  }
+
   Future<void> guidedPause() async {
     _requireConnected('暂停');
     // ArduPilot's guided pause is a flight-mode change, not just a zero
@@ -1654,6 +1762,67 @@ final class ConnectionController extends ChangeNotifier {
     _requireCommandSuccess(
       flightCommandBackend.setHome(latitude, longitude, altitudeMeters),
       '设置 Home',
+    );
+  }
+
+  /// 地图菜单的“在此外设置兴趣点”：让云台/相机对准该坐标，飞机不移动。
+  /// 参数 [altitudeMeters] 是**相对 Home 的高度**：ArduPilot 把 COMMAND_LONG 形式的
+  /// `MAV_CMD_DO_SET_ROI_LOCATION` 映射成 `MAV_FRAME_GLOBAL_RELATIVE_ALT`，
+  /// 这正是 QGC `APMFirmwarePlugin` 的 ROI 分支所用的坐标系（地图点击默认传 0）。
+  Future<void> guidedSetRoi(
+    double latitude,
+    double longitude, [
+    double altitudeMeters = 0,
+  ]) async {
+    _requireConnected('设置兴趣点');
+    _requireCommandSuccess(
+      flightCommandBackend.setRoi(latitude, longitude, altitudeMeters),
+      '设置兴趣点',
+    );
+  }
+
+  /// 地图菜单的“设置航向”：机头转向点击坐标。
+  ///
+  /// 与 QGC `APMFirmwarePlugin::guidedModeChangeHeading` 一致：先算飞机到目标点
+  /// 的方位角，再与当前航向求最短转向差，最后发相对角的 `MAV_CMD_CONDITION_YAW`。
+  /// 偏航速率传 0，交给飞控用默认值（QGC 取不到 `ATC_RATE_Y_MAX` 时也是 0）。
+  Future<void> guidedSetHeading(double latitude, double longitude) async {
+    _requireConnected('设置航向');
+    final fix = vehiclePosition;
+    if (!vehiclePositionValid || fix == null) {
+      throw StateError('设置航向失败：飞机位置未知');
+    }
+    final bearing = const Distance().bearing(
+      LatLng(fix.latitude, fix.longitude),
+      LatLng(latitude, longitude),
+    );
+    var delta = bearing - (headingDegrees ?? 0);
+    while (delta < -180) {
+      delta += 360;
+    }
+    while (delta > 180) {
+      delta -= 360;
+    }
+    _requireCommandSuccess(
+      flightCommandBackend.changeHeading(
+        delta.abs(),
+        _headingYawRateDegreesPerSecond,
+        delta >= 0 ? 1 : -1,
+      ),
+      '设置航向',
+    );
+  }
+
+  /// 地图菜单的“设置估计原点”：给无 GPS 的室内/视觉定位指定本地坐标原点。
+  Future<void> setEstimatorOrigin(
+    double latitude,
+    double longitude,
+    double altitudeMeters,
+  ) async {
+    _requireConnected('设置估计原点');
+    _requireCommandSuccess(
+      flightCommandBackend.setGlobalOrigin(latitude, longitude, altitudeMeters),
+      '设置估计原点',
     );
   }
 
@@ -2060,6 +2229,7 @@ final class ConnectionController extends ChangeNotifier {
       changed = _pollRcChannels() || changed;
       changed = _pollVehicleFix() || changed;
       changed = _pollVfrHud() || changed;
+      changed = _pollFlightStats() || changed;
       if (changed) {
         _notifyTelemetryChanges();
         notifyListeners();
@@ -2450,17 +2620,70 @@ final class ConnectionController extends ChangeNotifier {
   bool _pollVfrHud() {
     final oldAirspeed = airspeedMetersPerSecond;
     final oldGroundSpeed = groundSpeedMetersPerSecond;
+    final oldClimbRate = climbRateMetersPerSecond;
+    final oldThrottle = throttlePercent;
     try {
       final envelope = telemetryBackend.vfrHud();
       final data = envelope['data'] as Map<String, Object?>? ?? const {};
       airspeedMetersPerSecond = (data['airspeed_m_s'] as num?)?.toDouble();
       groundSpeedMetersPerSecond = (data['groundspeed_m_s'] as num?)
           ?.toDouble();
+      climbRateMetersPerSecond = (data['climb_m_s'] as num?)?.toDouble();
+      throttlePercent = (data['throttle_pct'] as num?)?.toDouble();
     } on Object {
       // Preserve the previous sample; freshness handles stale data.
     }
     return oldAirspeed != airspeedMetersPerSecond ||
-        oldGroundSpeed != groundSpeedMetersPerSecond;
+        oldGroundSpeed != groundSpeedMetersPerSecond ||
+        oldClimbRate != climbRateMetersPerSecond ||
+        oldThrottle != throttlePercent;
+  }
+
+  /// QGC `Vehicle::_flightTimerStart()` / `updateFlightDistance()` 的等价实现。
+  ///
+  /// 解锁瞬间清零并起表，上锁后停在当前值（QGC 也是停在最后一次统计值，
+  /// 重新解锁才清零）。位置没锁定时只走时间，不累距离。
+  bool _pollFlightStats() {
+    final oldTime = flightTimeSeconds;
+    final oldDistance = flightDistanceMeters;
+    if (!vehicleArmed) {
+      if (_flightStatsArmed) {
+        _flightStatsArmed = false;
+        _flightStopwatch.stop();
+      }
+      flightTimeSeconds = 0;
+      flightDistanceMeters = 0;
+      _lastFlightLatitude = null;
+      _lastFlightLongitude = null;
+      return oldTime != flightTimeSeconds ||
+          oldDistance != flightDistanceMeters;
+    }
+    if (!_flightStatsArmed) {
+      _flightStatsArmed = true;
+      _flightStopwatch
+        ..reset()
+        ..start();
+      flightTimeSeconds = 0;
+      flightDistanceMeters = 0;
+      _lastFlightLatitude = null;
+      _lastFlightLongitude = null;
+      return true;
+    }
+    flightTimeSeconds = _flightStopwatch.elapsedMilliseconds / 1000.0;
+    final fix = vehiclePosition;
+    if (vehiclePositionValid && fix != null) {
+      final previousLatitude = _lastFlightLatitude;
+      final previousLongitude = _lastFlightLongitude;
+      if (previousLatitude != null && previousLongitude != null) {
+        flightDistanceMeters += wgs84DistanceMeters(
+          LatLng(previousLatitude, previousLongitude),
+          LatLng(fix.latitude, fix.longitude),
+        );
+      }
+      _lastFlightLatitude = fix.latitude;
+      _lastFlightLongitude = fix.longitude;
+    }
+    return oldTime != flightTimeSeconds || oldDistance != flightDistanceMeters;
   }
 
   bool _pollSystemStatus() {
@@ -2582,8 +2805,16 @@ final class ConnectionController extends ChangeNotifier {
     headingDegrees = null;
     airspeedMetersPerSecond = null;
     groundSpeedMetersPerSecond = null;
+    climbRateMetersPerSecond = null;
+    throttlePercent = null;
     relativeAltitudeMeters = null;
     absoluteAltitudeMeters = null;
+    _flightStatsArmed = false;
+    _flightStopwatch.stop();
+    flightTimeSeconds = 0;
+    flightDistanceMeters = 0;
+    _lastFlightLatitude = null;
+    _lastFlightLongitude = null;
     batteryRemainingPercent = null;
     batteryVoltage = null;
     firmwareInfo = null;
@@ -2620,6 +2851,7 @@ final class ConnectionController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _flightStopwatch.stop();
     _stateTimer?.cancel();
     _telemetryTimer?.cancel();
     _waveformTimer?.cancel();

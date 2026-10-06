@@ -4,6 +4,7 @@
 #include "core/mission/cad/mission_document.h"
 #include "core/mission/cad/mission_interchange.h"
 #include "core/mission/cad/mission_command_catalog.h"
+#include "core/mission/mission_manager.h"
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
@@ -1648,6 +1649,10 @@ static void test_vtol_takeoff_and_land_commands() {
           "VTOL commands are in the catalog so they are not flagged unsupported");
     CHECK(!report_has_code(report, "entity.type_command_mismatch"),
           "vtol_takeoff/vtol_land entity types match their commands");
+    CHECK(!report_has_code(report, "mission.first_item"),
+          "VTOL takeoff is accepted as the first mission item");
+    CHECK(!report_has_code(report, "mission.last_item"),
+          "VTOL land is accepted as the last mission item");
 
     const auto compiled = MissionDocumentService::compile_document(document);
     CHECK(compiled.valid && compiled.plan.items.size() == 3,
@@ -1658,6 +1663,28 @@ static void test_vtol_takeoff_and_land_commands() {
         CHECK(compiled.plan.items[2].command == 85,
               "last item compiles as NAV_VTOL_LAND");
     }
+
+    MissionManager legacy_manager;
+    MissionPlan legacy_plan;
+    legacy_plan.items.resize(2);
+    legacy_plan.items[0].command = 84;
+    legacy_plan.items[1].command = 85;
+    legacy_manager.set_plan(legacy_plan);
+    const auto legacy_validation = legacy_manager.validate();
+    bool legacy_has_first_warning = false;
+    bool legacy_has_last_warning = false;
+    for (const auto& warning : legacy_validation.warnings) {
+        if (warning.find("First item") != std::string::npos) {
+            legacy_has_first_warning = true;
+        }
+        if (warning.find("Last item") != std::string::npos) {
+            legacy_has_last_warning = true;
+        }
+    }
+    CHECK(!legacy_has_first_warning,
+          "legacy MissionManager accepts VTOL takeoff as first item");
+    CHECK(!legacy_has_last_warning,
+          "legacy MissionManager accepts VTOL land as last item");
 }
 
 int main() {
