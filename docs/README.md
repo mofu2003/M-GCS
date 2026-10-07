@@ -1,59 +1,113 @@
-# 文档索引
+# M-GCS 文档导航
 
-当前文档基线：`0.0.74`。本文按“当前规范 / 接口契约 / 历史记录”维护，历史审计和
-ADR 不回溯改写，但会在影响当前判断时添加修订说明。
+当前版本：`0.0.76`
 
-M-GCS 的文档分为三类：
+> **仓库级规则**请参阅根目录的 [`AGENTS.md`](../AGENTS.md)
 
-- **当前规范**：描述现在的架构、任务规划、构建、测试和协作方式。
-- **接口契约**：`bridge/ffi/API_CATALOG.md` 是公开 C ABI 的分组说明。
-- **历史记录**：`docs/adr/` 的废止决策、`docs/audits/` 的冻结审计和 `CHANGELOG.md` 不回写成当前状态。
+---
 
-## 当前规范
+## 快速导航
 
-1. [README](../README.md)：项目范围和快速验证。
-2. [项目结构](PROJECT_LAYOUT.md)：目录职责和生成物边界。
-3. [架构说明](ARCHITECTURE.md)：Core、FFI、Flutter 和连接/任务数据流。
-4. [开发约束](CONSTRAINTS.md)：安全、性能、依赖方向和 UI 规则。
-5. [开发指南](DEVELOPMENT.md)：构建、测试、发布和平台运行。
-6. [编码规范](ENCODING.md)：文本编码、换行和 Windows 终端约定。
-7. [任务规划契约](MISSION_PLANNING.md)：任务文档、命令目录、编译、传输和互操作。
-8. [故障排查](TROUBLESHOOTING.md)：连接、参数、任务、校准和共享库问题。
-9. [协作流程](COLLABORATION.md)：任务卡、worktree、独占资源和预检。
-10. [FFI API Catalog](../bridge/ffi/API_CATALOG.md)：稳定 ABI、兼容入口和错误语义。
-11. [现状审计](STATUS_AUDIT.md)：当前事实、已修复问题和剩余风险。
-12. [完成定义与后端维护收口](DEFINITION_OF_DONE.md)：什么算“做完”。
-13. [后续发展计划](DEVELOPMENT_ROADMAP.md)：阶段路线、依赖和验收条件。
-14. [MP / QGC 上游实现择优准则](UPSTREAM_CODE_SELECTION.md)：按模块选择高质量上游实现。
-15. [架构图](architecture-diagrams.html)：当前结构和门禁基线的可视化总览。
+### 🚀 新手入门
+- [开发指南](guides/DEVELOPMENT.md) - 构建、门禁、提交规范
+- [协作流程](guides/COLLABORATION.md) - 多 Agent 协作、任务卡模板
+- [故障排除](guides/TROUBLESHOOTING.md) - 常见问题与解决方案
 
-## 上游与互操作
+### 🏗️ 架构设计
+- [架构总览](architecture/ARCHITECTURE.md) - 依赖方向、模块职责
+- [目录结构](architecture/PROJECT_LAYOUT.md) - 代码组织说明
+- [ADR（架构决策记录）](architecture/adr/) - 重要设计决策的历史记录
 
-- [QGC `.plan` 互操作](upstream/QGC_PLAN_INTERCHANGE.md)：字段映射、往返保证和错误边界。
-- [QGC/MP 可借鉴项对照](upstream/QGC_MP_BACKPORT_MAP.md)：按阶段列出可复用模块。
-- [QGC 代码质量审计](audits/2026-10-01-qgc-quality-audit.md)：历史质量差距和逐步替换策略。
+### 📋 规划与审计
+- [开发路线图](planning/DEVELOPMENT_ROADMAP.md) - 里程碑、剩余工作
+- [完成定义](planning/DEFINITION_OF_DONE.md) - 什么算"完成"
+- [当前状态审计](planning/STATUS_AUDIT.md) - 进度跟踪、已知问题
+- [历史审计快照](planning/audits/) - 过往版本的审计记录
 
-## 研究与历史
+### 📖 技术规范
+- [任务规划契约](specs/MISSION_PLANNING.md) - MissionDocument、MissionPlan、任务文件格式
+- [上游选择策略](specs/upstream/SELECTION_STRATEGY.md) - QGC/MP 择优准则、模块对照表
+- [QGC .plan 格式详解](specs/upstream/QGC_PLAN_INTERCHANGE.md) - QGroundControl 任务文件格式
+- [字符编码规范](specs/ENCODING.md) - UTF-8、路径处理
 
-- [字体替代方案调研](research/FONT_ALTERNATIVES_RESEARCH.md)：字体选择的测量记录，不替代 ADR 0007。
-- [多飞控连接调研](research/MULTIVEHICLE_CONNECTION_RESEARCH.md)：QGC/MP 连接模型对比，不替代当前架构说明。
-- [分阶段重构历史](audits/2026-10-03-refactoring-plan.md)：已执行拆分和版本里程碑，不再作为当前规范。
-- [历史审计](audits/)：按 commit/tag 冻结的旧快照，不代表当前状态。
+### 🔧 研究文档
+- [Flutter 状态管理调研](../flutter_shell/docs/STATE_MANAGEMENT_EVALUATION.md)
+- [地图实现调研](../flutter_shell/docs/MAP_IMPLEMENTATION_RESEARCH.md)
 
-## 架构决策
+---
 
-- [ADR 0001：初始架构](adr/0001-initial-architecture.md)
-- [ADR 0002：复用官方 MAVLink](adr/0002-official-mavlink-reuse.md)
-- [ADR 0003：本地 FFI 桥接](adr/0003-ffi-bridge.md)
-- [ADR 0005：旧任务规划决策（已废止，仅作历史追溯）](adr/0005-mission-cad-domain-boundary.md)
-- [ADR 0006：波形显示管线](adr/0006-waveform-display-pipeline.md)
-- [ADR 0007：统一字体栈](adr/0007-unified-font-stack.md)
-- [ADR 0008：任务文件格式按飞控生态分层](adr/0008-mission-file-format-priority.md)
-- [ADR 0009：混合上游实现策略](adr/0009-hybrid-upstream-implementation-strategy.md)
+## 文档结构
+
+```
+docs/
+├── README.md                    # 本文件
+├── CLEANUP_REPORT.md            # 文档整理报告（2026-10-07）
+├── CONSTRAINTS.md               # ⚠️ 已废弃，迁移到 AGENTS.md
+├── UPSTREAM_CODE_SELECTION.md   # ⚠️ 已废弃，迁移到 specs/upstream/
+│
+├── guides/                      # 开发指南
+│   ├── DEVELOPMENT.md           # 人类友好的快速参考
+│   ├── COLLABORATION.md         # 协作流程
+│   └── TROUBLESHOOTING.md       # 故障排除
+│
+├── architecture/                # 架构设计
+│   ├── ARCHITECTURE.md          # 架构总览
+│   ├── PROJECT_LAYOUT.md        # 目录结构
+│   └── adr/                     # 架构决策记录
+│       ├── 0001-xxx.md
+│       └── ...
+│
+├── planning/                    # 规划审计
+│   ├── DEVELOPMENT_ROADMAP.md   # 路线图
+│   ├── DEFINITION_OF_DONE.md    # 完成定义
+│   ├── STATUS_AUDIT.md          # 当前审计
+│   └── audits/                  # 历史审计
+│       ├── 2026-09-29-v0.0.8.md
+│       └── ...
+│
+├── specs/                       # 技术规范
+│   ├── MISSION_PLANNING.md      # 任务规划契约
+│   ├── ENCODING.md              # 字符编码
+│   └── upstream/                # 上游参考
+│       ├── SELECTION_STRATEGY.md         # QGC/MP 择优准则
+│       ├── QGC_PLAN_INTERCHANGE.md       # QGC .plan 格式
+│       ├── QGC_MP_BACKPORT_MAP.md        # ⚠️ 已废弃
+│       └── ...
+│
+└── research/                    # 研究文档（预留）
+```
+
+---
+
+## 废弃文档说明
+
+以下文档已废弃并合并到新位置：
+
+- **CONSTRAINTS.md** → 合并到根目录 [`AGENTS.md`](../AGENTS.md) 的"架构约束"章节
+- **UPSTREAM_CODE_SELECTION.md** → 合并到 [`specs/upstream/SELECTION_STRATEGY.md`](specs/upstream/SELECTION_STRATEGY.md)
+- **upstream/QGC_MP_BACKPORT_MAP.md** → 合并到 [`specs/upstream/SELECTION_STRATEGY.md`](specs/upstream/SELECTION_STRATEGY.md)
+
+废弃时间：2026-10-07
+
+---
+
+## 相关资源
+
+- **仓库级规则**：[`AGENTS.md`](../AGENTS.md)（根目录，唯一权威源）
+- **项目记忆**：`.workbuddy/memory/MEMORY.md`
+- **FFI API 清单**：[`bridge/ffi/API_CATALOG.md`](../bridge/ffi/API_CATALOG.md)
+- **变更日志**：[`CHANGELOG.md`](../CHANGELOG.md)
+
+---
 
 ## 文档维护原则
 
-1. 同一事实只保留一个权威出处，其他文档使用链接。
-2. 当前文档使用当前代码和当前门禁结果；历史结论放入审计快照或 CHANGELOG。
-3. 新增 FFI、任务、连接或安全敏感行为时，同时更新契约、测试和文档。
-4. 不把未实现功能写成“已支持”。
+1. **版本号统一**：每次发布时同步更新所有文档中的版本号声明
+2. **避免重复**：相同内容只在一处维护，其他地方引用
+3. **废弃标注**：废弃文档保留并指向新位置，不直接删除（便于历史追溯）
+4. **交叉引用**：使用相对路径链接，便于重命名和移动
+5. **权威源单一**：`AGENTS.md` 是唯一权威规则源，其他文档不应与其冲突
+
+---
+
+**最后更新**：2026-10-07 v0.0.76

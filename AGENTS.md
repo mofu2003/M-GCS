@@ -1,7 +1,9 @@
 # M-GCS 协作规则
 
+当前版本：`0.0.76`
+
 本文件是仓库级工作规则，Codex 等 agent 进入本仓库时会自动读取并遵守。
-改动本文件前先确认它与 `docs/DEVELOPMENT.md`、`docs/CONSTRAINTS.md` 一致。
+**本文件是唯一权威源**，`docs/DEVELOPMENT.md` 和 `docs/CONSTRAINTS.md` 已合并到此处。
 
 ## 项目简述
 
@@ -116,7 +118,7 @@ QGroundControl 和 Mission Planner 的本地源码，以及项目已经采用的
 
 - 先确定该能力的质量归属：ArduPilot 专用命令、参数、校准、固件和飞行行为通常优先
   参考 MP；任务模型、链路生命周期、跨平台结构、状态机完整性和测试治理通常优先
-  参考 QGC。具体模块的默认归属见 `docs/UPSTREAM_CODE_SELECTION.md`。
+  参考 QGC。具体模块的默认归属见 [`docs/specs/upstream/SELECTION_STRATEGY.md`](docs/specs/upstream/SELECTION_STRATEGY.md)。
 - 能直接引用或复用官方 MAVLink、许可证兼容的成熟上游库或 QGC/MP 实现时，优先复用，
   不要自己另写一套。MAVLink 消息、协议流程和生成代码一律复用官方定义。
 - 不能直接复用时，也必须以质量更高的上游实现的字段、状态机、错误语义、能力门控
@@ -181,6 +183,47 @@ cd flutter_shell && flutter run -d macos
   `CMakeLists.txt`、`flutter_shell/pubspec.yaml`、`README.md`、`CHANGELOG.md`
 - 发布流程：改版本号 → 更新 CHANGELOG → 本地提交 → 本地打标签 →（用户要求时）推送
 - 本地标签不推送不影响开发，推送是独立步骤
+
+## 架构约束
+
+### 依赖方向不可逆
+
+```text
+flutter_shell/  →  bridge/ffi/  →  core/  →  third_party/
+```
+
+- `core/` 不得 `#include` bridge 或 flutter_shell 的头
+- `bridge/ffi/` 只能调用 `core/` 的公开接口
+- 循环依赖在编译时会被拒绝
+
+### 安全设计原则
+
+- **超时必须报错**：网络调用、串口读写、任务上传设置合理超时，超时后返回错误，不能无限挂起
+- **拒绝必须传播**：飞控拒绝命令时，错误必须返回给调用方，不能被吞掉或转换成"成功"
+- **断链必须通知**：连接断开时，所有依赖该连接的操作必须收到通知，不能继续假装连通
+- **用户确认门控**：解锁、起飞、降落、紧急停止、任务启动必须用户确认，不得静默执行
+- **飞行模式切换确认机制**：切换飞行模式需要按住按钮 1 秒确认，避免误触
+
+### FFI 契约稳定性
+
+- `bridge/ffi/ffi_api.h` 是唯一稳定边界，改动需要同步：头文件、实现、测试、API_CATALOG.md、文档
+- 所有 `char*` 返回值由调用方通过 `mg_free_string()` 释放
+- 不删除已导出的函数；弃用需要文档化的 ABI-major 发布和迁移说明
+- 303 个导出函数中，84 个前端使用，217 个测试覆盖，83 个为保留接口（logging/geofence/config 等领域）
+
+### UI 设计约束
+
+- **设计系统单点定义**：所有字号、颜色、间距、圆角必须取自 `MgTypography`、`MgColors`、`MgMetrics`
+- **字体跨平台统一**：MiSans 全平台一致，以 macOS 为基准，禁止平台专属字体
+- **只有标题加粗**：正文、数值、状态标签等一律使用 `FontWeight.w400`，层级由字号和颜色区分
+- **控件复用优先**：新增控件前先检查是否可以复用已有组件
+
+### 许可证约束
+
+- M-GCS 使用 MIT 许可证
+- QGC 和 MP 是 GPL 系项目，大段源码不能直接复制
+- 可复用：协议事实、算法、字段、流程、允许再分发的第三方库
+- 打包字体必须允许商用与随软件分发（OFL / Apache-2.0 优先）
 
 ## 项目记忆
 

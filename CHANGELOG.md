@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.77 - 2026-10-07
+
+### Changed
+
+- **文档结构重组**：从扁平结构改为分类结构（architecture/guides/planning/specs/research），
+  消除约 3,000 行重复内容
+- **指导文档统一**：AGENTS.md 成为唯一权威源，DEVELOPMENT.md 改为简化版，
+  CONSTRAINTS.md 标记为已废弃
+- **上游策略合并**：UPSTREAM_CODE_SELECTION.md 与 QGC_MP_BACKPORT_MAP.md 
+  合并为 specs/upstream/SELECTION_STRATEGY.md
+- **版本号统一**：8 个文档版本号更新到 0.0.77
+- **交叉引用修复**：所有内部链接更新到新路径
+
+### Removed
+
+- 系统垃圾文件：3 个 .DS_Store
+
 ## 0.0.76 - 2026-10-07
 
 ### Added

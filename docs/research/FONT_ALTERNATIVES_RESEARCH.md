@@ -57,7 +57,7 @@ w600 会被就近映射到 Bold，且许可为 GUST Font License（非 OFL）。
 - **Inter 只有 46.5%**，证实它是 SF 系而非 Helvetica 系。ADR 0007 初稿选它作为
   "高相似"替代是错的，本调研已纠正。
 - GNU FreeSans 在社区答案里被称"字形几乎一致"，但许可是 GPL + 字体例外，
-  被 `docs/CONSTRAINTS.md` 明确禁止，未参与实测。
+  被 [`AGENTS.md`](../../AGENTS.md) 明确禁止，未参与实测。
 
 ## 中文实测：与 PingFang SC 的纯字形相似度
 

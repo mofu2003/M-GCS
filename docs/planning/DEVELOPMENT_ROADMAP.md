@@ -1,6 +1,6 @@
 # M-GCS 后续发展计划
 
-> 状态：建议路线，尚非版本承诺。当前代码基线：`0.0.74`。
+> 状态：建议路线，尚非版本承诺。当前代码基线：`0.0.76`。
 > 本计划用于确定开发顺序和验收条件；具体版本归属应在每个阶段开始前，根据代码状态与用户优先级确认。
 
 “什么时候可以停”的判定口径见 [完成定义与后端维护收口](DEFINITION_OF_DONE.md)：
@@ -18,7 +18,7 @@ M-GCS 当前已有任务文档编辑、后端校验/编译、任务上传/下载
 质量更高的实现：任务模型、链路生命周期、跨平台结构和测试治理优先参考 QGC；
 ArduPilot 专用命令、参数、校准、固件和飞行行为优先参考 MP。组合时明确边界，
 协议语义、任务编译和校验仍集中在 M-GCS 后端。默认归属见
-[MP / QGC 上游实现择优准则](UPSTREAM_CODE_SELECTION.md)。
+[MP / QGC 上游实现择优准则](../specs/upstream/SELECTION_STRATEGY.md)。
 
 ## 本轮维护决策
 
@@ -102,7 +102,7 @@ M-GCS Core -> FFI -> Flutter
 ## 关联文档
 
 - [现状审计](STATUS_AUDIT.md)：当前可复现事实和未关闭问题。
-- [任务规划契约](MISSION_PLANNING.md)：现有任务文档、传输、校验和互操作边界。
-- [架构说明](ARCHITECTURE.md)：依赖方向及领域职责。
-- [开发约束](CONSTRAINTS.md)：安全与平台规则。
-- [开发指南](DEVELOPMENT.md)：构建、门禁及发布流程。
+- [任务规划契约](../specs/MISSION_PLANNING.md)：现有任务文档、传输、校验和互操作边界。
+- [架构说明](../architecture/ARCHITECTURE.md)：依赖方向及领域职责。
+- [开发约束](../../AGENTS.md)：安全与平台规则。
+- [开发指南](../guides/DEVELOPMENT.md)：构建、门禁及发布流程。
