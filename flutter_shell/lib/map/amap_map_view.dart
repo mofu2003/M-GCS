@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -17,6 +19,8 @@ import '../mission/mission_document_models.dart';
 import '../mission/mission_geo.dart';
 import '../mission/mission_planning_panel.dart';
 import '../widgets/mg_map_action_menu.dart';
+import '../widgets/mg_attitude_indicator.dart';
+import '../widgets/mg_compass.dart';
 import '../widgets/mg_floating_panel.dart';
 
 import '../widgets/mg_telemetry_dashboard.dart';
@@ -25,6 +29,12 @@ import 'vehicle_marker_icon.dart';
 import 'map_preferences.dart';
 
 enum MapStyle { standard, terrain, amap, amapSatellite, amapSatelliteHybrid }
+
+/// 地图源显示名（地面站配置页也要用，所以公开）。
+String mapStyleLabel(MapStyle style) => _sourceFor(style).label;
+
+/// 地图源署名要求（原先是地图右下角“?”里的内容，现在搬到配置页）。
+String mapStyleAttribution(MapStyle style) => _sourceFor(style).attribution;
 
 class _MapSource {
   const _MapSource({
@@ -104,12 +114,16 @@ class AMapMapView extends StatefulWidget {
   const AMapMapView({
     super.key,
     required this.connectionController,
+    this.mapStyle,
     this.connectionPanelRequest,
     this.flightMessagePanelRequest,
     this.missionPlanningRequest,
   });
 
   final ConnectionController connectionController;
+
+  /// 地图样式的唯一真源：设置页写、地图页读并持久化。
+  final ValueNotifier<MapStyle>? mapStyle;
   final ValueListenable<int>? connectionPanelRequest;
   final ValueListenable<int>? flightMessagePanelRequest;
   final ValueListenable<int>? missionPlanningRequest;
@@ -153,6 +167,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   /// 地图标记要同时跟着遥测和任务文档变化重画。
   late final Listenable _markerSources = Listenable.merge([
     widget.connectionController.telemetryChanges,
+    widget.connectionController.parameterChanges,
     widget.connectionController.missionPlanning,
   ]);
 
@@ -167,6 +182,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   void initState() {
     super.initState();
     widget.connectionController.addListener(_handleVehicleUpdate);
+    widget.mapStyle?.addListener(_handleExternalStyleChange);
     widget.connectionPanelRequest?.addListener(_handleConnectionPanelRequest);
     widget.flightMessagePanelRequest?.addListener(
       _handleFlightMessagePanelRequest,
@@ -258,6 +274,7 @@ class _AMapMapViewState extends State<AMapMapView> {
         (value) => value.name == preferences.styleName,
         orElse: () => MapStyle.amap,
       );
+      widget.mapStyle?.value = _style;
     });
     // 地图可能已经用默认中心建好了，读完偏好再挪一次。
     // `_center` 存的是 WGS-84，落位时要转到当前瓦片的坐标系。
@@ -281,6 +298,13 @@ class _AMapMapViewState extends State<AMapMapView> {
     });
   }
 
+  /// 设置页改了地图样式：跟着切图层并持久化。
+  void _handleExternalStyleChange() {
+    final style = widget.mapStyle?.value;
+    if (style == null || style == _style) return;
+    _selectStyle(style);
+  }
+
   void _selectStyle(MapStyle style) {
     setState(() => _style = style);
     // 坐标系可能变了（高德 GCJ-02 ↔ OSM WGS-84），按同一地理位置重新定位，
@@ -299,6 +323,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   @override
   void dispose() {
     widget.connectionController.removeListener(_handleVehicleUpdate);
+    widget.mapStyle?.removeListener(_handleExternalStyleChange);
     widget.connectionPanelRequest?.removeListener(
       _handleConnectionPanelRequest,
     );
@@ -595,6 +620,34 @@ class _AMapMapViewState extends State<AMapMapView> {
   ///
   /// 数据来自后端缓存的 `HOME_POSITION` / `GLOBAL_POSITION_INT`，两个都是
   /// `valid` 才画——定位还没锁定时不画一个假的点在地图中心。
+  /// go to location 的盘旋圆（仅固定翼/已转固定翼的 VTOL）。
+  ///
+  /// 半径取 `|WP_LOITER_RAD|`，方向取该参数符号（正=顺时针，负=逆时针），
+  /// 对应 ArduPilot `ArduPlane/Parameters.cpp` 里 `WP_LOITER_RAD` 的定义。
+  /// 多旋翼的 go to location 是平移过去悬停，没有盘旋圆，所以这里返回空。
+  List<CircleMarker<Object>> _buildLoiterCircles(BuildContext context) {
+    final connection = widget.connectionController;
+    final target = connection.guidedTargetPosition;
+    final radius = connection.loiterRadiusMeters;
+    if (!connection.guidedTargetValid ||
+        target == null ||
+        radius == null ||
+        !connection.inForwardFlight) {
+      return const [];
+    }
+    final colors = context.mgColors;
+    return [
+      CircleMarker<Object>(
+        point: _toTileFrame(target.latitude, target.longitude),
+        radius: radius,
+        useRadiusInMeter: true,
+        color: colors.warning.withValues(alpha: 0.10),
+        borderColor: colors.warning.withValues(alpha: 0.85),
+        borderStrokeWidth: 2,
+      ),
+    ];
+  }
+
   List<Marker> _buildMarkers(BuildContext context, MgColors colors) {
     final connection = widget.connectionController;
     final markers = <Marker>[];
@@ -647,6 +700,33 @@ class _AMapMapViewState extends State<AMapMapView> {
           ),
         ),
       );
+    }
+    // 盘旋方向指示：箭头嵌在圆周线上，上下各一个，沿切线指向绕行方向。
+    // 顺时针时正北点切线朝东（右）、正南点切线朝西（左）；逆时针反之。
+    final loiterRadius = connection.loiterRadiusMeters;
+    if (connection.guidedTargetValid &&
+        guidedTarget != null &&
+        loiterRadius != null &&
+        connection.inForwardFlight) {
+      // 纬度 1 度约 111.32 km，用来把半径换算成南北向偏移——只是把箭头放到圆周上，
+      // 圆本身仍按米半径绘制。
+      const metersPerDegreeLatitude = 111320.0;
+      final offset = loiterRadius / metersPerDegreeLatitude;
+      final clockwise = connection.loiterClockwise;
+      final arrows = <(double, double)>[
+        (guidedTarget.latitude + offset, clockwise ? 0.0 : math.pi),
+        (guidedTarget.latitude - offset, clockwise ? math.pi : 0.0),
+      ];
+      for (final arrow in arrows) {
+        markers.add(
+          Marker(
+            point: _toTileFrame(arrow.$1, guidedTarget.longitude),
+            width: 16,
+            height: 12,
+            child: _LoiterArrowHead(angle: arrow.$2, color: colors.warning),
+          ),
+        );
+      }
     }
     final fix = connection.vehiclePosition;
     if (connection.vehiclePositionValid && fix != null) {
@@ -995,6 +1075,13 @@ class _AMapMapViewState extends State<AMapMapView> {
                 ],
               ),
             ),
+            // 固定翼的 go to location 是"飞到点上然后绕圈"；圆圈半径和方向直接
+            // 取飞控参数 WP_LOITER_RAD（负值=逆时针），和飞机实际飞的圈一致。
+            AnimatedBuilder(
+              animation: _markerSources,
+              builder: (context, _) =>
+                  CircleLayer(circles: _buildLoiterCircles(context)),
+            ),
             AnimatedBuilder(
               animation: _markerSources,
               builder: (context, _) => MarkerLayer(
@@ -1007,30 +1094,27 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           ],
         ),
+        // 右下角仪表组：姿态仪在左、罗盘在右。底图来源选择与数据来源说明
+        // 已移入「设置 → 地面站配置 → 地图配置」。
         Positioned(
           right: 18,
           bottom: 18,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              MacosPulldownButton(
-                title: source.label,
-                menuAlignment: PulldownMenuAlignment.right,
-                items: [
-                  for (final style in MapStyle.values)
-                    MacosPulldownMenuItem(
-                      label: _sourceFor(style).label,
-                      title: Text(_sourceFor(style).label),
-                      onTap: () => _selectStyle(style),
-                    ),
-                ],
-              ),
-              const SizedBox(width: 10),
-              HelpButton(
-                semanticLabel: '地图数据来源',
-                onPressed: () => _showAttribution(context, source),
-              ),
-            ],
+          child: AnimatedBuilder(
+            animation: _vehicleStatusSources,
+            builder: (context, _) => Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                MgAttitudeIndicator(
+                  rollDegrees: widget.connectionController.rollDegrees,
+                  pitchDegrees: widget.connectionController.pitchDegrees,
+                ),
+                const SizedBox(width: 14),
+                MgCompass(
+                  headingDegrees: widget.connectionController.headingDegrees,
+                ),
+              ],
+            ),
           ),
         ),
         Positioned(
@@ -1081,9 +1165,8 @@ class _AMapMapViewState extends State<AMapMapView> {
           ),
         ),
         Positioned(
-          // 悬浮在地图下缘中间：左右各让开地图工具列与底图选择器。
           left: 72,
-          right: 72,
+          right: 340,
           bottom: 18,
           child: Center(
             child: AnimatedBuilder(
@@ -1106,11 +1189,8 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           ),
         if (_showMissionPlanning)
-          // 贴右边缘悬浮：高度由 top/bottom 约束决定，所以窗口缩放时自动跟随；
-          // 不给 left，宽度交给面板自己决定（展开 / 折叠成箭头按钮）。
           Positioned(
             top: _missionPanelTopInset,
-            // 让开右下角的底图选择 / 帮助按钮行，避免叠在它们上面。
             bottom: 18 + MgMetrics.controlHeight + 12,
             right: 18,
             child: MissionPlanningFloatingPanel(
@@ -1119,8 +1199,7 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           ),
         if (_showFlightMessagePanel)
-          // 右上角，和连接面板 / 航线规划同一列。固定高度而不是通到底：
-          // 消息是短行，通栏会留一大片空白；340 大约能放下七八条。
+          // 右上角，和连接面板 / 航线规划同一列。固定高度而不是通到底。
           Positioned(
             top: 12,
             right: 18,
@@ -1166,28 +1245,6 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           ),
       ],
-    );
-  }
-
-  void _showAttribution(BuildContext context, _MapSource source) {
-    showMacosAlertDialog<void>(
-      context: context,
-      builder: (dialogContext) => MacosAlertDialog(
-        appIcon: Icon(
-          Icons.copyright_outlined,
-          size: 64,
-          color: MgColors.of(context).accent,
-        ),
-        title: Text(source.label),
-        message: Text(
-          source.attribution.isEmpty ? '本图层无署名要求。' : source.attribution,
-        ),
-        primaryButton: PushButton(
-          controlSize: ControlSize.large,
-          onPressed: () => Navigator.of(dialogContext).pop(),
-          child: const Text('好'),
-        ),
-      ),
     );
   }
 }
@@ -1646,4 +1703,43 @@ class _WaypointMarker extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// 盘旋圆上的方向箭头：实心箭头，按切线方向旋转后贴在圆周线上。
+class _LoiterArrowHead extends StatelessWidget {
+  const _LoiterArrowHead({required this.angle, required this.color});
+
+  /// 切线方向（弧度），0 = 指向东（右）。
+  final double angle;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Transform.rotate(
+    angle: angle,
+    child: CustomPaint(
+      size: const Size(16, 12),
+      painter: _ArrowHeadPainter(color: color),
+    ),
+  );
+}
+
+class _ArrowHeadPainter extends CustomPainter {
+  const _ArrowHeadPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 指向 +x 的实心箭头（尾部内凹，视觉上像嵌在线端）。
+    final path = ui.Path()
+      ..moveTo(size.width, size.height / 2)
+      ..lineTo(0, 0)
+      ..lineTo(size.width * 0.32, size.height / 2)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_ArrowHeadPainter old) => old.color != color;
 }

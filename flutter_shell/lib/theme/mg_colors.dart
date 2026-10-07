@@ -98,6 +98,13 @@ class MgColors {
   /// 浮层阴影。
   Color get shadow => const Color(0x3D000000);
 
+  /// 姿态仪的天地配色。属于航空仪表的固定语义（天蓝 / 地褐），
+  /// 和界面强调色分开定义，避免业务层借用语义色。
+  Color get attitudeSky =>
+      _pick(const Color(0xFF4D8FD1), const Color(0xFF3C6FA8));
+  Color get attitudeGround =>
+      _pick(const Color(0xFF8A6A45), const Color(0xFF6B5335));
+
   // ── 地图浮动控件 ──────────────────────────────────────────────────
 
   /// 地图浮动控件的图标色。

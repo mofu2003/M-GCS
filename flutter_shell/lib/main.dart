@@ -7,6 +7,7 @@ import 'package:macos_ui/macos_ui.dart';
 
 import 'connection/connection_controller.dart';
 import 'configuration_workspace.dart';
+import 'gcs_configuration_workspace.dart';
 import 'map/amap_map_view.dart';
 import 'theme/mg_typography.dart';
 import 'widgets/mg_settings_menu.dart';
@@ -54,6 +55,10 @@ class MapPage extends StatefulWidget {
 
 class _MapPageState extends State<MapPage> {
   var _showConfiguration = false;
+  var _showGcsConfiguration = false;
+
+  /// 地图样式的唯一真源：设置页写，地图页读并持久化。
+  final _mapStyle = ValueNotifier<MapStyle>(MapStyle.amap);
   late final ConnectionController _connectionController =
       ConnectionController();
   final _connectionPanelRequest = ValueNotifier<int>(0);
@@ -128,6 +133,8 @@ class _MapPageState extends State<MapPage> {
         setState(() => _showConfiguration = true);
       case MgSettingsDestination.missionPlanning:
         _missionPlanningRequest.value++;
+      case MgSettingsDestination.gcs:
+        setState(() => _showGcsConfiguration = true);
     }
   }
 
@@ -154,6 +161,12 @@ class _MapPageState extends State<MapPage> {
         onReturnToMap: () => setState(() => _showConfiguration = false),
       );
     }
+    if (_showGcsConfiguration) {
+      return GcsConfigurationWorkspace(
+        mapStyle: _mapStyle,
+        onReturnToMap: () => setState(() => _showGcsConfiguration = false),
+      );
+    }
 
     return MacosWindow(
       child: Column(
@@ -178,6 +191,7 @@ class _MapPageState extends State<MapPage> {
                 ContentArea(
                   builder: (context, _) => AMapMapView(
                     connectionController: _connectionController,
+                    mapStyle: _mapStyle,
                     connectionPanelRequest: _connectionPanelRequest,
                     flightMessagePanelRequest: _flightMessagePanelRequest,
                     missionPlanningRequest: _missionPlanningRequest,
@@ -193,6 +207,7 @@ class _MapPageState extends State<MapPage> {
 
   @override
   void dispose() {
+    _mapStyle.dispose();
     _connectionPanelRequest.dispose();
     _flightMessagePanelRequest.dispose();
     _missionPlanningRequest.dispose();

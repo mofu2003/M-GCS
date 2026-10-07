@@ -23,6 +23,7 @@ final class TelemetryFfiBackend {
     _getGlobalPosition = _lookup1('mg_vehicle_get_global_position');
     _getHomePosition = _lookup1('mg_vehicle_get_home_position');
     _getVfrHud = _lookup1('mg_vehicle_get_vfr_hud');
+    _getAttitude = _lookup1('mg_vehicle_get_attitude');
     _getVehicleSummary = _lookup1('mg_vehicle_get_summary');
     _getExtendedSysState = _lookup1('mg_vehicle_get_extended_sys_state');
   }
@@ -42,6 +43,7 @@ final class TelemetryFfiBackend {
   late final Pointer<Utf8> Function(Pointer<Void>) _getGlobalPosition;
   late final Pointer<Utf8> Function(Pointer<Void>) _getHomePosition;
   late final Pointer<Utf8> Function(Pointer<Void>) _getVfrHud;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getAttitude;
   late final Pointer<Utf8> Function(Pointer<Void>) _getVehicleSummary;
   late final Pointer<Utf8> Function(Pointer<Void>) _getExtendedSysState;
 
@@ -79,6 +81,9 @@ final class TelemetryFfiBackend {
   Map<String, Object?> homePosition() => _read(_getHomePosition(_core));
 
   Map<String, Object?> vfrHud() => _read(_getVfrHud(_core));
+
+  /// 姿态角，单位「度」（后端已把 ATTITUDE 的弧度换算好）。
+  Map<String, Object?> attitude() => _read(_getAttitude(_core));
 
   Map<String, Object?> vehicleSummary() => _read(_getVehicleSummary(_core));
 

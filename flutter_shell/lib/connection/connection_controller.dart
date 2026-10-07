@@ -439,6 +439,10 @@ final class ConnectionController extends ChangeNotifier {
   /// QGC instrument panel 的 Climb Rate / Throttle，来源同为 VFR_HUD。
   double? climbRateMetersPerSecond;
   double? throttlePercent;
+
+  /// 姿态角（度），来源 ATTITUDE。姿态仪用。
+  double? rollDegrees;
+  double? pitchDegrees;
   int? batteryRemainingPercent;
   double? batteryVoltage;
   Map<String, Object?>? firmwareInfo;
@@ -626,6 +630,31 @@ final class ConnectionController extends ChangeNotifier {
             : null) ??
         0;
   }
+
+  /// 固定翼盘旋半径（米），来自飞控参数 `WP_LOITER_RAD`。
+  ///
+  /// ArduPilot 的 `WP_LOITER_RAD`（`ArduPlane/Parameters.cpp`）定义固定翼盘旋时
+  /// 距航点中心的距离，**负值表示逆时针**。我们的 `DO_REPOSITION` 里 param3 传 0，
+  /// 飞控就沿用这个参数，所以地图上按它画的圆就是飞机实际会飞的圆——不是随便画的。
+  ///
+  /// 参数还没下载到、或飞控没给这个参数时返回 null（多旋翼也不需要）。
+  double? get loiterRadiusMeters {
+    final value = parameters['WP_LOITER_RAD']?.value;
+    if (value == null || value == 0) return null;
+    return value.abs();
+  }
+
+  /// 盘旋方向：`WP_LOITER_RAD` 为正（或缺失）是顺时针，为负是逆时针。
+  bool get loiterClockwise => (parameters['WP_LOITER_RAD']?.value ?? 1) >= 0;
+
+  /// 是否处于"按固定翼方式飞"的状态。
+  ///
+  /// 纯固定翼，或 VTOL 已经转到固定翼（`MAV_VTOL_STATE_FW = 4`）。多旋翼/悬停
+  /// 状态下 go to location 是平移加悬停，没有盘旋圆。
+  bool get inForwardFlight =>
+      controlProfile == VehicleControlProfile.fixedWing ||
+      (controlProfile == VehicleControlProfile.planeVtol &&
+          vehicleVtolState == 4);
 
   /// 是否支持“设置航向”（原地转向）。
   ///
@@ -2229,6 +2258,7 @@ final class ConnectionController extends ChangeNotifier {
       changed = _pollRcChannels() || changed;
       changed = _pollVehicleFix() || changed;
       changed = _pollVfrHud() || changed;
+      changed = _pollAttitude() || changed;
       changed = _pollFlightStats() || changed;
       if (changed) {
         _notifyTelemetryChanges();
@@ -2615,6 +2645,21 @@ final class ConnectionController extends ChangeNotifier {
         oldAbsoluteAltitude != absoluteAltitudeMeters;
   }
 
+  /// ATTITUDE → 姿态仪的横滚/俯仰（度）。
+  bool _pollAttitude() {
+    final oldRoll = rollDegrees;
+    final oldPitch = pitchDegrees;
+    try {
+      final envelope = telemetryBackend.attitude();
+      final data = envelope['data'] as Map<String, Object?>? ?? const {};
+      rollDegrees = (data['roll_deg'] as num?)?.toDouble();
+      pitchDegrees = (data['pitch_deg'] as num?)?.toDouble();
+    } on Object {
+      // Preserve the previous sample; freshness handles stale data.
+    }
+    return oldRoll != rollDegrees || oldPitch != pitchDegrees;
+  }
+
   /// VFR_HUD 是空速 / 地速的直接来源。它和位置 / 姿态一样走 10Hz 前端轮询，
   /// 不通过 telemetryChanges 以外的路径更新。
   bool _pollVfrHud() {
@@ -2807,6 +2852,8 @@ final class ConnectionController extends ChangeNotifier {
     groundSpeedMetersPerSecond = null;
     climbRateMetersPerSecond = null;
     throttlePercent = null;
+    rollDegrees = null;
+    pitchDegrees = null;
     relativeAltitudeMeters = null;
     absoluteAltitudeMeters = null;
     _flightStatsArmed = false;

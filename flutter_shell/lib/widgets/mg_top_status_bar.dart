@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import '../connection/connection_controller.dart';
+import '../flight/flight_mode_labels.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import 'mg_animated_number.dart';
@@ -43,34 +44,8 @@ class _FlightModeMenu extends StatelessWidget {
   final ConnectionController controller;
   final List<FlightModeOption> options;
 
-  Future<void> _setMode(
-    BuildContext context,
-    FlightModeOption option, {
-    required bool confirm,
-  }) async {
+  Future<void> _setMode(BuildContext context, FlightModeOption option) async {
     if (!option.settable) return;
-    if (confirm) {
-      final confirmed = await showMacosAlertDialog<bool>(
-        context: context,
-        builder: (dialogContext) => MacosAlertDialog(
-          appIcon: const MacosIcon(CupertinoIcons.airplane, size: 44),
-          title: Text('切换到 ${option.name}？'),
-          message: Text('将飞行模式切换为 ${option.name}。'),
-          primaryButton: PushButton(
-            controlSize: ControlSize.large,
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('切换'),
-          ),
-          secondaryButton: PushButton(
-            controlSize: ControlSize.large,
-            secondary: true,
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-        ),
-      );
-      if (confirmed != true || !context.mounted) return;
-    }
     try {
       await controller.setFlightMode(option.name);
       if (context.mounted) Navigator.of(context).pop();
@@ -97,37 +72,185 @@ class _FlightModeMenu extends StatelessWidget {
             ),
           ],
         ),
-        // Material 必须在带背景色的 DecoratedBox 之内，否则 ListTile 的水波纹和
-        // 高亮会被 DecoratedBox 盖住（debug 下会直接抛断言）。
+        // Material 必须在带背景色的 DecoratedBox 之内，否则水波纹和高亮会被
+        // DecoratedBox 盖住（debug 下会直接抛断言）。
         child: ClipRRect(
           borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
           child: Material(
             color: Colors.transparent,
-            child: ListView(
-              shrinkWrap: true,
-              padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                for (final option in options)
-                  ListTile(
-                    dense: true,
-                    enabled: option.settable,
-                    title: Text(option.name),
-                    trailing: option.name == controller.vehicleFlightMode
-                        ? Icon(
-                            CupertinoIcons.checkmark,
-                            color: colors.accent,
-                            size: 16,
-                          )
-                        : null,
-                    onTap: () => _setMode(context, option, confirm: false),
-                    onLongPress: option.settable
-                        ? () => _setMode(context, option, confirm: true)
-                        : null,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '按住切换',
+                      style: MgTypography.sans(
+                        MgTypography.caption.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                    ),
                   ),
+                ),
+                Divider(height: 1, color: colors.hairline),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    children: [
+                      for (final option in options)
+                        MgFlightModeRow(
+                          option: option,
+                          selected: option.name == controller.vehicleFlightMode,
+                          onTriggered: () => _setMode(context, option),
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 单个飞行模式条目：**只有按住才切换**。
+///
+/// 交互照 QGC 的 hold-to-confirm（`TimedProgressTracker` + GCS 控制指示器那套）：
+/// 按住条目时一条进度从左往右填满；中途松手或移出即取消；
+/// 进度拉满才真正下发模式切换。不弹确认框，也不做"短按直接切换"。
+class MgFlightModeRow extends StatefulWidget {
+  const MgFlightModeRow({
+    super.key,
+    required this.option,
+    required this.selected,
+    required this.onTriggered,
+  });
+
+  final FlightModeOption option;
+  final bool selected;
+  final VoidCallback onTriggered;
+
+  @override
+  State<MgFlightModeRow> createState() => MgFlightModeRowState();
+}
+
+class MgFlightModeRowState extends State<MgFlightModeRow>
+    with SingleTickerProviderStateMixin {
+  /// 按住多久算确认。QGC 的 hold-to-confirm 量级是 1~2 秒，这里取 1 s。
+  static const Duration holdDuration = Duration(seconds: 1);
+
+  late final AnimationController _hold =
+      AnimationController(vsync: this, duration: holdDuration)
+        ..addStatusListener((status) {
+          if (status != AnimationStatus.completed) return;
+          _hold.reset();
+          widget.onTriggered();
+        });
+
+  bool get _enabled => widget.option.settable;
+
+  @override
+  void dispose() {
+    _hold.dispose();
+    super.dispose();
+  }
+
+  void _start() => _hold.forward(from: 0);
+
+  void _cancel() {
+    if (_hold.status == AnimationStatus.dismissed) return;
+    _hold.reverse();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    final enabled = _enabled;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      // 不注册 onTap / onLongPress：只认"按住到满"。
+      onTapDown: enabled ? (_) => _start() : null,
+      onTapUp: enabled ? (_) => _cancel() : null,
+      onTapCancel: enabled ? _cancel : null,
+      child: AnimatedBuilder(
+        animation: _hold,
+        builder: (context, _) {
+          final progress = _hold.value;
+          // 当前模式用底色高亮表示，不用对勾。
+          final textStyle = MgTypography.sans(
+            MgTypography.body.copyWith(
+              color: !enabled
+                  ? colors.textTertiary
+                  : widget.selected
+                  ? colors.accent
+                  : colors.textPrimary,
+            ),
+          );
+          return Stack(
+            children: [
+              if (widget.selected)
+                Positioned.fill(child: ColoredBox(color: colors.accentSurface)),
+              if (progress > 0)
+                Positioned.fill(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: FractionallySizedBox(
+                      widthFactor: progress,
+                      heightFactor: 1,
+                      child: ColoredBox(
+                        // 按住进度比"选中高亮"更实，两者不会看混。
+                        color: colors.accent.withValues(alpha: 0.45),
+                      ),
+                    ),
+                  ),
+                ),
+              SizedBox(
+                height: MgMetrics.controlHeight,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.option.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textStyle,
+                        ),
+                      ),
+                      // 中文显示名只出现在列表里；同名（未收录）就不重复显示。
+                      if (flightModeLabel(widget.option.name) !=
+                          widget.option.name) ...[
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            flightModeLabel(widget.option.name),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: MgTypography.sans(
+                              MgTypography.caption.copyWith(
+                                color: enabled
+                                    ? colors.textSecondary
+                                    : colors.textTertiary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -188,13 +311,18 @@ class MgTopStatusData {
     return '待命';
   }
 
+  /// VTOL 状态后缀（对应 MAV_VTOL_STATE）。
+  ///
+  /// 界面以中文为主，所以这里用中文描述状态，不写 MC/FW：
+  /// 1=TRANSITION_TO_FW、2=TRANSITION_TO_MC、3=MC、4=FW；
+  /// 0=UNDEFINED（非 VTOL 或还没上报）时不加后缀。
   String get modeLabel {
     if (flightMode.isEmpty) return '—';
     return switch (vtolState) {
-      1 => '$flightMode · 转 FW',
-      2 => '$flightMode · 转 MR',
-      3 => '$flightMode · MR',
-      4 => '$flightMode · FW',
+      1 => '$flightMode · 转固定翼',
+      2 => '$flightMode · 转多旋翼',
+      3 => '$flightMode · 多旋翼',
+      4 => '$flightMode · 固定翼',
       _ => flightMode,
     };
   }

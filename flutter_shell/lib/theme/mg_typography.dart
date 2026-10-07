@@ -186,6 +186,9 @@ class MgMetrics {
   /// 仪表盘每列宽度：列内两行读数左对齐，列与列等宽。
   static const double dashboardColumnWidth = 168;
 
+  /// 左舷罗盘直径。
+  static const double compassSize = 140;
+
   /// 电机输出 / 遥控器校准的 PWM 进度条高度。
   ///
   /// PWM 读数就叠在条中间，而 [MgTypography.data] 的行盒是 13 × 1.30 ≈ 17，

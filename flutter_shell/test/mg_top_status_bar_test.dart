@@ -73,7 +73,7 @@ void main() {
     );
 
     expect(find.text('飞行中'), findsOneWidget);
-    expect(find.text('AUTO · FW'), findsOneWidget);
+    expect(find.text('AUTO · 固定翼'), findsOneWidget);
     expect(find.text('16'), findsOneWidget);
     expect(find.text('78'), findsOneWidget);
     expect(find.text('串口'), findsOneWidget);
@@ -81,48 +81,48 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-
   for (final width in <double>[980, 820, 760, 720, 660, 640]) {
-    testWidgets('top status bar lays out at ${width.toInt()} px without overflow', (
-      tester,
-    ) async {
-      tester.view.physicalSize = Size(width, 600);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets(
+      'top status bar lays out at ${width.toInt()} px without overflow',
+      (tester) async {
+        tester.view.physicalSize = Size(width, 600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(
-        MacosTheme(
-          data: MacosThemeData.light(),
-          child: MaterialApp(
-            home: Scaffold(
-              body: MgTopStatusBar(
-                // 最宽的一档右栏：已连接、未飞行（解锁按钮可见）、高星数、满状态。
-                data: const MgTopStatusData(
-                  connected: true,
-                  armed: false,
-                  flying: false,
-                  flightMode: 'STABILIZE',
-                  vtolState: 0,
-                  gpsFixType: 6,
-                  satellitesVisible: 18,
-                  batteryRemainingPercent: 42,
-                  batteryVoltage: 15.7,
-                  transportLabel: 'UDP 192.168.1.20',
-                  messageCount: 12,
+        await tester.pumpWidget(
+          MacosTheme(
+            data: MacosThemeData.light(),
+            child: MaterialApp(
+              home: Scaffold(
+                body: MgTopStatusBar(
+                  // 最宽的一档右栏：已连接、未飞行（解锁按钮可见）、高星数、满状态。
+                  data: const MgTopStatusData(
+                    connected: true,
+                    armed: false,
+                    flying: false,
+                    flightMode: 'STABILIZE',
+                    vtolState: 0,
+                    gpsFixType: 6,
+                    satellitesVisible: 18,
+                    batteryRemainingPercent: 42,
+                    batteryVoltage: 15.7,
+                    transportLabel: 'UDP 192.168.1.20',
+                    messageCount: 12,
+                  ),
+                  onOpenFlightMessages: () {},
+                  onToggleArm: () {},
+                  onOpenFlightMode: () {},
+                  onOpenSettings: () {},
                 ),
-                onOpenFlightMessages: () {},
-                onToggleArm: () {},
-                onOpenFlightMode: () {},
-                onOpenSettings: () {},
               ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    });
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   testWidgets('arm action is exposed when connected and disarmed', (

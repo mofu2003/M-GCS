@@ -5,7 +5,7 @@ import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import 'mg_floating_panel.dart';
 
-enum MgSettingsDestination { connection, configuration, missionPlanning }
+enum MgSettingsDestination { connection, configuration, missionPlanning, gcs }
 
 /// 顶部设置按钮打开的紧凑工具面板。
 Future<MgSettingsDestination?> showMgSettingsMenu(
@@ -96,6 +96,14 @@ class _MgSettingsPanel extends StatelessWidget {
                 onTap: () => Navigator.of(
                   context,
                 ).pop(MgSettingsDestination.missionPlanning),
+              ),
+              Divider(height: 1, color: colors.hairline),
+              _SettingsRow(
+                icon: CupertinoIcons.gear_alt,
+                title: '地面站配置',
+                subtitle: '地图来源、地面站本地显示选项',
+                onTap: () =>
+                    Navigator.of(context).pop(MgSettingsDestination.gcs),
               ),
             ],
           ),
