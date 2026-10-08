@@ -104,6 +104,10 @@ int main() {
         CHECK(r != nullptr, "vehicle_list null core returns non-null");
         mg_free_string((char*)r);
 
+        r = mg_connection_list(nullptr);
+        CHECK(r != nullptr, "connection_list null core returns non-null");
+        mg_free_string((char*)r);
+
         r = mg_vehicle_get_summary(nullptr);
         CHECK(r != nullptr, "v2_vehicle_get_summary null core returns non-null");
         mg_free_string((char*)r);
@@ -229,6 +233,18 @@ int main() {
         CHECK(json_has(close, "session not found"),
               "unknown session close includes a useful error");
         mg_free_string(close);
+
+        char* route_close = mg_connection_close_route(core, 999);
+        CHECK(json_has(route_close, "\"success\":false"),
+              "route_close rejects an unknown route");
+        CHECK(json_has(route_close, "route not found"),
+              "unknown route close includes a useful error");
+        mg_free_string(route_close);
+
+        char* links = mg_connection_list(core);
+        CHECK(json_valid_envelope(links) && strcmp(links, "[]") == 0,
+              "connection_list returns an empty array before any links");
+        mg_free_string(links);
         CHECK(mg_vehicle_get_active(core) == -1,
               "session state/close operations do not require or change focus");
 

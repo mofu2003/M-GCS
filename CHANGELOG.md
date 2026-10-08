@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- 多机共享链路：UDP、TCP loopback 和 POSIX PTY 均完成多 `sysid/compid` 解复用验证。
+- 显式 link handle、link → route → vehicle 映射、同机多 route 归并、per-route heartbeat/
+  primary health 和 route 级精确关闭。
+- 多机地图第一版：Fleet 位置快照、非 active 车辆标记和点击切换。
+- MAVLink signing：每 `MavlinkAdapter` 独立 TX sequence、密钥、时间戳和 stream；
+  入站签名校验、出站签名、命名密钥库、连接后自动应用和 SETUP_SIGNING 下发。
+
+### Changed
+
+- 连接会话拆分为物理 link 与 Vehicle 焦点，命令始终绑定明确 Vehicle。
+- Flutter 连接面板和地面站配置页纳入多机链路与 signing 管理。
+- 更新多机状态审核、实施计划、架构、功能差距和 FFI Catalog。
+
+### Verification
+
+- 后端 offline/simulation：37/37 通过。
+- Flutter 常规测试：111 通过。
+- `test_mavlink_protocol`：133/133 通过。
+- 真实 Fleet FFI UDP 测试：3/3 通过。
+- `flutter analyze`、UI token 检查、macOS debug 构建：通过。
+
 ## 0.0.79 - 2026-10-08
 
 ### Added

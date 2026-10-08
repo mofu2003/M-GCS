@@ -32,22 +32,22 @@ MGCORE_API mg_core_t* mg_create(void) {
 MGCORE_API void mg_destroy(mg_core_t* core) {
     if (!core) return;
 
-    // 1. 关闭所有已打开的飞控实例。
-    //    get_all_vehicles() 返回加锁快照，
-    //    close_vehicle() 内部会自行处理锁。
-    {
-        std::vector<mg::core::vehicle::Vehicle*> snapshot;
-        {
-            mg::core::platform::LockGuard lk(core->core_mtx);
-            snapshot = core->vehicles.get_all_vehicles();
-        }
-        for (auto* v : snapshot) {
-            core->vehicles.close_vehicle(v->vehicle_id());
-        }
+    // Stop registry/heartbeat work while all core members are still alive.
+    // QGC detaches vehicle consumers before destroying vehicle/link objects.
+    core->vehicles.set_gcs_heartbeat_enabled(false);
+    core->events.set(nullptr, nullptr);
+
+    // Take lifetime leases: raw registry pointers can be removed by watchdogs.
+    const auto snapshot = core->vehicles.get_all_vehicles_shared();
+    for (const auto& vehicle : snapshot) {
+        vehicle->set_event_callback(nullptr);
+        core->vehicles.close_vehicle(vehicle->vehicle_id());
     }
 
-    // 2. 断开 fallback_vehicle 运行态。
+    // fallback is destroyed after EventDispatcher due to member ordering;
+    // its disconnect callbacks must not retain a reference to destroyed core.
     if (core->fallback_vehicle) {
+        core->fallback_vehicle->set_event_callback(nullptr);
         core->fallback_vehicle->disconnect();
     }
 

@@ -28,7 +28,8 @@ and a migration note have been published.
 | Area | Preferred API |
 | --- | --- |
 | Lifecycle | `mg_create`, `mg_destroy`, `mg_free_string` |
-| Connection | `mg_connection_open`, `mg_connection_get_session_state`, `mg_connection_close`, `mg_vehicle_select`, `mg_connection_get_diagnostics` |
+| Connection | `mg_connection_open`, `mg_connection_list`, `mg_connection_get_session_state`, `mg_connection_close`, `mg_connection_close_route`, `mg_vehicle_select`, `mg_connection_get_diagnostics` |
+| MAVLink signing | `mg_vehicle_set_signing_key`, `mg_vehicle_clear_signing_key`, `mg_vehicle_get_signing_status`, `mg_vehicle_send_setup_signing`。密钥是由 64 个十六进制字符表示的 32 字节；时间戳单位为 2015-01-01 起的 10µs ticks。设置/下发会应用到该 Vehicle 的所有 route |
 | Session telemetry | `mg_vehicle_get_session_status` |
 | Dashboard | `mg_telemetry_get_dashboard_snapshot`, `mg_system_get_diagnostics`。后者还包含最近的 `parameter_history` 写入结果（requested/actual/state/error/timestamps） |
 | Flight messages | `mg_telemetry_get_messages(core, since_seq)`。返回飞控 STATUSTEXT 历史（后端保留最近 200 条）与 `total`；只返回 `seq` 大于 `since_seq` 的条目，供前端增量追加。每条含 `seq` / `timestamp_ms` / `severity` / `severity_name` / `text` |
@@ -40,10 +41,12 @@ and a migration note have been published.
 | Parameter metadata/files | `mg_config_read_param`, `mg_config_get_groups`, `mg_config_get_group_descriptor`, `mg_config_get_metadata_coverage`, `mg_param_file_export`, `mg_param_file_import` |
 | Calibration | `mg_calibration_start`, `mg_calibration_cancel`, `mg_calibration_get_status`, `mg_calibration_accel_confirm`, `mg_calibration_start_airspeed`. `mg_calibration_start` 的 `type` 取 0=gyro、1=accel、2=compass、3=baro、4=radio（遥控器行程校准，MAV_CMD_PREFLIGHT_CALIBRATION param4=1）。`mg_calibration_get_status` 的返回里 `progress` 是所有罗盘的最大值，`compass_progress` 是分罗盘数组 `[{compass_id, completion_pct}]`，供界面按识别到的罗盘数量各画一条进度条 |
 | Flight commands | `mg_command_*`。注意 `mg_command_set_home` 会改变返航（RTL）基准，调用方必须先向用户确认；参数与 QGC 的 `doSetHome` 一致（`param1=0`、`param5/6` 用「度」、`param7` 米），越界经纬度会被本地拒绝 |
+| Targeted flight commands | `mg_command_execute_for_vehicle(core, vehicle_id, command_json)`。按显式 `vehicle_id` 分派 `rtl/land/takeoff/arm/disarm/set_mode/mission_start/...`；native 使用线程局部目标覆盖，不改 UI active focus，现有 `mg_command_*` 继续兼容 |
+| Shared UDP endpoint | `mg_connection_open()` 对 `udp://` 返回物理链路 ID，并立即建立可解复用的 `LinkSession`；首个 autopilot 心跳创建 Vehicle，其他 sysid 继续以独立 Vehicle 出现在 `mg_vehicle_list()`。`mg_connection_list()` 返回 link/route/vehicle 映射；`mg_connection_close_route(route_id)` 只移除目标 route，其他飞机继续使用同一 socket。每个 Vehicle 保留独立 telemetry/command adapter，回复按学到的 sender peer 发送。串口/TCP 使用同一 LinkSession 解复用框架；真实总线多 sysid 场景仍需设备/回环验收 |
 | Guided altitude | `mg_command_change_altitude`（QGC `guidedModeChangeAltitude`）：正数上升，底层 `SET_POSITION_TARGET_LOCAL_NED` + `MAV_FRAME_LOCAL_OFFSET_NED`、`type_mask=0xFFF8`，只偏移 z。调用方需先切 Guided |
 | Map click actions | QGC 地图菜单的四条命令：`mg_command_guided_point`（Go to location，`MAV_CMD_DO_REPOSITION`，COMMAND_INT + `MAV_FRAME_GLOBAL`）、`mg_command_set_roi`（ROI at location，`MAV_CMD_DO_SET_ROI_LOCATION`）、`mg_command_set_home`（Set home here）、`mg_command_change_heading`（Set heading，`MAV_CMD_CONDITION_YAW`；仅多旋翼/潜航器适用）、`mg_command_set_global_origin`（Set estimator origin，发 `SET_GPS_GLOBAL_ORIGIN` 报文，因为固定的稳定 MAVLink 方言里没有 `MAV_CMD_DO_SET_GLOBAL_ORIGIN`）。后两者是 fire-and-forget，返回 `success` 只表示报文已发出 |
 | Logging | `mg_log_request_list`, `mg_log_get_entries`, `mg_log_record_*` |
-| Mission planning document | `mg_mission_doc_create`, `mg_mission_doc_apply`, `mg_mission_doc_validate`, `mg_mission_doc_compile`, `mg_mission_doc_upload`, `mg_mission_doc_compile_fence`, `mg_mission_doc_upload_fence`, `mg_mission_doc_clear_fence`, `mg_mission_doc_import_fence_from_vehicle`, `mg_mission_doc_verify_fence`, `mg_mission_doc_compile_rally`, `mg_mission_doc_upload_rally`, `mg_mission_doc_clear_rally`, `mg_mission_doc_import_rally_from_vehicle`, `mg_mission_doc_verify_rally`, `mg_mission_doc_verify`, `mg_mission_doc_import_from_vehicle` |
+| Mission planning document | `mg_mission_doc_create`, `mg_mission_doc_apply`, `mg_mission_doc_validate`, `mg_mission_doc_compile`, `mg_mission_doc_upload`, `mg_mission_doc_compile_fence`, `mg_mission_doc_upload_fence`, `mg_mission_doc_clear_fence`, `mg_mission_doc_import_fence_from_vehicle`, `mg_mission_doc_verify_fence`, `mg_mission_doc_compile_rally`, `mg_mission_doc_upload_rally`, `mg_mission_doc_clear_rally`, `mg_mission_doc_import_rally_from_vehicle`, `mg_mission_doc_verify_rally`, `mg_mission_doc_verify`, `mg_mission_doc_import_from_vehicle`。文档按 active connection session 隔离；没有连接时使用独立离线草稿。首次连接会复制离线草稿，之后 A/B 不共享 revision 或 undo 历史 |
 | Mission execution | `mg_mission_get_plan`, `mg_mission_get_current`, `mg_mission_get_execution_progress`。返回 `valid` / `current_index`（已去掉 ArduPilot home 偏移）/ `current_seq` / `total` / `reached_count` / `last_reached_seq` / `reached_end` / `finished`。`reached_end` 来自 `MISSION_CURRENT` + `MISSION_ITEM_REACHED`（最后一项到达，固定翼此时还在返航降落）；`finished` 按 QGC `FlyViewMissionCompleteDialog` 的语义判定：曾在任务模式下解锁飞行、之后上锁；`aborted` 表示解锁飞行中离开过任务模式且最后一项未到达 |
 | Flight modes | `mg_flight_get_modes`, `mg_flight_set_mode`, `mg_flight_get_mode_status`。`mg_flight_get_modes` 返回 `available` / `current_mode` / `armed` / `modes[{id,name,settable}]`，模式表按机型给（ArduPilot 用各机型自己的 custom_mode 编号，PX4 用 main/sub 打包）；`mg_flight_set_mode` 按名字切换，内部发 `DO_SET_MODE` 并带 `MAV_MODE_FLAG_CUSTOM_MODE_ENABLED` |
 | Flight mode mapping | `mg_flight_get_mode_mapping`。对标 MP `ConfigFlightModes`：返回模式通道（`FLTMODE_CH` / `MODE_CH`）、六档 `FLTMODE1..6`（PX4 `COM_FLTMODE1..6`）的当前值与模式名、可选模式表，以及 Copter/Rover 的 `SIMPLE` / `SUPER_SIMPLE` 位掩码。写回沿用 `mg_config_write_params`。`mg_config_read_param` 对模式档位参数会按当前机型注入模式名选项 |
@@ -288,23 +291,54 @@ frozen rather than removed. Concretely:
   already pinned to the old name.
 
 `mg_connection_open` accepts one explicit URI (`serial://`, `tcp://`, or
-`udp://`) and returns a session/vehicle ID without changing active/UI focus.
-Use `mg_connection_get_session_state` and `mg_connection_close` with that ID to
-inspect and close exactly that session. These operations do not depend on
+`udp://`) and returns a physical link ID without changing active/UI focus.
+Use `mg_connection_list` to read the link → route → vehicle mapping,
+`mg_connection_get_session_state` / `mg_connection_close` with the link ID to
+inspect or close the physical link, and `mg_connection_close_route` to remove
+one vehicle route from a shared link. These operations do not depend on
 selection.
 
-`mg_vehicle_get_session_status` reads GPS fix/satellite count, heading, battery
-voltage/remaining percentage, and link heartbeat for one session without
-changing active/UI focus. Telemetry fields are nullable when the backend cache
+`mg_vehicle_set_signing_key` 接受 64 个十六进制字符的 32 字节密钥。signing 状态、link ID、timestamp 和 stream 表都归属具体 `MavlinkAdapter`；设置/清除会遍历该 Vehicle 的全部 route。`mg_vehicle_get_signing_status` 返回 `enabled`、`status` 和 `status_code`，状态包括 `ok`、`bad_signature`、`old_timestamp`、`replay` 等。`mg_vehicle_send_setup_signing` 发送未签名的 SETUP_SIGNING 消息，用于把密钥和初始时间戳交给飞控。
+
+`mg_vehicle_get_session_status` reads GPS fix/satellite count, WGS-84
+position/altitude, heading, battery voltage/remaining percentage, and link
+heartbeat for one session without changing active/UI focus. Position fields
+are `position_valid`, `lat_deg`, `lon_deg`, `alt_msl_m`, and `alt_rel_m`. Telemetry fields are nullable when the backend cache
 has no fresh sample; clients should display unavailable values instead of
 reusing stale readings.
 
-`mg_vehicle_open` and `mg_vehicle_close` are compatibility aliases;
-`mg_vehicle_open` additionally accepts a bare serial device path.
+`mg_vehicle_open` and `mg_vehicle_close` are vehicle-level compatibility
+wrappers; `mg_vehicle_open` additionally accepts a bare serial device path and
+`mg_vehicle_close` removes the vehicle and all of its routes.
 `mg_connection_connect`, `mg_connection_disconnect`, and TCP/UDP convenience
 helpers remain legacy single-active-session wrappers. The connect wrappers
 select the session they create so existing active-vehicle commands continue to
 work. New code should use the session-oriented `mg_connection_*` lifecycle.
+
+### MV1 framework consumer
+
+Flutter's `fleet/FleetFfiBackend` consumes the existing session lifecycle,
+`mg_vehicle_list`, and `mg_vehicle_get_active` without new exports or schema
+changes. List/status reads do not select vehicles. `mg_vehicle_list` holds a
+shared lifetime snapshot while serializing entries to survive registry removal.
+This does not yet provide shared-link multi-system discovery, component-scoped
+telemetry or explicit vehicle-target flight commands. See
+[the implementation plan](../../docs/planning/MULTI_VEHICLE_PLAN.md).
+
+### Targeted flight command routing
+
+`mg_command_execute_for_vehicle()` is the preferred multi-vehicle command entry.
+It resolves one specific vehicle/session, installs a thread-local target
+override for existing command implementations, and restores the previous
+override before returning. It does not call `mg_vehicle_select()`, so concurrent
+UI focus polling never observes a temporary target switch. Existing
+`mg_command_*` symbols remain the compatibility surface for single-vehicle
+callers.
+
+The JSON payload contains `command` and optional `args`; see
+`ffi_api_flight.h` for the accepted command names. A missing target returns
+`MG_ERROR_NOT_FOUND`; malformed or unsupported command JSON returns
+`MG_ERROR_INVALID_PARAM`.
 
 ## Adding or Retiring APIs
 

@@ -2,26 +2,47 @@
 #define MGCORE_FFI_API_CONNECTION_H
 
 #include "ffi_api_core.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/// Opens one Serial/TCP/UDP session from a URI and returns its vehicle/session ID.
-/// The result is a positive ID, or a negative mg_error_t on failure. Opening a
-/// session never changes the active/UI focus.
+/// Opens one Serial/TCP/UDP physical link from a URI and returns its link ID.
+/// Vehicles are created only after autopilot heartbeats and are listed by
+/// mg_vehicle_list(). The result is a positive ID, or a negative mg_error_t on
+/// failure. Opening a link never changes the active/UI focus.
 MGCORE_API int mg_connection_open(mg_core_t* core, const char* endpoint_uri);
-/// Returns state for this specific session without selecting it.
-MGCORE_API char* mg_connection_get_session_state(mg_core_t* core, int vehicle_id);
-/// Closes exactly this session without relying on active vehicle focus.
-MGCORE_API char* mg_connection_close(mg_core_t* core, int vehicle_id);
+/// Returns state for this specific link or legacy vehicle session without
+/// selecting it.
+MGCORE_API char* mg_connection_get_session_state(mg_core_t* core, int link_id);
+/// Closes exactly this link/session without relying on active vehicle focus.
+MGCORE_API char* mg_connection_close(mg_core_t* core, int link_id);
+/// Closes exactly one Vehicle route without closing a shared physical link.
+MGCORE_API char* mg_connection_close_route(mg_core_t* core, int route_id);
+/// Lists physical links and their discovered vehicle routes.
+MGCORE_API char* mg_connection_list(mg_core_t* core);
 
 /// Compatibility wrapper. Accepts a URI or a bare serial device path.
 MGCORE_API int mg_vehicle_open(mg_core_t* core, const char* endpoint);
-/// Compatibility wrapper for mg_connection_close().
+/// Compatibility wrapper for closing one vehicle and all of its routes.
 MGCORE_API char* mg_vehicle_close(mg_core_t* core, int vehicle_id);
 MGCORE_API char* mg_vehicle_list(mg_core_t* core);
 MGCORE_API char* mg_vehicle_select(mg_core_t* core, int vehicle_id);
+/// Applies a 32-byte MAVLink signing key, encoded as 64 hex characters, to
+/// every route owned by the vehicle. Timestamp is in 10us ticks since 2015.
+MGCORE_API char* mg_vehicle_set_signing_key(mg_core_t* core,
+                                            int vehicle_id,
+                                            const char* key_hex,
+                                            int sign_outgoing,
+                                            uint64_t persisted_timestamp);
+MGCORE_API char* mg_vehicle_clear_signing_key(mg_core_t* core, int vehicle_id);
+MGCORE_API char* mg_vehicle_get_signing_status(mg_core_t* core, int vehicle_id);
+/// Sends SETUP_SIGNING (unsigned) to establish the supplied key on the vehicle.
+MGCORE_API char* mg_vehicle_send_setup_signing(mg_core_t* core,
+                                               int vehicle_id,
+                                               const char* key_hex,
+                                               uint64_t initial_timestamp);
 MGCORE_API int mg_vehicle_get_active(mg_core_t* core);
 MGCORE_API char* mg_discover_devices(mg_core_t* core, const char* transport_type);
 

@@ -18,6 +18,19 @@ struct VehicleSessionView {
     bool connected = false;
 };
 
+/// Thread-local target override used by targeted command dispatch.
+/// It does not change the global UI active vehicle.
+class VehicleTargetScope {
+public:
+    VehicleTargetScope(mg_core_t* core, mg::core::vehicle::Vehicle* vehicle);
+    ~VehicleTargetScope();
+    VehicleTargetScope(const VehicleTargetScope&) = delete;
+    VehicleTargetScope& operator=(const VehicleTargetScope&) = delete;
+private:
+    mg_core_t* previous_core_ = nullptr;
+    mg::core::vehicle::Vehicle* previous_ = nullptr;
+};
+
 VehicleSessionView resolve_vehicle_session(mg_core_t* core);
 mg::core::vehicle::Vehicle* require_vehicle(mg_core_t* core);
 mg::bridge::TelemetryCache* session_cache(mg_core_t* core);

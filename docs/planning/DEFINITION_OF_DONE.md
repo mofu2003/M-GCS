@@ -35,7 +35,7 @@ M-GCS 对标 Mission Planner（MP）和 QGroundControl（QGC），功能面几�
 产品是否“可以发 0.1.0”由 [后续发展计划](DEVELOPMENT_ROADMAP.md) 的阶段 E 判定，
 本文不重复其内容。核心要求是：
 
-- A–D 阶段验收通过，或明确列出已知限制。
+- A–D 以及本轮承诺的多机阶段 MV 切片验收通过，或明确列出已知限制。
 - 每个平台的支持声明必须等于实际验收结果；只有构建路径不等于“已验证”。
 - FFI 稳定契约、弃用入口、配置迁移与发布回滚策略有测试或明确说明。
 - 关键错误可诊断，数据与任务文件升级策略有覆盖。
@@ -68,6 +68,7 @@ M-GCS 对标 Mission Planner（MP）和 QGroundControl（QGC），功能面几�
 | `VIDEO-001` FFmpeg 回调并发 | 环境阻塞 | 本机无 FFmpeg 开发环境，改动无法编译验证 |
 | `UI-001` 聚合诊断接入 Flutter | 前端 | 后端接口已就绪，属 `flutter_shell` 工作 |
 | `UI-002` 参数同步长任务取消接入 Flutter | 前端 | 后端已支持取消与终态，属 `flutter_shell` 工作 |
+| `MV-001` 分机绑定与多机入口 | Core/FFI/前端 | 基础 Fleet 框架已完成，状态重绑定、明确命令目标和 UI 尚未开放，见多机计划 |
 | Windows/Linux/Android 真机验收 | 资源阻塞 | 需要对应平台设备与飞控，飞控串口为排他资源 |
 
 不属于“未完成”的条目：

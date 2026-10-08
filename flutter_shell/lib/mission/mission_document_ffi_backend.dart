@@ -13,8 +13,9 @@ import 'mission_document_models.dart';
 final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   MissionDocumentFfiBackend(
     this._library,
-    this._core, {
+    this._corePointer, {
     required this.isConnected,
+    this.beforeAccess,
   }) {
     _freeString = _library
         .lookup<NativeFunction<Void Function(Pointer<Utf8>)>>('mg_free_string')
@@ -55,15 +56,21 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     _rallyDownload = _lookup1('mg_rally_download');
     _missionDownload = _lookup1('mg_mission_download');
     _missionClear = _lookup1('mg_mission_clear');
-    _missionExecutionProgress = _lookup1(
-      'mg_mission_get_execution_progress',
-    );
+    _missionExecutionProgress = _lookup1('mg_mission_get_execution_progress');
     _operationsGetSnapshot = _lookup1('mg_operations_get_snapshot');
     _operationsCancel = _lookup2('mg_operations_cancel');
   }
 
   final DynamicLibrary _library;
-  final Pointer<Void> _core;
+  final Pointer<Void> _corePointer;
+  final void Function()? beforeAccess;
+
+  // Check before evaluating the native call, including resumed async work.
+  Pointer<Void> get _core {
+    beforeAccess?.call();
+    return _corePointer;
+  }
+
   final bool Function() isConnected;
 
   late final void Function(Pointer<Utf8>) _freeString;
@@ -93,14 +100,16 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDocClearFence;
   late final Pointer<Utf8> Function(Pointer<Void>)
   _missionDocImportFenceFromVehicle;
-  late final Pointer<Utf8> Function(Pointer<Void>, double) _missionDocVerifyFence;
+  late final Pointer<Utf8> Function(Pointer<Void>, double)
+  _missionDocVerifyFence;
   late final Pointer<Utf8> Function(Pointer<Void>) _fenceDownload;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDocCompileRally;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _missionDocUploadRally;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDocClearRally;
   late final Pointer<Utf8> Function(Pointer<Void>)
   _missionDocImportRallyFromVehicle;
-  late final Pointer<Utf8> Function(Pointer<Void>, double) _missionDocVerifyRally;
+  late final Pointer<Utf8> Function(Pointer<Void>, double)
+  _missionDocVerifyRally;
   late final Pointer<Utf8> Function(Pointer<Void>) _rallyDownload;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDownload;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionClear;
@@ -240,8 +249,7 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
 
   @override
   Future<MissionExecutionProgress> getMissionExecutionProgress() async {
-    final response =
-        _readJson(_missionExecutionProgress(_core)) as JsonMap;
+    final response = _readJson(_missionExecutionProgress(_core)) as JsonMap;
     _requireSuccess(response);
     return MissionExecutionProgress.fromJson(response);
   }

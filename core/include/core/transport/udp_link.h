@@ -24,6 +24,11 @@ public:
     bool is_open() const override;
     bool send(const uint8_t* data, size_t size) override;
     void set_receive_callback(ReceiveCallback cb) override;
+    bool supports_peer_routing() const override { return true; }
+    void set_peer_receive_callback(PeerReceiveCallback cb) override;
+    bool send_to(const LinkPeer& peer,
+                 const uint8_t* data,
+                 size_t size) override;
 
     void set_remote_address(const std::string& host, uint16_t port);
     std::string host() const;
@@ -48,6 +53,7 @@ private:
     mutable mg::core::platform::Mutex state_mtx_;
     std::shared_ptr<ReadState> read_state_;
     ReceiveCallback pending_receive_cb_;
+    PeerReceiveCallback pending_peer_receive_cb_;
     mg::core::platform::Mutex cb_mtx_;
 
 };

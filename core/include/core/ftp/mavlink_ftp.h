@@ -50,10 +50,17 @@ using FtpProgressCallback = std::function<void(uint32_t received, uint32_t total
 /// 通过 FILE_TRANSFER_PROTOCOL 消息与飞控通信
 class MavlinkFtpClient {
 public:
-    /// 发送函数类型：打包并发送 MAVLink 消息
+    /// 旧版发送函数类型：接收已经序列化的 MAVLink 字节。
     using SendFn = std::function<bool(const uint8_t* data, size_t size)>;
+    /// 新版发送函数类型：由适配器使用自己的 TX sequence 完成最终打包。
+    using MessageSendFn = std::function<bool(mavlink_message_t& message)>;
 
     explicit MavlinkFtpClient(SendFn send_fn);
+
+    /// 让 FTP 复用适配器实例的发送器。未设置时保留旧版 SendFn 行为。
+    void set_message_send_fn(MessageSendFn send_fn) {
+        message_send_fn_ = std::move(send_fn);
+    }
     ~MavlinkFtpClient();
 
     /// 列出目录内容
@@ -91,6 +98,7 @@ public:
 
 private:
     SendFn send_fn_;
+    MessageSendFn message_send_fn_;
     FtpState state_ = FtpState::Idle;
     int timeout_ms_ = 3000;
     int max_retries_ = 3;

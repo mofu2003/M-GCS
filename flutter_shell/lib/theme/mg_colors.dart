@@ -105,11 +105,11 @@ class MgColors {
   /// 仪表盘主墨色。
   Color get instrumentInk => const Color(0xFF171A21);
 
-  /// 姿态球天空：半透明粉蓝。
-  Color get attitudeSky => const Color(0x8A8FC6EA);
+  /// 姿态球天空：轻微透明粉蓝。
+  Color get attitudeSky => const Color(0xE68FC6EA);
 
-  /// 姿态球地面：半透明沙色。
-  Color get attitudeGround => const Color(0x8AD9C6AA);
+  /// 姿态球地面：轻微透明沙色。
+  Color get attitudeGround => const Color(0xE6D9C6AA);
 
   /// 姿态球地平线。
   Color get attitudeHorizon => const Color(0xEFFFFFFF);
@@ -127,8 +127,8 @@ class MgColors {
   Color get instrumentGlass => const Color(0xC7FFFFFF);
   Color get instrumentGlassBorder => const Color(0xE6FFFFFF);
 
-  /// 右下角复合圆形仪表专用玻璃：比其他浮层更实，避免地图透出来干扰读数。
-  Color get attitudeCompassGlass => const Color(0xFAFFFFFF);
+  /// 右下角复合圆形仪表专用玻璃：仅保留很轻的透底和模糊。
+  Color get attitudeCompassGlass => const Color(0xEBFFFFFF);
   Color get attitudeCompassGlassBorder => const Color(0xFFFFFFFF);
 
   /// 罗盘刻度、数字和北向标记。

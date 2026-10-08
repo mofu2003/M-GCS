@@ -2,6 +2,9 @@
 
 研究日期：2026-09-23
 
+> 后续状态：2026-10-08 已启动多机实施规划。混合架构、阶段、FFI 和验收标准见
+> [多机连接与焦点管理实施计划](../planning/MULTI_VEHICLE_PLAN.md)。
+
 > 本文是连接模型的研究快照，源码行号和上游 commit 只对应当时的本地源码；当前产品
 > 边界以 [架构说明](../architecture/ARCHITECTURE.md)、[开发约束](../../AGENTS.md) 和状态审计为准。
 
@@ -55,7 +58,7 @@ M-GCS 当前的 `mg_vehicle_open(endpoint)` 会先通过 `MultiVehicleManager::o
 
 1. **单机 UI 只有一种“连接/断开”流程。** 前端配置串口或网络 endpoint，调用统一连接 API；连接成功后订阅状态，显示“等待心跳 → 已连接/识别 → 断开/超时”。不要求进入多机选择页。
 2. **后端可以继续复用 Vehicle/ConnectionManager。** 它们是单个飞控会话的运行时承载，不等于用户必须使用多机管理功能。可在产品语义上将其称为 connection session；避免为了名字把底层重写一遍。
-3. **统一新代码使用的连接 API，同时保护旧 ABI。** 新代码统一使用 `mg_connection_open(endpoint)` 返回 session ID，再通过 `mg_connection_get_session_state` 查询、`mg_connection_close` 断开；这些操作不依赖 active focus。旧 `mg_vehicle_open` 和 serial/TCP/UDP convenience 函数只作为兼容入口保留，其中旧连接便捷函数继续选中其创建的 session，以免破坏仍通过 active vehicle 路由的命令 API。单机 UI 不暴露这些兼容差异；待客户端迁移且进入 ABI 主版本升级时再考虑删除旧符号。
+3. **统一新代码使用的连接 API，同时保护旧 ABI。** 新代码统一使用 `mg_connection_open(endpoint)` 返回物理 link ID，再通过 `mg_connection_list` / `mg_connection_get_session_state` 查询、`mg_connection_close` 或 `mg_connection_close_route` 精确关闭；这些操作不依赖 active focus。旧 `mg_vehicle_open` 和 serial/TCP/UDP convenience 函数只作为兼容入口保留，其中旧连接便捷函数继续选中其创建的 session，以免破坏仍通过 active vehicle 路由的命令 API。单机 UI 不暴露这些兼容差异；待客户端迁移且进入 ABI 主版本升级时再考虑删除旧符号。
 4. **单机阶段可以有唯一当前 session，但不要把它扩展成 Fleet 功能。** 单一前端实例仅连接一架时，Controller 可以持有该连接返回的 session ID；数据和命令沿 session 调用。避免以“选中车辆”作为打开连接的步骤。
 5. **下一阶段再加 Fleet。** Fleet 是多条已建立 session 的可选编排能力，负责车辆选择/分组、逐机执行、限流、超时和结果汇总。编队/蜂群再建立独立的 swarm domain，明确 leader/follower、同步策略、失联/故障处置和安全条件；不要把这些加进基础连接表单或 ConnectionManager。
 6. **无需现在复制 QGC 的冗余链路拓扑。** 若产品后续明确要求同一飞控 USB+遥测电台并行或主备切换，再参考 QGC 的 VehicleLinkManager；若需求是一个 UDP 链路上发现多架飞机，再设计 Link 与 Vehicle 的多对多绑定。两种需求不要混为“批量控制”。

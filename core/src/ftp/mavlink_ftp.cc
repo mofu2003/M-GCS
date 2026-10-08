@@ -60,7 +60,8 @@ bool MavlinkFtpClient::send_ftp_request(uint8_t target_sys,
                                         uint8_t size,
                                         uint16_t sequence,
                                         const uint8_t* data) {
-    if (!send_fn_ || size > kMaxReadSize) return false;
+    if (size > kMaxReadSize) return false;
+    if (!message_send_fn_ && !send_fn_) return false;
 
     mavlink_file_transfer_protocol_t ftp{};
     ftp.target_system = target_sys;
@@ -82,6 +83,8 @@ bool MavlinkFtpClient::send_ftp_request(uint8_t target_sys,
 
     mavlink_message_t msg{};
     mavlink_msg_file_transfer_protocol_encode(255, 0, &msg, &ftp);
+    if (message_send_fn_) return message_send_fn_(msg);
+
     std::array<uint8_t, MAVLINK_MAX_PACKET_LEN> buffer{};
     const uint16_t length = mavlink_msg_to_send_buffer(buffer.data(), &msg);
     return send_fn_(buffer.data(), length);

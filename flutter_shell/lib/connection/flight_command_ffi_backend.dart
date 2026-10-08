@@ -5,165 +5,88 @@ import 'package:ffi/ffi.dart';
 
 /// 飞行命令 FFI 适配层。
 ///
-/// 只负责命令 ABI 绑定和 JSON 响应解包；连接门控、飞行模式确认、解锁确认和
-/// QGC/MP 组合流程仍由 ConnectionController 负责。
+/// 所有命令统一经过 [mg_command_execute_for_vehicle] 的显式 vehicle_id 分派；
+/// native 侧使用线程局部目标覆盖，不修改 UI active focus。现有旧命令 ABI 仍保留
+/// 兼容，但 Flutter 不再依赖它。
 final class FlightCommandFfiBackend {
-  FlightCommandFfiBackend(this._library, this._core) {
-    _freeString = _library
-        .lookup<NativeFunction<Void Function(Pointer<Utf8>)>>('mg_free_string')
-        .asFunction();
-    _rtl = _lookup1('mg_command_rtl');
-    _land = _lookup1('mg_command_land');
-    _takeoff = _lookupTakeoff('mg_command_takeoff');
-    _arm = _lookupInt('mg_command_arm');
-    _disarm = _lookupInt('mg_command_disarm');
-    _setMode = _lookupMode('mg_command_set_mode');
-    _missionStart = _lookup1('mg_mission_start');
-    _guidedPause = _lookup1('mg_command_guided_pause');
-    _changeAltitude = _lookupChangeAltitude('mg_command_change_altitude');
-    _setHome = _lookupHome('mg_command_set_home');
-    _guidedPoint = _lookupGuidedPoint('mg_command_guided_point');
-    _orbit = _lookup2('mg_command_orbit');
-    _setRoi = _lookupRoi('mg_command_set_roi');
-    _changeHeading = _lookupChangeHeading('mg_command_change_heading');
-    _setGlobalOrigin = _lookupGlobalOrigin('mg_command_set_global_origin');
+  FlightCommandFfiBackend(
+    DynamicLibrary library,
+    this._core, {
+    this.beforeCommand,
+    this.targetVehicleId,
+    this.executeForVehicleOverride,
+    this.freeStringOverride,
+  }) {
+    if (freeStringOverride != null) {
+      _freeStringOverride = freeStringOverride;
+    } else {
+      _nativeFreeString = library
+          .lookup<NativeFunction<Void Function(Pointer<Utf8>)>>(
+            'mg_free_string',
+          )
+          .asFunction();
+    }
+    if (executeForVehicleOverride != null) {
+      _executeForVehicle = executeForVehicleOverride!;
+    } else {
+      final execute = library
+          .lookupFunction<
+            Pointer<Utf8> Function(Pointer<Void>, Int32, Pointer<Utf8>),
+            Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
+          >('mg_command_execute_for_vehicle');
+      _executeForVehicle = (vehicleId, commandJson) =>
+          execute(_core, vehicleId, commandJson);
+    }
   }
 
-  final DynamicLibrary _library;
   final Pointer<Void> _core;
 
-  late final void Function(Pointer<Utf8>) _freeString;
-  late final Pointer<Utf8> Function(Pointer<Void>) _rtl;
-  late final Pointer<Utf8> Function(Pointer<Void>) _land;
-  late final Pointer<Utf8> Function(Pointer<Void>, double) _takeoff;
-  late final Pointer<Utf8> Function(Pointer<Void>, int) _arm;
-  late final Pointer<Utf8> Function(Pointer<Void>, int) _disarm;
-  late final Pointer<Utf8> Function(Pointer<Void>, int, int) _setMode;
-  late final Pointer<Utf8> Function(Pointer<Void>) _missionStart;
-  late final Pointer<Utf8> Function(Pointer<Void>) _guidedPause;
-  late final Pointer<Utf8> Function(Pointer<Void>, double) _changeAltitude;
-  late final Pointer<Utf8> Function(Pointer<Void>, double, double, double)
-  _setHome;
-  late final Pointer<Utf8> Function(
-    Pointer<Void>,
-    double,
-    double,
-    double,
-    double,
-    double,
-  )
-  _guidedPoint;
-  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _orbit;
-  late final Pointer<Utf8> Function(Pointer<Void>, double, double, double)
-  _setRoi;
-  late final Pointer<Utf8> Function(Pointer<Void>, double, double, int)
-  _changeHeading;
-  late final Pointer<Utf8> Function(Pointer<Void>, double, double, double)
-  _setGlobalOrigin;
+  /// Runs before native invocation, not after response decoding.
+  final void Function()? beforeCommand;
 
-  Pointer<Utf8> Function(Pointer<Void>) _lookup1(String symbol) => _library
-      .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(symbol)
-      .asFunction();
+  /// Returns the session ID selected for the next command.
+  final int? Function()? targetVehicleId;
 
-  Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _lookup2(
-    String symbol,
-  ) => _library
-      .lookup<
-        NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
-      >(symbol)
-      .asFunction();
+  /// Test seam; production uses the native symbol directly.
+  final Pointer<Utf8> Function(int, Pointer<Utf8>)? executeForVehicleOverride;
+  final void Function(Pointer<Utf8>)? freeStringOverride;
 
-  /// C 侧是 `float altitude_m`，必须绑 `Float`。
-  ///
-  /// 用 `Double` 会把 64 位双精度按位塞进 32 位 float 槽位：45.1 会被读成
-  /// -1.07e8，ArduPilot 直接判坐标非法（MAV_RESULT_DENIED）；15/30/100 这种
-  /// 整数会被读成 0，起飞高度静默失效。float 参数一律用 `Float`。
-  Pointer<Utf8> Function(Pointer<Void>, double) _lookupTakeoff(String symbol) =>
-      _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Float)>>(
-            symbol,
-          )
-          .asFunction();
+  late final void Function(Pointer<Utf8>) _nativeFreeString;
+  void Function(Pointer<Utf8>)? _freeStringOverride;
+  late final Pointer<Utf8> Function(int, Pointer<Utf8>) _executeForVehicle;
 
-  /// C 侧是 `float altitude_change_m`，必须绑 `Float`。
-  Pointer<Utf8> Function(Pointer<Void>, double) _lookupChangeAltitude(
-    String symbol,
-  ) => _library
-      .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Float)>>(
-        symbol,
-      )
-      .asFunction();
+  Map<String, Object?> rtl() => _dispatch('rtl');
 
-  Pointer<Utf8> Function(Pointer<Void>, int) _lookupInt(String symbol) =>
-      _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
-            symbol,
-          )
-          .asFunction();
-
-  Pointer<Utf8> Function(Pointer<Void>, int, int) _lookupMode(String symbol) =>
-      _library
-          .lookup<
-            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32, Int32)>
-          >(symbol)
-          .asFunction();
-
-  /// C 侧是 `(double lat, double lon, float alt_m)`：只有高度是 float。
-  Pointer<Utf8> Function(Pointer<Void>, double, double, double) _lookupHome(
-    String symbol,
-  ) => _library
-      .lookup<
-        NativeFunction<
-          Pointer<Utf8> Function(Pointer<Void>, Double, Double, Float)
-        >
-      >(symbol)
-      .asFunction();
-
-  /// C 侧是 `(double lat, double lon, float alt, float yaw, float speed)`：
-  /// 经纬度是 double，高度/航向/速度都是 float。
-  Pointer<Utf8> Function(Pointer<Void>, double, double, double, double, double)
-  _lookupGuidedPoint(String symbol) => _library
-      .lookup<
-        NativeFunction<
-          Pointer<Utf8> Function(
-            Pointer<Void>,
-            Double,
-            Double,
-            Float,
-            Float,
-            Float,
-          )
-        >
-      >(symbol)
-      .asFunction();
-
-  Map<String, Object?> rtl() => _read(_rtl(_core));
-
-  Map<String, Object?> land() => _read(_land(_core));
+  Map<String, Object?> land() => _dispatch('land');
 
   Map<String, Object?> takeoff(double altitudeMeters) =>
-      _read(_takeoff(_core, altitudeMeters));
+      _dispatch('takeoff', {'altitude_m': altitudeMeters});
 
-  Map<String, Object?> arm(int force) => _read(_arm(_core, force));
+  Map<String, Object?> arm(int force) => _dispatch('arm', {'force': force});
 
-  Map<String, Object?> disarm(int force) => _read(_disarm(_core, force));
+  Map<String, Object?> disarm(int force) =>
+      _dispatch('disarm', {'force': force});
 
   Map<String, Object?> setMode(int baseMode, int customMode) =>
-      _read(_setMode(_core, baseMode, customMode));
+      _dispatch('set_mode', {'base_mode': baseMode, 'custom_mode': customMode});
 
-  Map<String, Object?> missionStart() => _read(_missionStart(_core));
+  Map<String, Object?> missionStart() => _dispatch('mission_start');
 
-  Map<String, Object?> guidedPause() => _read(_guidedPause(_core));
+  Map<String, Object?> guidedPause() => _dispatch('guided_pause');
 
   /// `altitudeChangeMeters` 为正表示上升（QGC 同）。
   Map<String, Object?> changeAltitude(double altitudeChangeMeters) =>
-      _read(_changeAltitude(_core, altitudeChangeMeters));
+      _dispatch('change_altitude', {'altitude_change_m': altitudeChangeMeters});
 
   Map<String, Object?> setHome(
     double latitude,
     double longitude,
     double altitudeMeters,
-  ) => _read(_setHome(_core, latitude, longitude, altitudeMeters));
+  ) => _dispatch('set_home', {
+    'lat': latitude,
+    'lon': longitude,
+    'alt': altitudeMeters,
+  });
 
   Map<String, Object?> guidedPoint(
     double latitude,
@@ -171,66 +94,43 @@ final class FlightCommandFfiBackend {
     double altitudeMeters,
     double yawDegrees,
     double speedMetersPerSecond,
-  ) => _read(
-    _guidedPoint(
-      _core,
-      latitude,
-      longitude,
-      altitudeMeters,
-      yawDegrees,
-      speedMetersPerSecond,
-    ),
-  );
-
-  Pointer<Utf8> Function(Pointer<Void>, double, double, double) _lookupRoi(
-    String symbol,
-  ) => _library
-      .lookup<
-        NativeFunction<
-          Pointer<Utf8> Function(Pointer<Void>, Double, Double, Float)
-        >
-      >(symbol)
-      .asFunction();
-
-  /// C 侧 `(float heading_deg, float yaw_rate_dps, int direction)`。
-  Pointer<Utf8> Function(Pointer<Void>, double, double, int)
-  _lookupChangeHeading(String symbol) => _library
-      .lookup<
-        NativeFunction<
-          Pointer<Utf8> Function(Pointer<Void>, Float, Float, Int32)
-        >
-      >(symbol)
-      .asFunction();
-
-  /// C 侧 `(double lat, double lon, float alt_m)`。
-  Pointer<Utf8> Function(Pointer<Void>, double, double, double)
-  _lookupGlobalOrigin(String symbol) => _library
-      .lookup<
-        NativeFunction<
-          Pointer<Utf8> Function(Pointer<Void>, Double, Double, Float)
-        >
-      >(symbol)
-      .asFunction();
+  ) => _dispatch('guided_point', {
+    'lat': latitude,
+    'lon': longitude,
+    'alt': altitudeMeters,
+    'yaw': yawDegrees,
+    'speed': speedMetersPerSecond,
+  });
 
   Map<String, Object?> setRoi(
     double latitude,
     double longitude,
     double altitudeMeters,
-  ) => _read(_setRoi(_core, latitude, longitude, altitudeMeters));
+  ) => _dispatch('set_roi', {
+    'lat': latitude,
+    'lon': longitude,
+    'alt': altitudeMeters,
+  });
 
   Map<String, Object?> changeHeading(
     double headingDegrees,
     double yawRateDegreesPerSecond,
     int direction,
-  ) => _read(
-    _changeHeading(_core, headingDegrees, yawRateDegreesPerSecond, direction),
-  );
+  ) => _dispatch('change_heading', {
+    'heading_deg': headingDegrees,
+    'yaw_rate_dps': yawRateDegreesPerSecond,
+    'direction': direction,
+  });
 
   Map<String, Object?> setGlobalOrigin(
     double latitude,
     double longitude,
     double altitudeMeters,
-  ) => _read(_setGlobalOrigin(_core, latitude, longitude, altitudeMeters));
+  ) => _dispatch('set_global_origin', {
+    'lat': latitude,
+    'lon': longitude,
+    'alt': altitudeMeters,
+  });
 
   Map<String, Object?> orbit({
     required double latitude,
@@ -238,18 +138,29 @@ final class FlightCommandFfiBackend {
     required double radiusMeters,
     required double velocityMetersPerSecond,
     required double altitudeMeters,
-  }) {
-    final config = jsonEncode({
-      'lat': latitude,
-      'lon': longitude,
-      'radius': radiusMeters,
-      'velocity': velocityMetersPerSecond,
-      'altitude': altitudeMeters,
-    }).toNativeUtf8();
+  }) => _dispatch('orbit', {
+    'lat': latitude,
+    'lon': longitude,
+    'radius': radiusMeters,
+    'velocity': velocityMetersPerSecond,
+    'altitude': altitudeMeters,
+  });
+
+  Map<String, Object?> _dispatch(
+    String command, [
+    Map<String, Object?> args = const {},
+  ]) {
+    beforeCommand?.call();
+    final vehicleId = targetVehicleId?.call();
+    if (vehicleId == null || vehicleId <= 0) {
+      throw StateError('当前没有明确的目标飞机，拒绝发送指令');
+    }
+    final commandJson = jsonEncode({'command': command, 'args': args});
+    final native = commandJson.toNativeUtf8();
     try {
-      return _read(_orbit(_core, config));
+      return _read(_executeForVehicle(vehicleId, native));
     } finally {
-      malloc.free(config);
+      malloc.free(native);
     }
   }
 
@@ -260,7 +171,7 @@ final class FlightCommandFfiBackend {
       if (raw is! Map) throw const FormatException('飞行命令响应格式无效');
       return Map<String, Object?>.from(raw);
     } finally {
-      _freeString(pointer);
+      (_freeStringOverride ?? _nativeFreeString)(pointer);
     }
   }
 }

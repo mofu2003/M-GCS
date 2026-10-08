@@ -14,6 +14,14 @@ struct LinkDescriptor {
     uint32_t baud_rate = 0;
 };
 
+/// A transport peer for links which can address more than one remote.
+struct LinkPeer {
+    std::string host;
+    uint16_t port = 0;
+
+    bool valid() const { return !host.empty() && port > 0; }
+};
+
 // 链路接口基类，所有传输层（串口、TCP、UDP、内存）都实现此接口
 class ILink {
 public:
@@ -30,8 +38,30 @@ public:
 
     // 数据接收回调类型
     using ReceiveCallback = std::function<void(const uint8_t* data, size_t size)>;
+    // peer-aware links use this callback so a shared router can learn which
+    // remote sent a datagram. Non-peer links leave it unused.
+    using PeerReceiveCallback =
+        std::function<void(const LinkPeer& peer, const uint8_t* data, size_t size)>;
+
     // 设置接收数据的回调
     virtual void set_receive_callback(ReceiveCallback cb) = 0;
+
+    /// Whether this transport preserves sender identity per received payload.
+    virtual bool supports_peer_routing() const { return false; }
+
+    /// Set the sender-aware receive callback. Default is a no-op so existing
+    /// transports only need to override this when they can preserve peers.
+    virtual void set_peer_receive_callback(PeerReceiveCallback cb) {
+        (void)cb;
+    }
+
+    /// Send to one explicit peer. Non-peer transports fall back to send().
+    virtual bool send_to(const LinkPeer& peer,
+                         const uint8_t* data,
+                         size_t size) {
+        (void)peer;
+        return send(data, size);
+    }
 };
 
 } // namespace mg::core::transport

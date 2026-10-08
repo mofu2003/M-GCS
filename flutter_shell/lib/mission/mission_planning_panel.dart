@@ -63,7 +63,10 @@ class _MissionPlanningFloatingPanelState
   final Map<String, GlobalKey> _entityKeys = {};
   Timer? _executionTimer;
 
-  MissionDocumentController get _mission => widget.controller.missionPlanning;
+  // This widget is keyed by session; detach the exact instance registered in
+  // initState rather than a getter which may already point to the next vehicle.
+  late final MissionDocumentController _mission =
+      widget.controller.missionPlanning;
 
   @override
   void initState() {
@@ -2200,6 +2203,7 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
 Future<void> showChangeAltitudeDialog(
   BuildContext context, {
   required ConnectionController controller,
+  ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation,
 }) async {
   final current = controller.relativeAltitudeMeters;
   if (!controller.vehiclePositionValid || current == null) return;
@@ -2208,6 +2212,7 @@ Future<void> showChangeAltitudeDialog(
     builder: (dialogContext) => _ChangeAltitudeSheet(
       controller: controller,
       initialAltitudeMeters: current,
+      onRequestCommandConfirmation: onRequestCommandConfirmation,
     ),
   );
 }
@@ -2216,10 +2221,12 @@ class _ChangeAltitudeSheet extends StatefulWidget {
   const _ChangeAltitudeSheet({
     required this.controller,
     required this.initialAltitudeMeters,
+    this.onRequestCommandConfirmation,
   });
 
   final ConnectionController controller;
   final double initialAltitudeMeters;
+  final ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation;
 
   @override
   State<_ChangeAltitudeSheet> createState() => _ChangeAltitudeSheetState();
@@ -2230,6 +2237,22 @@ class _ChangeAltitudeSheetState extends State<_ChangeAltitudeSheet> {
     text: widget.initialAltitudeMeters.toStringAsFixed(1),
   );
   String? _error;
+  late final int _inputFocusRevision;
+
+  @override
+  void initState() {
+    super.initState();
+    _inputFocusRevision = widget.controller.fleet.focusRevision;
+  }
+
+  bool _validateInputTarget() {
+    widget.controller.fleet.refresh();
+    if (widget.controller.fleet.focusRevision == _inputFocusRevision) {
+      return true;
+    }
+    setState(() => _error = '飞机已切换或断开，请关闭窗口后重新操作');
+    return false;
+  }
 
   @override
   void dispose() {
@@ -2238,18 +2261,30 @@ class _ChangeAltitudeSheetState extends State<_ChangeAltitudeSheet> {
   }
 
   Future<void> _execute() async {
+    if (!_validateInputTarget()) return;
     final target = double.tryParse(_altitude.text.trim());
     if (target == null || !target.isFinite) {
       setState(() => _error = '请输入有效的高度');
       return;
     }
+    final onRequest = widget.onRequestCommandConfirmation;
+    if (onRequest != null) {
+      final command = MgCommandConfirmation(
+        label: '改变高度',
+        execute: () => widget.controller.guidedChangeAltitude(target),
+      );
+      Navigator.of(context).pop();
+      onRequest(command);
+      return;
+    }
+
     final confirmed = await confirmMissionAction(
       context,
       title: '改变高度',
       message: '飞机会在当前位置升/降到 ${target.toStringAsFixed(1)} m（相对 Home）并悬停。',
       confirmLabel: '执行',
     );
-    if (!confirmed || !mounted) return;
+    if (!confirmed || !mounted || !_validateInputTarget()) return;
     try {
       await widget.controller.guidedChangeAltitude(target);
       if (mounted) Navigator.of(context).pop();
@@ -2331,6 +2366,7 @@ Future<void> showGuidedActionsDialog(
   required ConnectionController controller,
   required LatLng position,
   String? initialActionLabel,
+  ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation,
 }) async {
   await _showFadeDialog<void>(
     context: context,
@@ -2338,6 +2374,7 @@ Future<void> showGuidedActionsDialog(
       controller: controller,
       position: position,
       initialActionLabel: initialActionLabel,
+      onRequestCommandConfirmation: onRequestCommandConfirmation,
     ),
   );
 }
@@ -2536,11 +2573,15 @@ class _GuidedActionsSheet extends StatefulWidget {
     required this.controller,
     required this.position,
     this.initialActionLabel,
+    this.onRequestCommandConfirmation,
   });
 
   final ConnectionController controller;
   final LatLng position;
   final String? initialActionLabel;
+
+  /// 起飞仍需先在该弹窗填写高度；点击执行后改由顶部悬浮按钮长按确认。
+  final ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation;
 
   @override
   State<_GuidedActionsSheet> createState() => _GuidedActionsSheetState();
@@ -2552,6 +2593,22 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
   );
   late String? _selectedActionLabel = widget.initialActionLabel;
   String? _error;
+  late final int _inputFocusRevision;
+
+  @override
+  void initState() {
+    super.initState();
+    _inputFocusRevision = widget.controller.fleet.focusRevision;
+  }
+
+  bool _validateInputTarget() {
+    widget.controller.fleet.refresh();
+    if (widget.controller.fleet.focusRevision == _inputFocusRevision) {
+      return true;
+    }
+    setState(() => _error = '飞机已切换或断开，请关闭窗口后重新操作');
+    return false;
+  }
 
   double _defaultAltitude() {
     final altitude = widget.controller.vehiclePosition?.altitudeMeters;
@@ -2695,14 +2752,30 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
   }
 
   Future<void> _execute(_GuidedAction action) async {
+    if (!_validateInputTarget()) return;
     final altitude = double.tryParse(_altitude.text.trim()) ?? 0;
+    final onRequest = widget.onRequestCommandConfirmation;
+    if (action.label == '起飞' && onRequest != null) {
+      final command = MgCommandConfirmation(
+        label: action.label,
+        execute: () => action.run(
+          latitude: widget.position.latitude,
+          longitude: widget.position.longitude,
+          altitude: altitude,
+        ),
+      );
+      Navigator.of(context).pop();
+      onRequest(command);
+      return;
+    }
+
     final confirmed = await confirmMissionAction(
       context,
       title: action.label,
       message: action.confirmMessage,
       confirmLabel: '执行',
     );
-    if (!confirmed) return;
+    if (!confirmed || !mounted || !_validateInputTarget()) return;
     try {
       await action.run(
         latitude: widget.position.latitude,

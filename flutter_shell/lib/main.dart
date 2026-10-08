@@ -7,6 +7,7 @@ import 'package:macos_ui/macos_ui.dart';
 
 import 'connection/connection_controller.dart';
 import 'configuration_workspace.dart';
+import 'fleet/fleet_models.dart';
 import 'gcs_configuration_workspace.dart';
 import 'map/amap_map_view.dart';
 import 'theme/mg_typography.dart';
@@ -68,19 +69,65 @@ class _MapPageState extends State<MapPage> {
   final _missionPlanningRequest = ValueNotifier<int>(0);
   final _pendingCommand = ValueNotifier<MgCommandConfirmation?>(null);
 
+  FleetTarget? _pendingTarget;
+  int? _confirmationFocusRevision;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_connectionController.initializationError == null) {
+      _confirmationFocusRevision = _connectionController.fleet.focusRevision;
+      _connectionController.fleet.addListener(_handleFleetFocusChange);
+    }
+  }
+
+  void _handleFleetFocusChange() {
+    final revision = _connectionController.fleet.focusRevision;
+    if (_confirmationFocusRevision == revision) return;
+    _confirmationFocusRevision = revision;
+    _cancelCommandConfirmation();
+  }
+
   void _requestCommandConfirmation(MgCommandConfirmation command) {
-    _pendingCommand.value = command;
+    try {
+      _pendingTarget = _connectionController.fleet.captureTarget(
+        expectedVehicleId: _connectionController.sessionId,
+      );
+      _pendingCommand.value = command;
+    } on Object catch (error) {
+      _cancelCommandConfirmation();
+      // Reuse the standard failure presentation; never execute an unbound command.
+      unawaited(
+        _executeCommandConfirmation(
+          MgCommandConfirmation(
+            label: command.label,
+            execute: () async => throw error,
+          ),
+        ),
+      );
+    }
   }
 
   void _cancelCommandConfirmation() {
+    _pendingTarget = null;
     _pendingCommand.value = null;
   }
 
   void _confirmCommandConfirmation() {
     final command = _pendingCommand.value;
     if (command == null) return;
-    _pendingCommand.value = null;
-    unawaited(_executeCommandConfirmation(command));
+    final target = _pendingTarget;
+    _cancelCommandConfirmation();
+    if (target == null) return;
+    unawaited(
+      _executeCommandConfirmation(
+        MgCommandConfirmation(
+          label: command.label,
+          execute: () =>
+              _connectionController.fleet.runForTarget(target, command.execute),
+        ),
+      ),
+    );
   }
 
   Future<void> _executeCommandConfirmation(
@@ -151,6 +198,28 @@ class _MapPageState extends State<MapPage> {
     }
   }
 
+  void _selectFleetVehicle(int vehicleId) {
+    try {
+      _connectionController.fleet.selectVehicle(vehicleId);
+    } on Object catch (error) {
+      unawaited(
+        showMgAlertDialog<void>(
+          context: context,
+          builder: (dialogContext) => MacosAlertDialog(
+            appIcon: const Icon(Icons.error_outline, size: 48),
+            title: const Text('无法切换飞机'),
+            message: Text(error.toString().replaceFirst('Bad state: ', '')),
+            primaryButton: PushButton(
+              controlSize: ControlSize.large,
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('知道了'),
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _openFlightModeMenu(BuildContext context) async {
     if (!_connectionController.isConnected) return;
     await _connectionController.refreshFlightModes();
@@ -177,6 +246,7 @@ class _MapPageState extends State<MapPage> {
     if (_showGcsConfiguration) {
       return GcsConfigurationWorkspace(
         mapStyle: _mapStyle,
+        connectionController: _connectionController,
         onReturnToMap: () => setState(() => _showGcsConfiguration = false),
       );
     }
@@ -192,6 +262,10 @@ class _MapPageState extends State<MapPage> {
             ]),
             builder: (context, _) => MgTopStatusBar(
               data: MgTopStatusData.fromController(_connectionController),
+              vehicles: _connectionController.fleetSnapshot.vehicles,
+              activeVehicleId:
+                  _connectionController.fleetSnapshot.activeVehicleId,
+              onSelectVehicle: _selectFleetVehicle,
               onOpenFlightMessages: () => _flightMessagePanelRequest.value++,
               onToggleArm: _requestArmConfirmation,
               onOpenFlightMode: () => unawaited(_openFlightModeMenu(context)),
@@ -235,6 +309,9 @@ class _MapPageState extends State<MapPage> {
 
   @override
   void dispose() {
+    if (_connectionController.initializationError == null) {
+      _connectionController.fleet.removeListener(_handleFleetFocusChange);
+    }
     _mapStyle.dispose();
     _connectionPanelRequest.dispose();
     _flightMessagePanelRequest.dispose();

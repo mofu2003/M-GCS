@@ -25,6 +25,7 @@ struct UdpLink::ReadState {
     std::atomic<mg_socket_t> sock{MG_INVALID_SOCKET};
 
     ReceiveCallback receive_cb;
+    PeerReceiveCallback peer_receive_cb;
     mg::core::platform::Mutex cb_mtx;
 
     sockaddr_in remote_addr{};
@@ -148,6 +149,7 @@ void UdpLink::set_receive_callback(ReceiveCallback cb) {
     {
         mg::core::platform::LockGuard lk(cb_mtx_);
         pending_receive_cb_ = cb;
+        if (should_start) pending_peer_receive_cb_ = nullptr;
     }
 
     const auto state = state_snapshot();
@@ -156,6 +158,29 @@ void UdpLink::set_receive_callback(ReceiveCallback cb) {
     {
         mg::core::platform::LockGuard lk(state->cb_mtx);
         state->receive_cb = std::move(cb);
+        if (state->receive_cb) state->peer_receive_cb = nullptr;
+    }
+
+    if (should_start && state->opened.load() && !state->thread_started.load()) {
+        (void)start_read_thread(state);
+    }
+}
+
+void UdpLink::set_peer_receive_callback(PeerReceiveCallback cb) {
+    const bool should_start = static_cast<bool>(cb);
+    {
+        mg::core::platform::LockGuard lk(cb_mtx_);
+        pending_peer_receive_cb_ = cb;
+        if (should_start) pending_receive_cb_ = nullptr;
+    }
+
+    const auto state = state_snapshot();
+    if (!state) return;
+
+    {
+        mg::core::platform::LockGuard lk(state->cb_mtx);
+        state->peer_receive_cb = std::move(cb);
+        if (state->peer_receive_cb) state->receive_cb = nullptr;
     }
 
     if (should_start && state->opened.load() && !state->thread_started.load()) {
@@ -239,6 +264,7 @@ bool UdpLink::open() {
         {
             mg::core::platform::LockGuard cb_lk(state->cb_mtx);
             state->receive_cb = pending_receive_cb_;
+            state->peer_receive_cb = pending_peer_receive_cb_;
         }
         state->opened.store(true);
         {
@@ -285,10 +311,12 @@ void UdpLink::close() {
     {
         mg::core::platform::LockGuard lk(state->cb_mtx);
         state->receive_cb = nullptr;
+        state->peer_receive_cb = nullptr;
     }
     {
         mg::core::platform::LockGuard lk(cb_mtx_);
         pending_receive_cb_ = nullptr;
+        pending_peer_receive_cb_ = nullptr;
     }
 
     const mg_socket_t socket = state->sock.load();
@@ -325,6 +353,30 @@ bool UdpLink::send(const uint8_t* data, size_t size) {
     {
         mg::core::platform::LockGuard lk(state->remote_mtx);
         remote_addr = state->remote_addr;
+    }
+
+    const auto sent = ::sendto(socket, reinterpret_cast<const char*>(data),
+                               static_cast<int>(size), 0,
+                               reinterpret_cast<sockaddr*>(&remote_addr),
+                               sizeof(remote_addr));
+    return sent != MG_SOCKET_ERR;
+}
+
+bool UdpLink::send_to(const LinkPeer& peer,
+                      const uint8_t* data,
+                      size_t size) {
+    if (!peer.valid() || !data) return false;
+    const auto state = state_snapshot();
+    if (!state || !state->opened.load()) return false;
+
+    const mg_socket_t socket = state->sock.load();
+    if (socket == MG_INVALID_SOCKET) return false;
+
+    sockaddr_in remote_addr{};
+    remote_addr.sin_family = AF_INET;
+    remote_addr.sin_port = htons(peer.port);
+    if (inet_pton(AF_INET, peer.host.c_str(), &remote_addr.sin_addr) != 1) {
+        return false;
     }
 
     const auto sent = ::sendto(socket, reinterpret_cast<const char*>(data),
@@ -377,9 +429,9 @@ void* UdpLink::read_thread_proc(void* lpParam) {
             reinterpret_cast<sockaddr*>(&sender_addr), &sender_len);
 
         if (received > 0) {
+            char addr_str[INET_ADDRSTRLEN]{};
+            inet_ntop(AF_INET, &sender_addr.sin_addr, addr_str, sizeof(addr_str));
             if (!state->has_remote.load()) {
-                char addr_str[INET_ADDRSTRLEN]{};
-                inet_ntop(AF_INET, &sender_addr.sin_addr, addr_str, sizeof(addr_str));
                 {
                     mg::core::platform::LockGuard lk(state->remote_mtx);
                     state->remote_addr = sender_addr;
@@ -389,12 +441,19 @@ void* UdpLink::read_thread_proc(void* lpParam) {
                              addr_str, ntohs(sender_addr.sin_port));
             }
 
+            const LinkPeer peer{
+                addr_str,
+                static_cast<uint16_t>(ntohs(sender_addr.sin_port))};
+            PeerReceiveCallback peer_cb_copy;
             ReceiveCallback cb_copy;
             {
                 mg::core::platform::LockGuard lk(state->cb_mtx);
+                peer_cb_copy = state->peer_receive_cb;
                 cb_copy = state->receive_cb;
             }
-            if (cb_copy) {
+            if (peer_cb_copy) {
+                peer_cb_copy(peer, buffer, static_cast<size_t>(received));
+            } else if (cb_copy) {
                 cb_copy(buffer, static_cast<size_t>(received));
             }
         } else if (received == MG_SOCKET_ERR) {

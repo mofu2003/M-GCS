@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
 
 inline char* to_cstr(const std::string& s) {
     char* c = static_cast<char*>(malloc(s.size() + 1));
@@ -82,6 +83,10 @@ struct mg_core_t {
     mg::core::sitl::SitlLauncher             sitl;
     std::shared_ptr<mg::core::mission::cad::MissionDocumentService>
                                              mission_document;
+    // QGC separates vehicle plans from the offline editing plan. Session IDs,
+    // not sysids, isolate independent endpoints (including duplicate sysids).
+    std::map<int, std::shared_ptr<mg::core::mission::cad::MissionDocumentService>>
+                                             vehicle_mission_documents;
     std::vector<std::string>                 log_events;
     static constexpr size_t kMaxLogEvents = 5000;
 };

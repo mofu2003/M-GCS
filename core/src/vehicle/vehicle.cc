@@ -51,6 +51,9 @@ Vehicle::Vehicle(int vehicle_id)
     : id_(vehicle_id)
 {
     info_.vehicle_id = vehicle_id;
+    auto connection = std::make_shared<mg::core::transport::ConnectionManager>();
+    connections_[vehicle_id] = connection;
+    primary_route_id_ = vehicle_id;
     MGC_LOG_INFO("[Vehicle %d] Created", id_);
 }
 
@@ -98,34 +101,157 @@ bool Vehicle::connect(const std::string& endpoint) {
     state_.store(VehicleState::Connecting);
     clear_waveforms();
 
+    auto connection = connection_for_route(id_);
+    if (!connection) {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        connection = std::make_shared<mg::core::transport::ConnectionManager>();
+        connections_[id_] = connection;
+        primary_route_id_ = id_;
+    }
     bool ok = false;
     if (scheme == "tcp") {
-        ok = conn_.connect_tcp(addr);
+        ok = connection->connect_tcp(addr);
     } else if (scheme == "udp") {
-        ok = conn_.connect_udp(addr);
+        ok = connection->connect_udp(addr);
     } else {
-        ok = conn_.connect(addr, baud);
+        ok = connection->connect(addr, baud);
     }
 
     if (!ok) {
         state_.store(VehicleState::Disconnected);
         return false;
     }
+    link_manager_.add_link(id_);
 
     finish_connect();
     MGC_LOG_INFO("[Vehicle %d] Connected to %s", id_, info_.endpoint.c_str());
     return true;
 }
 
-void Vehicle::finish_connect() {
-    if (state_.load() != VehicleState::Connecting) return;
+bool Vehicle::attach_shared_session(
+    const std::shared_ptr<mg::core::transport::LinkSession>& session,
+    const std::string& endpoint,
+    uint8_t system_id,
+    uint8_t component_id) {
+    return attach_shared_primary_route(
+        session, id_, endpoint, system_id, component_id);
+}
 
-    init_subsystems();
+bool Vehicle::attach_shared_primary_route(
+    const std::shared_ptr<mg::core::transport::LinkSession>& session,
+    int route_id,
+    const std::string& endpoint,
+    uint8_t system_id,
+    uint8_t component_id) {
+    if (!session || route_id <= 0) return false;
 
-    wire_telemetry_callbacks();
-    conn_.set_state_callback([this](mg::core::transport::ConnectionState state, const char* reason) {
-        // 飞行日志声称记录连接事件，但之前没有任何地方把状态转发进去，
-        // 于是日志页里永远没有 connection 分类。
+    const auto scheme_pos = endpoint.find("://");
+    const std::string scheme = scheme_pos != std::string::npos
+        ? endpoint.substr(0, scheme_pos)
+        : "serial";
+    std::string addr = scheme_pos != std::string::npos
+        ? endpoint.substr(scheme_pos + 3)
+        : endpoint;
+
+    uint32_t baud = 115200;
+    const auto qmark = addr.find('?');
+    if (qmark != std::string::npos) {
+        const std::string params = addr.substr(qmark + 1);
+        addr = addr.substr(0, qmark);
+        const auto baud_pos = params.find("baud=");
+        if (baud_pos != std::string::npos) {
+            try {
+                baud = static_cast<uint32_t>(std::stoi(params.substr(baud_pos + 5)));
+            } catch (...) {
+                // Keep the default when the URI contains a malformed baud.
+            }
+        }
+    }
+
+    info_.endpoint = scheme_pos != std::string::npos
+        ? endpoint
+        : "serial://" + endpoint;
+    info_.transport_type = scheme;
+    info_.port_name = addr;
+    info_.baud_rate = baud;
+    if (scheme == "serial" || scheme == "com" || scheme == "usb") {
+        info_.serial_port = addr;
+        info_.serial_baud = baud;
+    }
+
+    auto connection = connection_for_route(route_id);
+    if (!connection) {
+        connection = std::make_shared<mg::core::transport::ConnectionManager>();
+    }
+    state_.store(VehicleState::Connecting);
+    clear_waveforms();
+    if (!connection->attach_shared(session, route_id, system_id, component_id)) {
+        state_.store(VehicleState::Disconnected);
+        return false;
+    }
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        connections_[route_id] = connection;
+        primary_route_id_ = route_id;
+    }
+    link_manager_.add_link(route_id);
+    install_connection_state_callback(route_id, connection);
+    finish_connect();
+    MGC_LOG_INFO("[Vehicle %d] Attached primary shared route %d on %s",
+                 id_, route_id, info_.endpoint.c_str());
+    return true;
+}
+bool Vehicle::attach_shared_route(
+    const std::shared_ptr<mg::core::transport::LinkSession>& session,
+    int route_id,
+    uint8_t system_id,
+    uint8_t component_id) {
+    if (!session || route_id <= 0) return false;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        if (route_id == primary_route_id_ || connections_.count(route_id) != 0) {
+            return false;
+        }
+    }
+
+    auto connection = std::make_shared<mg::core::transport::ConnectionManager>();
+    if (!connection->attach_shared(session, route_id, system_id, component_id)) {
+        return false;
+    }
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        if (connections_.count(route_id) != 0) return false;
+        connections_[route_id] = connection;
+    }
+    link_manager_.add_link(route_id);
+    install_connection_state_callback(route_id, connection);
+    wire_telemetry_callbacks_for(connection.get(), route_id);
+    MGC_LOG_INFO("[Vehicle %d] Attached secondary shared route %d",
+                 id_, route_id);
+    return true;
+}
+
+std::shared_ptr<mg::core::transport::ConnectionManager>
+Vehicle::primary_connection() const {
+    mg::core::platform::LockGuard lk(connections_mtx_);
+    const auto it = connections_.find(primary_route_id_);
+    return it == connections_.end() ? nullptr : it->second;
+}
+
+std::shared_ptr<mg::core::transport::ConnectionManager>
+Vehicle::connection_for_route(int route_id) const {
+    mg::core::platform::LockGuard lk(connections_mtx_);
+    const auto it = connections_.find(route_id);
+    return it == connections_.end() ? nullptr : it->second;
+}
+
+void Vehicle::install_connection_state_callback(
+    int route_id,
+    const std::shared_ptr<mg::core::transport::ConnectionManager>& connection) {
+    (void)route_id;
+    if (!connection) return;
+    connection->set_state_callback([this](mg::core::transport::ConnectionState state,
+                                          const char* reason) {
         flight_log_.on_connection_state(
             mg::core::transport::ConnectionManager::state_string(state),
             reason ? reason : "");
@@ -146,12 +272,65 @@ void Vehicle::finish_connect() {
             default: break;
         }
     });
+}
+
+void Vehicle::refresh_primary_connection() {
+    const int route_id = link_manager_.primary_route_id();
+    auto connection = connection_for_route(route_id);
+    if (!connection) {
+        // Keep the current primary when no health result is available yet.
+        return;
+    }
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        primary_route_id_ = route_id;
+    }
+    calibration_.set_connection(connection.get());
+    if (auto* mav = connection->get_mavlink()) {
+        flight_modes_.set_mavlink(mav, info_.system_id, info_.component_id);
+    }
+}
+
+bool Vehicle::remove_shared_route(int route_id) {
+    std::shared_ptr<mg::core::transport::ConnectionManager> connection;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        const auto it = connections_.find(route_id);
+        if (it == connections_.end()) return false;
+        connection = it->second;
+        connections_.erase(it);
+        if (primary_route_id_ == route_id) primary_route_id_ = -1;
+    }
+    if (connection) connection->disconnect();
+    link_manager_.remove_link(route_id);
+    refresh_primary_connection();
+    if (!is_connected()) state_.store(VehicleState::Disconnected);
+    return true;
+}
+
+void Vehicle::finish_connect() {
+    if (state_.load() != VehicleState::Connecting) return;
+
+    init_subsystems();
+
+    wire_telemetry_callbacks();
+    install_connection_state_callback(primary_route_id_, primary_connection());
     state_.store(VehicleState::WaitingHeartbeat);
 }
 
 void Vehicle::disconnect() {
     state_.store(VehicleState::Disconnecting);
-    conn_.disconnect();
+    std::map<int, std::shared_ptr<mg::core::transport::ConnectionManager>>
+        connections;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        connections.swap(connections_);
+        primary_route_id_ = -1;
+    }
+    for (const auto& [route_id, connection] : connections) {
+        if (connection) connection->disconnect();
+    }
+    link_manager_.clear();
     clear_waveforms();
     info_.system_id = 0;
     info_.component_id = 0;
@@ -160,8 +339,98 @@ void Vehicle::disconnect() {
     state_.store(VehicleState::Disconnected);
 }
 
+size_t Vehicle::connection_count() const {
+    mg::core::platform::LockGuard lk(connections_mtx_);
+    return connections_.size();
+}
+
+bool Vehicle::set_signing_key(const uint8_t* key, size_t key_size,
+                              bool sign_outgoing,
+                              uint64_t persisted_timestamp) {
+    if (key == nullptr || key_size < 32) return false;
+    std::vector<std::shared_ptr<mg::core::transport::ConnectionManager>>
+        connections;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        for (const auto& [route_id, connection] : connections_) {
+            (void)route_id;
+            if (connection) connections.push_back(connection);
+        }
+    }
+    bool any = false;
+    bool all = true;
+    for (const auto& connection : connections) {
+        auto* mav = connection ? connection->get_mavlink() : nullptr;
+        if (!mav) continue;
+        any = true;
+        all = mav->set_signing_key(key, key_size, sign_outgoing,
+                                   persisted_timestamp) && all;
+    }
+    return any && all;
+}
+
+void Vehicle::clear_signing_key() {
+    std::vector<std::shared_ptr<mg::core::transport::ConnectionManager>>
+        connections;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        for (const auto& [route_id, connection] : connections_) {
+            (void)route_id;
+            if (connection) connections.push_back(connection);
+        }
+    }
+    for (const auto& connection : connections) {
+        if (auto* mav = connection ? connection->get_mavlink() : nullptr) {
+            mav->clear_signing_key();
+        }
+    }
+}
+
+bool Vehicle::signing_enabled() const {
+    const auto* mav = mavlink();
+    return mav != nullptr && mav->signing_enabled();
+}
+
+int Vehicle::signing_status() const {
+    const auto* mav = mavlink();
+    return mav ? static_cast<int>(mav->signing_status()) : 0;
+}
+
+bool Vehicle::send_setup_signing(uint8_t target_system,
+                                 uint8_t target_component,
+                                 const uint8_t* key,
+                                 size_t key_size,
+                                 uint64_t initial_timestamp) {
+    std::vector<std::shared_ptr<mg::core::transport::ConnectionManager>>
+        connections;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        for (const auto& [route_id, connection] : connections_) {
+            (void)route_id;
+            if (connection) connections.push_back(connection);
+        }
+    }
+    bool any = false;
+    for (const auto& connection : connections) {
+        auto* mav = connection ? connection->get_mavlink() : nullptr;
+        if (!mav) continue;
+        any = mav->send_setup_signing(target_system, target_component, key,
+                                      key_size, initial_timestamp) || any;
+    }
+    return any;
+}
+
 bool Vehicle::is_connected() const {
-    return conn_.is_connected();
+    std::map<int, std::shared_ptr<mg::core::transport::ConnectionManager>>
+        connections;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        connections = connections_;
+    }
+    for (const auto& [route_id, connection] : connections) {
+        if (connection && connection->is_connected()) return true;
+    }
+    return false;
 }
 
 void Vehicle::set_identity(uint8_t sysid, uint8_t compid, const std::string& fw_type, const std::string& v_type) {
@@ -171,10 +440,20 @@ void Vehicle::set_identity(uint8_t sysid, uint8_t compid, const std::string& fw_
     info_.vehicle_type = v_type;
     // 首次心跳识别，或重连后的身份刷新。
     auto st = state_.load();
-    auto conn_st = conn_.state();
+    bool any_connected = false;
+    std::map<int, std::shared_ptr<mg::core::transport::ConnectionManager>>
+        connections;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        connections = connections_;
+    }
+    for (const auto& [route_id, connection] : connections) {
+        any_connected = any_connected ||
+            (connection && connection->state() ==
+                mg::core::transport::ConnectionState::Connected);
+    }
     if (st == VehicleState::WaitingHeartbeat ||
-        st == VehicleState::Connected ||
-        conn_st == mg::core::transport::ConnectionState::Connected) {
+        st == VehicleState::Connected || any_connected) {
         state_.store(VehicleState::Connected);
         configure_vehicle_telemetry_streams(*this);
         MGC_LOG_INFO("[Vehicle %d] Identified: sysid=%d fw=%s type=%s", id_, sysid, fw_type.c_str(), v_type.c_str());
@@ -183,7 +462,8 @@ void Vehicle::set_identity(uint8_t sysid, uint8_t compid, const std::string& fw_
 
 void Vehicle::init_subsystems() {
     // 各子系统共享同一条连接对象，当前先把校准服务接上。
-    calibration_.set_connection(&conn_);
+    const auto primary = primary_connection();
+    calibration_.set_connection(primary ? primary.get() : nullptr);
     MGC_LOG_INFO("[Vehicle %d] Subsystems initialized", id_);
 }
 
@@ -207,21 +487,39 @@ void Vehicle::fire_event(int event_type, const std::string& json) {
     if (cb) cb(event_type, json);  // 在锁外触发
 }
 
-void Vehicle::update_and_fire(mg::core::telemetry::TelemetryType type, int event_id) {
-    std::string json = cache_.update(type, conn_.get_mavlink());
+void Vehicle::update_and_fire(
+    mg::core::transport::ConnectionManager* source,
+    mg::core::telemetry::TelemetryType type,
+    int event_id) {
+    if (!source) return;
+    std::string json = cache_.update(type, source->get_mavlink());
     if (!json.empty()) fire_event(event_id, json);
 }
 
 void Vehicle::wire_telemetry_callbacks() {
-    auto* mav = conn_.get_mavlink();
+    std::map<int, std::shared_ptr<mg::core::transport::ConnectionManager>>
+        connections;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        connections = connections_;
+    }
+    for (const auto& [route_id, connection] : connections) {
+        wire_telemetry_callbacks_for(connection.get(), route_id);
+    }
+}
+
+void Vehicle::wire_telemetry_callbacks_for(
+    mg::core::transport::ConnectionManager* source,
+    int route_id) {
+    auto* mav = source ? source->get_mavlink() : nullptr;
     if (!mav) return;
 
     std::weak_ptr<Vehicle> weak = shared_from_this();
 
-    mav->on_heartbeat([weak](const mg::core::mavlink::HeartbeatInfo& info) {
+    mav->on_heartbeat([weak, source, route_id](const mg::core::mavlink::HeartbeatInfo& info) {
         auto self = weak.lock();
         if (!self) return;
-        self->flight_modes_.set_mavlink(self->conn_.get_mavlink(), info.system_id, info.component_id);
+        self->flight_modes_.set_mavlink(source->get_mavlink(), info.system_id, info.component_id);
         self->flight_modes_.update_from_heartbeat(
             info.autopilot_type,
             info.vehicle_type,
@@ -229,18 +527,20 @@ void Vehicle::wire_telemetry_callbacks() {
             info.custom_mode,
             info.armed,
             info.system_status);
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kHeartbeat, MG_EVENT_HEARTBEAT);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kHeartbeat, MG_EVENT_HEARTBEAT);
 
-        const uint64_t age = self->conn_.heartbeat_age_ms();
+        const uint64_t age = source->heartbeat_age_ms();
         if (self->info_.system_id > 0 && age > 5000) {
             self->needs_reidentify_.store(true);
         }
 
-        self->conn_.record_heartbeat();
+        source->record_heartbeat();
+        self->link_manager_.record_heartbeat(route_id);
+        self->refresh_primary_connection();
 
         bool expected = false;
         if (self->requested_firmware_version_.compare_exchange_strong(expected, true)) {
-            auto* mav = self->conn_.get_mavlink();
+            auto* mav = source->get_mavlink();
             if (mav) {
                 mav->request_autopilot_version(info.system_id, info.component_id);
             }
@@ -270,7 +570,7 @@ void Vehicle::wire_telemetry_callbacks() {
             // ArduPilot 只在首次上电和每次解锁时发一次 HOME_POSITION，GCS 连晚了
             // 就收不到，地图上的 home 会一直空着（QGC 的 APMFirmwarePlugin 有同样
             // 的注释与做法）。识别出系统号之后再要，避免猜 target。
-            if (auto* mav = self->conn_.get_mavlink()) {
+            if (auto* mav = source->get_mavlink()) {
                 mav->request_home_position(info.system_id, info.component_id);
                 mav->request_message_interval(
                     info.system_id, info.component_id,
@@ -289,53 +589,53 @@ void Vehicle::wire_telemetry_callbacks() {
     });
 
     // 这一组回调负责把 MAVLink 快照同步进缓存，并按需转成事件抛给上层。
-    mav->on_sys_status([weak](const mg::core::mavlink::SysStatusInfo&) {
+    mav->on_sys_status([weak, source](const mg::core::mavlink::SysStatusInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kSysStatus, MG_EVENT_SYS_STATUS);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kSysStatus, MG_EVENT_SYS_STATUS);
     });
-    mav->on_gps([weak](const mg::core::mavlink::GpsInfo&) {
+    mav->on_gps([weak, source](const mg::core::mavlink::GpsInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kGps, MG_EVENT_GPS);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kGps, MG_EVENT_GPS);
     });
-    mav->on_attitude([weak](const mg::core::mavlink::AttitudeInfo&) {
+    mav->on_attitude([weak, source](const mg::core::mavlink::AttitudeInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kAttitude, MG_EVENT_ATTITUDE);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kAttitude, MG_EVENT_ATTITUDE);
     });
-    mav->on_vfr_hud([weak](const mg::core::mavlink::VfrHudInfo&) {
+    mav->on_vfr_hud([weak, source](const mg::core::mavlink::VfrHudInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kVfrHud, MG_EVENT_TELEMETRY);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kVfrHud, MG_EVENT_TELEMETRY);
     });
-    mav->on_firmware_version([weak](const mg::core::mavlink::FirmwareVersionInfo&) {
+    mav->on_firmware_version([weak, source](const mg::core::mavlink::FirmwareVersionInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kFirmwareVersion, MG_EVENT_FIRMWARE);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kFirmwareVersion, MG_EVENT_FIRMWARE);
     });
-    mav->on_global_position([weak](const mg::core::mavlink::GlobalPositionInfo&) {
+    mav->on_global_position([weak, source](const mg::core::mavlink::GlobalPositionInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kGlobalPosition, MG_EVENT_GLOBAL_POSITION);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kGlobalPosition, MG_EVENT_GLOBAL_POSITION);
     });
-    mav->on_battery([weak](const mg::core::mavlink::BatteryInfo&) {
+    mav->on_battery([weak, source](const mg::core::mavlink::BatteryInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kBattery, MG_EVENT_BATTERY);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kBattery, MG_EVENT_BATTERY);
     });
-    mav->on_extended_sys_state([weak](const mg::core::mavlink::ExtendedSysStateInfo&) {
+    mav->on_extended_sys_state([weak, source](const mg::core::mavlink::ExtendedSysStateInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kExtendedSysState, MG_EVENT_EXTENDED_SYS_STATE);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kExtendedSysState, MG_EVENT_EXTENDED_SYS_STATE);
     });
-    mav->on_prearm_check([weak](const mg::core::mavlink::PrearmCheckInfo&) {
+    mav->on_prearm_check([weak, source](const mg::core::mavlink::PrearmCheckInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kPrearmCheck, MG_EVENT_PREARM_CHECK);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kPrearmCheck, MG_EVENT_PREARM_CHECK);
     });
-    mav->on_vibration([weak](const mg::core::mavlink::VibrationInfo&) {
+    mav->on_vibration([weak, source](const mg::core::mavlink::VibrationInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kVibration, MG_EVENT_VIBRATION);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kVibration, MG_EVENT_VIBRATION);
     });
-    mav->on_esc_status([weak](const mg::core::mavlink::EscStatusInfo&) {
+    mav->on_esc_status([weak, source](const mg::core::mavlink::EscStatusInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kEscStatus, MG_EVENT_ESC_STATUS);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kEscStatus, MG_EVENT_ESC_STATUS);
     });
-    mav->on_wind_estimate([weak](const mg::core::mavlink::WindEstimateInfo&) {
+    mav->on_wind_estimate([weak, source](const mg::core::mavlink::WindEstimateInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(mg::core::telemetry::TelemetryType::kWindEstimate, MG_EVENT_WIND_ESTIMATE);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kWindEstimate, MG_EVENT_WIND_ESTIMATE);
     });
     mav->on_param([weak](const mg::core::mavlink::ParamInfo& param) {
         auto self = weak.lock(); if (!self) return;
@@ -383,7 +683,7 @@ void Vehicle::wire_telemetry_callbacks() {
         self->fire_event(MG_EVENT_WAYPOINT_REACHED, jb.str());
     });
 
-    mav->on_imu([weak](const mg::core::mavlink::ImuInfo& info) {
+    mav->on_imu([weak, source](const mg::core::mavlink::ImuInfo& info) {
         auto self = weak.lock(); if (!self) return;
         // SCALED_IMU/2/3 一次带回加速度、角速度和磁力，刚好凑成同一帧；
         // 每个 IMU 实例写进自己的缓冲，前端按实例号取数。
@@ -407,28 +707,28 @@ void Vehicle::wire_telemetry_callbacks() {
         }
         // 主 IMU 才刷新遥测缓存，其余实例只走波形缓冲。
         if (info.instance == 0) {
-            self->cache_.update(mg::core::telemetry::TelemetryType::kImu, self->conn_.get_mavlink());
+            self->cache_.update(mg::core::telemetry::TelemetryType::kImu, source->get_mavlink());
         }
     });
-    mav->on_pressure([weak](const mg::core::mavlink::PressureInfo&) {
+    mav->on_pressure([weak, source](const mg::core::mavlink::PressureInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->cache_.update(mg::core::telemetry::TelemetryType::kPressure, self->conn_.get_mavlink());
+        self->cache_.update(mg::core::telemetry::TelemetryType::kPressure, source->get_mavlink());
     });
-    mav->on_rc_channels([weak](const mg::core::mavlink::RcChannelsInfo&) {
+    mav->on_rc_channels([weak, source](const mg::core::mavlink::RcChannelsInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->cache_.update(mg::core::telemetry::TelemetryType::kRcChannels, self->conn_.get_mavlink());
+        self->cache_.update(mg::core::telemetry::TelemetryType::kRcChannels, source->get_mavlink());
     });
-    mav->on_servo_output([weak](const mg::core::mavlink::ServoOutputInfo&) {
+    mav->on_servo_output([weak, source](const mg::core::mavlink::ServoOutputInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->cache_.update(mg::core::telemetry::TelemetryType::kServoOutput, self->conn_.get_mavlink());
+        self->cache_.update(mg::core::telemetry::TelemetryType::kServoOutput, source->get_mavlink());
     });
-    mav->on_home_position([weak](const mg::core::mavlink::HomePositionInfo&) {
+    mav->on_home_position([weak, source](const mg::core::mavlink::HomePositionInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->cache_.update(mg::core::telemetry::TelemetryType::kHomePosition, self->conn_.get_mavlink());
+        self->cache_.update(mg::core::telemetry::TelemetryType::kHomePosition, source->get_mavlink());
     });
-    mav->on_highres_imu([weak](const mg::core::mavlink::HighresImuInfo&) {
+    mav->on_highres_imu([weak, source](const mg::core::mavlink::HighresImuInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->cache_.update(mg::core::telemetry::TelemetryType::kHighresImu, self->conn_.get_mavlink());
+        self->cache_.update(mg::core::telemetry::TelemetryType::kHighresImu, source->get_mavlink());
     });
 
     // 把视频流元数据继续转发给视频接收器。

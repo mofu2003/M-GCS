@@ -84,7 +84,7 @@ M-GCS 是**独立自研、兼容 QGC/MP 工作流的地面站**，不是 QGC/MP 
 | 地图 | 在线底图可用 | 离线瓦片缓存、WMS/WMTS/自定义源、3D/倾斜视图、空域和禁飞区图层 |
 | 相机/云台 | 后端接口已有，UI 缺 | 相机定义、拍照/录像、云台管理、视频流、录制和 HUD 叠加 |
 | 摇杆/Follow Me | 暂不做 | 手柄输入、虚拟摇杆、Follow Me、辅助轴和按钮动作映射 |
-| 多机 | 后端 session 基础已有，UI 缺 | 多机列表、焦点切换、多机地图、分机任务和状态管理 |
+| 多机 | 多 endpoint、共享 UDP/TCP/serial PTY 多 sysid、同机多 route 归并、route health/精确关闭、车辆切换和分机状态快照已有；signing 密钥库/SETUP_SIGNING 已接入；自动探测、多机地图完整图层和批量动作未实现 | active/selected 双层模型、多机地图、批量任务与状态管理；实施顺序见 [多机连接实施计划](MULTI_VEHICLE_PLAN.md) |
 | RTK/GPS | 遥测显示已有 | NTRIP、RTK 基站、GPS 注入、移动基站、定位源诊断 |
 | 高级生态 | 大部分缺 | ADS-B 交通显示、天线跟踪器、DroneCAN/UAVCAN、Lua/脚本、REPL、插件、蜂群、Remote ID |
 | 平台 | macOS 已验收 | Windows/Linux 串口和真机流程、Android USB 权限/插拔、iOS 支持 |
@@ -111,11 +111,18 @@ M-GCS 是**独立自研、兼容 QGC/MP 工作流的地面站**，不是 QGC/MP 
 3. 地形剖面、高程冲突和离线地图缓存。
 4. KML/SHP/GeoJSON 和测量工具。
 
+### P1.5：多机连接与焦点管理
+
+按 [多机连接实施计划](MULTI_VEHICLE_PLAN.md) 推进：MV1 多链路单机、链路列表、
+车辆选择器、分机状态快照和按 session 任务文档已完成；UDP 共享链路的
+`sysid/compid` 解复用和多 peer 回复已接通。下一步是串口/TCP 共享、生命周期、
+多机地图和批量动作。
+
 ### P3：载荷与扩展
 
 1. 相机、视频、云台。
 2. NTRIP/RTK 和 Follow Me。
-3. 多机、ADS-B、DroneCAN、脚本和插件。
+3. ADS-B、DroneCAN、脚本和插件。
 
 以上功能不应被机械地“全部照搬”。如果 M-GCS 的目标是面向单机
 ArduPilot 现场作业，蜂群、天线跟踪器、传统 OSD、Remote ID 等能力可以

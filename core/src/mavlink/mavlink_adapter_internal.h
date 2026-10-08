@@ -30,6 +30,7 @@
 #include "mission_transfer.h"
 #include "mavlink_adapter_state.h"
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <chrono>
 #include <unordered_map>
@@ -77,10 +78,25 @@ struct MavlinkAdapter::Impl {
     Impl()
         : ftp([this](const uint8_t* data, size_t size) {
             return send_cb ? send_cb(data, size) : false;
-        }) {}
+        }) {
+        tx_status.current_tx_seq = 1;
+        ftp.set_message_send_fn([this](mavlink_message_t& message) {
+            return send_message(message);
+        });
+    }
+
+    // Official caller-owned parser buffers: independent per transport stream.
+    // Never use the generated library's global MAVLINK_COMM_0 RX buffer.
+    mavlink_message_t rx_message{};
+    mavlink_status_t rx_status{};
+    mg::core::platform::Mutex receive_mtx;
 
     mavlink_message_t msg{};
     mavlink_status_t  status{};
+    mavlink_status_t  tx_status{};
+    mavlink_signing_t signing{};
+    mavlink_signing_streams_t signing_streams{};
+    std::atomic<bool> signing_enabled{false};
     uint64_t          msg_count = 0;
     LinkQualityWindow  link_quality;
 
@@ -107,17 +123,41 @@ struct MavlinkAdapter::Impl {
     void feed_mag_progress_compat(const uint8_t* data, size_t size);
 
     mutable mg::core::platform::Mutex mtx;  // 加锁保护所有可变状态
+    mutable mg::core::platform::Mutex send_mtx;
 
-    // 通过注册的回调发送当前 msg 缓冲区。
-    // 设置 thread_local s_active_send_cb 以便 comm_send_ch() 路由到本适配器。
-    bool send_msg() {
+    // 通过注册的回调发送一条消息。使用适配器私有的 tx_status 重新
+    // finalize，保证共享链路下的 sequence、checksum 和后续签名状态隔离。
+    bool send_message_with_mode(mavlink_message_t& message, bool allow_signing) {
+        mg::core::platform::LockGuard send_lock(send_mtx);
         if (!send_cb) return false;
         set_active_send_cb(&send_cb);
-        uint8_t buf[300];
-        uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+        const auto* entry = mavlink_get_msg_entry(message.msgid);
+        if (entry != nullptr) {
+            mavlink_status_t status = tx_status;
+            if (!allow_signing) {
+                status.signing = nullptr;
+                status.signing_streams = nullptr;
+            }
+            mavlink_finalize_message_buffer(
+                &message, message.sysid, message.compid, &status,
+                entry->min_msg_len, message.len, entry->crc_extra);
+            tx_status.current_tx_seq = status.current_tx_seq;
+        } else {
+            message.seq = tx_status.current_tx_seq++;
+        }
+        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+        const uint16_t len = mavlink_msg_to_send_buffer(buf, &message);
         set_active_send_cb(nullptr);
         return send_cb(buf, len);
     }
+
+    bool send_message(mavlink_message_t& message) {
+        return send_message_with_mode(message, true);
+    }
+
+    // 通过注册的回调发送当前 msg 缓冲区。
+    // 设置 thread_local s_active_send_cb 以便 comm_send_ch() 路由到本适配器。
+    bool send_msg() { return send_message(msg); }
 
     bool send_command_queue_entry(const CommandQueueEntry& e);
 

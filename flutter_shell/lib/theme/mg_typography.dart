@@ -236,7 +236,7 @@ class MgMetrics {
   static const double attitudeCompassBallInset = 32;
 
   /// 复合仪表的毛玻璃模糊强度。
-  static const double attitudeCompassBlurSigma = 32;
+  static const double attitudeCompassBlurSigma = 12;
 
   /// 飞控消息时间列固定宽度，保证所有消息正文从同一位置开始。
   static const double flightMessageTimeWidth = 72;
@@ -260,6 +260,17 @@ class MgMetrics {
 
   /// 地图上方确认按钮离内容区顶边的距离。
   static const double commandConfirmTopInset = 12;
+
+  /// 连接面板中的链路列表行高与可见上限。
+  static const double fleetLinkRowHeight = 44;
+  static const int fleetLinkVisibleRows = 4;
+
+  /// 多机状态栏：窄窗口保留切机入口，不与关键遥测竞争空间。
+  static const double fleetSelectorWidth = 190;
+  static const double fleetSelectorCompactWidth = 88;
+  static const double fleetSelectorWideBreakpoint = 1180;
+  static const double fleetToolbarDetailBreakpoint = 1080;
+  static const double fleetToolbarGap = 8;
 
   /// 电机输出 / 遥控器校准的 PWM 进度条高度。
   ///

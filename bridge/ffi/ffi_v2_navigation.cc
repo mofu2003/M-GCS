@@ -63,6 +63,15 @@ MGCORE_API char* mg_vehicle_get_session_status(mg_core_t* core, int vehicle_id) 
     data.field("gps_fresh", gps_fresh);
     data.field("gps_fix_type", gps_fresh ? static_cast<int>(gps.fix_type) : -1);
     data.field("gps_satellites", gps_fresh ? satellite_count : -1);
+    data.field("position_valid", global_position_fresh);
+    data.field("lat_deg",
+               global_position_fresh ? global_position.lat / 1e7 : 0.0);
+    data.field("lon_deg",
+               global_position_fresh ? global_position.lon / 1e7 : 0.0);
+    data.field("alt_msl_m",
+               global_position_fresh ? global_position.alt / 1000.0 : 0.0);
+    data.field("alt_rel_m",
+               global_position_fresh ? global_position.relative_alt / 1000.0 : 0.0);
     data.field("heading_fresh", heading_valid);
     if (heading_valid) data.field("heading_deg", heading_deg);
     else data.raw_field("heading_deg", "null");

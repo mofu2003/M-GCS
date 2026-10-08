@@ -140,7 +140,12 @@ class _AMapMapViewState extends State<AMapMapView> {
   /// 航线规划浮层距内容区顶边的间距。原先贴到顶边（18）显得压在工具栏下面，
   /// 这里整体下移，单独留一个常量方便继续微调。
   static const double _rightPanelTopInset = 12;
-  static const double _missionPanelTopInset = 60;
+  static const double _missionPanelTopInset = 24;
+
+  /// 航线规划面板停在右下角复合仪表上方，避免覆盖姿态/指南针；
+  /// 面板高度不足时由内部列表滚动，不向下侵占飞行 HUD。
+  static const double _missionPanelBottomInset =
+      18 + MgMetrics.attitudeCompassSize + 12;
 
   final _controller = MapController();
   final _mapKey = GlobalKey();
@@ -170,8 +175,10 @@ class _AMapMapViewState extends State<AMapMapView> {
   LatLng? _dragPreviewWgs84;
 
   /// 地图标记要同时跟着遥测和任务文档变化重画。
-  late final Listenable _markerSources = Listenable.merge([
+  int? _markerSessionId;
+  late Listenable _markerSources = Listenable.merge([
     widget.connectionController.telemetryChanges,
+    widget.connectionController.connectionChanges,
     widget.connectionController.parameterChanges,
     widget.connectionController.missionPlanning,
   ]);
@@ -233,6 +240,20 @@ class _AMapMapViewState extends State<AMapMapView> {
   void _handleVehicleUpdate() {
     if (!mounted) return;
     final connection = widget.connectionController;
+    if (_markerSessionId != connection.sessionId) {
+      _markerSessionId = connection.sessionId;
+      setState(() {
+        _markerSources = Listenable.merge([
+          connection.telemetryChanges,
+          connection.parameterChanges,
+          connection.missionPlanning,
+        ]);
+        _mapActionAnchor = null;
+        _mapActionPoint = null;
+        _draggingEntityId = null;
+        _dragPreviewWgs84 = null;
+      });
+    }
     if (!connection.vehiclePositionValid) return;
     final fix = connection.vehiclePosition;
     if (fix == null) return;
@@ -504,7 +525,8 @@ class _AMapMapViewState extends State<AMapMapView> {
       if (visibility.setHome)
         MgMapAction(
           label: '在此设置 Home',
-          onSelected: () => select(() => _mapSetHome(target)),
+          onSelected: () =>
+              requestConfirmation('设置 Home', () => _mapSetHome(target)),
         ),
       if (visibility.setEstimatorOrigin)
         MgMapAction(
@@ -514,7 +536,8 @@ class _AMapMapViewState extends State<AMapMapView> {
       if (visibility.changeHeading)
         MgMapAction(
           label: '设置航向',
-          onSelected: () => select(() => _mapSetHeading(target)),
+          onSelected: () =>
+              requestConfirmation('设置航向', () => _mapSetHeading(target)),
         ),
     ];
   }
@@ -569,23 +592,14 @@ class _AMapMapViewState extends State<AMapMapView> {
     ),
   );
 
-  Future<void> _mapSetHome(LatLng target) async {
+  Future<void> _mapSetHome(LatLng target) => _runMapCommand(() async {
     final controller = widget.connectionController;
-    final confirmed = await confirmMissionAction(
-      context,
-      title: '设置 Home',
-      message: '把 Home 设为该坐标会改变飞控的返航基准（RTL 落点）。是否继续？',
-      confirmLabel: '设为 Home',
+    await controller.setVehicleHome(
+      target.latitude,
+      target.longitude,
+      controller.absoluteAltitudeMeters ?? 0,
     );
-    if (!confirmed || !mounted) return;
-    await _runMapCommand(
-      () => controller.setVehicleHome(
-        target.latitude,
-        target.longitude,
-        controller.absoluteAltitudeMeters ?? 0,
-      ),
-    );
-  }
+  });
 
   Future<void> _mapSetEstimatorOrigin(LatLng target) =>
       _runMapCommand(() async {
@@ -628,6 +642,19 @@ class _AMapMapViewState extends State<AMapMapView> {
       return;
     }
 
+    // 降落同样直接交给顶部悬浮长按确认，避免再进入引导模式二次弹窗。
+    if (actionLabel.startsWith('降落')) {
+      final onRequest = widget.onRequestCommandConfirmation;
+      if (onRequest == null) {
+        await _runMapCommand(controller.guidedLand);
+      } else {
+        onRequest(
+          MgCommandConfirmation(label: '降落', execute: controller.guidedLand),
+        );
+      }
+      return;
+    }
+
     final fix = controller.vehiclePosition;
     final position = fix == null
         ? _center
@@ -638,6 +665,7 @@ class _AMapMapViewState extends State<AMapMapView> {
       controller: controller,
       position: position,
       initialActionLabel: actionLabel,
+      onRequestCommandConfirmation: widget.onRequestCommandConfirmation,
     );
   }
 
@@ -671,7 +699,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     final connection = widget.connectionController;
     final target = connection.guidedTargetPosition;
     final radius = connection.loiterRadiusMeters;
-    if (!connection.guidedTargetValid ||
+    if (!connection.hasActiveGuidedTarget ||
         target == null ||
         radius == null ||
         !connection.inForwardFlight) {
@@ -688,6 +716,20 @@ class _AMapMapViewState extends State<AMapMapView> {
         borderStrokeWidth: 2,
       ),
     ];
+  }
+
+  VehicleMarkerKind _fleetVehicleMarkerKind(String vehicleType) {
+    final normalized = vehicleType.toLowerCase();
+    if (normalized.contains('copter') ||
+        normalized.contains('quad') ||
+        normalized.contains('hexa') ||
+        normalized.contains('octo') ||
+        normalized.contains('tri') ||
+        normalized.contains('heli') ||
+        normalized.contains('多旋翼')) {
+      return VehicleMarkerKind.multirotor;
+    }
+    return VehicleMarkerKind.fixedWing;
   }
 
   List<Marker> _buildMarkers(BuildContext context, MgColors colors) {
@@ -728,7 +770,7 @@ class _AMapMapViewState extends State<AMapMapView> {
       );
     }
     final guidedTarget = connection.guidedTargetPosition;
-    if (connection.guidedTargetValid && guidedTarget != null) {
+    if (connection.hasActiveGuidedTarget && guidedTarget != null) {
       markers.add(
         Marker(
           point: _toTileFrame(guidedTarget.latitude, guidedTarget.longitude),
@@ -746,7 +788,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     // 盘旋方向指示：箭头嵌在圆周线上，上下各一个，沿切线指向绕行方向。
     // 顺时针时正北点切线朝东（右）、正南点切线朝西（左）；逆时针反之。
     final loiterRadius = connection.loiterRadiusMeters;
-    if (connection.guidedTargetValid &&
+    if (connection.hasActiveGuidedTarget &&
         guidedTarget != null &&
         loiterRadius != null &&
         connection.inForwardFlight) {
@@ -786,6 +828,30 @@ class _AMapMapViewState extends State<AMapMapView> {
             fill: colors.accent,
             outline: colors.surface,
             headingDegrees: fix.headingDegrees,
+          ),
+        ),
+      );
+    }
+    // 非 active 飞机：使用 Fleet 快照中的低频位置绘制弱化标记。
+    // active 飞机继续使用上面的 20Hz 遥测位置，避免整队刷新时抖动。
+    for (final vehicle in connection.fleetSnapshot.vehicles) {
+      if (vehicle.id == connection.sessionId || !vehicle.positionValid) {
+        continue;
+      }
+      markers.add(
+        Marker(
+          point: _toTileFrame(vehicle.latitude, vehicle.longitude),
+          width: 36,
+          height: 36,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => connection.selectLink(vehicle.id),
+            child: VehicleMarkerIcon(
+              kind: _fleetVehicleMarkerKind(vehicle.vehicleType),
+              fill: colors.textSecondary,
+              outline: colors.surface,
+              headingDegrees: vehicle.headingDegrees,
+            ),
           ),
         ),
       );
@@ -1208,6 +1274,8 @@ class _AMapMapViewState extends State<AMapMapView> {
                 showChangeAltitudeDialog(
                   context,
                   controller: widget.connectionController,
+                  onRequestCommandConfirmation:
+                      widget.onRequestCommandConfirmation,
                 ),
               ),
             ),
@@ -1225,9 +1293,10 @@ class _AMapMapViewState extends State<AMapMapView> {
         if (_showMissionPlanning)
           Positioned(
             top: _missionPanelTopInset,
-            bottom: 18 + MgMetrics.controlHeight + 12,
+            bottom: _missionPanelBottomInset,
             right: 18,
             child: MissionPlanningFloatingPanel(
+              key: ValueKey(widget.connectionController.sessionId),
               controller: widget.connectionController,
               onRequestCommandConfirmation: widget.onRequestCommandConfirmation,
               onClose: () => setState(() => _showMissionPlanning = false),

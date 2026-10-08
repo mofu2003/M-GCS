@@ -24,6 +24,10 @@ third_party/          MAVLink 定义、cJSON 等第三方源码
 
 - macOS / Windows / Linux 的 C++ 后端与 FFI 构建路径。
 - 串口、TCP、UDP、内存链路和 session ID 连接模型。
+- 多 endpoint 与共享链路多机：UDP、TCP loopback、POSIX PTY 均支持按 `sysid/compid`
+  发现多个 Vehicle，支持同机多 route 归并、primary health 和精确关闭。
+- MAVLink signing：每链路独立密钥/时间戳/stream，支持命名密钥库、入站校验、
+  出站签名和 SETUP_SIGNING 下发。
 - ArduPilot-first、PX4-compatible 的 heartbeat、遥测、参数、校准、日志和命令。
 - 任务文档编辑、undo/redo、命令目录、参数化测绘、上传、下载、验证，以及
   `.waypoints` / QGC `.plan` 互操作。

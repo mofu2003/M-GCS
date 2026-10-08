@@ -119,10 +119,10 @@ MGCORE_API char* mg_fence_enable(mg_core_t* core, int enable) {
 
 MGCORE_API char* mg_vehicle_list(mg_core_t* core) {
     CHECK_CORE(core);
-    auto all = core->vehicles.get_all_vehicles();
+    auto all = core->vehicles.get_all_vehicles_shared();
     mg::bridge::JsonBuilder jb;
     jb.begin_array();
-    for (auto* v : all) {
+    for (const auto& v : all) {
         auto& info = v->info();
         mg::bridge::JsonBuilder obj;
         obj.begin_object();

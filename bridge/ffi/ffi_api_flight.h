@@ -18,6 +18,17 @@ MGCORE_API char* mg_cmd_land(mg_core_t* core);
 MGCORE_API char* mg_cmd_loiter(mg_core_t* core);
 MGCORE_API char* mg_cmd_guided(mg_core_t* core, double lat, double lon, float alt);
 
+// Explicit-target command dispatch. JSON example:
+// {"command":"rtl"} or {"command":"takeoff","args":{"altitude_m":30}}.
+// Commands: rtl, land, takeoff, arm, disarm, set_mode, mission_start,
+// guided_pause, change_altitude, set_home, guided_point, orbit, set_roi,
+// change_heading, set_global_origin. Args use the existing command units.
+// Numeric args must be finite/representable; integer args must be integral.
+// The override is core-local/thread-local and never changes UI active focus.
+MGCORE_API char* mg_command_execute_for_vehicle(mg_core_t* core,
+                                                int vehicle_id,
+                                                const char* command_json);
+
 MGCORE_API char* mg_command_arm(mg_core_t* core, int force);
 MGCORE_API char* mg_command_disarm(mg_core_t* core, int force);
 MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_mode);

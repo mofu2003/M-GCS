@@ -106,6 +106,7 @@ set(MGCORE_SOURCES
     core/src/mavlink/mavlink_adapter_mission.cc
     core/src/mavlink/mavlink_adapter_params.cc
     core/src/mavlink/mavlink_senders.cc
+    core/src/mavlink/mavlink_router.cc
     core/src/mavlink/command_queue.cc
     core/src/mavlink/param_cache.cc
     core/src/mavlink/mission_transfer.cc
@@ -123,6 +124,7 @@ set(MGCORE_SOURCES
     core/src/calibration/strategies/radio_calibration.cc
     core/src/settings/flight_logging_service.cc
     core/src/transport/connection_manager.cc
+    core/src/transport/link_session.cc
     core/src/transport/in_memory_link.cc
     # Platform-specific transport
     core/src/transport/serial_link.cc
@@ -168,6 +170,7 @@ set(MGCORE_SOURCES
     # Vehicle (multi-vehicle)
     core/src/vehicle/multi_vehicle_manager.cc
     core/src/vehicle/vehicle.cc
+    core/src/vehicle/vehicle_link_manager.cc
     core/src/transport/link_config.cc
     core/src/transport/link_factory.cc
     # Firmware flasher
@@ -382,6 +385,8 @@ if(MGCORE_BUILD_TESTS)
     core/tests/test_mission_document.cc
         tests/test_v2_contract.cc
         core/tests/test_mavlink_protocol.cc
+        core/tests/test_mavlink_router.cc
+        core/tests/test_shared_link_transports.cc
 
         tests/test_px4_sensor_offline.cc
         tests/manual/test_real_fc_cal_mission.cc
@@ -432,7 +437,7 @@ if(MGCORE_BUILD_TESTS)
             set(TEST_LABELS "manual;hardware")
         elseif(TEST_NAME MATCHES "test_real_fc|test_scan_connect")
             set(TEST_LABELS "hardware")
-        elseif(TEST_NAME MATCHES "test_sim_|test_state_machines|test_transport_links|test_new_modules")
+        elseif(TEST_NAME MATCHES "test_sim_|test_state_machines|test_transport_links|test_new_modules|test_shared_link_transports")
             set(TEST_LABELS "simulation")
         else()
             set(TEST_LABELS "offline")

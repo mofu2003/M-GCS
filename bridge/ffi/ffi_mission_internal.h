@@ -13,6 +13,9 @@ namespace mg::bridge::mission_detail {
 std::shared_ptr<mg::core::mission::cad::MissionDocumentService> ensure_document(
     mg_core_t* core);
 
+void store_document(mg_core_t* core,
+    const std::shared_ptr<mg::core::mission::cad::MissionDocumentService>& service);
+
 std::string string_array_json(const std::vector<std::string>& values);
 
 std::string document_snapshot_json(

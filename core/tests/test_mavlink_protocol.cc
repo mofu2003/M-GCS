@@ -19,6 +19,7 @@
 #include <vector>
 #include <atomic>
 #include <algorithm>
+#include <array>
 
 static int g_passed = 0;
 static int g_failed = 0;
@@ -511,6 +512,129 @@ static void test_link_quality() {
     CHECK("link wrap quality=100", wrapped.quality_pct == 100);
 }
 
+std::vector<uint8_t> pack_signed_heartbeat(
+    uint8_t system_id,
+    const std::array<uint8_t, 32>& key,
+    uint8_t link_id,
+    uint64_t timestamp_us) {
+    mavlink_message_t message{};
+    mavlink_msg_heartbeat_pack(
+        system_id, 1, &message, MAV_TYPE_QUADROTOR,
+        MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+        0, MAV_STATE_ACTIVE);
+
+    mavlink_signing_t signing{};
+    mavlink_signing_streams_t streams{};
+    mavlink_status_t status{};
+    signing.flags = MAVLINK_SIGNING_FLAG_SIGN_OUTGOING;
+    signing.link_id = link_id;
+    signing.timestamp = timestamp_us;
+    std::copy(key.begin(), key.end(), signing.secret_key);
+    status.signing = &signing;
+    status.signing_streams = &streams;
+
+    const auto* entry = mavlink_get_msg_entry(message.msgid);
+    mavlink_finalize_message_buffer(
+        &message, message.sysid, message.compid, &status,
+        entry->min_msg_len, message.len, entry->crc_extra);
+    return pack_msg(message);
+}
+
+static void test_signing_is_per_adapter() {
+    fprintf(stderr, "\n[Group] Send path - MAVLink signing isolation\n");
+    const std::array<uint8_t, 32> key = {
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+        0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00,
+        0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80,
+        0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf0, 0x01,
+    };
+
+    TestFixture signed_link;
+    TestFixture unsigned_link;
+    CHECK("signed adapter accepts a valid signing key",
+          signed_link.adapter.set_signing_key(key.data(), key.size()));
+    CHECK("signing is enabled only on the configured adapter",
+          signed_link.adapter.signing_enabled() &&
+              !unsigned_link.adapter.signing_enabled());
+
+    CHECK("signed adapter emits heartbeat",
+          signed_link.adapter.send_heartbeat());
+    const auto signed_bytes = signed_link.link.take_outgoing();
+    CHECK("signed outgoing frame carries the signing flag",
+          signed_bytes.size() > 2 &&
+              (signed_bytes[2] & MAVLINK_IFLAG_SIGNED) != 0);
+
+    const auto unsigned_heartbeat = pack_signed_heartbeat(
+        9, key, 42, 1);
+    std::vector<uint8_t> unsigned_bytes;
+    {
+        mavlink_message_t message{};
+        mavlink_msg_heartbeat_pack(
+            9, 1, &message, MAV_TYPE_QUADROTOR,
+            MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+            0, MAV_STATE_ACTIVE);
+        unsigned_bytes = pack_msg(message);
+    }
+    CHECK("signed adapter rejects unsigned inbound traffic",
+          !signed_link.adapter.feed_raw(unsigned_bytes.data(),
+                                        unsigned_bytes.size()));
+    CHECK("unsigned adapter still accepts unsigned traffic",
+          unsigned_link.adapter.feed_raw(unsigned_bytes.data(),
+                                         unsigned_bytes.size()));
+
+    constexpr uint64_t kSigningEpochMicros = 1420070400000000ULL;
+    const uint64_t now_micros = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+    const uint64_t timestamp_ticks = (now_micros - kSigningEpochMicros) / 10ULL;
+    const auto signed_heartbeat =
+        pack_signed_heartbeat(9, key, 42, timestamp_ticks);
+    CHECK("signed adapter accepts matching signed traffic",
+          signed_link.adapter.feed_raw(signed_heartbeat.data(),
+                                       signed_heartbeat.size()));
+    const auto heartbeat = signed_link.adapter.latest_heartbeat();
+    CHECK("signed heartbeat reaches telemetry",
+          heartbeat.has_value() && heartbeat->system_id == 9);
+    CHECK("signed adapter reports a valid signature",
+          signed_link.adapter.signing_status() ==
+              MAVLINK_SIGNING_STATUS_OK);
+
+    signed_link.adapter.clear_signing_key();
+    CHECK("clearing the key disables signing",
+          !signed_link.adapter.signing_enabled());
+    CHECK("cleared adapter accepts unsigned traffic again",
+          signed_link.adapter.feed_raw(unsigned_bytes.data(),
+                                       unsigned_bytes.size()));
+    (void)unsigned_heartbeat;
+}
+
+static void test_tx_sequence_is_isolated_per_adapter() {
+    fprintf(stderr, "\n[Group] Send path - per-adapter sequence isolation\n");
+    TestFixture first;
+    TestFixture second;
+
+    CHECK("first adapter sends first heartbeat", first.adapter.send_heartbeat());
+    CHECK("second adapter sends first heartbeat", second.adapter.send_heartbeat());
+    CHECK("first adapter sends second heartbeat", first.adapter.send_heartbeat());
+
+    const auto first_frames = first.link.take_outgoing();
+    const auto second_frames = second.link.take_outgoing();
+    CHECK("both adapters produced MAVLink frames",
+          first_frames.size() > 8 && second_frames.size() > 8);
+    const uint8_t initial_sequence = first_frames[4];
+    CHECK("each adapter starts its own TX sequence independently",
+          second_frames[4] == initial_sequence);
+    CHECK("one adapter advances only its own TX sequence",
+          first_frames.size() > 25 && first_frames[25] == initial_sequence + 1);
+
+    TestFixture third;
+    CHECK("third adapter sends heartbeat", third.adapter.send_heartbeat());
+    const auto third_frames = third.link.take_outgoing();
+    CHECK("a later adapter does not inherit another adapter sequence",
+          third_frames.size() > 8 && third_frames[4] == initial_sequence);
+}
+
 static void test_send_heartbeat() {
     fprintf(stderr, "\n[Group] Send path - GCS heartbeat\n");
     TestFixture f;
@@ -545,7 +669,38 @@ static void test_feed_raw_reports_valid_frames() {
           adapter.feed_raw(bytes.data(), bytes.size()));
 }
 
+// QGC keeps parsing state per link; MP uses one parser per MAVLinkInterface.
+// Split frames from independent links must never share MAVLINK_COMM_0 state.
+static void test_independent_link_parsers() {
+    fprintf(stderr, "\n[Group] Independent link parser state\n");
+    mg::core::mavlink::MavlinkAdapter first, second;
+    mavlink_message_t a{}, b{};
+    mavlink_msg_heartbeat_pack(1, 1, &a, MAV_TYPE_QUADROTOR,
+        MAV_AUTOPILOT_ARDUPILOTMEGA, 1, 4, MAV_STATE_ACTIVE);
+    mavlink_msg_heartbeat_pack(2, 1, &b, MAV_TYPE_FIXED_WING,
+        MAV_AUTOPILOT_ARDUPILOTMEGA, 1, 15, MAV_STATE_ACTIVE);
+    const auto bytes_a = pack_msg(a), bytes_b = pack_msg(b);
+    const auto split_a = bytes_a.size() / 2, split_b = bytes_b.size() / 2;
+    CHECK("link A partial frame", !first.feed_raw(bytes_a.data(), split_a));
+    CHECK("link B partial frame", !second.feed_raw(bytes_b.data(), split_b));
+    CHECK("link A completes its own frame",
+          first.feed_raw(bytes_a.data() + split_a, bytes_a.size() - split_a));
+    CHECK("link B completes its own frame",
+          second.feed_raw(bytes_b.data() + split_b, bytes_b.size() - split_b));
+    const auto hb_a = first.latest_heartbeat(), hb_b = second.latest_heartbeat();
+    CHECK("link A contains only sysid 1", hb_a && hb_a->system_id == 1);
+    CHECK("link B contains only sysid 2", hb_b && hb_b->system_id == 2);
+
+    // Corruption on one link cannot poison the other or prevent recovery.
+    auto corrupt = bytes_a;
+    corrupt.back() ^= 0xff;
+    CHECK("bad CRC is rejected", !first.feed_raw(corrupt.data(), corrupt.size()));
+    CHECK("parser recovers after bad CRC", first.feed_raw(bytes_a.data(), bytes_a.size()));
+    CHECK("other link still parses", second.feed_raw(bytes_b.data(), bytes_b.size()));
+}
+
 int main() {
+    test_independent_link_parsers();
     fprintf(stderr, "=== MAVLink Protocol Layer Tests ===\n");
     fprintf(stderr, "(Inspired by QGC MockLink + MP MAVLinkInterface)\n\n");
 
@@ -572,6 +727,8 @@ int main() {
     test_heartbeat_alive();
     test_link_quality();
     test_send_heartbeat();
+    test_tx_sequence_is_isolated_per_adapter();
+    test_signing_is_per_adapter();
     test_feed_raw_reports_valid_frames();
 
     fprintf(stderr, "\n=== Results: %d/%d passed ===\n", g_passed, g_passed + g_failed);

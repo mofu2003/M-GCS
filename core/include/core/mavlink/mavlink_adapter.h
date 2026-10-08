@@ -425,6 +425,21 @@ public:
     // 设置底层发送回调
     void set_send_callback(SendCallback cb);
 
+    // MAVLink signing。key 必须是 32 字节；状态只属于当前适配器，
+    // 不写入生成库的全局 MAVLINK_COMM_0。
+    bool set_signing_key(const uint8_t* key, size_t key_size,
+                         bool sign_outgoing = true,
+                         uint64_t persisted_timestamp = 0);
+    void clear_signing_key();
+    bool signing_enabled() const;
+    mavlink_signing_status_t signing_status() const;
+    // 发送 SETUP_SIGNING；该配置消息始终以未签名方式发送。
+    bool send_setup_signing(uint8_t target_system,
+                            uint8_t target_component,
+                            const uint8_t* key,
+                            size_t key_size,
+                            uint64_t initial_timestamp = 0);
+
     // 发送 GCS 心跳包
     bool send_heartbeat();
     // 请求数据流（旧方式）

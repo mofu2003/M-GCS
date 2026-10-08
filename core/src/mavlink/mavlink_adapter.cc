@@ -13,6 +13,9 @@
 
 #include "mavlink_adapter_internal.h"
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <string>
 
 namespace mg::core::mavlink {
@@ -87,23 +90,142 @@ void MavlinkAdapter::cancel_file_transfer() {
 // 喂入原始字节，逐字节解析 MAVLink 消息
 // 使用独立的 parse_msg/parse_status，不与发送函数共享 impl_->msg
 bool MavlinkAdapter::feed_raw(const uint8_t* data, size_t size) {
-    bool parsed_frame = false;
-    impl_->feed_mag_progress_compat(data, size);
-    mavlink_message_t parse_msg{};
-    mavlink_status_t  parse_status{};
-    for (size_t i = 0; i < size; i++) {
-        if (mavlink_parse_char(MAVLINK_COMM_0, data[i], &parse_msg, &parse_status)) {
-            parsed_frame = true;
-            impl_->process(parse_msg);
+    // QGC MAVLinkProtocol and MP MAVLinkInterface isolate RX state per link.
+    // Use official caller-owned buffers rather than global channel state.
+    // Dispatch outside the RX lock because handlers may call external callbacks.
+    const bool compatibility_bypass_disabled =
+        impl_->signing_enabled.load(std::memory_order_acquire);
+    if (!compatibility_bypass_disabled) {
+        impl_->feed_mag_progress_compat(data, size);
+    }
+    std::vector<mavlink_message_t> frames;
+    {
+        mg::core::platform::LockGuard lk(impl_->receive_mtx);
+        mavlink_message_t decoded{};
+        mavlink_status_t status{};
+        for (size_t i = 0; i < size; ++i) {
+            const auto framing = mavlink_frame_char_buffer(
+                &impl_->rx_message, &impl_->rx_status, data[i], &decoded, &status);
+            if (framing == MAVLINK_FRAMING_OK) {
+                frames.push_back(decoded);
+            } else if (framing == MAVLINK_FRAMING_BAD_CRC ||
+                       framing == MAVLINK_FRAMING_BAD_SIGNATURE) {
+                // Same resynchronization as official mavlink_parse_char().
+                impl_->rx_status.parse_state = MAVLINK_PARSE_STATE_IDLE;
+                if (data[i] == MAVLINK_STX) {
+                    impl_->rx_status.parse_state = MAVLINK_PARSE_STATE_GOT_STX;
+                    impl_->rx_message.len = 0;
+                    mavlink_start_checksum(&impl_->rx_message);
+                }
+            }
         }
     }
-    return parsed_frame;
+    for (const auto& frame : frames) impl_->process(frame);
+    return !frames.empty();
 }
+
+namespace {
+
+uint64_t signing_now_ticks() {
+    constexpr uint64_t kSigningEpochMicros = 1420070400000000ULL;
+    const uint64_t now_micros = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+    return (now_micros - kSigningEpochMicros) / 10ULL;
+}
+
+uint8_t next_signing_link_id() {
+    static std::atomic<uint32_t> next{1};
+    const uint32_t value = next.fetch_add(1, std::memory_order_relaxed);
+    return static_cast<uint8_t>((value % 255U) + 1U);
+}
+
+} // namespace
 
 // 设置底层发送回调，加锁保护
 void MavlinkAdapter::set_send_callback(SendCallback cb) {
     mg::core::platform::LockGuard lk(impl_->mtx);
     impl_->send_cb = std::move(cb);
+}
+
+bool MavlinkAdapter::set_signing_key(const uint8_t* key,
+                                     size_t key_size,
+                                     bool sign_outgoing,
+                                     uint64_t persisted_timestamp) {
+    if (key == nullptr || key_size < sizeof(impl_->signing.secret_key)) {
+        return false;
+    }
+
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    mg::core::platform::LockGuard send_lock(impl_->send_mtx);
+    mg::core::platform::LockGuard receive_lock(impl_->receive_mtx);
+
+    std::fill(std::begin(impl_->signing.secret_key),
+              std::end(impl_->signing.secret_key), 0);
+    impl_->signing_streams = {};
+    impl_->signing.link_id = next_signing_link_id();
+    impl_->signing.flags =
+        sign_outgoing ? MAVLINK_SIGNING_FLAG_SIGN_OUTGOING : 0;
+    impl_->signing.accept_unsigned_callback = nullptr;
+    impl_->signing.last_status = MAVLINK_SIGNING_STATUS_NONE;
+    std::copy_n(key, sizeof(impl_->signing.secret_key),
+                impl_->signing.secret_key);
+    impl_->signing.timestamp = std::max(
+        signing_now_ticks(), persisted_timestamp + 6000000ULL);
+
+    impl_->tx_status.signing = &impl_->signing;
+    impl_->tx_status.signing_streams = &impl_->signing_streams;
+    impl_->rx_status.signing = &impl_->signing;
+    impl_->rx_status.signing_streams = &impl_->signing_streams;
+    impl_->signing_enabled.store(true, std::memory_order_release);
+    return true;
+}
+
+void MavlinkAdapter::clear_signing_key() {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    mg::core::platform::LockGuard send_lock(impl_->send_mtx);
+    mg::core::platform::LockGuard receive_lock(impl_->receive_mtx);
+
+    impl_->tx_status.signing = nullptr;
+    impl_->tx_status.signing_streams = nullptr;
+    impl_->rx_status.signing = nullptr;
+    impl_->rx_status.signing_streams = nullptr;
+    std::fill(std::begin(impl_->signing.secret_key),
+              std::end(impl_->signing.secret_key), 0);
+    impl_->signing = {};
+    impl_->signing_streams = {};
+    impl_->signing_enabled.store(false, std::memory_order_release);
+}
+
+bool MavlinkAdapter::signing_enabled() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->signing_enabled.load(std::memory_order_acquire);
+}
+
+mavlink_signing_status_t MavlinkAdapter::signing_status() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->signing_enabled.load(std::memory_order_acquire)
+            ? impl_->signing.last_status
+                                  : MAVLINK_SIGNING_STATUS_NONE;
+}
+
+bool MavlinkAdapter::send_setup_signing(uint8_t target_system,
+                                        uint8_t target_component,
+                                        const uint8_t* key,
+                                        size_t key_size,
+                                        uint64_t initial_timestamp) {
+    if (key == nullptr || key_size < sizeof(impl_->signing.secret_key)) {
+        return false;
+    }
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    const uint64_t timestamp = initial_timestamp == 0
+        ? signing_now_ticks()
+        : initial_timestamp;
+    mavlink_msg_setup_signing_pack(
+        255, 0, &impl_->msg, target_system, target_component,
+        key, timestamp);
+    return impl_->send_message_with_mode(impl_->msg, false);
 }
 
 // ================================================================

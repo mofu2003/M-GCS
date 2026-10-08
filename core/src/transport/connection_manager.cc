@@ -209,6 +209,77 @@ bool ConnectionManager::connect_udp(const std::string& endpoint) {
     return connect(LinkType::UDP, endpoint, 0);
 }
 
+bool ConnectionManager::attach_shared(
+    const std::shared_ptr<LinkSession>& session,
+    int route_id,
+    uint8_t system_id,
+    uint8_t component_id) {
+    if (!session || route_id <= 0) return false;
+
+    reset();
+
+    auto mavlink = std::make_shared<mg::core::mavlink::MavlinkAdapter>();
+    const std::weak_ptr<LinkSession> weak_session = session;
+    mavlink->set_send_callback(
+        [weak_session, route_id](const uint8_t* data, size_t size) -> bool {
+            const auto locked = weak_session.lock();
+            return locked && locked->send(route_id, data, size);
+        });
+
+    {
+        mg::core::platform::LockGuard lk(link_mtx_);
+        shared_session_ = session;
+        shared_route_id_ = route_id;
+        link_ptr = session->shared_link();
+        mavlink_ptr = mavlink;
+    }
+
+    mavlink->on_heartbeat([this](const mg::core::mavlink::HeartbeatInfo&) {
+        record_heartbeat();
+    });
+    transition_to(ConnectionState::WaitingHeartbeat, "shared link wired");
+    start_watchdog();
+
+    if (system_id > 0 && component_id > 0 &&
+        !session->add_vehicle(route_id, system_id, component_id, mavlink)) {
+        reset();
+        return false;
+    }
+    return true;
+}
+
+bool ConnectionManager::bind_shared_identity(uint8_t system_id,
+                                             uint8_t component_id) {
+    if (system_id == 0 || component_id == 0) return false;
+    std::shared_ptr<LinkSession> session;
+    std::shared_ptr<mg::core::mavlink::MavlinkAdapter> mavlink;
+    int route_id = -1;
+    {
+        mg::core::platform::LockGuard lk(link_mtx_);
+        session = shared_session_;
+        mavlink = mavlink_ptr;
+        route_id = shared_route_id_;
+    }
+    return session && mavlink && route_id > 0 &&
+        session->add_vehicle(route_id, system_id, component_id, mavlink);
+}
+
+std::shared_ptr<mg::core::mavlink::MavlinkAdapter>
+ConnectionManager::shared_mavlink() const {
+    mg::core::platform::LockGuard lk(link_mtx_);
+    return mavlink_ptr;
+}
+
+bool ConnectionManager::is_shared() const {
+    mg::core::platform::LockGuard lk(link_mtx_);
+    return shared_session_ != nullptr;
+}
+
+std::shared_ptr<LinkSession> ConnectionManager::shared_session() const {
+    mg::core::platform::LockGuard lk(link_mtx_);
+    return shared_session_;
+}
+
 // 统一连接入口：根据类型创建传输层、协议层并接线
 bool ConnectionManager::connect(LinkType type, const std::string& endpoint, uint32_t baud) {
     reset();
@@ -305,16 +376,25 @@ void ConnectionManager::reset() {
     stop_watchdog();
 
     // Do not hold link_mtx_ while close() waits for the transport read
-    // thread. The receive callback still points at mavlink_ptr, so keep the
-    // protocol object alive until the link has fully stopped.
+    // thread. In shared mode the LinkSession owns the transport; detach only
+    // this vehicle route and leave the socket open for the remaining ones.
     std::shared_ptr<ILink> link;
     std::shared_ptr<mg::core::mavlink::MavlinkAdapter> mavlink;
+    std::shared_ptr<LinkSession> shared;
+    int shared_route = -1;
     {
         mg::core::platform::LockGuard lk(link_mtx_);
         link = std::move(link_ptr);
         mavlink = std::move(mavlink_ptr);
+        shared = std::move(shared_session_);
+        shared_route = shared_route_id_;
+        shared_route_id_ = -1;
     }
-    if (link) link->close();
+    if (shared && shared_route > 0) {
+        shared->remove_vehicle(shared_route);
+    } else if (link) {
+        link->close();
+    }
     mavlink.reset();
     last_heartbeat_ms_ = 0;
     last_activity_ms_ = 0;

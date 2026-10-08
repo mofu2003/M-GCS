@@ -7,6 +7,9 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../fleet/fleet_controller.dart';
+import '../fleet/fleet_ffi_backend.dart';
+import '../fleet/fleet_models.dart';
 import '../mission/mission_document_controller.dart';
 import '../mission/mission_geo.dart';
 import '../mission/mission_document_ffi_backend.dart';
@@ -15,6 +18,7 @@ import 'telemetry_ffi_backend.dart';
 import 'parameter_ffi_backend.dart';
 import 'calibration_ffi_backend.dart';
 import 'flight_command_ffi_backend.dart';
+import 'signing_key_store.dart';
 
 final class SerialPortInfo {
   const SerialPortInfo({
@@ -305,53 +309,245 @@ class FlightModeOption {
 /// Selects the tuning UI surface for the detected ArduPilot vehicle profile.
 enum VehicleControlProfile { unknown, copter, fixedWing, planeVtol }
 
+/// Per-vehicle UI state captured while another aircraft owns the native focus.
+///
+/// This mirrors the mutable fields of ConnectionController that are not shared
+/// across vehicles. It is deliberately private; callers interact through the
+/// controller's normal getters and switch actions.
+final class _VehicleRuntimeSnapshot {
+  const _VehicleRuntimeSnapshot({
+    required this.phase,
+    required this.message,
+    required this.telemetryError,
+    required this.calibrationStatus,
+    required this.calibrationError,
+    required this.satellitesVisible,
+    required this.gpsFixType,
+    required this.headingDegrees,
+    required this.airspeedMetersPerSecond,
+    required this.groundSpeedMetersPerSecond,
+    required this.relativeAltitudeMeters,
+    required this.absoluteAltitudeMeters,
+    required this.climbRateMetersPerSecond,
+    required this.throttlePercent,
+    required this.rollDegrees,
+    required this.pitchDegrees,
+    required this.batteryRemainingPercent,
+    required this.batteryVoltage,
+    required this.firmwareInfo,
+    required this.vehicleIdentity,
+    required this.vehicleArmed,
+    required this.vehicleFlightMode,
+    required this.flightModesAvailable,
+    required this.flightModeOptions,
+    required this.flightMessages,
+    required this.lastMessageSeq,
+    required this.vehicleType,
+    required this.vehicleAutopilotType,
+    required this.vehicleLandedState,
+    required this.vehicleVtolState,
+    required this.guidedTargetPosition,
+    required this.guidedTargetValid,
+    required this.guidedTargetModeObserved,
+    required this.guidedTargetModeDeadline,
+    required this.flightTimeSeconds,
+    required this.flightDistanceMeters,
+    required this.flightStatsArmed,
+    required this.lastFlightLatitude,
+    required this.lastFlightLongitude,
+    required this.firmwareVersionInfo,
+    required this.sensorHealth,
+    required this.waveformWindowMs,
+    required this.waveformImuInstances,
+    required this.waveformMagInstances,
+    required this.waveformImuInstance,
+    required this.waveformMagInstance,
+    required this.parameters,
+    required this.parameterWriteErrors,
+    required this.parameterMetadataLoaded,
+    required this.parameterMetadataAttempts,
+    required this.pendingParameterMetadata,
+    required this.parameterReceived,
+    required this.parameterTotal,
+    required this.parametersLoaded,
+    required this.parametersLoading,
+    required this.parameterError,
+    required this.servoOutputs,
+    required this.servoOutputsValid,
+    required this.rcChannels,
+    required this.rcChannelsValid,
+    required this.vehiclePosition,
+    required this.vehiclePositionValid,
+    required this.homePosition,
+    required this.homePositionValid,
+    required this.serialHardwareMappings,
+    required this.serialHardwareMappingLoading,
+    required this.serialHardwareMappingError,
+    required this.serialHardwareMappingRequested,
+    required this.firmwareVersionRequested,
+    required this.parameterRequestStarted,
+    required this.loadingParameterMetadata,
+  });
+
+  final SerialConnectionPhase phase;
+  final String? message;
+  final String? telemetryError;
+  final CalibrationStatus calibrationStatus;
+  final String? calibrationError;
+  final int? satellitesVisible;
+  final int? gpsFixType;
+  final double? headingDegrees;
+  final double? airspeedMetersPerSecond;
+  final double? groundSpeedMetersPerSecond;
+  final double? relativeAltitudeMeters;
+  final double? absoluteAltitudeMeters;
+  final double? climbRateMetersPerSecond;
+  final double? throttlePercent;
+  final double? rollDegrees;
+  final double? pitchDegrees;
+  final int? batteryRemainingPercent;
+  final double? batteryVoltage;
+  final Map<String, Object?>? firmwareInfo;
+  final Map<String, Object?>? vehicleIdentity;
+  final bool vehicleArmed;
+  final String vehicleFlightMode;
+  final bool flightModesAvailable;
+  final List<FlightModeOption> flightModeOptions;
+  final List<FlightMessage> flightMessages;
+  final int lastMessageSeq;
+  final int vehicleType;
+  final int vehicleAutopilotType;
+  final int vehicleLandedState;
+  final int vehicleVtolState;
+  final VehicleFix? guidedTargetPosition;
+  final bool guidedTargetValid;
+  final bool guidedTargetModeObserved;
+  final DateTime? guidedTargetModeDeadline;
+  final double flightTimeSeconds;
+  final double flightDistanceMeters;
+  final bool flightStatsArmed;
+  final double? lastFlightLatitude;
+  final double? lastFlightLongitude;
+  final Map<String, Object?>? firmwareVersionInfo;
+  final Map<String, Object?>? sensorHealth;
+  final int waveformWindowMs;
+  final List<WaveformInstance> waveformImuInstances;
+  final List<WaveformInstance> waveformMagInstances;
+  final int waveformImuInstance;
+  final int waveformMagInstance;
+  final Map<String, VehicleParameter> parameters;
+  final Map<String, String> parameterWriteErrors;
+  final Set<String> parameterMetadataLoaded;
+  final Map<String, int> parameterMetadataAttempts;
+  final Set<String> pendingParameterMetadata;
+  final int parameterReceived;
+  final int parameterTotal;
+  final bool parametersLoaded;
+  final bool parametersLoading;
+  final String? parameterError;
+  final List<int> servoOutputs;
+  final bool servoOutputsValid;
+  final List<int> rcChannels;
+  final bool rcChannelsValid;
+  final VehicleFix? vehiclePosition;
+  final bool vehiclePositionValid;
+  final VehicleFix? homePosition;
+  final bool homePositionValid;
+  final Map<String, String> serialHardwareMappings;
+  final bool serialHardwareMappingLoading;
+  final String? serialHardwareMappingError;
+  final bool serialHardwareMappingRequested;
+  final bool firmwareVersionRequested;
+  final bool parameterRequestStarted;
+  final bool loadingParameterMetadata;
+}
+
 final class ConnectionController extends ChangeNotifier {
-  ConnectionController() {
+  ConnectionController({SigningKeyStore? signingKeyStore})
+    : _signingKeyStore = signingKeyStore ?? SigningKeyStore() {
     _initialize();
+    unawaited(_loadSigningLibrary());
   }
+
+  final SigningKeyStore _signingKeyStore;
+  List<SigningKeyPreference> _signingKeys = const [];
+  String? _activeSigningKeyName;
+  int? _signingAppliedVehicleId;
+
+  /// MV1 seam: connection registry and command target tokens.
+  /// Multi-link UI is intentionally not exposed until per-vehicle rebinding is verified.
+  FleetController? _fleet;
+  FleetSnapshot get fleetSnapshot =>
+      _fleet?.snapshot ??
+      FleetSnapshot(vehicles: const [], activeVehicleId: null);
+  FleetController get fleet => _fleet ?? (throw StateError('多机后端尚未就绪'));
+  Timer? _fleetTimer;
 
   late final DynamicLibrary _library;
   late final Pointer<Void> _core;
   late final Pointer<Void> Function() _create;
   late final void Function(Pointer<Void>) _destroy;
   late final Pointer<Utf8> Function(Pointer<Void>) _listPorts;
-  late final int Function(Pointer<Void>, Pointer<Utf8>) _open;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _getSessionState;
+  late final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>, int, int)
+  _setSigningKey;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _clearSigningKey;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _getSigningStatus;
+  late final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>, int)
+  _sendSetupSigning;
   late final int Function(Pointer<Void>, Pointer<Float>, int, int, int, int)
   _readWaveform;
   late final Pointer<Utf8> Function(Pointer<Void>) _getWaveformInstances;
   late final Pointer<Utf8> Function(Pointer<Void>, int, int) _setStreamInterval;
   late final Pointer<Utf8> Function(Pointer<Void>) _requestFirmwareVersion;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
-  late final Pointer<Utf8> Function(Pointer<Void>, int) _selectVehicle;
-  late final int Function(Pointer<Void>) _getActiveVehicle;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _cancelOperation;
   late final Pointer<Utf8> Function(Pointer<Void>) _getFlightModes;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _getMessages;
-  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
-  _setFlightMode;
-  late final Pointer<Utf8> Function(Pointer<Void>, int) _close;
   late final void Function(Pointer<Utf8>) _freeString;
 
-  MissionDocumentController? _missionPlanning;
-  MissionDocumentFfiBackend? _missionBackend;
+  MissionDocumentController? _offlineMissionPlanning;
+  final Map<int, MissionDocumentController> _missionPlanningBySession = {};
+
+  final Map<int, _VehicleRuntimeSnapshot> _runtimeSnapshots = {};
   TelemetryFfiBackend? _telemetryBackend;
   ParameterFfiBackend? _parameterBackend;
   CalibrationFfiBackend? _calibrationBackend;
   FlightCommandFfiBackend? _flightCommandBackend;
 
   MissionDocumentController get missionPlanning {
-    final controller = _missionPlanning ??= MissionDocumentController(
-      backend: _missionBackend ??= MissionDocumentFfiBackend(
-        _library,
-        _core,
-        isConnected: () => isConnected,
-      ),
+    final id = sessionId;
+    if (id == null) {
+      final controller = _offlineMissionPlanning ??= _newMissionController(
+        null,
+      );
+      controller.bindSession(null);
+      return controller;
+    }
+    final controller = _missionPlanningBySession.putIfAbsent(
+      id,
+      () => _newMissionController(id),
     );
-    controller.bindSession(sessionId);
+    controller.bindSession(id);
     return controller;
   }
+
+  MissionDocumentController _newMissionController(int? ownerId) =>
+      MissionDocumentController(
+        backend: MissionDocumentFfiBackend(
+          _library,
+          _core,
+          isConnected: () => isConnected && sessionId == ownerId,
+          beforeAccess: () {
+            if (_disposed ||
+                sessionId != ownerId ||
+                fleetSnapshot.activeVehicleId != ownerId) {
+              throw StateError('任务所属飞机已切换或断开，请在当前飞机重新操作');
+            }
+          },
+        ),
+      );
 
   TelemetryFfiBackend get telemetryBackend =>
       _telemetryBackend ??= TelemetryFfiBackend(_library, _core);
@@ -363,7 +559,23 @@ final class ConnectionController extends ChangeNotifier {
       _calibrationBackend ??= CalibrationFfiBackend(_library, _core);
 
   FlightCommandFfiBackend get flightCommandBackend =>
-      _flightCommandBackend ??= FlightCommandFfiBackend(_library, _core);
+      _flightCommandBackend ??= FlightCommandFfiBackend(
+        _library,
+        _core,
+        beforeCommand: () {
+          _requireConnected('发送指令');
+          fleet.refresh();
+          if (fleet.snapshot.activeVehicleId != sessionId) {
+            throw StateError('当前飞机焦点与连接会话不一致，拒绝发送指令');
+          }
+          fleet.validatePinnedTarget();
+        },
+        targetVehicleId: () {
+          fleet.refresh();
+          final id = fleet.snapshot.activeVehicleId;
+          return id == sessionId ? id : null;
+        },
+      );
 
   final List<SerialPortInfo> ports = [];
   final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
@@ -409,6 +621,12 @@ final class ConnectionController extends ChangeNotifier {
   );
   static const Duration _armValidationWindow = Duration(milliseconds: 1500);
 
+  /// Go To 下发后，等待飞控切到对应模式的窗口。超过后仍未进入目标模式，
+  /// 就把尚未激活的显示目标作废，避免以后手工切回 Guided 时旧点复活。
+  static const Duration _guidedTargetModeTransitionTimeout = Duration(
+    seconds: 10,
+  );
+
   final ValueNotifier<int> parameterChanges = ValueNotifier(0);
   final ValueNotifier<int> telemetryChanges = ValueNotifier(0);
   final ValueNotifier<int> profileChanges = ValueNotifier(0);
@@ -424,6 +642,10 @@ final class ConnectionController extends ChangeNotifier {
   String tcpHost = '127.0.0.1';
   String tcpPortText = '5760';
   int? sessionId;
+
+  /// 当前 UI 关注的消息链路。与 [sessionId] 不同：链路可以尚未识别出飞控，
+  /// 此时 sessionId 为空，但连接面板和状态栏仍应显示该链路正在等待心跳。
+  int? _activeLinkId;
   SerialConnectionPhase phase = SerialConnectionPhase.disconnected;
   CalibrationStatus calibrationStatus = const CalibrationStatus();
   String? calibrationError;
@@ -476,6 +698,33 @@ final class ConnectionController extends ChangeNotifier {
   VehicleFix? guidedTargetPosition;
   bool guidedTargetValid = false;
 
+  /// 显示目标是否已经真正进入过 Go To 模式。
+  ///
+  /// 只在“已进入 Guided/Auto Loiter，随后离开”时永久作废。这样刚下发命令、
+  /// 飞控尚未切模式的短暂窗口不会误清目标，而 RTL/降落/自稳之后再回到
+  /// Guided 也不会把旧点重新显示出来。
+  bool _guidedTargetModeObserved = false;
+  DateTime? _guidedTargetModeDeadline;
+
+  /// 当前是否处于 Go To 会保持目标的飞行模式。
+  ///
+  /// 对应 QGC `FlyViewMap.qml` 的
+  /// `_activeVehicle.flightMode === _activeVehicle.gotoFlightMode`：
+  /// ArduPilot 是 Guided，PX4 的 Go To 模式是 Auto Loiter。离开该模式后，
+  /// Go To 图标和固定翼盘旋圆都不再代表当前目的地。
+  bool get isGuidedGotoFlightMode {
+    final mode = vehicleFlightMode.trim().toLowerCase();
+    if (mode.isEmpty) return false;
+    if (vehicleAutopilotType == 12) return mode == 'auto loiter';
+    return mode == 'guided';
+  }
+
+  /// 当前是否有仍处于活动飞行模式下的 Go To 目标。
+  bool get hasActiveGuidedTarget =>
+      guidedTargetValid &&
+      guidedTargetPosition != null &&
+      isGuidedGotoFlightMode;
+
   /// QGC `Vehicle::_flightTimerStart()` 的等价统计。
   ///
   /// 飞控不直接提供 FlightTime / FlightDistance，QGC 也是地面站本地累计：
@@ -483,6 +732,7 @@ final class ConnectionController extends ChangeNotifier {
   double flightTimeSeconds = 0;
   double flightDistanceMeters = 0;
   final Stopwatch _flightStopwatch = Stopwatch();
+  double _flightStopwatchOffsetSeconds = 0;
   bool _flightStatsArmed = false;
   double? _lastFlightLatitude;
   double? _lastFlightLongitude;
@@ -566,6 +816,8 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Float> _waveformBuffer;
   int _lastSystemStatusPollMs = 0;
   bool _busy = false;
+  bool _switchingSession = false;
+  int _sessionGeneration = 0;
   bool _disposed = false;
   bool _firmwareVersionRequested = false;
   bool _parameterRequestStarted = false;
@@ -575,6 +827,13 @@ final class ConnectionController extends ChangeNotifier {
   bool get busy => _busy;
   bool get isConnected => phase == SerialConnectionPhase.connected;
   bool get hasSession => sessionId != null;
+  int? get activeLinkId => _activeLinkId;
+  List<SigningKeyPreference> get signingKeys => List.unmodifiable(_signingKeys);
+  SigningKeyPreference? get signingPreference => _activeSigningKey;
+  List<FleetLinkSummary> get fleetLinks => fleetSnapshot.links;
+
+  /// True while a fleet-scoped asynchronous operation pins the active target.
+  bool get fleetOperationsActive => _fleet?.targetOperationActive ?? false;
   VehicleControlProfile get controlProfile {
     final firmware = firmwareInfo?['firmware']?.toString().toLowerCase();
     final vehicle = firmwareInfo?['vehicle_type']?.toString().toLowerCase();
@@ -840,9 +1099,11 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   Future<void> _pollCalibrationStatus() async {
-    if (_disposed || sessionId == null) return;
+    final id = sessionId;
+    if (_disposed || id == null) return;
     try {
       final raw = calibrationBackend.status();
+      if (_disposed || sessionId != id) return;
       final next = CalibrationStatus(
         active: raw['active'] == true,
         type: _calibrationType(raw['type']?.toString()),
@@ -901,6 +1162,197 @@ final class ConnectionController extends ChangeNotifier {
   String _friendlyError(Object error) =>
       error.toString().replaceFirst('Bad state: ', '');
 
+  SigningKeyPreference? get _activeSigningKey {
+    final name = _activeSigningKeyName;
+    if (name == null) return null;
+    for (final entry in _signingKeys) {
+      if (entry.name == name) return entry;
+    }
+    return null;
+  }
+
+  Future<void> _loadSigningLibrary() async {
+    final library = await _signingKeyStore.loadLibrary();
+    _signingKeys = List.of(library.entries);
+    _activeSigningKeyName = library.activeName;
+    _signingAppliedVehicleId = null;
+    if (_activeSigningKey != null) {
+      unawaited(_applySigningPreferenceIfAny());
+    }
+    notifyListeners();
+  }
+
+  Future<void> _persistSigningLibrary() async {
+    await _signingKeyStore.saveLibrary(
+      SigningKeyLibrary(
+        entries: List.of(_signingKeys),
+        activeName: _activeSigningKeyName,
+      ),
+    );
+  }
+
+  Future<void> upsertSigningKey({
+    required String name,
+    required String keyHex,
+    bool signOutgoing = true,
+    int lastTimestampTicks = 0,
+  }) async {
+    final normalizedName = name.trim();
+    final normalizedKey = keyHex.trim().toLowerCase();
+    if (normalizedName.isEmpty) {
+      throw ArgumentError('密钥名称不能为空');
+    }
+    if (!isValidSigningKeyHex(normalizedKey)) {
+      throw ArgumentError('MAVLink signing key 必须是 64 位十六进制字符');
+    }
+    final next = List<SigningKeyPreference>.of(_signingKeys);
+    final index = next.indexWhere(
+      (entry) => entry.name.toLowerCase() == normalizedName.toLowerCase(),
+    );
+    final entry = SigningKeyPreference(
+      name: normalizedName,
+      keyHex: normalizedKey,
+      signOutgoing: signOutgoing,
+      lastTimestampTicks: lastTimestampTicks,
+    );
+    if (index >= 0) {
+      next[index] = entry;
+    } else {
+      next.add(entry);
+    }
+    _signingKeys = next;
+    _activeSigningKeyName = normalizedName;
+    await _persistSigningLibrary();
+    _signingAppliedVehicleId = null;
+    await _applySigningPreferenceIfAny();
+    notifyListeners();
+  }
+
+  Future<void> selectSigningKey(String name) async {
+    final entry = _signingKeys.firstWhere(
+      (candidate) => candidate.name == name,
+      orElse: () => throw StateError('密钥不存在'),
+    );
+    _activeSigningKeyName = entry.name;
+    await _persistSigningLibrary();
+    _signingAppliedVehicleId = null;
+    await _applySigningPreferenceIfAny();
+    notifyListeners();
+  }
+
+  Future<void> removeSigningKey(String name) async {
+    final next = List<SigningKeyPreference>.of(_signingKeys)
+      ..removeWhere((entry) => entry.name == name);
+    _signingKeys = next;
+    if (_activeSigningKeyName == name) {
+      _activeSigningKeyName = next.isEmpty ? null : next.first.name;
+    }
+    await _persistSigningLibrary();
+    _signingAppliedVehicleId = null;
+    if (_activeSigningKey == null) {
+      await _clearNativeSigning();
+    } else {
+      await _applySigningPreferenceIfAny();
+    }
+    notifyListeners();
+  }
+
+  Future<void> saveSigningKeyPreference({
+    required String keyHex,
+    bool signOutgoing = true,
+    int lastTimestampTicks = 0,
+  }) {
+    return upsertSigningKey(
+      name: _activeSigningKeyName ?? '默认密钥',
+      keyHex: keyHex,
+      signOutgoing: signOutgoing,
+      lastTimestampTicks: lastTimestampTicks,
+    );
+  }
+
+  Future<void> _clearNativeSigning() async {
+    if (sessionId == null || initializationError != null) return;
+    final response = _readJson(_clearSigningKey(_core, sessionId!));
+    if (response is! Map || response['success'] != true) {
+      throw StateError(_nativeError(response, '清除 MAVLink 签名失败'));
+    }
+    _signingAppliedVehicleId = null;
+  }
+
+  Future<void> clearSigningKeyPreference() async {
+    _signingKeys = const [];
+    _activeSigningKeyName = null;
+    _signingAppliedVehicleId = null;
+    await _signingKeyStore.clear();
+    await _clearNativeSigning();
+    notifyListeners();
+  }
+
+  Future<Map<String, Object?>> readSigningStatus() async {
+    final id = sessionId;
+    if (id == null || initializationError != null) {
+      return const {'success': true, 'enabled': false, 'status': 'offline'};
+    }
+    final response = _readJson(_getSigningStatus(_core, id));
+    if (response is! Map<String, Object?>) {
+      throw StateError('MAVLink 签名状态格式无效');
+    }
+    return response;
+  }
+
+  Future<void> sendSetupSigning({
+    required String keyHex,
+    int initialTimestampTicks = 0,
+  }) async {
+    final normalized = keyHex.trim().toLowerCase();
+    if (!isValidSigningKeyHex(normalized)) {
+      throw ArgumentError('MAVLink signing key 必须是 64 位十六进制字符');
+    }
+    final id = sessionId;
+    if (id == null || initializationError != null) {
+      throw StateError('未连接飞控，无法下发 SETUP_SIGNING');
+    }
+    final key = normalized.toNativeUtf8();
+    try {
+      final response = _readJson(
+        _sendSetupSigning(_core, id, key, initialTimestampTicks),
+      );
+      if (response is! Map || response['success'] != true) {
+        throw StateError(_nativeError(response, '下发 SETUP_SIGNING 失败'));
+      }
+    } finally {
+      malloc.free(key);
+    }
+    notifyListeners();
+  }
+
+  Future<void> _applySigningPreferenceIfAny() async {
+    final preference = _activeSigningKey;
+    final id = sessionId;
+    if (preference == null || id == null || initializationError != null) {
+      return;
+    }
+    if (_signingAppliedVehicleId == id) return;
+    final key = preference.keyHex.toNativeUtf8();
+    try {
+      final response = _readJson(
+        _setSigningKey(
+          _core,
+          id,
+          key,
+          preference.signOutgoing ? 1 : 0,
+          preference.lastTimestampTicks,
+        ),
+      );
+      if (response is! Map || response['success'] != true) {
+        throw StateError(_nativeError(response, '应用 MAVLink 签名失败'));
+      }
+      _signingAppliedVehicleId = id;
+    } finally {
+      malloc.free(key);
+    }
+  }
+
   bool _isProfileParameter(String name) =>
       name == 'Q_ENABLE' ||
       name == 'Q_TAILSIT_ENABLE' ||
@@ -939,7 +1391,7 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   bool get canConnect {
-    if (_busy || hasSession || initializationError != null) return false;
+    if (_busy || initializationError != null) return false;
     if (transport == ConnectionTransport.serial) return selectedPort != null;
     final host = transport == ConnectionTransport.udp ? udpHost : tcpHost;
     final portText = transport == ConnectionTransport.udp
@@ -954,14 +1406,27 @@ final class ConnectionController extends ChangeNotifier {
         port <= 65535;
   }
 
-  String get selectedTransportLabel => switch (transport) {
-    ConnectionTransport.serial => '串口',
-    ConnectionTransport.udp => 'UDP',
-    ConnectionTransport.tcp => 'TCP',
-  };
+  String get selectedTransportLabel {
+    final endpoint =
+        (_activeLinkId == null ? null : fleetSnapshot.link(_activeLinkId!))
+            ?.endpoint ??
+        fleetSnapshot.activeVehicle?.endpoint;
+    if (endpoint != null) {
+      return switch (endpoint.split('://').first) {
+        'serial' => '串口',
+        'tcp' => 'TCP',
+        _ => 'UDP',
+      };
+    }
+    return switch (transport) {
+      ConnectionTransport.serial => '串口',
+      ConnectionTransport.udp => 'UDP',
+      ConnectionTransport.tcp => 'TCP',
+    };
+  }
 
   void selectTransport(ConnectionTransport value) {
-    if (hasSession || _busy || transport == value) return;
+    if (_busy || transport == value) return;
     transport = value;
     message = null;
     _notifyConnectionChanges();
@@ -972,7 +1437,7 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   void updateNetworkEndpoint({required String host, required String port}) {
-    if (hasSession) return;
+    if (_busy) return;
     if (transport == ConnectionTransport.udp) {
       udpHost = host;
       udpPortText = port;
@@ -1019,12 +1484,14 @@ final class ConnectionController extends ChangeNotifier {
   Future<void> refreshSerialHardwareMappings({bool force = false}) async {
     if (!isConnected || serialHardwareMappingLoading) return;
     if (_serialHardwareMappingRequested && !force) return;
+    final generation = _sessionGeneration;
     _serialHardwareMappingRequested = true;
     serialHardwareMappingLoading = true;
     serialHardwareMappingError = null;
     _notifyParameterChanges();
     notifyListeners();
     await Future<void>.delayed(Duration.zero);
+    if (_disposed || generation != _sessionGeneration) return;
     try {
       final result =
           _readJson(_getSerialUartNames(_core)) as Map<String, Object?>;
@@ -1064,9 +1531,12 @@ final class ConnectionController extends ChangeNotifier {
 
   Future<void> _loadParameterMetadataInBatches() async {
     if (_loadingParameterMetadata || !parametersLoaded) return;
+    final generation = _sessionGeneration;
     _loadingParameterMetadata = true;
     try {
-      while (_pendingParameterMetadata.isNotEmpty && !_disposed) {
+      while (_pendingParameterMetadata.isNotEmpty &&
+          !_disposed &&
+          generation == _sessionGeneration) {
         final names = _pendingParameterMetadata.take(8).toList();
         var changed = false;
         for (final name in names) {
@@ -1099,7 +1569,9 @@ final class ConnectionController extends ChangeNotifier {
         }
       }
     } finally {
-      _loadingParameterMetadata = false;
+      if (!_disposed && generation == _sessionGeneration) {
+        _loadingParameterMetadata = false;
+      }
     }
   }
 
@@ -1266,15 +1738,45 @@ final class ConnectionController extends ChangeNotifier {
             'mg_connection_list_ports',
           )
           .asFunction();
-      _open = _library
-          .lookup<NativeFunction<Int32 Function(Pointer<Void>, Pointer<Utf8>)>>(
-            'mg_connection_open',
-          )
-          .asFunction();
       _getSessionState = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
             'mg_connection_get_session_state',
           )
+          .asFunction();
+      _setSigningKey = _library
+          .lookup<
+            NativeFunction<
+              Pointer<Utf8> Function(
+                Pointer<Void>,
+                Int32,
+                Pointer<Utf8>,
+                Int32,
+                Uint64,
+              )
+            >
+          >('mg_vehicle_set_signing_key')
+          .asFunction();
+      _clearSigningKey = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
+            'mg_vehicle_clear_signing_key',
+          )
+          .asFunction();
+      _getSigningStatus = _library
+          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
+            'mg_vehicle_get_signing_status',
+          )
+          .asFunction();
+      _sendSetupSigning = _library
+          .lookup<
+            NativeFunction<
+              Pointer<Utf8> Function(
+                Pointer<Void>,
+                Int32,
+                Pointer<Utf8>,
+                Uint64,
+              )
+            >
+          >('mg_vehicle_send_setup_signing')
           .asFunction();
       _readWaveform = _library
           .lookup<
@@ -1305,24 +1807,9 @@ final class ConnectionController extends ChangeNotifier {
             'mg_vehicle_request_firmware_version',
           )
           .asFunction();
-      _close = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
-            'mg_connection_close',
-          )
-          .asFunction();
       _getSerialUartNames = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
             'mg_serial_get_uart_names',
-          )
-          .asFunction();
-      _selectVehicle = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
-            'mg_vehicle_select',
-          )
-          .asFunction();
-      _getActiveVehicle = _library
-          .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-            'mg_vehicle_get_active',
           )
           .asFunction();
       _cancelOperation = _library
@@ -1340,12 +1827,19 @@ final class ConnectionController extends ChangeNotifier {
             NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Uint64)>
           >('mg_telemetry_get_messages')
           .asFunction();
-      _setFlightMode = _library
-          .lookup<
-            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
-          >('mg_flight_set_mode')
-          .asFunction();
       _core = _create();
+      _fleet = FleetController(
+        FleetFfiBackend(_library, _core),
+        canChangeFocus: _canSwitchActiveVehicle,
+      )..addListener(_handleFleetChanged);
+      _fleetTimer = Timer.periodic(const Duration(milliseconds: 750), (_) {
+        if (_disposed) return;
+        try {
+          fleet.refresh();
+        } on Object {
+          // Keep last fleet snapshot on transient reads; never change focus here.
+        }
+      });
       _waveformBuffer = calloc<Float>(
         _waveformMaxPoints * _waveformFloatsPerPoint,
       );
@@ -1362,12 +1856,381 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
+  /// A switch is allowed only when no operation is tied to the current
+  /// vehicle. Parameter writes, mission transfer and calibration are not
+  /// safely movable to another aircraft.
+  bool _canSwitchActiveVehicle() {
+    // First focus binding happens while connect() intentionally holds _busy.
+    if (sessionId == null) return true;
+    if (_busy) return false;
+    if (_parameterWriteJobs.isNotEmpty) return false;
+    if (calibrationStatus.active ||
+        serialHardwareMappingLoading ||
+        _loadingParameterMetadata) {
+      return false;
+    }
+    final mission = sessionId == null
+        ? _offlineMissionPlanning
+        : _missionPlanningBySession[sessionId];
+    return !(mission?.transferActive ?? false) && !(mission?.busy ?? false);
+  }
+
+  FleetLinkSummary? _preferredLinkForVehicle(int? vehicleId) {
+    final links = fleetSnapshot.links;
+    if (links.isEmpty) return null;
+    if (vehicleId == null) return links.first;
+    final candidates = links
+        .where((link) => link.vehicleId == vehicleId)
+        .toList(growable: false);
+    if (candidates.isEmpty) return null;
+    for (final link in candidates) {
+      if (link.primary && link.connected) return link;
+    }
+    for (final link in candidates) {
+      if (link.connected) return link;
+    }
+    for (final link in candidates) {
+      if (link.primary) return link;
+    }
+    return candidates.first;
+  }
+
+  /// Keeps the physical link focus separate from the vehicle focus. A waiting
+  /// link may have no vehicle yet, so it is intentionally retained until the
+  /// user selects another link or it is closed.
+  void _syncActiveLink({int? targetVehicleId}) {
+    final links = fleetSnapshot.links;
+    if (links.isEmpty) {
+      _activeLinkId = null;
+      return;
+    }
+    FleetLinkSummary? current;
+    for (final link in links) {
+      if (link.id == _activeLinkId) {
+        current = link;
+        break;
+      }
+    }
+    final target = targetVehicleId ?? sessionId;
+    if (current != null) {
+      if (current.vehicleId == null) return;
+      if (current.vehicleId == target) {
+        final preferred = _preferredLinkForVehicle(target);
+        if (preferred != null && preferred.primary && !current.primary) {
+          _activeLinkId = preferred.id;
+        }
+        return;
+      }
+    }
+    _activeLinkId = _preferredLinkForVehicle(target)?.id ?? links.first.id;
+  }
+
+  void _handleFleetChanged() {
+    if (_disposed || _switchingSession) return;
+    final target = fleet.snapshot.activeVehicleId;
+    _syncActiveLink(targetVehicleId: target);
+    if (target != sessionId) {
+      // Backend removal is not a user switch: it must invalidate the old
+      // session even while a download, disconnect or command is unfinished.
+      if (target != null) {
+        _switchToSession(target, forced: true);
+      } else {
+        _sessionGeneration++;
+        _stopSessionPolling();
+        _calibrationTimer?.cancel();
+        sessionId = null;
+        _resetRuntimeState();
+        final waitingLink = _activeLinkId == null
+            ? null
+            : fleet.snapshot.link(_activeLinkId!);
+        if (waitingLink != null) {
+          phase = SerialConnectionPhase.waitingForHeartbeat;
+          message = '$selectedTransportLabel 链路已打开，等待飞控心跳…';
+          _startSessionPolling();
+        } else {
+          phase = SerialConnectionPhase.disconnected;
+          message = '飞控连接已关闭';
+        }
+        _notifyTelemetryChanges();
+        _notifyParameterChanges();
+        _notifyProfileChanges();
+        _notifyCalibrationChanges();
+      }
+    }
+    final liveIds = fleet.snapshot.vehicles.map((v) => v.id).toSet();
+    _runtimeSnapshots.removeWhere((id, _) => !liveIds.contains(id));
+    // Keep detached mission controllers alive until UI listeners detach;
+    // their beforeAccess guard rejects edits against a removed session.
+    _notifyConnectionChanges();
+    notifyListeners();
+  }
+
+  void _switchToSession(int target, {bool forced = false}) {
+    if (!forced && !_canSwitchActiveVehicle()) {
+      throw StateError('当前飞控有未完成操作，暂不能切换飞机');
+    }
+    final targetSummary = fleet.snapshot.vehicle(target);
+    if (targetSummary == null) throw StateError('目标飞控会话不存在');
+    _activeLinkId = _preferredLinkForVehicle(target)?.id ?? _activeLinkId;
+    _switchingSession = true;
+    try {
+      final previous = sessionId;
+      if (previous != null) {
+        _runtimeSnapshots[previous] = _captureRuntimeSnapshot();
+      }
+      _stopSessionPolling();
+      _calibrationTimer?.cancel();
+      _sessionGeneration++;
+      final snapshot = _runtimeSnapshots.remove(target);
+      sessionId = target;
+      if (snapshot == null) {
+        _resetRuntimeState();
+        phase = targetSummary.connected
+            ? SerialConnectionPhase.connected
+            : SerialConnectionPhase.waitingForHeartbeat;
+        message = targetSummary.connected ? '飞控已连接' : '等待飞控心跳…';
+      } else {
+        _applyRuntimeSnapshot(snapshot);
+      }
+      // A cached goto marker is not proof that the aircraft still follows it.
+      // Do not resurrect one after returning from another vehicle.
+      _clearGuidedTarget();
+      _lastFlightLatitude = null;
+      _lastFlightLongitude = null;
+      waveformImuPointCount = 0;
+      waveformMagPointCount = 0;
+      phase = targetSummary.connected
+          ? SerialConnectionPhase.connected
+          : SerialConnectionPhase.waitingForHeartbeat;
+      _pollTelemetry(target); // Fresh native cache before publishing UI state.
+      missionPlanning.bindSession(target);
+      _startSessionPolling();
+      unawaited(_applySigningPreferenceIfAny());
+      _lastPublishedControlProfile = null;
+      _notifyConnectionChanges();
+      _notifyParameterChanges();
+      _notifyTelemetryChanges();
+      _notifyProfileChanges();
+      _notifyCalibrationChanges();
+      notifyListeners();
+      unawaited(_pollSession());
+      unawaited(refreshFlightModes());
+      unawaited(refreshFlightMessages());
+    } finally {
+      _switchingSession = false;
+    }
+  }
+
+  void _stopSessionPolling() {
+    _stateTimer?.cancel();
+    _stateTimer = null;
+    _telemetryTimer?.cancel();
+    _telemetryTimer = null;
+    _waveformTimer?.cancel();
+    _waveformTimer = null;
+  }
+
+  void _startSessionPolling() {
+    _stateTimer?.cancel();
+    _stateTimer = Timer.periodic(
+      const Duration(milliseconds: 750),
+      (_) => unawaited(_pollSession()),
+    );
+    _telemetryTimer?.cancel();
+    _telemetryTimer = Timer.periodic(_telemetryPollInterval, (_) {
+      final id = sessionId;
+      if (id != null) _pollTelemetry(id);
+    });
+    _restartWaveformTimer();
+  }
+
+  _VehicleRuntimeSnapshot _captureRuntimeSnapshot() => _VehicleRuntimeSnapshot(
+    phase: phase,
+    message: message,
+    telemetryError: telemetryError,
+    calibrationStatus: calibrationStatus,
+    calibrationError: calibrationError,
+    satellitesVisible: satellitesVisible,
+    gpsFixType: gpsFixType,
+    headingDegrees: headingDegrees,
+    airspeedMetersPerSecond: airspeedMetersPerSecond,
+    groundSpeedMetersPerSecond: groundSpeedMetersPerSecond,
+    relativeAltitudeMeters: relativeAltitudeMeters,
+    absoluteAltitudeMeters: absoluteAltitudeMeters,
+    climbRateMetersPerSecond: climbRateMetersPerSecond,
+    throttlePercent: throttlePercent,
+    rollDegrees: rollDegrees,
+    pitchDegrees: pitchDegrees,
+    batteryRemainingPercent: batteryRemainingPercent,
+    batteryVoltage: batteryVoltage,
+    firmwareInfo: firmwareInfo == null ? null : Map.of(firmwareInfo!),
+    vehicleIdentity: vehicleIdentity == null ? null : Map.of(vehicleIdentity!),
+    vehicleArmed: vehicleArmed,
+    vehicleFlightMode: vehicleFlightMode,
+    flightModesAvailable: flightModesAvailable,
+    flightModeOptions: List.of(flightModeOptions),
+    flightMessages: List.of(flightMessages),
+    lastMessageSeq: _lastMessageSeq,
+    vehicleType: vehicleType,
+    vehicleAutopilotType: vehicleAutopilotType,
+    vehicleLandedState: vehicleLandedState,
+    vehicleVtolState: vehicleVtolState,
+    guidedTargetPosition: guidedTargetPosition,
+    guidedTargetValid: guidedTargetValid,
+    guidedTargetModeObserved: _guidedTargetModeObserved,
+    guidedTargetModeDeadline: _guidedTargetModeDeadline,
+    flightTimeSeconds: flightTimeSeconds,
+    flightDistanceMeters: flightDistanceMeters,
+    flightStatsArmed: _flightStatsArmed,
+    lastFlightLatitude: _lastFlightLatitude,
+    lastFlightLongitude: _lastFlightLongitude,
+    firmwareVersionInfo: firmwareVersionInfo == null
+        ? null
+        : Map.of(firmwareVersionInfo!),
+    sensorHealth: sensorHealth == null ? null : Map.of(sensorHealth!),
+    waveformWindowMs: waveformWindowMs,
+    waveformImuInstances: List.of(waveformImuInstances),
+    waveformMagInstances: List.of(waveformMagInstances),
+    waveformImuInstance: waveformImuInstance,
+    waveformMagInstance: waveformMagInstance,
+    parameters: Map.of(parameters),
+    parameterWriteErrors: Map.of(_parameterWriteErrors),
+    parameterMetadataLoaded: Set.of(_parameterMetadataLoaded),
+    parameterMetadataAttempts: Map.of(_parameterMetadataAttempts),
+    pendingParameterMetadata: Set.of(_pendingParameterMetadata),
+    parameterReceived: parameterReceived,
+    parameterTotal: parameterTotal,
+    parametersLoaded: parametersLoaded,
+    parametersLoading: parametersLoading,
+    parameterError: parameterError,
+    servoOutputs: List.of(servoOutputs),
+    servoOutputsValid: servoOutputsValid,
+    rcChannels: List.of(rcChannels),
+    rcChannelsValid: rcChannelsValid,
+    vehiclePosition: vehiclePosition,
+    vehiclePositionValid: vehiclePositionValid,
+    homePosition: homePosition,
+    homePositionValid: homePositionValid,
+    serialHardwareMappings: Map.of(serialHardwareMappings),
+    serialHardwareMappingLoading: serialHardwareMappingLoading,
+    serialHardwareMappingError: serialHardwareMappingError,
+    serialHardwareMappingRequested: _serialHardwareMappingRequested,
+    firmwareVersionRequested: _firmwareVersionRequested,
+    parameterRequestStarted: _parameterRequestStarted,
+    loadingParameterMetadata: _loadingParameterMetadata,
+  );
+
+  void _applyRuntimeSnapshot(_VehicleRuntimeSnapshot snapshot) {
+    _resetRuntimeState();
+    phase = snapshot.phase;
+    message = snapshot.message;
+    telemetryError = snapshot.telemetryError;
+    calibrationStatus = snapshot.calibrationStatus;
+    calibrationError = snapshot.calibrationError;
+    satellitesVisible = snapshot.satellitesVisible;
+    gpsFixType = snapshot.gpsFixType;
+    headingDegrees = snapshot.headingDegrees;
+    airspeedMetersPerSecond = snapshot.airspeedMetersPerSecond;
+    groundSpeedMetersPerSecond = snapshot.groundSpeedMetersPerSecond;
+    relativeAltitudeMeters = snapshot.relativeAltitudeMeters;
+    absoluteAltitudeMeters = snapshot.absoluteAltitudeMeters;
+    climbRateMetersPerSecond = snapshot.climbRateMetersPerSecond;
+    throttlePercent = snapshot.throttlePercent;
+    rollDegrees = snapshot.rollDegrees;
+    pitchDegrees = snapshot.pitchDegrees;
+    batteryRemainingPercent = snapshot.batteryRemainingPercent;
+    batteryVoltage = snapshot.batteryVoltage;
+    firmwareInfo = snapshot.firmwareInfo == null
+        ? null
+        : Map.of(snapshot.firmwareInfo!);
+    vehicleIdentity = snapshot.vehicleIdentity == null
+        ? null
+        : Map.of(snapshot.vehicleIdentity!);
+    vehicleArmed = snapshot.vehicleArmed;
+    vehicleFlightMode = snapshot.vehicleFlightMode;
+    flightModesAvailable = snapshot.flightModesAvailable;
+    flightModeOptions = List.of(snapshot.flightModeOptions);
+    flightMessages = List.of(snapshot.flightMessages);
+    _lastMessageSeq = snapshot.lastMessageSeq;
+    vehicleType = snapshot.vehicleType;
+    vehicleAutopilotType = snapshot.vehicleAutopilotType;
+    vehicleLandedState = snapshot.vehicleLandedState;
+    vehicleVtolState = snapshot.vehicleVtolState;
+    guidedTargetPosition = snapshot.guidedTargetPosition;
+    guidedTargetValid = snapshot.guidedTargetValid;
+    _guidedTargetModeObserved = snapshot.guidedTargetModeObserved;
+    _guidedTargetModeDeadline = snapshot.guidedTargetModeDeadline;
+    flightTimeSeconds = snapshot.flightTimeSeconds;
+    flightDistanceMeters = snapshot.flightDistanceMeters;
+    _flightStatsArmed = snapshot.flightStatsArmed;
+    _lastFlightLatitude = snapshot.lastFlightLatitude;
+    _lastFlightLongitude = snapshot.lastFlightLongitude;
+    _flightStopwatch
+      ..stop()
+      ..reset();
+    _flightStopwatchOffsetSeconds = snapshot.flightTimeSeconds;
+    if (_flightStatsArmed) _flightStopwatch.start();
+    firmwareVersionInfo = snapshot.firmwareVersionInfo == null
+        ? null
+        : Map.of(snapshot.firmwareVersionInfo!);
+    sensorHealth = snapshot.sensorHealth == null
+        ? null
+        : Map.of(snapshot.sensorHealth!);
+    waveformWindowMs = snapshot.waveformWindowMs;
+    waveformImuInstances = List.of(snapshot.waveformImuInstances);
+    waveformMagInstances = List.of(snapshot.waveformMagInstances);
+    waveformImuInstance = snapshot.waveformImuInstance;
+    waveformMagInstance = snapshot.waveformMagInstance;
+    parameters
+      ..clear()
+      ..addAll(snapshot.parameters);
+    _parameterWriteErrors
+      ..clear()
+      ..addAll(snapshot.parameterWriteErrors);
+    _parameterMetadataLoaded
+      ..clear()
+      ..addAll(snapshot.parameterMetadataLoaded);
+    _parameterMetadataAttempts
+      ..clear()
+      ..addAll(snapshot.parameterMetadataAttempts);
+    _pendingParameterMetadata
+      ..clear()
+      ..addAll(snapshot.pendingParameterMetadata);
+    parameterReceived = snapshot.parameterReceived;
+    parameterTotal = snapshot.parameterTotal;
+    parametersLoaded = snapshot.parametersLoaded;
+    parametersLoading = snapshot.parametersLoading;
+    parameterError = snapshot.parameterError;
+    servoOutputs = List.of(snapshot.servoOutputs);
+    servoOutputsValid = snapshot.servoOutputsValid;
+    rcChannels = List.of(snapshot.rcChannels);
+    rcChannelsValid = snapshot.rcChannelsValid;
+    vehiclePosition = snapshot.vehiclePosition;
+    vehiclePositionValid = snapshot.vehiclePositionValid;
+    homePosition = snapshot.homePosition;
+    homePositionValid = snapshot.homePositionValid;
+    serialHardwareMappings
+      ..clear()
+      ..addAll(snapshot.serialHardwareMappings);
+    serialHardwareMappingLoading = snapshot.serialHardwareMappingLoading;
+    serialHardwareMappingError = snapshot.serialHardwareMappingError;
+    _serialHardwareMappingRequested = snapshot.serialHardwareMappingRequested;
+    _firmwareVersionRequested = snapshot.firmwareVersionRequested;
+    _parameterRequestStarted = snapshot.parameterRequestStarted;
+    _loadingParameterMetadata = snapshot.loadingParameterMetadata;
+    _lastSystemStatusPollMs = 0;
+  }
+
   // ================================================================
   // 引导操作与任务读取（对标 QGC GuidedActionsController / PlanView）
   // ================================================================
 
   void _requireConnected(String action) {
     if (!isConnected) throw StateError('未连接飞控，无法$action');
+    fleet.refresh();
+    if (fleet.snapshot.activeVehicleId != sessionId) {
+      throw StateError('目标飞控会话已改变，无法$action');
+    }
   }
 
   /// 增量拉取飞控消息（只取 seq 比上次大的），追加到本地列表。
@@ -1375,10 +2238,13 @@ final class ConnectionController extends ChangeNotifier {
   /// 后端保留最近 200 条，这里同样限长，避免长时间连接后无限增长。
   Future<void> refreshFlightMessages() async {
     if (!isConnected) return;
+    final id = sessionId;
+    if (id == null) return;
     try {
       final response =
           _readJson(_getMessages(_core, _lastMessageSeq))
               as Map<String, Object?>;
+      if (_disposed || sessionId != id) return;
       if (response['success'] != true) return;
       final items = (response['messages'] as List<Object?>? ?? const [])
           .whereType<Map<Object?, Object?>>()
@@ -1430,9 +2296,12 @@ final class ConnectionController extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    final id = sessionId;
+    if (id == null) return;
     try {
       final response =
           _readJson(_getFlightModes(_core)) as Map<String, Object?>;
+      if (_disposed || sessionId != id) return;
       if (response['success'] != true) return;
       final options = (response['modes'] as List<Object?>? ?? const [])
           .whereType<Map<Object?, Object?>>()
@@ -1458,16 +2327,21 @@ final class ConnectionController extends ChangeNotifier {
   /// 按名字切换飞行模式（MP 的 setMode(name) / QGC 的 flightMode 属性写法）。
   Future<void> setFlightMode(String name) async {
     _requireConnected('切换飞行模式');
-    final nativeName = name.toNativeUtf8();
-    try {
+    final options = flightModeOptions.where(
+      (mode) => mode.name == name && mode.settable,
+    );
+    if (options.isEmpty) throw StateError('当前飞控不支持模式 $name');
+    final target = fleet.captureTarget(expectedVehicleId: sessionId);
+    await fleet.runForTarget(target, () async {
       _requireCommandSuccess(
-        _readJson(_setFlightMode(_core, nativeName)),
+        flightCommandBackend.setMode(
+          vehicleArmed ? 0x81 : 0x01,
+          options.first.id,
+        ),
         '切换到 $name',
       );
-    } finally {
-      malloc.free(nativeName);
-    }
-    await refreshFlightModes();
+      await refreshFlightModes();
+    });
   }
 
   void _requireCommandSuccess(Object? raw, String action) {
@@ -1517,6 +2391,10 @@ final class ConnectionController extends ChangeNotifier {
       altitudeMeters: altitudeMeters,
     );
     guidedTargetValid = true;
+    _guidedTargetModeObserved = isGuidedGotoFlightMode;
+    _guidedTargetModeDeadline = _guidedTargetModeObserved
+        ? null
+        : DateTime.now().add(_guidedTargetModeTransitionTimeout);
     _notifyTelemetryChanges();
     notifyListeners();
   }
@@ -1674,8 +2552,10 @@ final class ConnectionController extends ChangeNotifier {
     bool? armed,
     required Duration timeout,
   }) async {
+    final target = fleet.captureTarget(expectedVehicleId: sessionId);
     final deadline = DateTime.now().add(timeout);
     while (!_disposed && DateTime.now().isBefore(deadline)) {
+      fleet.validateTarget(target);
       if (_readVehicleSummaryForCommand()) {
         final modeMatches = mode == null || _flightModeMatches(mode);
         final armedMatches = armed == null || vehicleArmed == armed;
@@ -1683,6 +2563,8 @@ final class ConnectionController extends ChangeNotifier {
       }
       await Future<void>.delayed(_commandStatePollInterval);
     }
+    if (_disposed) return false;
+    fleet.validateTarget(target);
     if (!_readVehicleSummaryForCommand()) return false;
     return (mode == null || _flightModeMatches(mode)) &&
         (armed == null || vehicleArmed == armed);
@@ -1759,27 +2641,18 @@ final class ConnectionController extends ChangeNotifier {
     double altitudeMeters = 50,
   }) async {
     _requireConnected('环绕飞行');
-    final config = jsonEncode({
-      'lat': latitude,
-      'lon': longitude,
-      'radius': radiusMeters,
-      'velocity': velocityMetersPerSecond,
-      'altitude': altitudeMeters,
-    }).toNativeUtf8();
-    try {
-      _requireCommandSuccess(
-        flightCommandBackend.orbit(
-          latitude: latitude,
-          longitude: longitude,
-          radiusMeters: radiusMeters,
-          velocityMetersPerSecond: velocityMetersPerSecond,
-          altitudeMeters: altitudeMeters,
-        ),
-        '环绕飞行',
-      );
-    } finally {
-      malloc.free(config);
-    }
+    _requireCommandSuccess(
+      flightCommandBackend.orbit(
+        latitude: latitude,
+        longitude: longitude,
+        radiusMeters: radiusMeters,
+        velocityMetersPerSecond: velocityMetersPerSecond,
+        altitudeMeters: altitudeMeters,
+      ),
+      '环绕飞行',
+    );
+    // 环绕会替换当前的水平目的地；旧 Go To 图标不应继续留在图上。
+    _clearGuidedTarget();
   }
 
   /// 设置飞控 home。会改变返航基准，调用方必须先向用户确认。
@@ -1862,6 +2735,10 @@ final class ConnectionController extends ChangeNotifier {
   /// app bundle 的 Frameworks 目录。Android 由系统 linker 按 JNI 库名查找，
   /// 但真正的 USB Host 串口发现仍需要 Android 原生层提供设备路径和权限。
   DynamicLibrary _openPlatformLibrary() {
+    final testLibrary = Platform.environment['MGCS_FLEET_LIBRARY'];
+    if (testLibrary != null && testLibrary.isNotEmpty) {
+      return DynamicLibrary.open(testLibrary);
+    }
     if (Platform.isAndroid) {
       return DynamicLibrary.open('libmgcore.so');
     }
@@ -1895,7 +2772,7 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   Future<void> refreshPorts() async {
-    if (initializationError != null || _busy || hasSession) return;
+    if (initializationError != null || _busy) return;
     _busy = true;
     message = null;
     _notifyConnectionChanges();
@@ -1939,14 +2816,14 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   void selectPort(String? path) {
-    if (hasSession || path == null) return;
+    if (_busy || path == null) return;
     selectedPort = path;
     _notifyConnectionChanges();
     notifyListeners();
   }
 
   void selectBaudRate(int? value) {
-    if (hasSession || value == null) return;
+    if (_busy || value == null) return;
     baudRate = value;
     _notifyConnectionChanges();
     notifyListeners();
@@ -1954,6 +2831,7 @@ final class ConnectionController extends ChangeNotifier {
 
   Future<void> connect() async {
     if (!canConnect) return;
+    final previousSessionId = sessionId;
     final transportAtConnect = transport;
     final serialPort = selectedPort;
     final host = transportAtConnect == ConnectionTransport.udp
@@ -1978,40 +2856,28 @@ final class ConnectionController extends ChangeNotifier {
         : '正在打开 $transportLabel 链路并等待飞控心跳…';
     _notifyConnectionChanges();
     notifyListeners();
-    int? openedSessionId;
+    int? openedLinkId;
     try {
-      final nativeUri = uri.toNativeUtf8();
-      late final int result;
-      try {
-        result = _open(_core, nativeUri);
-      } finally {
-        malloc.free(nativeUri);
-      }
-      if (result < 0) {
-        throw StateError(_openFailureMessage(result, uri));
-      }
-      openedSessionId = result;
-      await _attachSession(result, transportLabel: selectedTransportLabel);
-      openedSessionId = null;
+      final result = fleet.openLink(FleetConnectionSpec(uri));
+      openedLinkId = result;
+      await _attachLink(result, transportLabel: transportLabel);
+      openedLinkId = null;
     } on Object catch (error) {
       message = _friendlyError(error);
-      final openedId = openedSessionId;
+      final openedId = openedLinkId;
       if (openedId != null) {
         try {
-          final response = _close(_core, openedId);
-          if (response != nullptr) _freeString(response);
+          fleet.closeLink(openedId);
         } on Object {
           // Keep the original connect error; backend disposal is best effort.
         }
       }
-      if (sessionId == openedId) sessionId = null;
-      phase = SerialConnectionPhase.disconnected;
-      _firmwareVersionRequested = false;
-      _parameterRequestStarted = false;
-      _stateTimer?.cancel();
-      _telemetryTimer?.cancel();
-      _waveformTimer?.cancel();
-      _waveformTimer = null;
+      if (previousSessionId == null || sessionId == null) {
+        phase = SerialConnectionPhase.disconnected;
+        _firmwareVersionRequested = false;
+        _parameterRequestStarted = false;
+        _stopSessionPolling();
+      }
       _notifyConnectionChanges();
     } finally {
       _busy = false;
@@ -2020,84 +2886,105 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
-  /// Attach the controller to a native session returned by a connection API.
-  Future<void> _attachSession(
-    int result, {
-    required String transportLabel,
-  }) async {
-    final selection =
-        _readJson(_selectVehicle(_core, result)) as Map<String, Object?>;
-    if (selection['success'] != true) {
-      final error = selection['error'];
-      throw StateError(
-        error is Map<String, Object?>
-            ? error['message'] as String? ?? '无法选择当前飞控'
-            : '无法选择当前飞控',
-      );
+  /// Attach the controller to a native link handle. A link can exist before a
+  /// heartbeat has identified its vehicle, so this method must not select a
+  /// vehicle by treating the handle as a vehicle ID.
+  Future<void> _attachLink(int linkId, {required String transportLabel}) async {
+    fleet.refresh();
+    final link = fleetSnapshot.link(linkId);
+    if (link == null) throw StateError('链路打开后未注册');
+
+    if (sessionId == null) {
+      _activeLinkId = linkId;
+      final vehicleId = link.vehicleId;
+      if (vehicleId != null) {
+        _switchToSession(vehicleId, forced: true);
+      } else {
+        _lastSystemStatusPollMs = 0;
+        phase = SerialConnectionPhase.waitingForHeartbeat;
+        message = '$transportLabel 链路已打开，正在等待飞控心跳…';
+        _startSessionPolling();
+      }
+    } else {
+      final focusedVehicle = fleetSnapshot.activeVehicleId;
+      if (focusedVehicle != null && focusedVehicle != sessionId) {
+        _switchToSession(focusedVehicle, forced: true);
+      }
+      // QGC keeps the first vehicle focused when another link is added.
+      message = '$transportLabel 链路已添加，等待飞控心跳…';
     }
-    sessionId = result;
-    _missionPlanning?.bindSession(result);
-    _ensureActiveSession(result);
-    _firmwareVersionRequested = false;
-    _parameterRequestStarted = false;
-    parametersLoaded = false;
-    parametersLoading = false;
-    parameterReceived = 0;
-    parameterTotal = 0;
-    parameterError = null;
-    parameters.clear();
-    _parameterMetadataLoaded.clear();
-    _parameterMetadataAttempts.clear();
-    phase = SerialConnectionPhase.waitingForHeartbeat;
-    message = '$transportLabel 链路已打开，正在等待飞控心跳…';
+
     _notifyConnectionChanges();
-    _lastSystemStatusPollMs = 0;
-    _stateTimer?.cancel();
-    _stateTimer = Timer.periodic(
-      const Duration(milliseconds: 750),
-      (_) => unawaited(_pollSession()),
-    );
-    _telemetryTimer?.cancel();
-    _telemetryTimer = Timer.periodic(
-      _telemetryPollInterval,
-      (_) => _pollTelemetry(result),
-    );
-    _restartWaveformTimer();
     _notifyParameterChanges();
     await _pollSession();
   }
 
   Future<void> _pollSession() async {
-    final id = sessionId;
+    final capturedVehicleId = sessionId;
+    final capturedLinkId = _activeLinkId;
+    final id = capturedVehicleId ?? capturedLinkId;
     if (id == null || _disposed) return;
     final previousPhase = phase;
     final previousMessage = message;
     try {
-      final state =
-          _readJson(_getSessionState(_core, id)) as Map<String, Object?>;
-      _ensureActiveSession(id);
+      final Map<String, Object?> state;
+      if (capturedVehicleId != null) {
+        final envelope = telemetryBackend.sessionStatus(capturedVehicleId);
+        if (envelope['success'] == true) {
+          state =
+              (envelope['data'] as Map<Object?, Object?>? ??
+                      const <Object?, Object?>{})
+                  .cast<String, Object?>();
+        } else {
+          state = <String, Object?>{'success': false};
+        }
+      } else {
+        state = _readJson(_getSessionState(_core, id)) as Map<String, Object?>;
+      }
+      fleet.refresh();
+      // refresh() may synchronously rebind to a replacement session/link.
+      if (_disposed ||
+          sessionId != capturedVehicleId ||
+          _activeLinkId != capturedLinkId) {
+        return;
+      }
       if (state['success'] != true) {
-        _stateTimer?.cancel();
-        _telemetryTimer?.cancel();
-        _waveformTimer?.cancel();
-        _calibrationTimer?.cancel();
-        sessionId = null;
-        phase = SerialConnectionPhase.disconnected;
-        message = previousPhase == SerialConnectionPhase.waitingForHeartbeat
-            ? '未收到飞控心跳，连接已关闭。请检查所选设备、波特率或数据链路。'
-            : '飞控连接已关闭，请检查线缆或数据链路。';
-        _firmwareVersionRequested = false;
-        _parameterRequestStarted = false;
-        _clearTelemetry();
+        final linkStillPresent =
+            capturedLinkId != null &&
+            fleetSnapshot.link(capturedLinkId) != null;
+        if (linkStillPresent) {
+          message = '读取连接状态失败，链路仍在等待飞控心跳。';
+        } else {
+          _stopSessionPolling();
+          _calibrationTimer?.cancel();
+          sessionId = null;
+          phase = SerialConnectionPhase.disconnected;
+          message = previousPhase == SerialConnectionPhase.waitingForHeartbeat
+              ? '未收到飞控心跳，连接已关闭。请检查所选设备、波特率或数据链路。'
+              : '飞控连接已关闭，请检查线缆或数据链路。';
+          _firmwareVersionRequested = false;
+          _parameterRequestStarted = false;
+          _clearTelemetry();
+        }
       } else if (state['heartbeat_alive'] == true) {
+        if (capturedVehicleId == null) {
+          final discoveredVehicleId = capturedLinkId == null
+              ? null
+              : fleetSnapshot.link(capturedLinkId)?.vehicleId;
+          if (discoveredVehicleId != null) {
+            _switchToSession(discoveredVehicleId, forced: true);
+            return;
+          }
+        }
         phase = SerialConnectionPhase.connected;
         message = '飞控已连接';
+        unawaited(_applySigningPreferenceIfAny());
         if (previousPhase != SerialConnectionPhase.connected &&
             _waveformActive) {
           _applyWaveformStreamRate();
           _scheduleWaveformStreamRateRetry();
         }
-        if (!_firmwareVersionRequested) {
+        if (capturedVehicleId != null && !_firmwareVersionRequested) {
           _firmwareVersionRequested = true;
           try {
             _readJson(_requestFirmwareVersion(_core));
@@ -2123,18 +3010,20 @@ final class ConnectionController extends ChangeNotifier {
         notifyListeners();
       }
     } on Object catch (error) {
+      if (_disposed ||
+          sessionId != capturedVehicleId ||
+          _activeLinkId != capturedLinkId) {
+        return;
+      }
       message = '读取连接状态失败：$error';
       if (message != previousMessage) notifyListeners();
     }
   }
 
   void _ensureActiveSession(int id) {
-    try {
-      if (_getActiveVehicle(_core) == id) return;
-      final response = _selectVehicle(_core, id);
-      if (response != nullptr) _freeString(response);
-    } on Object {
-      // The session poll will surface a missing session on the next pass.
+    fleet.refresh();
+    if (fleet.snapshot.activeVehicleId != id) {
+      throw StateError('当前飞控焦点与连接会话不匹配');
     }
   }
 
@@ -2152,33 +3041,204 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
-  Future<void> disconnect() async {
-    final id = sessionId;
-    if (id == null || _busy) return;
+  /// Closes exactly one physical link. Closing a non-active link must not
+  /// disturb the active aircraft; closing the active route lets Fleet select a
+  /// remaining session and then rebinds the UI runtime state to it.
+  Future<void> disconnectLink(int linkId) async {
+    if (_busy) return;
+    final link = fleetSnapshot.link(linkId);
+    final legacyVehicle = link == null ? fleetSnapshot.vehicle(linkId) : null;
+    if (link == null && legacyVehicle == null) {
+      message = '链路不存在或已经断开';
+      _notifyConnectionChanges();
+      notifyListeners();
+      return;
+    }
+
+    final linkedVehicleId = link?.vehicleId ?? legacyVehicle?.id;
+    final wasActiveVehicle =
+        linkedVehicleId != null && sessionId == linkedVehicleId;
+    final wasActiveLink = _activeLinkId == linkId;
+    final wasActive = wasActiveVehicle || wasActiveLink;
+
     _busy = true;
     _notifyConnectionChanges();
     notifyListeners();
     try {
-      _cancelActiveOperations();
-      final result = _readJson(_close(_core, id)) as Map<String, Object?>;
-      if (result['success'] != true) {
-        throw StateError(result['error'] as String? ?? '断开连接失败');
+      if (fleet.targetOperationActive) {
+        throw StateError('指令执行中，暂不能关闭链路');
       }
-      message = '已断开飞控连接';
-      sessionId = null;
-      _missionPlanning?.bindSession(null);
-      phase = SerialConnectionPhase.disconnected;
-      _firmwareVersionRequested = false;
-      _parameterRequestStarted = false;
-      _stateTimer?.cancel();
-      _telemetryTimer?.cancel();
-      _waveformTimer?.cancel();
-      _calibrationTimer?.cancel();
-      _clearTelemetry();
+      if (wasActiveVehicle) {
+        _ensureActiveSession(linkedVehicleId);
+      }
+      if (wasActive && sessionId != null) {
+        _cancelActiveOperations();
+      }
+      fleet.closeLink(linkId);
+      if (linkedVehicleId != null &&
+          fleetSnapshot.vehicle(linkedVehicleId) == null) {
+        _runtimeSnapshots.remove(linkedVehicleId);
+      }
+      _syncActiveLink();
+
+      if (wasActive) {
+        // FleetController refreshes synchronously after close. Its listener
+        // normally performs this rebind; the explicit fallback covers a
+        // listener being detached during teardown or a failed notification.
+        final replacement = fleetSnapshot.activeVehicleId;
+        if (replacement != null && replacement != sessionId) {
+          _switchToSession(replacement, forced: true);
+          message = '已断开旧链路，已切换到飞机 $replacement';
+        } else if (replacement != null) {
+          _activeLinkId = _preferredLinkForVehicle(replacement)?.id;
+          message = '链路已断开，当前飞机仍有其他链路';
+          unawaited(_pollSession());
+        } else {
+          _sessionGeneration++;
+          _stopSessionPolling();
+          _calibrationTimer?.cancel();
+          sessionId = null;
+          _resetRuntimeState();
+          final waitingLink = _activeLinkId == null
+              ? null
+              : fleetSnapshot.link(_activeLinkId!);
+          if (waitingLink != null) {
+            phase = SerialConnectionPhase.waitingForHeartbeat;
+            message = '链路已打开，等待飞控心跳…';
+            _startSessionPolling();
+          } else {
+            phase = SerialConnectionPhase.disconnected;
+            message = '飞控连接已关闭';
+          }
+          _clearTelemetry();
+        }
+      } else {
+        message = '链路已断开';
+      }
     } on Object catch (error) {
       message = _friendlyError(error);
     } finally {
       _busy = false;
+      _notifyConnectionChanges();
+      notifyListeners();
+    }
+  }
+
+  /// Closes one route selected in the fleet panel. A shared UDP/TCP link stays
+  /// open for the other discovered vehicles; a waiting link has no route yet,
+  /// so it falls back to closing the physical link.
+  Future<void> disconnectFleetLink(FleetLinkSummary link) async {
+    if (link.routeId < 0 || link.vehicleId == null) {
+      await disconnectLink(link.id);
+      return;
+    }
+    await disconnectRoute(link.routeId);
+  }
+
+  Future<void> disconnectRoute(int routeId) async {
+    if (_busy) return;
+    FleetLinkSummary? route;
+    for (final link in fleetSnapshot.links) {
+      if (link.routeId == routeId) {
+        route = link;
+        break;
+      }
+    }
+    if (route == null) {
+      message = '链路 route 不存在';
+      _notifyConnectionChanges();
+      notifyListeners();
+      return;
+    }
+    final linkedVehicleId = route.vehicleId;
+    final wasActive = linkedVehicleId != null && sessionId == linkedVehicleId;
+    _busy = true;
+    _notifyConnectionChanges();
+    notifyListeners();
+    try {
+      if (fleet.targetOperationActive) {
+        throw StateError('指令执行中，暂不能关闭链路');
+      }
+      if (wasActive) {
+        _ensureActiveSession(linkedVehicleId);
+        _cancelActiveOperations();
+      }
+      fleet.closeRoute(routeId);
+      if (linkedVehicleId != null &&
+          fleetSnapshot.vehicle(linkedVehicleId) == null) {
+        _runtimeSnapshots.remove(linkedVehicleId);
+      }
+      _syncActiveLink();
+
+      if (wasActive) {
+        final replacement = fleetSnapshot.activeVehicleId;
+        if (replacement != null && replacement != sessionId) {
+          _switchToSession(replacement, forced: true);
+          message = '已断开链路，已切换到飞机 $replacement';
+        } else if (replacement != null) {
+          _activeLinkId = _preferredLinkForVehicle(replacement)?.id;
+          message = '已断开链路，当前飞机仍有其他链路';
+          unawaited(_pollSession());
+        } else {
+          _sessionGeneration++;
+          _stopSessionPolling();
+          _calibrationTimer?.cancel();
+          sessionId = null;
+          _resetRuntimeState();
+          final waitingLink = _activeLinkId == null
+              ? null
+              : fleetSnapshot.link(_activeLinkId!);
+          if (waitingLink != null) {
+            phase = SerialConnectionPhase.waitingForHeartbeat;
+            message = '链路已打开，等待飞控心跳…';
+            _startSessionPolling();
+          } else {
+            phase = SerialConnectionPhase.disconnected;
+            message = '飞控连接已关闭';
+          }
+          _clearTelemetry();
+        }
+      } else {
+        message = '链路已断开';
+      }
+    } on Object catch (error) {
+      message = _friendlyError(error);
+    } finally {
+      _busy = false;
+      _notifyConnectionChanges();
+      notifyListeners();
+    }
+  }
+
+  Future<void> disconnect() async {
+    final linkId = _activeLinkId;
+    if (linkId != null) {
+      await disconnectLink(linkId);
+      return;
+    }
+    final vehicleId = sessionId;
+    if (vehicleId != null) await disconnectLink(vehicleId);
+  }
+
+  /// Selects a discovered link for the map and command surface. Waiting links
+  /// remain visible in the panel but cannot steal vehicle focus until their
+  /// heartbeat identifies a vehicle.
+  void selectLink(int linkId) {
+    if (_busy || linkId == _activeLinkId) return;
+    try {
+      final link = fleetSnapshot.link(linkId);
+      if (link == null) throw StateError('链路不存在');
+      final vehicleId = link.vehicleId;
+      if (vehicleId == null) {
+        throw StateError('链路尚未识别到飞控');
+      }
+      fleet.selectVehicle(vehicleId);
+      _activeLinkId = linkId;
+      _notifyConnectionChanges();
+      notifyListeners();
+      unawaited(_pollSession());
+    } on Object catch (error) {
+      message = _friendlyError(error);
       _notifyConnectionChanges();
       notifyListeners();
     }
@@ -2195,6 +3255,7 @@ final class ConnectionController extends ChangeNotifier {
 
   void _pollTelemetry(int id) {
     if (!isConnected || sessionId != id || _disposed) return;
+    if (fleet.snapshot.activeVehicleId != id) return;
     final previousError = telemetryError;
     final previousSatellites = satellitesVisible;
     final previousFix = gpsFixType;
@@ -2697,6 +3758,7 @@ final class ConnectionController extends ChangeNotifier {
         _flightStatsArmed = false;
         _flightStopwatch.stop();
       }
+      _flightStopwatchOffsetSeconds = 0;
       flightTimeSeconds = 0;
       flightDistanceMeters = 0;
       _lastFlightLatitude = null;
@@ -2706,6 +3768,7 @@ final class ConnectionController extends ChangeNotifier {
     }
     if (!_flightStatsArmed) {
       _flightStatsArmed = true;
+      _flightStopwatchOffsetSeconds = 0;
       _flightStopwatch
         ..reset()
         ..start();
@@ -2715,7 +3778,9 @@ final class ConnectionController extends ChangeNotifier {
       _lastFlightLongitude = null;
       return true;
     }
-    flightTimeSeconds = _flightStopwatch.elapsedMilliseconds / 1000.0;
+    flightTimeSeconds =
+        _flightStopwatchOffsetSeconds +
+        _flightStopwatch.elapsedMilliseconds / 1000.0;
     final fix = vehiclePosition;
     if (vehiclePositionValid && fix != null) {
       final previousLatitude = _lastFlightLatitude;
@@ -2734,6 +3799,7 @@ final class ConnectionController extends ChangeNotifier {
 
   bool _pollSystemStatus() {
     final oldFirmware = jsonEncode(firmwareInfo);
+    final oldGuidedTargetValid = guidedTargetValid;
     final oldIdentity = jsonEncode(vehicleIdentity);
     final oldVersion = jsonEncode(firmwareVersionInfo);
     final oldSensors = jsonEncode(sensorHealth);
@@ -2752,6 +3818,7 @@ final class ConnectionController extends ChangeNotifier {
         vehicleFlightMode = summaryData['flight_mode'] as String? ?? '';
         vehicleType = summaryData['vehicle_type'] as int? ?? 0;
         vehicleAutopilotType = summaryData['autopilot_type'] as int? ?? 0;
+        _updateGuidedTargetMode();
       }
 
       final extendedEnvelope = telemetryBackend.extendedSysState();
@@ -2793,7 +3860,45 @@ final class ConnectionController extends ChangeNotifier {
         oldFlightMode != vehicleFlightMode ||
         oldVehicleType != vehicleType ||
         oldAutopilotType != vehicleAutopilotType ||
-        oldLandedState != vehicleLandedState;
+        oldLandedState != vehicleLandedState ||
+        oldGuidedTargetValid != guidedTargetValid;
+  }
+
+  /// 让 Go To 显示目标跟随飞控飞行模式生命周期。
+  void _updateGuidedTargetMode() {
+    if (!guidedTargetValid && guidedTargetPosition == null) {
+      _guidedTargetModeObserved = false;
+      _guidedTargetModeDeadline = null;
+      return;
+    }
+    if (isGuidedGotoFlightMode) {
+      _guidedTargetModeObserved = true;
+      _guidedTargetModeDeadline = null;
+      return;
+    }
+
+    final deadline = _guidedTargetModeDeadline;
+    final timedOut = deadline != null && !DateTime.now().isBefore(deadline);
+    if (_guidedTargetModeObserved || timedOut) {
+      _clearGuidedTarget(notify: false);
+    }
+  }
+
+  /// 永久清除当前 Go To 显示目标。
+  void _clearGuidedTarget({bool notify = true}) {
+    final changed =
+        guidedTargetValid ||
+        guidedTargetPosition != null ||
+        _guidedTargetModeObserved ||
+        _guidedTargetModeDeadline != null;
+    guidedTargetPosition = null;
+    guidedTargetValid = false;
+    _guidedTargetModeObserved = false;
+    _guidedTargetModeDeadline = null;
+    if (changed && notify) {
+      _notifyTelemetryChanges();
+      notifyListeners();
+    }
   }
 
   bool _sameIntList(List<int> left, List<int> right) {
@@ -2805,11 +3910,25 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   void _clearTelemetry() {
-    _missionPlanning?.bindSession(null);
+    _resetRuntimeState();
+    _notifyParameterChanges();
+    _notifyTelemetryChanges();
+    _notifyProfileChanges();
+  }
+
+  /// Reset only the per-vehicle state. Session and mission binding are handled
+  /// by the caller so a target switch can restore its own snapshot afterward.
+  void _resetRuntimeState() {
     telemetryError = null;
     flightMessages = const [];
     _lastMessageSeq = 0;
     _clearTelemetryValues();
+    vehicleFlightMode = '';
+    vehicleArmed = false;
+    vehicleType = 0;
+    vehicleAutopilotType = 0;
+    flightModesAvailable = false;
+    flightModeOptions = const [];
     parameters.clear();
     _parameterMetadataLoaded.clear();
     _parameterMetadataAttempts.clear();
@@ -2834,15 +3953,13 @@ final class ConnectionController extends ChangeNotifier {
     homePositionValid = false;
     vehicleLandedState = 0;
     vehicleVtolState = 0;
-    guidedTargetPosition = null;
-    guidedTargetValid = false;
+    _clearGuidedTarget(notify: false);
     serialHardwareMappings.clear();
     serialHardwareMappingLoading = false;
     serialHardwareMappingError = null;
     _serialHardwareMappingRequested = false;
-    _notifyParameterChanges();
-    _notifyTelemetryChanges();
-    _notifyProfileChanges();
+    _firmwareVersionRequested = false;
+    _loadingParameterMetadata = false;
   }
 
   void _clearTelemetryValues() {
@@ -2859,6 +3976,7 @@ final class ConnectionController extends ChangeNotifier {
     absoluteAltitudeMeters = null;
     _flightStatsArmed = false;
     _flightStopwatch.stop();
+    _flightStopwatchOffsetSeconds = 0;
     flightTimeSeconds = 0;
     flightDistanceMeters = 0;
     _lastFlightLatitude = null;
@@ -2886,29 +4004,18 @@ final class ConnectionController extends ChangeNotifier {
     homePositionValid = false;
   }
 
-  String _openFailureMessage(int code, String endpoint) => switch (code) {
-    -1 => '连接失败：后端核心尚未初始化。',
-    -3 => '无法打开链路 $endpoint。请检查设备、网络地址和端口是否可用。',
-    -4 => '连接参数无效，请检查端口、地址和波特率。',
-    -5 => '当前连接状态不允许执行此操作。',
-    -7 => '连接资源正忙，请稍后重试。',
-    -14 => '连接会话不存在或已关闭。',
-    _ => '连接失败（后端错误码 $code）。',
-  };
-
   @override
   void dispose() {
     _disposed = true;
+    _fleet?.removeListener(_handleFleetChanged);
+    _fleetTimer?.cancel();
+    _fleet?.dispose();
     _flightStopwatch.stop();
     _stateTimer?.cancel();
     _telemetryTimer?.cancel();
     _waveformTimer?.cancel();
     _calibrationTimer?.cancel();
     if (initializationError == null) {
-      if (sessionId != null) {
-        final response = _close(_core, sessionId!);
-        if (response != nullptr) _freeString(response);
-      }
       calloc.free(_waveformBuffer);
       _destroy(_core);
     }
@@ -2918,7 +4025,11 @@ final class ConnectionController extends ChangeNotifier {
     connectionChanges.dispose();
     waveformChanges.dispose();
     calibrationChanges.dispose();
-    _missionPlanning?.dispose();
+    _offlineMissionPlanning?.dispose();
+    for (final mission in _missionPlanningBySession.values) {
+      mission.dispose();
+    }
+    _missionPlanningBySession.clear();
     super.dispose();
   }
 }

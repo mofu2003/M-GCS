@@ -14,6 +14,7 @@
 #include "core/telemetry/waveform_buffer.h"
 #include "core/transport/connection_manager.h"
 #include "core/transport/link_config.h"
+#include "core/vehicle/vehicle_link_manager.h"
 #include "core/video/video_receiver.h"
 #include "core/telemetry/telemetry_cache.h"
 
@@ -66,10 +67,45 @@ public:
     Vehicle& operator=(const Vehicle&) = delete;
 
     bool connect(const std::string& endpoint);
+
+    /// Attach this Vehicle to a shared LinkSession. system_id/component_id may
+    /// be zero for the first placeholder Vehicle before heartbeat discovery.
+    bool attach_shared_session(
+        const std::shared_ptr<mg::core::transport::LinkSession>& session,
+        const std::string& endpoint,
+        uint8_t system_id = 0,
+        uint8_t component_id = 0);
+
+    /// Attach an additional shared route to this Vehicle. Telemetry from the
+    /// route is merged into the same Vehicle and participates in primary-link
+    /// selection.
+    bool attach_shared_route(
+        const std::shared_ptr<mg::core::transport::LinkSession>& session,
+        int route_id,
+        uint8_t system_id,
+        uint8_t component_id);
+
+    /// Attach a shared route as the first/primary route with an explicit ID.
+    bool attach_shared_primary_route(
+        const std::shared_ptr<mg::core::transport::LinkSession>& session,
+        int route_id,
+        const std::string& endpoint,
+        uint8_t system_id,
+        uint8_t component_id);
+
+    /// Remove one route and reselect primary if needed.
+    bool remove_shared_route(int route_id);
+
+    /// Synchronize the command/calibration source with VehicleLinkManager.
+    void refresh_primary_connection();
+
     void disconnect();
     bool is_connected() const;
 
     void wire_telemetry_callbacks();
+    void wire_telemetry_callbacks_for(
+        mg::core::transport::ConnectionManager* source,
+        int route_id);
     void set_identity(uint8_t sysid, uint8_t compid, const std::string& fw_type, const std::string& v_type);
 
     uint8_t system_id() const { return info_.system_id; }
@@ -85,8 +121,26 @@ public:
         event_cb_ = std::move(cb);
     }
 
-    mg::core::transport::ConnectionManager& conn() { return conn_; }
-    mg::core::mavlink::MavlinkAdapter* mavlink() { return conn_.get_mavlink(); }
+    mg::core::transport::ConnectionManager& conn() { return *primary_connection(); }
+    mg::core::vehicle::VehicleLinkManager& link_manager() { return link_manager_; }
+    mg::core::mavlink::MavlinkAdapter* mavlink() const {
+        const auto connection = primary_connection();
+        return connection ? connection->get_mavlink() : nullptr;
+    }
+    bool set_signing_key(const uint8_t* key, size_t key_size,
+                         bool sign_outgoing, uint64_t persisted_timestamp);
+    void clear_signing_key();
+    bool signing_enabled() const;
+    int signing_status() const;
+    bool send_setup_signing(uint8_t target_system,
+                            uint8_t target_component,
+                            const uint8_t* key,
+                            size_t key_size,
+                            uint64_t initial_timestamp = 0);
+    int primary_route_id() const { return primary_route_id_; }
+    size_t connection_count() const;
+    std::shared_ptr<mg::core::transport::ConnectionManager>
+    connection_for_route(int route_id) const;
     mg::core::telemetry::TelemetryCache& cache() { return cache_; }
     void set_usb_board_name(const std::string& name) { cache_.set_usb_board_name(name); }
 
@@ -139,7 +193,15 @@ public:
 private:
     void finish_connect();
     void fire_event(int event_type, const std::string& json);
-    void update_and_fire(mg::core::telemetry::TelemetryType type, int event_id);
+    std::shared_ptr<mg::core::transport::ConnectionManager>
+    primary_connection() const;
+    void install_connection_state_callback(
+        int route_id,
+        const std::shared_ptr<mg::core::transport::ConnectionManager>& connection);
+    void update_and_fire(
+        mg::core::transport::ConnectionManager* source,
+        mg::core::telemetry::TelemetryType type,
+        int event_id);
     /// 清空所有 IMU 实例的波形缓冲与活跃时间。
     void clear_waveforms();
 
@@ -149,7 +211,11 @@ private:
 
     mg::core::platform::Mutex event_cb_mtx_;
     EventCallback event_cb_;
-    mg::core::transport::ConnectionManager conn_;
+    mutable mg::core::platform::Mutex connections_mtx_;
+    std::map<int, std::shared_ptr<mg::core::transport::ConnectionManager>>
+        connections_;
+    int primary_route_id_ = -1;
+    mg::core::vehicle::VehicleLinkManager link_manager_;
     mg::core::telemetry::TelemetryCache cache_;
 
     mg::core::calibration::CalibrationService calibration_;

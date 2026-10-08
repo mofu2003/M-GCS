@@ -25,6 +25,8 @@
 
 - [功能差距分析](planning/FEATURE_GAP_ANALYSIS.md) — M-GCS 相对 QGC/MP 的已具备项、缺口和优先级
 - [开发路线图](planning/DEVELOPMENT_ROADMAP.md) — 阶段目标、依赖与验收条件
+- [多机连接实施计划](planning/MULTI_VEHICLE_PLAN.md) — QGC/MP 混合模型、阶段和验收矩阵
+- [多机框架当前状态审核](planning/MULTI_VEHICLE_STATUS_REVIEW.md) — 当前实现、验证证据、风险和待审核边界
 - [完成定义](planning/DEFINITION_OF_DONE.md) — 后端维护循环和产品级完成条件
 - [当前状态审计](planning/STATUS_AUDIT.md) — 当前 checkout 的可复现事实
 - [历史审计快照](planning/audits/) — 冻结的历史审计，不随当前版本改写
@@ -74,4 +76,4 @@ docs/
 
 ---
 
-**最后更新**：2026-10-08 v0.0.79
+**最后更新**：2026-10-09 v0.0.79（多机/signing 未发布改动）

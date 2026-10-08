@@ -4,6 +4,7 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include <set>
 
 namespace mg::bridge::mission_detail {
 
@@ -48,11 +49,44 @@ std::string diagnostics_array_json(const MissionValidationReport& report) {
 } // namespace
 
 std::shared_ptr<MissionDocumentService> ensure_document(mg_core_t* core) {
+    const auto* vehicle = get_active_vehicle(core);
+    const int id = vehicle ? vehicle->vehicle_id() : -1;
+    std::set<int> live_ids;
+    for (const auto& live : core->vehicles.get_all_vehicles_shared()) {
+        if (live) live_ids.insert(live->vehicle_id());
+    }
     mg::core::platform::LockGuard lock(core->mission_mtx);
+    for (auto it = core->vehicle_mission_documents.begin();
+         it != core->vehicle_mission_documents.end();) {
+        if (live_ids.count(it->first) == 0) it = core->vehicle_mission_documents.erase(it);
+        else ++it;
+    }
+    if (id > 0) {
+        auto& document = core->vehicle_mission_documents[id];
+        if (!document) {
+            // Preserve an offline draft for the first connection, but copy it:
+            // later edits must never mutate the offline or another vehicle plan.
+            if (core->vehicle_mission_documents.size() == 1 && core->mission_document) {
+                document = std::make_shared<MissionDocumentService>(core->mission_document->snapshot());
+            } else {
+                document = std::make_shared<MissionDocumentService>();
+            }
+        }
+        return document;
+    }
     if (!core->mission_document) {
         core->mission_document = std::make_shared<MissionDocumentService>();
     }
     return core->mission_document;
+}
+
+void store_document(mg_core_t* core,
+                    const std::shared_ptr<MissionDocumentService>& service) {
+    const auto* vehicle = get_active_vehicle(core);
+    const int id = vehicle ? vehicle->vehicle_id() : -1;
+    mg::core::platform::LockGuard lock(core->mission_mtx);
+    if (id > 0) core->vehicle_mission_documents[id] = service;
+    else core->mission_document = service;
 }
 
 std::string string_array_json(const std::vector<std::string>& values) {

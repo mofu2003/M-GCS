@@ -6,6 +6,7 @@
  * Uses InMemoryLink for testing without hardware.
  */
 #include "core/vehicle/multi_vehicle_manager.h"
+#include "core/vehicle/vehicle_link_manager.h"
 #include "core/transport/in_memory_link.h"
 #include "core/transport/connection_manager.h"
 #include "core/platform/platform_mutex.h"
@@ -232,6 +233,54 @@ int main() {
               "disconnected ghost session is reaped");
         CHECK(ghost_mgr.vehicle_count() == 0,
               "ghost session no longer blocks vehicle id reuse");
+    }
+
+    // 9. Per-vehicle link health and primary selection
+    {
+        fprintf(stderr, "[Group] Vehicle link health manager\n");
+        uint64_t now = 1000;
+        mg::core::vehicle::VehicleLinkManager links([&]() { return now; }, 3500);
+        CHECK(links.add_link(101), "add primary candidate link 101");
+        CHECK(links.add_link(102), "add secondary link 102");
+        CHECK(!links.add_link(102), "duplicate route is not added twice");
+        CHECK(links.record_heartbeat(101), "record heartbeat on link 101");
+        now = 2000;
+        CHECK(links.record_heartbeat(102), "record heartbeat on link 102");
+        CHECK(links.primary_route_id() == 101,
+              "healthy current primary is retained before failure");
+
+        now = 5000;
+        links.tick();
+        CHECK(!links.communication_lost(),
+              "one healthy route prevents total communication loss");
+        CHECK(links.primary_route_id() == 102,
+              "primary switches to the remaining healthy route");
+        auto statuses = links.statuses();
+        CHECK(statuses.size() == 2, "both link statuses are reported");
+        CHECK(statuses[0].route_id == 101 && statuses[0].comm_lost,
+              "failed route is marked communication-lost");
+        CHECK(statuses[1].route_id == 102 && statuses[1].primary,
+              "healthy route is marked primary");
+
+        now = 7000;
+        links.tick();
+        CHECK(links.communication_lost(),
+              "all routes lost produces total communication loss");
+        CHECK(links.primary_route_id() == -1,
+              "no primary remains when all routes are lost");
+
+        now = 7100;
+        CHECK(links.add_link(103), "add recovery route 103");
+        CHECK(!links.communication_lost(),
+              "new healthy route clears total communication loss");
+        CHECK(links.primary_route_id() == 103,
+              "recovery route becomes primary");
+        CHECK(links.remove_link(103), "remove recovery route");
+        CHECK(links.communication_lost(),
+              "removing last healthy route restores communication loss");
+        links.clear();
+        CHECK(links.link_count() == 0 && !links.communication_lost(),
+              "clear resets link health state");
     }
 
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);

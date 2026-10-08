@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
@@ -5,7 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import 'connection/connection_controller.dart';
+import 'fleet/fleet_models.dart';
 import 'theme/mg_colors.dart';
+import 'theme/mg_typography.dart';
 import 'widgets/aligned_field_row.dart';
 import 'widgets/adaptive_popup_button.dart';
 import 'widgets/mac_panel.dart';
@@ -118,7 +121,13 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
             final loadingParameters =
                 widget.controller.isConnected &&
                 !widget.controller.parametersLoaded;
-            final requestedHeight = loadingParameters ? 296.0 : 248.0;
+            final linkRows = widget.controller.fleetLinks.length.clamp(
+              0,
+              MgMetrics.fleetLinkVisibleRows,
+            );
+            final requestedHeight =
+                (loadingParameters ? 324.0 : 276.0) +
+                linkRows * (MgMetrics.fleetLinkRowHeight + 8.0);
             return AnimatedContainer(
               duration: const Duration(milliseconds: 160),
               curve: Curves.easeOutCubic,
@@ -134,6 +143,15 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
                       child: Row(
                         children: [
                           Text('连接飞控', style: theme.typography.title3),
+                          if (widget.controller.fleetLinks.length > 1) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              '${widget.controller.fleetLinks.length} 条链路',
+                              style: theme.typography.caption1.copyWith(
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          ],
                           const Spacer(),
                           _ConnectionStateLabel(controller: widget.controller),
                           const SizedBox(width: 12),
@@ -156,6 +174,21 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            MgFleetLinkList(
+                              links: widget.controller.fleetLinks,
+                              activeVehicleId: widget.controller.sessionId,
+                              activeLinkId: widget.controller.activeLinkId,
+                              busy:
+                                  widget.controller.busy ||
+                                  widget.controller.fleetOperationsActive,
+                              onSelect: widget.controller.selectLink,
+                              onDisconnect: (link) => unawaited(
+                                widget.controller.disconnectFleetLink(link),
+                              ),
+                            ),
+                            if (widget.controller.fleetLinks.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                            ],
                             Center(
                               child: MacosSegmentedControl(
                                 controller: _tabs,
@@ -226,9 +259,7 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
                                   PushButton(
                                     controlSize: ControlSize.regular,
                                     secondary: true,
-                                    onPressed:
-                                        widget.controller.busy ||
-                                            widget.controller.hasSession
+                                    onPressed: widget.controller.busy
                                         ? null
                                         : widget.controller.refreshPorts,
                                     child: const Row(
@@ -248,23 +279,28 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
                                   const ProgressCircle(radius: 7),
                                   const SizedBox(width: 10),
                                 ],
-                                if (widget.controller.hasSession)
+                                PushButton(
+                                  controlSize: ControlSize.regular,
+                                  onPressed: widget.controller.canConnect
+                                      ? widget.controller.connect
+                                      : null,
+                                  child: Text(
+                                    widget.controller.hasSession
+                                        ? '添加链路'
+                                        : '连接',
+                                  ),
+                                ),
+                                if (widget.controller.hasSession) ...[
+                                  const SizedBox(width: 8),
                                   PushButton(
                                     controlSize: ControlSize.regular,
                                     secondary: true,
                                     onPressed: widget.controller.busy
                                         ? null
                                         : widget.controller.disconnect,
-                                    child: const Text('断开'),
-                                  )
-                                else
-                                  PushButton(
-                                    controlSize: ControlSize.regular,
-                                    onPressed: widget.controller.canConnect
-                                        ? widget.controller.connect
-                                        : null,
-                                    child: const Text('连接'),
+                                    child: const Text('断开当前'),
                                   ),
+                                ],
                               ],
                             ),
                           ],
@@ -311,9 +347,7 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
                     portItems.firstWhere((port) => port.path == path),
                     menu: true,
                   ),
-                  onChanged: controller.hasSession || controller.busy
-                      ? null
-                      : controller.selectPort,
+                  onChanged: controller.busy ? null : controller.selectPort,
                 ),
         ),
         const SizedBox(height: _formRowGap),
@@ -326,9 +360,7 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
             value: controller.baudRate,
             options: controller.baudRates,
             labelOf: (baud) => '$baud',
-            onChanged: controller.hasSession || controller.busy
-                ? null
-                : controller.selectBaudRate,
+            onChanged: controller.busy ? null : controller.selectBaudRate,
           ),
         ),
       ],
@@ -350,7 +382,7 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
     required String hostPlaceholder,
     required String portPlaceholder,
   }) {
-    final disabled = widget.controller.hasSession;
+    final disabled = widget.controller.busy;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -415,6 +447,222 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
     if (port == null) return '端口必须是数字';
     if (port < 1 || port > 65535) return '端口范围是 1–65535';
     return null;
+  }
+}
+
+/// 当前链路列表。每行代表一条物理链路的一个 route；选择只切换 UI 焦点，
+/// 断开只关闭指定链路，两者都不会生成飞行命令。
+class MgFleetLinkList extends StatelessWidget {
+  const MgFleetLinkList({
+    super.key,
+    required this.links,
+    required this.activeVehicleId,
+    required this.activeLinkId,
+    required this.busy,
+    required this.onSelect,
+    required this.onDisconnect,
+  });
+
+  final List<FleetLinkSummary> links;
+  final int? activeVehicleId;
+  final int? activeLinkId;
+  final bool busy;
+  final ValueChanged<int> onSelect;
+  final ValueChanged<FleetLinkSummary> onDisconnect;
+
+  String _transportLabel(FleetLinkSummary link) =>
+      switch (link.endpoint.split('://').first) {
+        'serial' => '串口',
+        'tcp' => 'TCP',
+        _ => 'UDP',
+      };
+
+  String _stateLabel(FleetLinkSummary link) {
+    if (link.connected) return '已连接';
+    if (link.state == 'waiting_heartbeat') return '等待心跳';
+    return '未连接';
+  }
+
+  Color _stateColor(MgColors colors, FleetLinkSummary link) {
+    if (link.connected) return colors.success;
+    if (link.state == 'waiting_heartbeat') return colors.warning;
+    return colors.textSecondary;
+  }
+
+  String _subtitle(FleetLinkSummary link) {
+    final parts = <String>[_transportLabel(link)];
+    if (link.systemId > 0) parts.add('sysid ${link.systemId}');
+    if (link.vehicleId != null) {
+      parts.add('飞机 ${link.vehicleId}');
+    } else {
+      parts.add('未识别');
+    }
+    return parts.join(' · ');
+  }
+
+  bool _isPrimaryRoute(FleetLinkSummary link) {
+    if (!link.primary) return false;
+    return true;
+  }
+
+  bool _hasPrimaryRoute(FleetLinkSummary link) {
+    return links.any(
+      (other) => other.vehicleId == link.vehicleId && other.primary,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (links.isEmpty) return const SizedBox.shrink();
+    final theme = MacosTheme.of(context);
+    final colors = MgColors.of(context);
+    final visibleCount = math.min(links.length, MgMetrics.fleetLinkVisibleRows);
+    final physicalLinkCount = links.map((link) => link.id).toSet().length;
+    final countLabel = links.length == physicalLinkCount
+        ? '$physicalLinkCount 条'
+        : '$physicalLinkCount 条 · ${links.length} 个飞控';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text(
+              '当前链路',
+              style: theme.typography.caption1.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              countLabel,
+              style: theme.typography.caption1.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        SizedBox(
+          height:
+              visibleCount * MgMetrics.fleetLinkRowHeight +
+              (visibleCount - 1) * 4,
+          child: ListView.separated(
+            padding: EdgeInsets.zero,
+            itemCount: links.length,
+            separatorBuilder: (_, index) => const SizedBox(height: 4),
+            itemBuilder: (context, index) {
+              final link = links[index];
+              final active =
+                  link.vehicleId != null && activeVehicleId == link.vehicleId;
+              final waitingSelected =
+                  link.vehicleId == null && activeLinkId == link.id;
+              final canSelect = link.vehicleId != null;
+              final highlight = active || waitingSelected;
+              final showPrimary =
+                  active && (_isPrimaryRoute(link) || !_hasPrimaryRoute(link));
+              return Material(
+                color: highlight ? colors.accentSurface : colors.surfaceMuted,
+                borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+                child: SizedBox(
+                  height: MgMetrics.fleetLinkRowHeight,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          key: ValueKey('fleet-link-${link.rowKey}'),
+                          borderRadius: BorderRadius.circular(
+                            MgMetrics.controlRadius,
+                          ),
+                          onTap: active || busy || !canSelect
+                              ? null
+                              : () => onSelect(link.id),
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 9),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _transportLabel(link) == '串口'
+                                      ? Icons.usb
+                                      : Icons.lan_outlined,
+                                  size: 15,
+                                  color: highlight
+                                      ? colors.accent
+                                      : colors.textSecondary,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        link.endpoint,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.typography.caption1
+                                            .copyWith(
+                                              color: highlight
+                                                  ? colors.textPrimary
+                                                  : colors.textSecondary,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 1),
+                                      Text(
+                                        _subtitle(link),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.typography.caption2
+                                            .copyWith(
+                                              color: colors.textTertiary,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _stateLabel(link),
+                                  style: theme.typography.caption2.copyWith(
+                                    color: _stateColor(colors, link),
+                                  ),
+                                ),
+                                if (showPrimary) ...[
+                                  const SizedBox(width: 6),
+                                  MacosIcon(
+                                    CupertinoIcons.checkmark,
+                                    size: 13,
+                                    color: colors.accent,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      MacosIconButton(
+                        key: ValueKey('fleet-link-disconnect-${link.rowKey}'),
+                        icon: MacosIcon(CupertinoIcons.xmark, size: 12),
+                        semanticLabel: '断开 ${link.endpoint}',
+                        boxConstraints: const BoxConstraints.tightFor(
+                          width: 28,
+                          height: 28,
+                        ),
+                        padding: EdgeInsets.zero,
+                        backgroundColor: colors.transparent,
+                        hoverColor: colors.mapControlHover,
+                        onPressed: busy ? null : () => onDisconnect(link),
+                      ),
+                      const SizedBox(width: 5),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 }
 

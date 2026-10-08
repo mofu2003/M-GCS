@@ -88,6 +88,25 @@ FFI 只暴露 C 兼容类型和稳定 JSON envelope。新增接口必须同时�
 
 ## Flutter 设计
 
+多机基础通过 `flutter_shell/lib/fleet/` 的不可变快照、可测试 FleetController 和
+FleetFfiBackend 复用现有连接 ABI。MV1 的独立 endpoint、连接面板链路列表、
+顶部车辆选择器和按 session 运行时/任务文档隔离已接入现有流程；UDP 共享 endpoint
+的 `MavlinkRouter`/`LinkSession` 也已接入 Vehicle 生命周期：链路单次解析，按
+`sysid/compid` 创建或绑定 Vehicle，并使用 peer-aware UDP 回复。另有
+`VehicleLinkManager` 记录 route 级心跳、`comm_lost` 和 primary route；`Vehicle`
+核心层可挂接多条 shared route、汇聚遥测，并在 health 变化后切换 primary
+命令源；每个 `MavlinkAdapter` 使用实例私有的 TX sequence 和 signing state，
+FTP 也走同一发送器；FFI 已支持单机设置、清除和查询 signing 状态，Flutter
+地面站配置页可管理命名密钥库、选择活动密钥、连接后自动应用，并下发 SETUP_SIGNING。管理器已通过独立
+link handle 自动跨 endpoint 归并同一 `sysid/compid`，并提供 link/route 级列表、
+精确关闭；UDP、TCP loopback 和 POSIX PTY 已有本地多 sysid 回归。手动关闭后的重发现抑制已接入；
+MV5 第一版已通过 Fleet 快照和非 active 飞机地图标记提供多机位置展示，但任务
+图层和批量动作仍未开放。命令确认包含
+session/焦点 revision，焦点改变后作废，执行期间不通过 Fleet 切机。
+`mg_command_execute_for_vehicle()` 已为飞行命令提供显式 vehicle target，并由
+线程局部目标覆盖路由到对应 Vehicle，不临时改写 UI active focus。实施状态见
+[多机计划](../planning/MULTI_VEHICLE_PLAN.md)。
+
 Flutter 通过 `ConnectionController` 作为状态门面绑定 FFI。任务文档、遥测、参数、
 校准和飞行命令已经分别由 `MissionDocumentFfiBackend`、`TelemetryFfiBackend`、
 `ParameterFfiBackend`、`CalibrationFfiBackend` 和 `FlightCommandFfiBackend`

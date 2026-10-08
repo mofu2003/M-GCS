@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import '../connection/connection_controller.dart';
+import '../fleet/fleet_models.dart';
 import '../flight/flight_mode_labels.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
+import 'adaptive_popup_button.dart';
 import 'mg_animated_number.dart';
 import 'mg_command_confirmation.dart';
 import 'mg_floating_panel.dart';
@@ -15,6 +17,7 @@ Future<void> showMgFlightModeMenu(
   required ConnectionController controller,
   required List<FlightModeOption> options,
 }) async {
+  final focusRevision = controller.fleet.focusRevision;
   await showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
@@ -28,7 +31,11 @@ Future<void> showMgFlightModeMenu(
           top: MgMetrics.toolbarHeight + 8,
           left: 168,
         ),
-        child: _FlightModeMenu(controller: controller, options: options),
+        child: _FlightModeMenu(
+          controller: controller,
+          options: options,
+          focusRevision: focusRevision,
+        ),
       ),
     ),
     transitionBuilder: (context, animation, secondaryAnimation, child) =>
@@ -40,13 +47,23 @@ Future<void> showMgFlightModeMenu(
 }
 
 class _FlightModeMenu extends StatelessWidget {
-  const _FlightModeMenu({required this.controller, required this.options});
+  const _FlightModeMenu({
+    required this.controller,
+    required this.options,
+    required this.focusRevision,
+  });
 
   final ConnectionController controller;
   final List<FlightModeOption> options;
+  final int focusRevision;
 
   Future<void> _setMode(BuildContext context, FlightModeOption option) async {
     if (!option.settable) return;
+    controller.fleet.refresh();
+    if (controller.fleet.focusRevision != focusRevision) {
+      if (context.mounted) Navigator.of(context).pop();
+      return;
+    }
     try {
       await controller.setFlightMode(option.name);
       if (context.mounted) Navigator.of(context).pop();
@@ -346,6 +363,9 @@ class MgTopStatusBar extends StatelessWidget {
   const MgTopStatusBar({
     super.key,
     required this.data,
+    this.vehicles = const [],
+    this.activeVehicleId,
+    this.onSelectVehicle,
     this.onOpenFlightMessages,
     this.onToggleArm,
     this.onOpenFlightMode,
@@ -353,6 +373,9 @@ class MgTopStatusBar extends StatelessWidget {
   });
 
   final MgTopStatusData data;
+  final List<FleetVehicleSummary> vehicles;
+  final int? activeVehicleId;
+  final ValueChanged<int>? onSelectVehicle;
   final VoidCallback? onOpenFlightMessages;
   final VoidCallback? onToggleArm;
   final VoidCallback? onOpenFlightMode;
@@ -374,16 +397,39 @@ class MgTopStatusBar extends StatelessWidget {
             builder: (context, constraints) {
               final width = constraints.maxWidth;
               // 窄窗口逐级收起次要信息，防止右侧操作组被挤出（QGC 工具栏同样分级隐藏）。
-              final showSecondary = width >= 860;
-              final showStatusText = width >= 660;
-              final showMetricLabels = width >= 700;
+              final multiple = vehicles.length > 1;
+              final compactFleet =
+                  width < MgMetrics.fleetSelectorWideBreakpoint;
+              final showSecondary =
+                  width >=
+                  (multiple ? MgMetrics.fleetSelectorWideBreakpoint : 860);
+              final showStatusText =
+                  width >=
+                  (multiple ? MgMetrics.fleetToolbarDetailBreakpoint : 660);
+              final showMetricLabels =
+                  width >=
+                  (multiple ? MgMetrics.fleetToolbarDetailBreakpoint : 700);
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   children: [
                     _MainStatus(data: data, showText: showStatusText),
                     const SizedBox(width: 18),
-                    _FlightMode(data: data, onPressed: onOpenFlightMode),
+                    if (multiple) ...[
+                      _FleetVehicleSelector(
+                        vehicles: vehicles,
+                        compact: compactFleet,
+                        activeVehicleId: activeVehicleId,
+                        onSelectVehicle: onSelectVehicle,
+                      ),
+                      const SizedBox(width: MgMetrics.fleetToolbarGap),
+                    ],
+                    Flexible(
+                      child: _FlightMode(
+                        data: data,
+                        onPressed: onOpenFlightMode,
+                      ),
+                    ),
                     // 运行中必须持续可见的 GPS / 电池 / 链路 / 操作组统一贴右。
                     const Spacer(),
                     const SizedBox(width: 12),
@@ -413,6 +459,59 @@ class MgTopStatusBar extends StatelessWidget {
                 ),
               );
             },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FleetVehicleSelector extends StatelessWidget {
+  const _FleetVehicleSelector({
+    required this.vehicles,
+    required this.activeVehicleId,
+    required this.onSelectVehicle,
+    required this.compact,
+  });
+
+  final bool compact;
+  final List<FleetVehicleSummary> vehicles;
+  final int? activeVehicleId;
+  final ValueChanged<int>? onSelectVehicle;
+
+  String _label(FleetVehicleSummary vehicle) {
+    final system = vehicle.systemId > 0 ? '系统 ${vehicle.systemId}' : '未识别';
+    final link = vehicle.endpoint.split('://').first.toUpperCase();
+    return '飞机 ${vehicle.id} · $system · $link';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    final selected = vehicles.any((vehicle) => vehicle.id == activeVehicleId)
+        ? activeVehicleId
+        : vehicles.first.id;
+    return Tooltip(
+      message: '切换当前飞机：${_label(vehicles.firstWhere((v) => v.id == selected))}',
+      child: SizedBox(
+        key: const ValueKey('fleet-vehicle-selector'),
+        width: compact
+            ? MgMetrics.fleetSelectorCompactWidth
+            : MgMetrics.fleetSelectorWidth,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colors.surfaceMuted,
+            borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+          ),
+          child: AdaptivePopupButton<int>(
+            value: selected,
+            options: [for (final vehicle in vehicles) vehicle.id],
+            labelOf: (id) => compact
+                ? '飞机 $id'
+                : _label(vehicles.firstWhere((vehicle) => vehicle.id == id)),
+            onChanged: onSelectVehicle,
+            maxContentWidth:
+                MgMetrics.fleetSelectorWidth - AdaptivePopupButton.chromeWidth,
           ),
         ),
       ),
@@ -612,18 +711,13 @@ class _FlightMode extends StatelessWidget {
       borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              data.modeLabel,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: MgTypography.sans(
-                MgTypography.data.copyWith(color: colors.textPrimary),
-              ),
-            ),
-          ],
+        child: Text(
+          data.modeLabel,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: MgTypography.sans(
+            MgTypography.data.copyWith(color: colors.textPrimary),
+          ),
         ),
       ),
     );

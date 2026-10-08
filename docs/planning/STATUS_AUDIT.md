@@ -10,8 +10,8 @@
 | `git diff --check` | 通过 |
 | `dart tools/check_ui_tokens.dart` | 通过 |
 | Flutter analyze | 通过 |
-| Flutter test | 79/79 |
-| 后端 offline/simulation | 35/35 |
+| Flutter test | 107 个常规测试通过、3 个真实 Fleet FFI UDP 测试默认跳过；设置 `MGCS_FLEET_LIBRARY` 后这三个测试单独通过 |
+| 后端 offline/simulation | 37/37 |
 | macOS debug 构建 | 通过 |
 | Windows build/preflight | workflow 统一调用预检脚本；脚本会先生成 MAVLink 头，再构建 bundle 并校验关键 FFI 导出。未在本机 Windows 复核 |
 | Linux Flutter bundle | CI 安装 GTK/CMake/Ninja，生成 MAVLink 头，构建 debug bundle，并校验 `libmgcore.so`、数据文件和关键 FFI 导出。未在本机 Linux 复核 |
@@ -25,16 +25,54 @@ tools/preflight.sh
 bash tools/audit_status.sh
 ```
 
+## 多链路单机与 UDP 共享链路（MV1，MV2 UDP 基础）
+
+- 采用 QGC 的连接/焦点分离与 MP 的显式系统地址语义，新增 Flutter Fleet
+  配置、不可变快照、目标凭证、可注入控制器和现有 ABI 适配层。
+- 当前单机连接接入该框架；多机时连接面板显示链路列表并支持精确选择/断开，
+  顶部状态栏显示车辆选择器。待确认命令带目标会话/焦点 revision，切机、断链
+  或系统身份改变后永久失效。
+- Core 接收解析状态使用官方 caller-owned MAVLink 缓冲，两条独立链路的半帧
+  交错不会互相污染；注册表查询通过 shared_ptr 快照持有对象生命周期。
+- MV2 已接通 UDP：`MavlinkRouter`/`LinkSession` 共享链路单次解析，按
+  `sysid/compid` 分发；首个心跳绑定占位 Vehicle，后续 sysid 自动创建独立
+  Vehicle，peer-aware UDP 回复发给对应 sender。serial/TCP 使用同一通用
+  `LinkSession` 框架，并已通过 TCP loopback 与 POSIX PTY 多 sysid 回归；
+  同机多链路归并和 route 精确关闭已接通。
+- MV3 基础层新增 `VehicleLinkManager`：管理 route 心跳时间、`comm_lost`、
+  primary route 和总通信丢失状态；手动关闭共享车辆后增加 30 秒重发现抑制。
+- `Vehicle` 核心层支持挂接多条 shared route，各链路遥测汇聚到同一 Vehicle
+  缓存；`VehicleLinkManager` 选择新 primary 后，`conn()`、校准连接和飞行模式
+  连接切换到新 route；每个 `MavlinkAdapter` 独立维护 TX sequence，连接、命令和
+  FTP 发送不会互相推进序号或产生错误校验和。适配器还支持实例级 MAVLink
+  signing 密钥、时间戳和 stream 校验，未签名包在 signing 开启时会被拒绝；
+  `mg_vehicle_set_signing_key`、`clear`、`get_signing_status` 已接通；
+  地面站配置页已有命名密钥库、活动密钥选择、持久化、连接后自动应用和 SETUP_SIGNING 下发。`MultiVehicleManager` 已通过独立 link handle 自动归并同一
+  `sysid/compid` 的跨 endpoint 链路，FFI 提供 `mg_connection_list()` 和
+  `mg_connection_close_route()`，Flutter 连接面板按 link/route/vehicle 分层显示。
+- MV5 第一版接入多机地图：`mg_vehicle_get_session_status` 增加位置字段，Fleet
+  快照携带每架飞机位置，地图绘制非 active 弱化标记并支持点击切换。
+- 修复实际双 UDP 清理时的销毁顺序：停止 GCS 心跳、解除事件回调，再关闭车辆。
+- `tools/tests/multivehicle_udp_smoke.py` 对真实动态库的双临时 UDP 端口完成 3 轮
+  身份、焦点、查询、关闭与销毁验证；Flutter 的 `fleet_ffi_smoke_test.dart`
+  还覆盖同一端口 sysid 1/2 自动发现和按车辆精确关闭。
+- 显式车辆目标飞行命令、UDP/TCP/PTY 多 sysid、同机多链路合并、route 级精确关闭、
+  per-route health、MAVLink TX sequence、signing 密钥库/校验/SETUP_SIGNING、按 session
+  的运行时快照、独立 native 任务文档和 Go To 失效处理已完成；真实飞控总线验收、
+  自动密钥探测、异步操作隔离、多机地图完整图层和批量控制仍未完成。
+
+下一切片与验收边界见 [多机实施计划](MULTI_VEHICLE_PLAN.md)。
+
 ## FFI 消费统计
 
 统计脚本当前输出：
 
 | 项目 | 数量 |
 | --- | ---: |
-| FFI exports | 306 |
-| Flutter 使用 | 89 |
-| 测试触达 | 220 |
-| 前端和测试都未触达 | 83 |
+| FFI exports | 307 |
+| Flutter 使用 | 75 |
+| 测试触达 | 221 |
+| 前端和测试都未触达 | 84 |
 
 这些数字必须由 `tools/audit_status.sh` 生成，不手工维护。无人区不等于可删除，公开
 兼容 ABI 仍需遵守 API Catalog 的冻结规则。
@@ -168,6 +206,13 @@ bash tools/audit_status.sh
 - `CI-001`：按用户要求标记为 WONTFIX，不再列为待办。
 
 ## 当前剩余项
+
+### `MV-003`：共享链路生命周期与串口/TCP
+
+UDP 共享链路的 `sysid/compid` 解复用、多 peer、占位 Vehicle 绑定、同机多链路
+归并、冗余 primary 切换和 route 精确关闭已落地，TX sequence 也已按适配器隔离。
+下一阶段仍需完成真实飞控总线验收、MAVLink 自动探测、异步操作隔离、多机地图完整图层和批量控制；这些能力按 [多机实施计划](MULTI_VEHICLE_PLAN.md) 后续阶段验收。
+
 
 本节的判定口径与“能不能停”见 [完成定义与后端维护收口](DEFINITION_OF_DONE.md)。
 与 QGC/MP 的完整能力差距、项目定位和建议优先级见

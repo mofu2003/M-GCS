@@ -254,10 +254,7 @@ MGCORE_API char* mg_mission_doc_create(mg_core_t* core, const char* json_config)
     }
 
     auto service = std::make_shared<MissionDocumentService>(std::move(document));
-    {
-        mg::core::platform::LockGuard lock(core->mission_mtx);
-        core->mission_document = service;
-    }
+    mg::bridge::mission_detail::store_document(core, service);
     return to_cstr(document_snapshot_json(service, true));
 }
 
@@ -671,10 +668,7 @@ MGCORE_API char* mg_mission_doc_import_fence_from_vehicle(mg_core_t* core) {
     MissionDocument document = ensure_document(core)->snapshot();
     document.geo_fence = std::move(fence);
     auto service = std::make_shared<MissionDocumentService>(std::move(document));
-    {
-        mg::core::platform::LockGuard lock(core->mission_mtx);
-        core->mission_document = service;
-    }
+    mg::bridge::mission_detail::store_document(core, service);
     return to_cstr(document_snapshot_json(service, true));
 }
 
@@ -714,10 +708,7 @@ MGCORE_API char* mg_mission_doc_import_rally_from_vehicle(mg_core_t* core) {
     MissionDocument document = ensure_document(core)->snapshot();
     document.rally_points = std::move(rally_points);
     auto service = std::make_shared<MissionDocumentService>(std::move(document));
-    {
-        mg::core::platform::LockGuard lock(core->mission_mtx);
-        core->mission_document = service;
-    }
+    mg::bridge::mission_detail::store_document(core, service);
     return to_cstr(document_snapshot_json(service, true));
 }
 
@@ -1039,10 +1030,7 @@ MGCORE_API char* mg_mission_doc_import_from_vehicle(mg_core_t* core) {
     }
 
     auto service = std::make_shared<MissionDocumentService>(std::move(document));
-    {
-        mg::core::platform::LockGuard lock(core->mission_mtx);
-        core->mission_document = service;
-    }
+    mg::bridge::mission_detail::store_document(core, service);
     return to_cstr(document_snapshot_json(service, true));
 }
 
@@ -1407,10 +1395,7 @@ MGCORE_API char* mg_mission_doc_import(mg_core_t* core, const char* json_documen
         return fail(MG_ERROR_INVALID_PARAM, error.c_str());
     }
     auto service = std::make_shared<MissionDocumentService>(std::move(document));
-    {
-        mg::core::platform::LockGuard lock(core->mission_mtx);
-        core->mission_document = service;
-    }
+    mg::bridge::mission_detail::store_document(core, service);
     return to_cstr(document_snapshot_json(service, true));
 }
 
@@ -1447,9 +1432,6 @@ MGCORE_API char* mg_mission_doc_load(mg_core_t* core, const char* filepath) {
         return fail(MG_ERROR_INVALID_PARAM, error.c_str());
     }
     auto service = std::make_shared<MissionDocumentService>(std::move(document));
-    {
-        mg::core::platform::LockGuard lock(core->mission_mtx);
-        core->mission_document = service;
-    }
+    mg::bridge::mission_detail::store_document(core, service);
     return to_cstr(document_snapshot_json(service, true));
 }

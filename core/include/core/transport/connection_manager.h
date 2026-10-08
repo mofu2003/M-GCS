@@ -23,6 +23,7 @@
 #include "core/transport/serial_link.h"
 #include "core/transport/serial_port_discovery.h"
 #include "core/transport/link_config.h"
+#include "core/transport/link_session.h"
 #include "core/platform/platform_mutex.h"
 #include "core/mavlink/mavlink_adapter.h"
 #include <memory>
@@ -58,6 +59,7 @@ public:
     // Access the active MAVLink adapter. May be null before a link is wired.
     mg::core::mavlink::MavlinkAdapter* get_mavlink() { return mavlink_ptr.get(); }
     const mg::core::mavlink::MavlinkAdapter* get_mavlink() const { return mavlink_ptr.get(); }
+    std::shared_ptr<mg::core::mavlink::MavlinkAdapter> shared_mavlink() const;
     // Access the active transport link. May be null before connection.
     mg::core::transport::ILink* get_link() { return link_ptr.get(); }
 
@@ -72,6 +74,19 @@ public:
 
     /// Unified connection entry point for serial, TCP, or UDP links.
     bool connect(LinkType type, const std::string& endpoint, uint32_t baud = 0);
+
+    /// Attach this lifecycle manager to a shared LinkSession. The optional
+    /// identity may be zero for a placeholder Vehicle until its first heartbeat.
+    bool attach_shared(const std::shared_ptr<LinkSession>& session,
+                       int route_id,
+                       uint8_t system_id = 0,
+                       uint8_t component_id = 0);
+
+    /// Bind/rebind the adapter already attached to a shared session.
+    bool bind_shared_identity(uint8_t system_id, uint8_t component_id);
+
+    bool is_shared() const;
+    std::shared_ptr<LinkSession> shared_session() const;
 
     /// Disconnect and release transport/protocol resources.
     void disconnect();
@@ -138,9 +153,11 @@ public:
 
 private:
     // Transport and protocol layers owned by the connection manager.
-    mg::core::platform::Mutex link_mtx_;
+    mutable mg::core::platform::Mutex link_mtx_;
     std::shared_ptr<ILink>            link_ptr;
     std::shared_ptr<mg::core::mavlink::MavlinkAdapter> mavlink_ptr;
+    std::shared_ptr<LinkSession>      shared_session_;
+    int                               shared_route_id_ = -1;
     SerialPortInfo                    port;
 
     // Wire transport callbacks into the protocol layer.

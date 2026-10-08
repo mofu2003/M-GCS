@@ -11,6 +11,8 @@
 #include "telemetry_bindings.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <cstring>
 
 // Cross-platform case-insensitive string compare
@@ -339,4 +341,145 @@ MGCORE_API char* mg_command_landing_gear(mg_core_t* core, bool deploy) {
     if (get_active_mavlink(core)->cmd_landing_gear(active_target_sys(core), active_target_comp(core), deploy))
         return ok();
     return fail(MG_ERROR_SEND_FAILED, "landing gear command send failed");
+}
+
+// ================================================================
+// Explicit target command dispatch
+// ================================================================
+namespace {
+
+bool json_number(cJSON* object, const char* key, double& result, bool required) {
+    cJSON* item = cJSON_GetObjectItemCaseSensitive(object, key);
+    if (!item) return !required;
+    if (!cJSON_IsNumber(item)) return false;
+    result = item->valuedouble;
+    return std::isfinite(result) && std::abs(result) <= std::numeric_limits<float>::max();
+}
+
+bool json_int(cJSON* object, const char* key, int& result, bool required, int fallback = 0) {
+    double value = static_cast<double>(fallback);
+    if (!json_number(object, key, value, required)) return false;
+    if (value < std::numeric_limits<int>::min() ||
+        value > std::numeric_limits<int>::max() || std::trunc(value) != value) return false;
+    result = static_cast<int>(value);
+    return true;
+}
+
+char* invalid_args(const char* message) {
+    return fail(MG_ERROR_INVALID_PARAM, message);
+}
+
+} // namespace
+
+MGCORE_API char* mg_command_execute_for_vehicle(mg_core_t* core,
+                                                int vehicle_id,
+                                                const char* command_json) {
+    CHECK_CORE(core);
+    if (vehicle_id <= 0 || !command_json || !command_json[0]) {
+        return invalid_args("invalid target or command");
+    }
+    auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
+    if (!vehicle) return fail(MG_ERROR_NOT_FOUND, "target vehicle not found");
+
+    cJSON* root = cJSON_Parse(command_json);
+    if (!root || !cJSON_IsObject(root)) {
+        if (root) cJSON_Delete(root);
+        return invalid_args("invalid command json");
+    }
+    cJSON* command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
+    if (!cJSON_IsString(command_item) || !command_item->valuestring) {
+        cJSON_Delete(root);
+        return invalid_args("missing command name");
+    }
+    const std::string command(command_item->valuestring);
+    cJSON* args = cJSON_GetObjectItemCaseSensitive(root, "args");
+    if (args && !cJSON_IsObject(args)) {
+        cJSON_Delete(root);
+        return invalid_args("command args must be an object");
+    }
+    const bool owns_empty_args = args == nullptr;
+    if (owns_empty_args) args = cJSON_CreateObject();
+
+    mg::bridge::ffi::VehicleTargetScope target(core, vehicle.get());
+    char* result = nullptr;
+    double number = 0.0;
+    int integer = 0;
+
+    if (command == "rtl") {
+        result = mg_command_rtl(core);
+    } else if (command == "land") {
+        result = mg_command_land(core);
+    } else if (command == "takeoff") {
+        if (!json_number(args, "altitude_m", number, true)) result = invalid_args("takeoff altitude required");
+        else result = mg_command_takeoff(core, static_cast<float>(number));
+    } else if (command == "arm") {
+        if (!json_int(args, "force", integer, false, 0)) result = invalid_args("invalid arm force");
+        else result = mg_command_arm(core, integer);
+    } else if (command == "disarm") {
+        if (!json_int(args, "force", integer, false, 0)) result = invalid_args("invalid disarm force");
+        else result = mg_command_disarm(core, integer);
+    } else if (command == "set_mode") {
+        int base_mode = 1, custom_mode = 0;
+        if (!json_int(args, "base_mode", base_mode, false, 1) ||
+            !json_int(args, "custom_mode", custom_mode, true)) {
+            result = invalid_args("invalid flight mode");
+        } else {
+            result = mg_command_set_mode(core, base_mode, custom_mode);
+        }
+    } else if (command == "mission_start") {
+        result = mg_mission_start(core);
+    } else if (command == "guided_pause") {
+        result = mg_command_guided_pause(core);
+    } else if (command == "change_altitude") {
+        if (!json_number(args, "altitude_change_m", number, true)) result = invalid_args("altitude change required");
+        else result = mg_command_change_altitude(core, static_cast<float>(number));
+    } else if (command == "set_home") {
+        double lat = 0, lon = 0, alt = 0;
+        if (!json_number(args, "lat", lat, true) ||
+            !json_number(args, "lon", lon, true) ||
+            !json_number(args, "alt", alt, false)) result = invalid_args("invalid home target");
+        else result = mg_command_set_home(core, lat, lon, static_cast<float>(alt));
+    } else if (command == "guided_point") {
+        double lat = 0, lon = 0, alt = 0, yaw = -1, speed = -1;
+        if (!json_number(args, "lat", lat, true) ||
+            !json_number(args, "lon", lon, true) ||
+            !json_number(args, "alt", alt, true) ||
+            !json_number(args, "yaw", yaw, false) ||
+            !json_number(args, "speed", speed, false)) result = invalid_args("invalid guided target");
+        else result = mg_command_guided_point(core, lat, lon,
+            static_cast<float>(alt), static_cast<float>(yaw), static_cast<float>(speed));
+    } else if (command == "orbit") {
+        char* orbit_json = cJSON_PrintUnformatted(args);
+        if (!orbit_json) result = invalid_args("invalid orbit args");
+        else {
+            result = mg_command_orbit(core, orbit_json);
+            cJSON_free(orbit_json);
+        }
+    } else if (command == "set_roi") {
+        double lat = 0, lon = 0, alt = 0;
+        if (!json_number(args, "lat", lat, true) ||
+            !json_number(args, "lon", lon, true) ||
+            !json_number(args, "alt", alt, false)) result = invalid_args("invalid ROI target");
+        else result = mg_command_set_roi(core, lat, lon, static_cast<float>(alt));
+    } else if (command == "change_heading") {
+        double heading = 0, yaw_rate = 0;
+        int direction = 1;
+        if (!json_number(args, "heading_deg", heading, true) ||
+            !json_number(args, "yaw_rate_dps", yaw_rate, false) ||
+            !json_int(args, "direction", direction, true)) result = invalid_args("invalid heading command");
+        else result = mg_command_change_heading(core, static_cast<float>(heading),
+            static_cast<float>(yaw_rate), direction);
+    } else if (command == "set_global_origin") {
+        double lat = 0, lon = 0, alt = 0;
+        if (!json_number(args, "lat", lat, true) ||
+            !json_number(args, "lon", lon, true) ||
+            !json_number(args, "alt", alt, false)) result = invalid_args("invalid global origin");
+        else result = mg_command_set_global_origin(core, lat, lon, static_cast<float>(alt));
+    } else {
+        result = invalid_args("unknown target command");
+    }
+
+    cJSON_Delete(root);
+    if (owns_empty_args) cJSON_Delete(args);
+    return result;
 }
