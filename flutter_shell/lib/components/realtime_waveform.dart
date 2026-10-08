@@ -5,11 +5,11 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:macos_ui/macos_ui.dart';
 
-import 'connection/connection_controller.dart';
-import 'theme/mg_colors.dart';
-import 'theme/mg_typography.dart';
-import 'widgets/mg_animated_number.dart';
-import 'widgets/mac_panel.dart';
+import '../connection/connection_controller.dart';
+import '../theme/mg_colors.dart';
+import '../theme/mg_typography.dart';
+import '../widgets/mg_animated_number.dart';
+import '../widgets/mac_panel.dart';
 
 /// 后端波形缓冲的点布局：相对毫秒 + 9 个轴。
 const int _kFloatsPerPoint = 10;

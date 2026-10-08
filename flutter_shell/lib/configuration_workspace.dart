@@ -5,8 +5,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
+import 'components/realtime_waveform.dart';
 import 'connection/connection_controller.dart';
-import 'realtime_waveform.dart';
 import 'theme/mg_colors.dart';
 import 'theme/mg_typography.dart';
 import 'widgets/aligned_field_row.dart';

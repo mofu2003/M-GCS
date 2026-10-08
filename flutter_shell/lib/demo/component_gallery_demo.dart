@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
-import 'widgets/mg_dialog.dart';
+import '../widgets/mg_dialog.dart';
 
 /// 静态外观画廊：只摆出 macos_ui 自带组件的样子，不做业务功能。
 ///
