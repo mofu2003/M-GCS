@@ -3,6 +3,23 @@
 This file tracks changes specific to the Flutter presentation layer (`flutter_shell/`).
 For full project history, see the root `CHANGELOG.md`.
 
+## 0.0.79 - 2026-10-08
+
+### Changed
+
+- 将 4,099 行的配置工作区拆成 `lib/configuration/` 下 35 个独立 Dart 文件；
+  `lib/configuration_workspace.dart` 保留为兼容导出。
+- 九个配置页面按领域分层，校准、PID、参数控件、提示和数据卡片拆为可复用组件。
+- 配置间距统一使用 `MgMetrics.config*`，Flutter 结构整理为 `components/`、
+  `configuration/` 和 `demo/`。
+- 删除已完成的一次性配置工作区拆分指南和过期文档重定向。
+
+### Testing
+
+- `flutter analyze`: 无问题
+- `flutter test`: 79/79 通过
+- `flutter build macos --debug`: 通过
+
 ## 0.0.78 - 2026-10-08
 
 ### Added

@@ -222,7 +222,7 @@ Flutter 侧补齐围栏/Rally 的绑定、控制器流程和任务面板操作�
 
 ## 关联文档
 
-- [MP / QGC 上游实现择优准则](../../UPSTREAM_CODE_SELECTION.md)
+- [MP / QGC 上游实现择优准则](../../specs/upstream/SELECTION_STRATEGY.md)
 - [QGC / MP 可借鉴项对照表](../../specs/upstream/SELECTION_STRATEGY.md)
 - [当前状态审计](../STATUS_AUDIT.md)
 - [开发约束](../../../AGENTS.md)

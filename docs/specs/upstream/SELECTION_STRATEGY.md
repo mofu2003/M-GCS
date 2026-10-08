@@ -1,6 +1,6 @@
 # M-GCS 上游实现选择策略
 
-当前版本：`0.0.78`
+当前版本：`0.0.79`
 
 本文定义 M-GCS 如何借鉴 QGroundControl、Mission Planner、官方 MAVLink 和成熟第三方库的实现。
 

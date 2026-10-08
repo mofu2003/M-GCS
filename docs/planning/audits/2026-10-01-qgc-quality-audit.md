@@ -6,7 +6,7 @@
 > QGroundControl 的 Mission、FactSystem、Comms、Vehicle、Calibration、
 > LogManager 等相关模块。不是对整个 QGC 仓库做总体评分，也不替代 MP 与 QGC
 > 的逐模块比较；上游选择规则见
-> [MP / QGC 上游实现择优准则](../../UPSTREAM_CODE_SELECTION.md)。
+> [MP / QGC 上游实现择优准则](../../specs/upstream/SELECTION_STRATEGY.md)。
 
 ## 结论
 

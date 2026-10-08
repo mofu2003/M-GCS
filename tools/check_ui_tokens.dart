@@ -1,7 +1,7 @@
 import 'dart:io';
 
 const _allowedFiles = {
-  'component_gallery_demo.dart',
+  'demo/component_gallery_demo.dart',
   'theme/mg_colors.dart',
   'theme/mg_typography.dart',
 };

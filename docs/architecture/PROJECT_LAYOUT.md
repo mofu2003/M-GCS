@@ -1,6 +1,6 @@
 # 项目结构
 
-当前版本基线：`0.0.78`。本文件只描述代码组织，具体接口和状态以
+当前版本基线：`0.0.79`。本文件只描述代码组织，具体接口和状态以
 [`ARCHITECTURE.md`](ARCHITECTURE.md) 与 [`../planning/STATUS_AUDIT.md`](../planning/STATUS_AUDIT.md) 为准。
 
 ## 顶层目录
@@ -48,7 +48,10 @@ M-GCS/
 - `flutter_shell/lib/mission/mission_document_ffi_backend.dart`：任务文档 FFI 适配器。
 - `flutter_shell/lib/map/`：地图、WGS-84/GCJ-02 转换、标记和地图交互。
 - `flutter_shell/lib/mission/`：任务文档模型、控制器、任务面板和编辑弹窗。
-- `flutter_shell/lib/configuration_workspace.dart`：配置、校准、遥测和飞控参数界面。
+- `flutter_shell/lib/configuration/`：配置工作区路由、九个配置页面及其独立组件；
+  `configuration_workspace.dart` 是兼容导出，真实实现按领域拆分。
+- `flutter_shell/lib/components/`：可复用视图组件，例如独立波形页。
+- `flutter_shell/lib/demo/`：仅用于开发验证的组件画廊，不进入主流程。
 - `flutter_shell/lib/theme/`：`MgFonts`、`MgTypography`、`MgMetrics`、`MgColors` 单一来源。
 - `flutter_shell/test/`：不依赖真实飞控的 Flutter 测试。
 

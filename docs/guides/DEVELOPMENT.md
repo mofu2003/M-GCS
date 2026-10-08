@@ -1,6 +1,6 @@
 # M-GCS 开发指南
 
-当前版本：`0.0.78`
+当前版本：`0.0.79`
 
 > **完整规则请参阅** [`AGENTS.md`](../../AGENTS.md)（仓库根目录）
 > 
@@ -104,7 +104,7 @@ cmake --build build --config Release --target mgcore
 
 ```bash
 # 使用发布脚本（自动更新版本号、CHANGELOG）
-./tools/release.sh 0.0.78
+./tools/release.sh 0.0.79
 
 # 发布流程：改版本号 → 更新 CHANGELOG → 提交 → 打标签 →（用户要求时）推送
 ```

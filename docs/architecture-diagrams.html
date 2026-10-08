@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>M-GCS 架构图（v0.0.78）</title>
+<title>M-GCS 架构图（v0.0.79）</title>
 <style>
   :root{
     --bg:#f6f7f9;
@@ -120,7 +120,7 @@
 
 <h1>M-GCS 架构图</h1>
 <div class="sub">
-  版本 v0.0.78 · 更新于 2026-10-08 ·
+  版本 v0.0.79 · 更新于 2026-10-08 ·
   结构说明以本文为准，精确行数和消费统计用 <code>tools/audit_status.sh</code> 复核
 </div>
 
@@ -272,7 +272,7 @@
 <div class="arrow">▼</div>
 
 <div class="box b-fe">
-  <div class="t">配置工作区 <code>configuration_workspace.dart</code> · 4,099 行（当前最大 Flutter 文件）</div>
+  <div class="t">配置工作区 <code>lib/configuration/</code> · 35 个独立 Dart 文件；路由入口 123 行，兼容导出 2 行</div>
   <div class="m">
     外壳 = <code>AppWorkspaceShell</code>（Flutter 自绘，跨平台，不依赖 <code>macos_ui</code>）；
     左侧固定导航 + 右侧独立页面；标签卡用 <code>MacosSegmentedControl</code>，
@@ -339,23 +339,22 @@
     </div>
   </div>
   <div class="box b-fe">
-    <div class="t">波形页 <code>realtime_waveform.dart</code> · 754 行</div>
+    <div class="t">波形页 <code>components/realtime_waveform.dart</code> · 754 行</div>
     <div class="m">基于 <code>fl_chart</code>；IMU / 磁力计双实例切换；读数与曲线分离，读数用 <code>MgAnimatedNumber</code>。</div>
   </div>
   <div class="box b-fe">
     <div class="t">测试 <code>test/</code></div>
-    <div class="m"><code>app_workspace_shell_test.dart</code> 155 行，3 个用例：<br>
-    侧栏导航与搜索用纯 Flutter 控件 / 紧凑布局导航可用 / 背景跟随系统亮度。<br>
-    <b>不加载原生库</b>，所以能在无原生构建的 Linux CI 上跑。</div>
+    <div class="m">配置工作区拆分回归、九页路由、标签控制器生命周期、罗盘进度、参数回滚与 PID 命名空间，
+    以及原有 workspace shell 测试。<br>
+    <b>不连接真实飞控</b>；当前 Flutter 测试 79/79，通过离线运行验证。</div>
   </div>
 </div>
 
 <div class="note">
-  <b>未收敛项（已在 AGENTS.md 铁律四下记账）：</b>
-  <code>MacosColors.*</code> 直接引用约 40 处 —— <code>configuration_workspace.dart</code> 约 30 处（真实工作量）、
-  <code>component_gallery_demo.dart</code> 约 12 处（色板展示页，可豁免）、<code>parameter_load_progress.dart</code> 2 处。
-  裸 <code>fontSize</code> 只剩 token 定义文件本身与 gallery 页 3 处。
-  另外 <code>component_gallery_demo.dart</code>（1,053 行）无任何页面引用，是独立组件陈列页。
+  <b>当前边界：</b>
+  配置页已拆成独立模块，UI token 检查覆盖拆分后的配置目录；
+  <code>demo/component_gallery_demo.dart</code> 是开发期陈列页，不进入主流程。
+  电池配置和空速计校准仍是占位，拆分只改善结构，没有新增功能。
 </div>
 </section>
 
@@ -554,11 +553,11 @@
   <div style="display:flex;flex-wrap:wrap;gap:4px 22px">
     <span>编写：<b style="font-weight:600">WorkBuddy（AI 助手）</b></span>
     <span>日期：<b style="font-weight:600">2026-09-30</b></span>
-    <span>依据版本：tag <code>v0.0.78</code></span>
+    <span>依据版本：tag <code>v0.0.79</code></span>
     <span>复核状态：<b style="font-weight:600;color:var(--ok)">本地门禁已通过</b></span>
   </div>
   <div style="margin-top:6px">
-    数据来源：本仓库 v0.0.78 实测统计，门禁状态为 2026-10-08 本机运行结果
+    数据来源：本仓库 v0.0.79 实测统计，门禁状态为 2026-10-08 本机运行结果
     （<code>ctest</code> 35/35、<code>flutter analyze</code> 无告警、<code>flutter test</code> 69/69）。
     本文件为人工可读的图，权威文字描述仍以
     <code>docs/ARCHITECTURE.md</code> 与 <code>bridge/ffi/API_CATALOG.md</code> 为准；

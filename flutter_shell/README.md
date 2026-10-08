@@ -1,6 +1,6 @@
 # M-GCS Flutter Shell
 
-Current version: `0.0.78` (source of truth: `pubspec.yaml`).
+Current version: `0.0.79` (source of truth: `pubspec.yaml`).
 
 The shell is the cross-platform presentation layer for M-GCS. It contains the
 map, connection workspace, telemetry and waveform views, mission planning,
@@ -30,7 +30,16 @@ Recent shell behavior:
   panel, map interaction, and file interchange entry points.
 - `lib/map/` contains raster tiles, aircraft/Home markers, WGS-84/GCJ-02
   conversion, and map interaction.
+- `lib/configuration/` contains the configuration workspace router and nine
+  feature pages. Calibration is split into views and cards; PID into its
+  parameter model, page, and gain widgets. Shared tab surfaces, parameter
+  editors, status notices, and summary rows live in `configuration/widgets/`.
+  Each file is an independent Dart library; page-local state remains private.
+  `lib/configuration_workspace.dart` preserves the original import as a
+  compatibility export. Battery and airspeed calibration remain placeholders;
+  splitting the source does not add those features.
 - `lib/theme/` is the single source for fonts, typography, metrics, and colors.
+  Configuration spacing is defined once by `MgMetrics.config*`.
 
 ## UI Rules
 

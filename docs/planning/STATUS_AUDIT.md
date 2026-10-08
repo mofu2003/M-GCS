@@ -1,7 +1,7 @@
 # 当前状态审计
 
 > 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/planning/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.78`。本文件只记录当前 checkout 已复核的事实。
+> `CHANGELOG.md`。当前代码基线版本：`0.0.79`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -10,7 +10,7 @@
 | `git diff --check` | 通过 |
 | `dart tools/check_ui_tokens.dart` | 通过 |
 | Flutter analyze | 通过 |
-| Flutter test | 69/69 |
+| Flutter test | 79/79 |
 | 后端 offline/simulation | 35/35 |
 | macOS debug 构建 | 通过 |
 | Windows build/preflight | workflow 统一调用预检脚本；脚本会先生成 MAVLink 头，再构建 bundle 并校验关键 FFI 导出。未在本机 Windows 复核 |
@@ -82,6 +82,9 @@ bash tools/audit_status.sh
 - `REFACTOR-001`：Flutter 领域 FFI 适配器已拆分；MAVLink adapter 已完成状态、消息
   处理器、任务协议、参数协议、日志、命令发送和 `process()` 分发的内部拆分，公开
   FFI、JSON 和 MAVLink 行为未变化。
+- `REFACTOR-002`：配置工作区从单个 4,099 行文件拆成 `lib/configuration/` 下 35 个
+  独立 Dart 文件；旧 `configuration_workspace.dart` 保留为兼容导出，九页路由、
+  标签控制器生命周期、校准进度和参数编辑行为均有回归测试。
 - `PARAM-001`：参数写入超时后会真正重发 PARAM_SET，并保留目标 sysid/compid；重试
   耗尽进入 failed，发送失败会立即清理 pending，避免后续确认误关联旧请求。
 - `PARAM-003`：标准 `PARAM_ERROR` 会立即终止对应写入并映射为 failed，支持

@@ -169,6 +169,24 @@ class MgTypography {
 class MgMetrics {
   const MgMetrics._();
 
+  /// 后台页面统一间距标准（标签页内层叠加 MacosTabView 自身的 12pt）。
+  ///
+  /// 左右边距 24、区块间距 16、区块标题到内容 8、卡片间距 10。
+  /// 新页面沿用这套数值，避免各页各自为政导致疏密不一致。
+  static const double configPageMargin = 24;
+
+  /// 配置标签页内容缩进；内层再补齐到页面边距。
+  static const double configTabBodyInset = 12;
+
+  /// 配置区块之间的间距。
+  static const double configSectionGap = 16;
+
+  /// 配置区块标题与内容的间距。
+  static const double configHeaderGap = 8;
+
+  /// 配置卡片之间的间距。
+  static const double configCardGap = 10;
+
   /// 表格行高，所有单元格居中于该高度。
   static const double rowHeight = 48;
 

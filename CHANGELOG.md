@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.0.79 - 2026-10-08
+
+### Added
+
+- 配置工作区完成模块化：原 4,099 行单文件拆成 35 个独立 Dart 文件，
+  按系统状态、校准、端口、电机、飞行模式、PID、电池、解锁和全部参数分层。
+- 保留 `lib/configuration_workspace.dart` 作为兼容导出，不改变既有调用方和页面行为。
+- 新增配置路由、配置组件和参数编辑回归测试，覆盖九页路由、标签控制器生命周期、
+  罗盘进度、数值回滚/去重以及 PID 参数命名空间。
+
+### Changed
+
+- 配置页间距统一迁入 `MgMetrics.config*`，不新增第二套尺寸系统。
+- Flutter 结构整理为 `components/`、`configuration/` 和 `demo/`，组件画廊仅作为开发工具。
+- 当前文档、架构图、状态审计和 API Catalog 统一到 `0.0.79`。
+
+### Removed
+
+- 删除已完成使命的配置工作区拆分施工指南。
+- 删除废弃的 `CONSTRAINTS`、`UPSTREAM_CODE_SELECTION`、`QGC_MP_BACKPORT_MAP`
+  重定向文档，以及重复的历史整理报告。
+
+### Verification
+
+- `ctest --test-dir build_check ...`：35/35 通过。
+- `flutter analyze --no-pub lib test`：无问题。
+- `flutter test --no-pub`：79/79 通过。
+- `flutter build macos --debug --no-pub`：通过。
+- 全仓 Markdown 链接检查：0 个失效链接。
+
 ## 0.0.78 - 2026-10-08
 
 ### Added

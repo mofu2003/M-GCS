@@ -1,6 +1,6 @@
 # M-GCS 文档导航
 
-当前版本：`0.0.78`
+当前版本：`0.0.79`
 
 > **仓库级规则**以根目录 [`AGENTS.md`](../AGENTS.md) 为唯一权威源。
 
@@ -41,6 +41,7 @@
 
 - [字体替代方案](research/FONT_ALTERNATIVES_RESEARCH.md)
 - [多机关联研究](research/MULTIVEHICLE_CONNECTION_RESEARCH.md)
+- [架构图](architecture-diagrams.html)
 
 ---
 
@@ -49,27 +50,15 @@
 ```text
 docs/
 ├── README.md
+├── architecture-diagrams.html
 ├── architecture/               # 架构、目录和 ADR
-├── guides/                     # 开发、协作和故障排除
+├── guides/                     # 开发、协作、拆分和故障排除
 ├── planning/                   # 路线图、完成定义、状态审计和功能差距
+│   └── audits/                 # 冻结的历史审计快照
 ├── specs/                      # 任务规划、编码和上游互操作规范
 │   └── upstream/               # QGC/MP 参考与选择策略
-├── research/                   # 专项研究
-├── CLEANUP_REPORT.md           # 历史整理报告
-├── CONSTRAINTS.md              # 已废弃，迁移到 AGENTS.md
-├── REORGANIZATION_SUMMARY.md   # 历史重组报告
-└── UPSTREAM_CODE_SELECTION.md  # 已废弃，迁移到 specs/upstream/
+└── research/                   # 专项研究
 ```
-
----
-
-## 已废弃文档
-
-以下文件仅保留历史链接：
-
-- `CONSTRAINTS.md` → [`AGENTS.md`](../AGENTS.md) 的架构约束章节
-- `UPSTREAM_CODE_SELECTION.md` → [`SELECTION_STRATEGY.md`](specs/upstream/SELECTION_STRATEGY.md)
-- `specs/upstream/QGC_MP_BACKPORT_MAP.md` → [`SELECTION_STRATEGY.md`](specs/upstream/SELECTION_STRATEGY.md)
 
 ---
 
@@ -77,11 +66,12 @@ docs/
 
 1. 当前基线只在 `AGENTS.md`、根 `README.md`、`docs/README.md` 和
    `STATUS_AUDIT.md` 中声明。
-2. 历史审计和整理报告保留原始版本号，并在顶部标注“历史报告”。
-3. 相同内容只维护一处，其他位置使用相对链接。
-4. 每次发布同步版本号、状态审计、API 清单和受影响的领域规范。
-5. 文档中的协议和行为描述必须能追溯到代码、QGC/MP 源码或官方定义。
+2. 历史审计保留原始版本号，并在顶部标注为历史快照。
+3. 已合并、已完成或只承担重定向用途的文档直接删除，不留空壳。
+4. 相同内容只维护一处，其他位置使用相对链接。
+5. 每次发布同步版本号、状态审计、API 清单和受影响的领域规范。
+6. 文档中的协议和行为描述必须能追溯到代码、QGC/MP 源码或官方定义。
 
 ---
 
-**最后更新**：2026-10-08 v0.0.78
+**最后更新**：2026-10-08 v0.0.79
