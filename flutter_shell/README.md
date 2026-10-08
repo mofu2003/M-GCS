@@ -1,12 +1,23 @@
 # M-GCS Flutter Shell
 
-Current version: `0.0.76` (source of truth: `pubspec.yaml`).
+Current version: `0.0.78` (source of truth: `pubspec.yaml`).
 
 The shell is the cross-platform presentation layer for M-GCS. It contains the
 map, connection workspace, telemetry and waveform views, mission planning,
 configuration pages, calibration flows, and parameter editing. It talks to the
 native core only through `bridge/ffi/ffi_api.h`; it does not import MAVLink or
 reimplement backend protocol state.
+
+Recent shell behavior:
+
+- Dangerous commands use one floating 0.5-second hold-to-confirm control;
+  moving to a location, RTL, mission start, and arm/disarm wait for confirmation.
+- Flight messages are translated to Chinese for known ArduPilot status templates
+  while unknown text remains verbatim.
+- The lower-right composite MacGlass instrument combines attitude and heading;
+  the map and attitude/position views poll at 20 Hz.
+- QGC mission files and vehicle readback preserve non-location command semantics,
+  so `MAV_FRAME_MISSION` items do not become fake waypoints.
 
 ## Architecture
 

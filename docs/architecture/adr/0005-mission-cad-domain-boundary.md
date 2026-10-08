@@ -13,8 +13,8 @@
 当前有效的边界和行为以以下文档为准：
 
 - [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) 的“任务规划领域边界”。
-- [`docs/MISSION_PLANNING.md`](../MISSION_PLANNING.md) 的任务文档契约。
-- [`bridge/ffi/API_CATALOG.md`](../../bridge/ffi/API_CATALOG.md) 的 FFI 契约。
+- [`docs/MISSION_PLANNING.md`](../../specs/MISSION_PLANNING.md) 的任务文档契约。
+- [`bridge/ffi/API_CATALOG.md`](../../../bridge/ffi/API_CATALOG.md) 的 FFI 契约。
 
 ## 历史记录
 

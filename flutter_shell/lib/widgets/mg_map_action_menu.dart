@@ -76,7 +76,7 @@ class MgMapActionMenu extends StatelessWidget {
       width: width,
       child: MgFloatingPanel(
         child: Material(
-          color: Colors.transparent,
+          color: colors.transparent,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Column(
@@ -126,7 +126,7 @@ class _MapActionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.mgColors;
     return Material(
-      color: Colors.transparent,
+      color: colors.transparent,
       child: InkWell(
         onTap: action.onSelected,
         hoverColor: colors.mapControlHover,

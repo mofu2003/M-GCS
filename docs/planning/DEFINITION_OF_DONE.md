@@ -1,6 +1,6 @@
 # 完成定义与后端维护收口
 
-> 当前基线：`0.0.76`。本文件定义”什么时候可以停”，用来判断维护循环是否还有
+> 当前基线：`0.0.78`。本文件定义”什么时候可以停”，用来判断维护循环是否还有
 > 必须做的后端工作，避免把“还能再改一点”当成“还没做完”。
 
 ## 为什么需要这份文件
@@ -54,8 +54,8 @@ M-GCS 对标 Mission Planner（MP）和 QGroundControl（QGC），功能面几�
 4. 只有在所有适用模块都落到上述三类之一时，该层才算完成。
 
 当前参考记录：[QGC 代码质量审计](audits/2026-10-01-qgc-quality-audit.md)、
-[QGC/MP 可借鉴项对照](upstream/QGC_MP_BACKPORT_MAP.md)、
-[MP / QGC 上游实现择优准则](UPSTREAM_CODE_SELECTION.md)。
+[QGC/MP 可借鉴项对照](../specs/upstream/SELECTION_STRATEGY.md)、
+[MP / QGC 上游实现择优准则](../UPSTREAM_CODE_SELECTION.md)。
 
 ## 剩余项与阻塞原因
 
@@ -85,7 +85,7 @@ M-GCS 对标 Mission Planner（MP）和 QGroundControl（QGC），功能面几�
 引用具体上游实现时写明模块与理由，例如围栏 mission 编码指
 QGC `GeoFenceManager`、ComplexItem 展开指 QGC `TransectStyleComplexItem::_save`、
 Rally 编码指 QGC `RallyPointManager`。详细规则见
-[UPSTREAM_CODE_SELECTION.md](UPSTREAM_CODE_SELECTION.md)。
+[../UPSTREAM_CODE_SELECTION.md](../UPSTREAM_CODE_SELECTION.md)。
 
 ## 使用方式
 

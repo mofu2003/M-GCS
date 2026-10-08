@@ -6,7 +6,7 @@
 > QGroundControl 的 Mission、FactSystem、Comms、Vehicle、Calibration、
 > LogManager 等相关模块。不是对整个 QGC 仓库做总体评分，也不替代 MP 与 QGC
 > 的逐模块比较；上游选择规则见
-> [MP / QGC 上游实现择优准则](../UPSTREAM_CODE_SELECTION.md)。
+> [MP / QGC 上游实现择优准则](../../UPSTREAM_CODE_SELECTION.md)。
 
 ## 结论
 
@@ -171,4 +171,4 @@ QGC 和 MP 都是 GPL 系项目，M-GCS 当前是 MIT。因此“参考和替换
 后端侧剩余项（参数阈值、固件刷写取舍、FFmpeg 并发）与阻塞原因见
 [完成定义与后端维护收口](../DEFINITION_OF_DONE.md)。
 
-关联文档：[QGC / MP 可借鉴项对照表](../upstream/QGC_MP_BACKPORT_MAP.md)、[后续发展计划](../DEVELOPMENT_ROADMAP.md)。
+关联文档：[QGC / MP 可借鉴项对照表](../../specs/upstream/SELECTION_STRATEGY.md)、[后续发展计划](../DEVELOPMENT_ROADMAP.md)。

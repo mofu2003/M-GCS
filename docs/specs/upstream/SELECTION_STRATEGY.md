@@ -1,6 +1,6 @@
 # M-GCS 上游实现选择策略
 
-当前版本：`0.0.76`
+当前版本：`0.0.78`
 
 本文定义 M-GCS 如何借鉴 QGroundControl、Mission Planner、官方 MAVLink 和成熟第三方库的实现。
 
@@ -20,8 +20,8 @@ M-GCS 首先服务 **ArduPilot**，同时保持 **PX4** 兼容。实现上游已
 
 ### 许可证约束
 
-- QGC 和 MP 都是 **GPL 系项目**，M-GCS 当前是 **MIT**
-- **大段源码不能直接复制**
+- 当前 QGC checkout 为 **Apache-2.0 / GPLv3 双许可**，MP 为 **GPLv3**，M-GCS 当前是 **MIT**
+- **大段源码不能直接复制**；选择 Apache-2.0 分支时仍需核对 Qt 商业授权和再分发义务
 - **可复用**：协议事实、算法、字段、流程、允许再分发的第三方库
 - UI 只借工作流、状态和信息层级，不照搬 Qt/QML/WinForms 布局
 
@@ -178,7 +178,7 @@ M-GCS 首先服务 **ArduPilot**，同时保持 **PX4** 兼容。实现上游已
 - MP 的全局 `MainV2.comPort` 状态耦合不能进入 Core
 - QGC 的 Qt object/property/signal 结构不能原样移植到 Flutter FFI
 - MP/QGC 的 UI 布局、控件尺寸和主题不进入 M-GCS；只借工作流、状态和字段
-- GPL 源码的大段复制需要单独处理许可证；M-GCS 当前优先做接口和算法对齐
+- GPL/上游源码的大段复制需要单独处理许可证和授权；M-GCS 当前优先做接口和算法对齐
 
 ---
 

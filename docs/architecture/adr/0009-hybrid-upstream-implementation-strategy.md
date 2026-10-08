@@ -36,9 +36,10 @@ M-GCS 采用三层组合策略：
 
 ## 许可证边界
 
-QGC 和 MP 为 GPL 系项目，M-GCS 当前为 MIT。默认只复用协议事实、字段、错误码、算法
-和交互顺序，在 M-GCS 模块边界内重写；直接移植大段源码前必须单独核对许可证。官方
-MAVLink 和许可证兼容的成熟第三方依赖可以优先直接复用。
+当前 QGC checkout 为 Apache-2.0 / GPLv3 双许可，MP 为 GPLv3，M-GCS 当前为 MIT。
+默认只复用协议事实、字段、错误码、算法和交互顺序，在 M-GCS 模块边界内重写；直接
+移植大段源码前必须单独核对所选许可证、Qt 商业授权和再分发义务。官方 MAVLink 和
+许可证兼容的成熟第三方依赖可以优先直接复用。
 
 ## 影响
 
@@ -57,7 +58,7 @@ MAVLink 和许可证兼容的成熟第三方依赖可以优先直接复用。
 
 ## 关联文档
 
-- [UPSTREAM_CODE_SELECTION.md](../UPSTREAM_CODE_SELECTION.md)
-- [QGC_MP_BACKPORT_MAP.md](../upstream/QGC_MP_BACKPORT_MAP.md)
+- [UPSTREAM_CODE_SELECTION.md](../../UPSTREAM_CODE_SELECTION.md)
+- [QGC_MP_BACKPORT_MAP.md](../../specs/upstream/SELECTION_STRATEGY.md)
 - [AGENTS.md](../../../AGENTS.md)
-- [REFACTORING_PLAN.md](../audits/2026-10-03-refactoring-plan.md)
+- [REFACTORING_PLAN.md](../../planning/audits/2026-10-03-refactoring-plan.md)

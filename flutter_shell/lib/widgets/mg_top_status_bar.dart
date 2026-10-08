@@ -7,6 +7,7 @@ import '../flight/flight_mode_labels.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import 'mg_animated_number.dart';
+import 'mg_command_confirmation.dart';
 import 'mg_floating_panel.dart';
 
 Future<void> showMgFlightModeMenu(
@@ -77,7 +78,7 @@ class _FlightModeMenu extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(MgMetrics.panelRadius),
           child: Material(
-            color: Colors.transparent,
+            color: colors.transparent,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -142,8 +143,8 @@ class MgFlightModeRow extends StatefulWidget {
 
 class MgFlightModeRowState extends State<MgFlightModeRow>
     with SingleTickerProviderStateMixin {
-  /// 按住多久算确认。QGC 的 hold-to-confirm 量级是 1~2 秒，这里取 1 s。
-  static const Duration holdDuration = Duration(seconds: 1);
+  /// 按住多久算确认。统一使用 M-GCS 的 0.5 s 标准。
+  static const Duration holdDuration = kMgHoldToConfirmDuration;
 
   late final AnimationController _hold =
       AnimationController(vsync: this, duration: holdDuration)
@@ -505,7 +506,7 @@ class _TopActionButton extends StatelessWidget {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: colors.danger,
-                  borderRadius: BorderRadius.circular(7),
+                  borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
                 ),
                 child: Text(
                   '$badgeCount',

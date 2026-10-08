@@ -1,6 +1,8 @@
 # QGC `.plan` 任务文件互操作
 
-> 格式优先级见 [ADR 0008](../adr/0008-mission-file-format-priority.md)。
+当前版本基线：`0.0.78`。
+
+> 格式优先级见 [ADR 0008](../../architecture/adr/0008-mission-file-format-priority.md)。
 > `.plan` 不删除：它用于 PX4/QGC 工作流和不能由 `.waypoints` 无损表达的复杂规划数据。
 
 本文定义 M-GCS 当前对 QGroundControl `.plan` JSON 的导入和导出范围。实现依据是
@@ -30,11 +32,17 @@ QGC 的 `MissionController`、`MissionItem` 和 `SimpleMissionItem`，不是从�
 当前格式使用 7 值 `params`：
 
 ```text
-params = [param1, param2, param3, param4, latitude, longitude, altitude]
+params = [param1, param2, param3, param4, param5_or_latitude, param6_or_longitude, param7_or_altitude]
 ```
 
 旧版 QGC 文件可能使用 4 值 `params` 加 `coordinate` 数组。导入端同时兼容两者；
 当 7 值格式存在时优先使用 `params[4..6]`。
+
+`params[4..6]` 的语义由 `frame` 和命令共同决定：全球坐标帧下的定位命令按
+纬度/经度/高度处理；`MAV_FRAME_MISSION`（2）下它们是原始 `param5/param6/param7`。
+QGC 的 `DO_*`、`CONDITION_*` 和 `DO_MOUNT_CONTROL` 等非定位命令不能因为
+`coordinate: [0,0,2]` 就被画成 `(0,0)` 航点。固定翼 `NAV_TAKEOFF`（22）的位置
+仍然保留。
 
 | QGC 字段 | M-GCS 映射 |
 | --- | --- |
@@ -44,8 +52,8 @@ params = [param1, param2, param3, param4, latitude, longitude, altitude]
 | `autoContinue` | `entity.autocontinue` |
 | `doJumpId` | 不保留；导出时按合并后的 item 顺序对简单项和复杂项统一重编号 |
 | `params[0..3]` | `entity.params[0..3]` |
-| `params[4..6]` | `entity.latitude/longitude/altitude_m`；null 表示未提供位置 |
-| `coordinate` | 旧格式位置；存在时覆盖 `params[4..6]` 的缺失值 |
+| `params[4..6]` | 定位命令映射为 `entity.latitude/longitude/altitude_m`；`MAV_FRAME_MISSION` 的 param7 映射到 `altitude_m`，param5/6 不生成位置，任意 param5/6 仍不进入文档模型 |
+| `coordinate` | 旧格式位置；仅定位命令按经纬度导入，非定位命令不生成位置 |
 | `altitudeMode` / `altitude` / `AMSLAltAboveTerrain` | 不保留，导入产生 warning |
 
 不在命令目录中的 MAV_CMD 可以进入文档，但会返回 warning；后续校验会把不支持的命令
@@ -54,11 +62,10 @@ GeoFence 和 Rally 已进入正式文档模型；ComplexItem 以 `MissionComplex
 `id`、`item_type`（取 `complexItemType`，回退 `type`）和原始 JSON，再次导出同一
 `.plan` 时会按该 JSON 重建完整 ComplexItem。
 
-复杂项只做无损保留，不参与编译：文档含 `complex_items` 时校验返回
-`complex_item.unsupported` 错误。QGC 保存 ComplexItem 时会把算好的内部 MissionItem
-写入 `TransectStyleComplexItem.Items`（见 QGC `TransectStyleComplexItem::_save`），
-M-GCS 直接复用这段几何展开成普通任务项参与编译/估算/上传，而不是自己重推 Survey 网格；
-只有缺少该区段的复杂项才继续报错阻断，避免上传时静默丢掉 Survey/Corridor。
+复杂项在 M-GCS 中保留原始 JSON，并在 `TransectStyleComplexItem.Items` 存在时复用
+QGC 已算好的内部 MissionItem，展开成普通任务项参与编译、估算和上传，而不是自己重推
+Survey 网格。只有缺少可展开区段的复杂项才返回 `complex_item.unsupported` 并阻断，
+避免上传时静默丢掉 Survey/Corridor。M-GCS 当前仍不能语义化编辑 ComplexItem 内部字段。
 
 GeoFence 和 Rally 在文档里是独立模型，`validate` 会校验其几何（多边形至少 3 个顶点、
 经纬度在合法范围、圆半径为正、breach-return 点有效），但不会因为存在围栏/Rally 而
@@ -88,8 +95,8 @@ Rally 同样可单独下发：`compile_rally_plan` 按 QGC `RallyPointManager` �
 
 `.plan` 不静默 flatten 设计意图：
 
-- `survey_grid` / `corridor` 导出仍返回错误，不展开成普通航点；它们不是输入中保留的
-  QGC ComplexItem。
+- `survey_grid` / `corridor` 导出为可重新导入的 QGC `Survey` / `CorridorScan`
+  ComplexItem，并嵌入编译后的任务项；无法无损表达时才退回 SimpleItem 并返回 warning。
 - `complex_items` 导出时按原始 JSON 放回 `mission.items`，保持 Survey、CorridorScan
   等条目往返无损；M-GCS 目前不语义化编辑其内部字段。
 - disabled 实体无法由 QGC `SimpleItem` 表达，导出返回错误。

@@ -1,6 +1,6 @@
 # M-GCS 后续发展计划
 
-> 状态：建议路线，尚非版本承诺。当前代码基线：`0.0.76`。
+> 状态：建议路线，尚非版本承诺。当前代码基线：`0.0.78`。
 > 本计划用于确定开发顺序和验收条件；具体版本归属应在每个阶段开始前，根据代码状态与用户优先级确认。
 
 “什么时候可以停”的判定口径见 [完成定义与后端维护收口](DEFINITION_OF_DONE.md)：
@@ -19,6 +19,7 @@ M-GCS 当前已有任务文档编辑、后端校验/编译、任务上传/下载
 ArduPilot 专用命令、参数、校准、固件和飞行行为优先参考 MP。组合时明确边界，
 协议语义、任务编译和校验仍集中在 M-GCS 后端。默认归属见
 [MP / QGC 上游实现择优准则](../specs/upstream/SELECTION_STRATEGY.md)。
+完整能力差距和建议优先级见 [功能差距分析](FEATURE_GAP_ANALYSIS.md)。
 
 ## 本轮维护决策
 
@@ -47,7 +48,7 @@ M-GCS Core -> FFI -> Flutter
 
 | 领域 | M-GCS 当前基线 | MP / QGC 可借鉴点 | 当前主要差距 |
 | --- | --- | --- | --- |
-| 任务规划 | 任务文档、命令目录、测绘实体、校验/编译、上传/下载/验证、operations 进度与取消、回读核对、脏状态、拖拽排序；Flutter 地图规划面板 | 两者均采用显式 Read/Write 或 Download/Upload；覆盖本地未保存内容前先确认 | 复杂 QGC 任务项、GeoFence/Rally 和更细的跨固件错误语义仍未补齐 |
+| 任务规划 | 任务文档、命令目录、测绘实体、校验/编译、上传/下载/验证、operations 进度与取消、回读核对、脏状态、拖拽排序；Flutter 地图规划面板 | 两者均采用显式 Read/Write 或 Download/Upload；覆盖本地未保存内容前先确认 | Survey/Corridor 可视编辑、Structure Scan/固定翼着陆、围栏/Rally 地图编辑和地形规划仍未补齐 |
 | 地图与飞行操作 | Home/飞机标记、地图偏好保存、引导操作及确认 | QGC 按飞行状态、机型和 capability 控制动作可用性；关键操作前确认 | 继续核对定位有效性、能力差异和异常状态呈现；避免对不支持动作显示可执行入口 |
 | 任务格式与相关领域 | `.waypoints` 互操作；QGC `.plan` SimpleItem、ComplexItem、GeoFence、Rally 已纳入文档模型并往返无损；ComplexItem 复用 QGC 已算好的任务项参与编译/上传；围栏和 Rally 几何已校验，并可各自按 QGC 编码编译/上传/清除/回读与 verify | QGC `.plan` 将任务及相关规划信息组织为可保存文件；MP 有成熟 ArduPilot 任务与参数流程 | ComplexItem 内部字段仍只读（几何来自 QGC，不可在 M-GCS 编辑）；围栏/Rally/ComplexItem 统一编辑工作流仍缺 |
 | 诊断与长操作 | 有连接/系统/遥测诊断及 operation 后端 API | QGC 将连接、车辆状态、命令结果和进度反馈串成连续工作流；MP 提供面向 ArduPilot 的丰富检查 | Flutter 尚未完整使用聚合诊断和长任务取消/统一进度；不同页面状态体验不一致 |

@@ -510,6 +510,8 @@ final class MissionVerificationResult {
     this.differences = const [],
     this.normalizationCount = 0,
     this.normalizations = const [],
+    this.homeSyncCount = 0,
+    this.homeSync = const [],
   });
 
   final bool matches;
@@ -519,6 +521,10 @@ final class MissionVerificationResult {
   final List<MissionVerificationDifference> differences;
   final int normalizationCount;
   final List<MissionVerificationDifference> normalizations;
+
+  /// 飞控动态 Home 与规划 Home 的差异，不参与任务一致性判定。
+  final int homeSyncCount;
+  final List<MissionVerificationDifference> homeSync;
 
   factory MissionVerificationResult.fromJson(JsonMap json) =>
       MissionVerificationResult(
@@ -532,6 +538,11 @@ final class MissionVerificationResult {
             .toList(growable: false),
         normalizationCount: (json['normalization_count'] as num?)?.toInt() ?? 0,
         normalizations: (json['normalizations'] as List<Object?>? ?? const [])
+            .whereType<JsonMap>()
+            .map(MissionVerificationDifference.fromJson)
+            .toList(growable: false),
+        homeSyncCount: (json['home_sync_count'] as num?)?.toInt() ?? 0,
+        homeSync: (json['home_sync'] as List<Object?>? ?? const [])
             .whereType<JsonMap>()
             .map(MissionVerificationDifference.fromJson)
             .toList(growable: false),

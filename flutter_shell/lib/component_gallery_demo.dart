@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
+import 'widgets/mg_dialog.dart';
+
 /// 静态外观画廊：只摆出 macos_ui 自带组件的样子，不做业务功能。
 ///
 /// 运行：flutter run -d macos --target lib/component_gallery_demo.dart
@@ -844,7 +846,7 @@ class _DialogSection extends StatelessWidget {
         'MacosAlertDialog',
         PushButton(
           controlSize: ControlSize.large,
-          onPressed: () => showMacosAlertDialog<void>(
+          onPressed: () => showMgAlertDialog<void>(
             context: context,
             builder: (dialogContext) => MacosAlertDialog(
               appIcon: const Icon(
@@ -875,7 +877,7 @@ class _DialogSection extends StatelessWidget {
         'MacosSheet',
         PushButton(
           controlSize: ControlSize.large,
-          onPressed: () => showMacosSheet<void>(
+          onPressed: () => showMgSheet<void>(
             context: context,
             builder: (sheetContext) => MacosSheet(
               child: Padding(

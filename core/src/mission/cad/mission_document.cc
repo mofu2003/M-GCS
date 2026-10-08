@@ -1067,14 +1067,20 @@ bool import_mission_plan_into_document(
     entities.reserve(plan.items.size());
     int index = 0;
     for (const MissionItem& item : plan.items) {
+        const uint8_t normalized_frame = normalize_mission_frame(item.frame);
         MissionEntity entity;
         entity.id = "wp-" + std::to_string(++index);
         entity.type = mission_entity_type_for_command(item.command);
         entity.command = item.command;
-        entity.frame = normalize_mission_frame(item.frame);
+        entity.frame = normalized_frame;
         entity.autocontinue = item.autocontinue;
-        entity.latitude = static_cast<double>(item.x) / 1e7;
-        entity.longitude = static_cast<double>(item.y) / 1e7;
+        // MAV_FRAME_MISSION 的 x/y 是 param5/param6，不是经纬度；只有命令
+        // 语义承载位置且坐标帧为全球帧时才还原成文档位置。
+        if (is_global_coordinate_frame(normalized_frame) &&
+            mission_command_uses_location(item.command)) {
+            entity.latitude = static_cast<double>(item.x) / 1e7;
+            entity.longitude = static_cast<double>(item.y) / 1e7;
+        }
         entity.altitude_m = item.z;
         entity.params = {item.param1, item.param2, item.param3, item.param4};
         entity.order = static_cast<uint32_t>(entities.size());

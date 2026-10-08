@@ -1,9 +1,10 @@
 # M-GCS 协作规则
 
-当前版本：`0.0.76`
+当前版本：`0.0.78`
 
 本文件是仓库级工作规则，Codex 等 agent 进入本仓库时会自动读取并遵守。
-**本文件是唯一权威源**，`docs/DEVELOPMENT.md` 和 `docs/CONSTRAINTS.md` 已合并到此处。
+**本文件是唯一权威源**，`docs/guides/DEVELOPMENT.md` 是简化参考，
+`docs/CONSTRAINTS.md` 已废弃并合并到此处。
 
 ## 项目简述
 
@@ -128,8 +129,9 @@ QGroundControl 和 Mission Planner 的本地源码，以及项目已经采用的
   “QGC 负责结构，MP 负责 ArduPilot 语义”的组合，但必须说明边界。
 - 不允许在没有查过 QGC / MP 对应模块、也没有复用成熟依赖的情况下，凭个人习惯从零设计。
 - UI 只借工作流、状态和信息层级，不照搬 QGC/MP 的 Qt/QML/WinForms 布局或控件。
-- QGC 和 MP 都是 GPL 系项目，M-GCS 当前是 MIT。大段源码不能直接复制；优先复用的是
-  协议事实、算法、字段、流程和允许再分发的第三方库。直接移植前必须核对许可证。
+- 当前 QGC checkout 采用 Apache-2.0 / GPLv3 双许可，MP 为 GPLv3，M-GCS 当前是 MIT。
+  从 QGC/MP 直接移植大段源码前必须核对所选许可证、Qt 商业授权和再分发义务；优先复用的是
+  协议事实、算法、字段、流程和允许再分发的第三方库。
 - 设计说明、提交说明或代码注释中要能指出所参考的 QGC / MP 模块、选择理由或引用的
   上游库。
 
@@ -209,7 +211,7 @@ flutter_shell/  →  bridge/ffi/  →  core/  →  third_party/
 - `bridge/ffi/ffi_api.h` 是唯一稳定边界，改动需要同步：头文件、实现、测试、API_CATALOG.md、文档
 - 所有 `char*` 返回值由调用方通过 `mg_free_string()` 释放
 - 不删除已导出的函数；弃用需要文档化的 ABI-major 发布和迁移说明
-- 303 个导出函数中，84 个前端使用，217 个测试覆盖，83 个为保留接口（logging/geofence/config 等领域）
+- 306 个导出函数中，89 个前端使用，220 个测试覆盖，83 个尚未被前端或测试消费（logging/geofence/config 等领域）
 
 ### UI 设计约束
 
@@ -221,7 +223,8 @@ flutter_shell/  →  bridge/ffi/  →  core/  →  third_party/
 ### 许可证约束
 
 - M-GCS 使用 MIT 许可证
-- QGC 和 MP 是 GPL 系项目，大段源码不能直接复制
+- 当前 QGC checkout 为 Apache-2.0 / GPLv3 双许可，MP 为 GPLv3；大段源码不能直接复制
+- 采用 QGC Apache-2.0 分支时仍需核对 Qt 商业授权、署名和再分发义务
 - 可复用：协议事实、算法、字段、流程、允许再分发的第三方库
 - 打包字体必须允许商用与随软件分发（OFL / Apache-2.0 优先）
 

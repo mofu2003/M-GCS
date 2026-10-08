@@ -246,9 +246,83 @@ int main() {
           "import does not expose the ArduPilot home item as a task");
     if (result) mg_free_string(result);
 
+    // QGC 的 DO_CHANGE_SPEED 使用 MAV_FRAME_MISSION，x/y 是 param5/6，
+    // 不是经纬度。端到端回读时不能把它还原成 (0,0) 航点。
+    MockVehicleTestEnv command_env;
+    for (int i = 0; i < 15; ++i) command_env.tick(100);
+    result = mg_mission_doc_create(
+        command_env.core,
+        R"({"metadata":{"name":"QGC command import"},"home":{"set":true,"lat":39.9,"lon":116.4,"alt_m":20}})");
+    if (result) mg_free_string(result);
+
+    std::vector<mavlink_mission_item_int_t> command_items(3);
+    memset(command_items.data(), 0,
+           sizeof(mavlink_mission_item_int_t) * command_items.size());
+    command_items[0].seq = 0;
+    command_items[0].frame = MAV_FRAME_GLOBAL;
+    command_items[0].command = MAV_CMD_NAV_WAYPOINT;
+    command_items[0].autocontinue = 1;
+    command_items[0].x = 399000000;
+    command_items[0].y = 1164000000;
+    command_items[0].z = 20.0f;
+    command_items[0].mission_type = MAV_MISSION_TYPE_MISSION;
+    command_items[1].seq = 1;
+    // ArduPilot 对非定位命令回读时会规范成 GLOBAL(0)，而不是保留 QGC 的
+    // MAV_FRAME_MISSION；这正是产生假 (0,0) 航点的实际回读形态。
+    command_items[1].frame = MAV_FRAME_GLOBAL;
+    command_items[1].command = MAV_CMD_DO_CHANGE_SPEED;
+    command_items[1].autocontinue = 1;
+    command_items[1].param1 = 0.0f;
+    command_items[1].param2 = 8.0f;
+    command_items[1].x = 123;
+    command_items[1].y = 456;
+    command_items[1].mission_type = MAV_MISSION_TYPE_MISSION;
+    command_items[2].seq = 2;
+    command_items[2].frame = MAV_FRAME_GLOBAL_RELATIVE_ALT_INT;
+    command_items[2].command = MAV_CMD_NAV_WAYPOINT;
+    command_items[2].autocontinue = 1;
+    command_items[2].x = 399050000;
+    command_items[2].y = 1164050000;
+    command_items[2].z = 50.0f;
+    command_items[2].mission_type = MAV_MISSION_TYPE_MISSION;
+    command_env.mock->set_mission(command_items);
+
+    result = mg_mission_download(command_env.core);
+    if (result) mg_free_string(result);
+    for (int i = 0; i < 80; ++i) command_env.tick(50);
+
+    result = mg_mission_doc_import_from_vehicle(command_env.core);
+    CHECK(result && strstr(result, "\"success\":true"),
+          "QGC frame-mission command imports from vehicle");
+    CHECK(result && strstr(result, "\"lat\":0") == nullptr,
+          "downloaded MAV_FRAME_MISSION command is not exposed as (0,0)");
+    CHECK(result && strstr(result, "\"command\":178") != nullptr &&
+              strstr(result, "\"params\":[0,8,0,0]") != nullptr,
+          "downloaded MAV_FRAME_MISSION command keeps its parameters");
+    if (result) mg_free_string(result);
+
+    // 只改变飞控侧 Home，不改任务实体；Home 变化必须进入 home_sync，
+    // 不能把任务标记为回读失败。
+    auto changed_home = home_env.mock->stored_mission();
+    changed_home[0].x += 1000;
+    home_env.mock->set_mission(changed_home);
+    result = mg_mission_download(home_env.core);
+    if (result) mg_free_string(result);
+    for (int i = 0; i < 80; ++i) home_env.tick(50);
+
+    result = mg_mission_doc_verify(home_env.core, 0.1);
+    CHECK(result && strstr(result, "\"matches\":true"),
+          "home-only drift does not fail mission verification");
+    CHECK(result && strstr(result, "\"difference_count\":0"),
+          "home-only drift is not counted as a mission difference");
+    CHECK(result && strstr(result, "\"home_sync_count\":1"),
+          "verify reports dynamic home drift separately");
+    if (result) mg_free_string(result);
     result = mg_mission_doc_verify(env.core, 0.1);
-    CHECK(result && strstr(result, "\"matches\":false"), "verify detects local document drift");
-    CHECK(result && strstr(result, "\"difference_count\":1"), "verify reports altitude difference");
+    CHECK(result && strstr(result, "\"matches\":false"),
+          "verify detects local document drift");
+    CHECK(result && strstr(result, "\"difference_count\":1"),
+          "verify reports altitude difference");
     if (result) mg_free_string(result);
 
     // 主动取消：新下载尚未收到 MISSION_COUNT 时必须能终止，并保留可查询终态。

@@ -1,7 +1,7 @@
 # 当前状态审计
 
-> 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.76`。本文件只记录当前 checkout 已复核的事实。
+> 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/planning/audits/`；发布变化在
+> `CHANGELOG.md`。当前代码基线版本：`0.0.78`。本文件只记录当前 checkout 已复核的事实。
 
 ## 门禁基线
 
@@ -10,7 +10,7 @@
 | `git diff --check` | 通过 |
 | `dart tools/check_ui_tokens.dart` | 通过 |
 | Flutter analyze | 通过 |
-| Flutter test | 24/24 |
+| Flutter test | 69/69 |
 | 后端 offline/simulation | 35/35 |
 | macOS debug 构建 | 通过 |
 | Windows build/preflight | workflow 统一调用预检脚本；脚本会先生成 MAVLink 头，再构建 bundle 并校验关键 FFI 导出。未在本机 Windows 复核 |
@@ -31,9 +31,9 @@ bash tools/audit_status.sh
 
 | 项目 | 数量 |
 | --- | ---: |
-| FFI exports | 303 |
-| Flutter 使用 | 84 |
-| 测试触达 | 217 |
+| FFI exports | 306 |
+| Flutter 使用 | 89 |
+| 测试触达 | 220 |
 | 前端和测试都未触达 | 83 |
 
 这些数字必须由 `tools/audit_status.sh` 生成，不手工维护。无人区不等于可删除，公开
@@ -49,6 +49,8 @@ bash tools/audit_status.sh
   取消时立即结束本地校准态并在真机上验证进度和取消都有效。
 - `HOME-001`：识别飞控后请求 `HOME_POSITION` 和 `EXTENDED_SYS_STATE` 1Hz。
 - `HOME-002`：新增 `mg_command_set_home`，设置 Home 前由 UI 确认。
+- `HOME-003`：ArduPilot 动态 Home 漂移进入 `home_sync` / `home_sync_count`，不与
+  任务项 `differences` 混合；任务页允许采用飞控 Home 或保留本地 Home。
 - `LOG-001` / `LOCK-001`：飞行日志接入 STATUSTEXT/连接事件，回调移出锁内。
 - `CONN-002`：TCP/UDP 读线程改为共享状态，避免 Windows 超时关闭后的 UAF；
   心跳丢失回收幽灵 Vehicle/session；关闭 active vehicle 后自动选择剩余车辆。
@@ -65,6 +67,14 @@ bash tools/audit_status.sh
   `Vehicle::fixedWing()`，改为 `GUIDED -> 解锁 -> MISSION_START`。
 - `MISSION-005`：任务传输增加 in-progress 门控、mission type 精确路由、来源
   sysid/compid 与期望序号校验；重传/下载清空旧执行进度。
+- `MISSION-006`：修正 QGC/ArduPilot `MAV_FRAME_MISSION` 的非定位命令语义；
+  `x/y` 不再被无条件当作 degE7 经纬度，非定位命令不会回读成 `(0,0)` 假航点，
+  固定翼 `NAV_TAKEOFF` 坐标继续保留。
+- `UI-008`：顶部状态栏统一 0.5 秒长按确认按钮；“移动到此处”、返航、开始任务和
+  解锁共用白底/蓝色进度填充，确认完成后才下发命令。
+- `UI-009`：飞控消息完成中文翻译和固定时间列布局；未知消息保留原文，不猜测翻译。
+- `UI-010`：右下角复合 MacGlass 姿态/指南针仪表完成，使用旧版 MacGlass 配色、
+  毛玻璃、固定航向箭头和中文方向读数。
 - `TEST-001` / `TEST-002` / `TEST-003`：真实 UI FFI、飞行命令、批量参数变更集已有模拟测试。
 - `CONTRACT-001` / `DEPRECATION-001`：参数入口和兼容入口规则已登记。
 - `TESTGUARD-001` / `TOOL-001` / `TOOL-002`：架构守卫和审计统计不再静默空转。
@@ -157,6 +167,8 @@ bash tools/audit_status.sh
 ## 当前剩余项
 
 本节的判定口径与“能不能停”见 [完成定义与后端维护收口](DEFINITION_OF_DONE.md)。
+与 QGC/MP 的完整能力差距、项目定位和建议优先级见
+[功能差距分析](FEATURE_GAP_ANALYSIS.md)。
 概览：
 
 | 条目 | 性质 | 说明 |

@@ -1,8 +1,8 @@
 # M-GCS 开发指南
 
-当前版本：`0.0.76`
+当前版本：`0.0.78`
 
-> **完整规则请参阅** [`AGENTS.md`](../AGENTS.md)（仓库根目录）
+> **完整规则请参阅** [`AGENTS.md`](../../AGENTS.md)（仓库根目录）
 > 
 > 本文件是人类友好的快速参考，完整的架构约束、工作流程和详细说明都在 `AGENTS.md` 中。
 
@@ -85,7 +85,7 @@ flutter_shell/  →  bridge/ffi/  →  core/  →  third_party/
 - 通用框架 → 参考 QGroundControl
 - 协议定义 → 使用官方 MAVLink
 
-详细比较见 [`docs/specs/upstream/SELECTION_STRATEGY.md`](specs/upstream/SELECTION_STRATEGY.md)
+详细比较见 [`docs/../specs/upstream/SELECTION_STRATEGY.md`](../specs/upstream/SELECTION_STRATEGY.md)
 
 ## 常用命令
 
@@ -104,7 +104,7 @@ cmake --build build --config Release --target mgcore
 
 ```bash
 # 使用发布脚本（自动更新版本号、CHANGELOG）
-./tools/release.sh 0.0.77
+./tools/release.sh 0.0.78
 
 # 发布流程：改版本号 → 更新 CHANGELOG → 提交 → 打标签 →（用户要求时）推送
 ```
@@ -139,31 +139,31 @@ release  # 版本发布
 - 任务卡写清：涉及文件、依赖契约、验收命令、完成标准
 - 独占资源：飞控串口、Flutter 热重载窗口、git 索引
 
-详细流程见 [`docs/guides/COLLABORATION.md`](guides/COLLABORATION.md)
+详细流程见 [`docs/COLLABORATION.md`](COLLABORATION.md)
 
 ## 文档导航
 
 ### 指南
-- [开发指南](guides/DEVELOPMENT.md)（本文件）
-- [协作流程](guides/COLLABORATION.md)
-- [故障排除](guides/TROUBLESHOOTING.md)
+- [开发指南](DEVELOPMENT.md)（本文件）
+- [协作流程](COLLABORATION.md)
+- [故障排除](TROUBLESHOOTING.md)
 
 ### 架构
-- [架构总览](architecture/OVERVIEW.md)
-- [目录结构](architecture/PROJECT_LAYOUT.md)
-- [ADR（架构决策记录）](architecture/adr/)
+- [架构总览](../architecture/ARCHITECTURE.md)
+- [目录结构](../architecture/PROJECT_LAYOUT.md)
+- [ADR（架构决策记录）](../architecture/adr/)
 
 ### 规划
-- [路线图](planning/ROADMAP.md)
-- [完成定义](planning/DEFINITION_OF_DONE.md)
-- [当前审计](planning/STATUS_AUDIT.md)
+- [路线图](../planning/DEVELOPMENT_ROADMAP.md)
+- [完成定义](../planning/DEFINITION_OF_DONE.md)
+- [当前审计](../planning/STATUS_AUDIT.md)
 
 ### 技术规范
-- [任务规划契约](specs/MISSION_PLANNING.md)
-- [上游选择策略](specs/upstream/SELECTION_STRATEGY.md)
+- [任务规划契约](../specs/MISSION_PLANNING.md)
+- [上游选择策略](../specs/upstream/SELECTION_STRATEGY.md)
 
 ## 参考资料
 
-- **完整规则**：[`AGENTS.md`](../AGENTS.md)（仓库根目录）
+- **完整规则**：[`AGENTS.md`](../../AGENTS.md)（仓库根目录）
 - **项目记忆**：`.workbuddy/memory/MEMORY.md`
-- **API 清单**：[`bridge/ffi/API_CATALOG.md`](../bridge/ffi/API_CATALOG.md)
+- **API 清单**：[`bridge/ffi/API_CATALOG.md`](../../bridge/ffi/API_CATALOG.md)

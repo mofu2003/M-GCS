@@ -759,11 +759,17 @@ static void test_qgc_complex_item_export() {
           "survey round-trip preserves the expanded item count");
     bool survey_coordinates_match = survey_expanded.size() == survey_compiled.plan.items.size();
     for (size_t i = 0; i < survey_expanded.size() && survey_coordinates_match; ++i) {
-        survey_coordinates_match =
-            std::fabs(survey_expanded[i].latitude -
-                      survey_compiled.plan.items[i].x / 1e7) < 1e-6 &&
-            std::fabs(survey_expanded[i].longitude -
-                      survey_compiled.plan.items[i].y / 1e7) < 1e-6;
+        if (!std::isfinite(survey_expanded[i].latitude)) {
+            survey_coordinates_match =
+                survey_compiled.plan.items[i].x == 0 &&
+                survey_compiled.plan.items[i].y == 0;
+        } else {
+            survey_coordinates_match =
+                std::fabs(survey_expanded[i].latitude -
+                          survey_compiled.plan.items[i].x / 1e7) < 1e-6 &&
+                std::fabs(survey_expanded[i].longitude -
+                          survey_compiled.plan.items[i].y / 1e7) < 1e-6;
+        }
     }
     CHECK(survey_coordinates_match,
           "survey round-trip preserves expanded coordinates");
@@ -807,6 +813,83 @@ static void test_qgc_complex_item_export() {
     CHECK(corridor_reimport.complex_items.size() == 1 &&
               corridor_reimport.complex_items[0].item_type == "CorridorScan",
           "re-imported corridor keeps its complex item type");
+}
+
+static void test_frame_mission_command_import() {
+    fprintf(stderr, "\n[Group] MAV_FRAME_MISSION command import\n");
+
+    // QGC 的 DO_CHANGE_SPEED 使用 MAV_FRAME_MISSION：x/y 是 param5/param6，
+    // 不是经纬度。回读飞控任务时必须忽略这两个字段，否则会被画成假航点。
+    MissionItem speed_item{};
+    speed_item.seq = 0;
+    speed_item.frame = 2;  // MAV_FRAME_MISSION
+    speed_item.command = static_cast<uint16_t>(NavCommand::DoSetSpeed);
+    speed_item.param1 = 0.0f;
+    speed_item.param2 = 8.0f;
+    speed_item.param3 = 0.0f;
+    speed_item.param4 = 0.0f;
+    speed_item.x = 123;
+    speed_item.y = 456;
+    speed_item.z = 7.0f;
+
+    // ArduPilot 可能把不支持坐标的命令统一以 GLOBAL(0) 回读；这时仍应按
+    // 命令语义判断，不能把 0,0 画成真实位置。
+    MissionItem normalized_item{};
+    normalized_item.seq = 1;
+    normalized_item.frame = 0;
+    normalized_item.command =
+        static_cast<uint16_t>(NavCommand::DoSetSpeed);
+    normalized_item.param2 = 9.0f;
+    normalized_item.x = 0;
+    normalized_item.y = 0;
+    normalized_item.z = 2.0f;
+
+    MissionPlan transport;
+    transport.valid = true;
+    transport.items.push_back(speed_item);
+    transport.items.push_back(normalized_item);
+    MissionDocument imported;
+    std::string error;
+    CHECK(import_mission_plan_into_document(transport, imported, error),
+          "MAV_FRAME_MISSION command imports successfully");
+    CHECK(imported.entities.size() == 2,
+          "MAV_FRAME_MISSION commands keep their task entities");
+    CHECK(imported.entities.size() == 2 &&
+              std::isnan(imported.entities[0].latitude) &&
+              std::isnan(imported.entities[0].longitude),
+          "MAV_FRAME_MISSION x/y are not treated as latitude/longitude");
+    CHECK(imported.entities.size() == 2 &&
+              imported.entities[0].altitude_m == 7.0f,
+          "MAV_FRAME_MISSION z is preserved as param7/altitude storage");
+    CHECK(imported.entities.size() == 2 &&
+              std::isnan(imported.entities[1].latitude) &&
+              std::isnan(imported.entities[1].longitude),
+          "GLOBAL frame with a non-location command is not treated as a position");
+
+    const MissionCompileResult compiled =
+        MissionDocumentService::compile_document(imported);
+    CHECK(compiled.valid && compiled.plan.items.size() == 2,
+          "MAV_FRAME_MISSION commands compile without fake positions");
+    CHECK(compiled.plan.items.size() == 2 &&
+              compiled.plan.items[0].x == 0 && compiled.plan.items[0].y == 0 &&
+              compiled.plan.items[1].x == 0 && compiled.plan.items[1].y == 0,
+          "non-location commands compile with zero raw param5/param6");
+
+    MissionItem takeoff_item{};
+    takeoff_item.frame = 3;
+    takeoff_item.command = static_cast<uint16_t>(NavCommand::NavTakeoff);
+    takeoff_item.x = 399000000;
+    takeoff_item.y = 1164000000;
+    takeoff_item.z = 30.0f;
+    MissionPlan takeoff_transport;
+    takeoff_transport.valid = true;
+    takeoff_transport.items.push_back(takeoff_item);
+    MissionDocument takeoff_document;
+    CHECK(import_mission_plan_into_document(
+              takeoff_transport, takeoff_document, error) &&
+              takeoff_document.entities.size() == 1 &&
+              std::fabs(takeoff_document.entities[0].latitude - 39.9) < 1e-6,
+          "fixed-wing NAV_TAKEOFF keeps its geographic position");
 }
 
 static void test_qgc_plan_interchange() {
@@ -870,6 +953,38 @@ static void test_qgc_plan_interchange() {
     CHECK(legacy.entities.size() == 1 &&
               std::fabs(legacy.entities[0].latitude - 39.905) < 1e-6,
           "legacy QGC coordinate is preserved");
+
+    const std::string command_plan = R"({
+        "fileType": "Plan",
+        "mission": {
+            "version": 2,
+            "firmwareType": 3,
+            "vehicleType": 2,
+            "plannedHomePosition": [39.9, 116.4, 20],
+            "items": [{
+                "type": "SimpleItem",
+                "frame": 2,
+                "command": 205,
+                "autoContinue": true,
+                "doJumpId": 1,
+                "coordinate": [0, 0, 2],
+                "params": [0, 0, 0, 0, 0, 0, 2]
+            }]
+        }
+    })";
+    MissionDocument command_document;
+    warnings.clear();
+    error.clear();
+    CHECK(import_qgc_plan_json(
+              command_plan, command_document, warnings, error),
+          "QGC MAV_FRAME_MISSION command imports");
+    CHECK(command_document.entities.size() == 1 &&
+              std::isnan(command_document.entities[0].latitude) &&
+              std::isnan(command_document.entities[0].longitude),
+          "QGC MAV_FRAME_MISSION command does not become coordinate 0,0");
+    CHECK(command_document.entities.size() == 1 &&
+              command_document.entities[0].altitude_m == 2.0f,
+          "QGC MAV_FRAME_MISSION param7 is preserved");
 
     const std::string complex_plan = R"({
         "fileType": "Plan",
@@ -1704,6 +1819,7 @@ int main() {
     test_ffi_survey_entity_roundtrip();
     test_waypoints_interchange();
     test_ffi_waypoints_interchange();
+    test_frame_mission_command_import();
     test_qgc_plan_interchange();
     test_qgc_complex_item_export();
     test_mission_format_recommendation();

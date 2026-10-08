@@ -3,7 +3,7 @@
 M-GCS 是一款面向 ArduPilot / PX4 的跨平台地面站工程，当前由 C++ 后端、C FFI
 契约和 Flutter 外壳组成。
 
-当前版本：`0.0.77`
+当前版本：`0.0.78`
 
 ## 仓库范围
 
@@ -25,12 +25,20 @@ third_party/          MAVLink 定义、cJSON 等第三方源码
 - macOS / Windows / Linux 的 C++ 后端与 FFI 构建路径。
 - 串口、TCP、UDP、内存链路和 session ID 连接模型。
 - ArduPilot-first、PX4-compatible 的 heartbeat、遥测、参数、校准、日志和命令。
-- 任务文档编辑、undo/redo、命令目录、参数化测绘、上传、下载、验证，以及 `.waypoints` / QGC `.plan` 互操作。
+- 任务文档编辑、undo/redo、命令目录、参数化测绘、上传、下载、验证，以及
+  `.waypoints` / QGC `.plan` 互操作。
+- QGC/ArduPilot 任务坐标帧语义：正确处理 `MAV_FRAME_MISSION`，保留固定翼
+  `NAV_TAKEOFF` 坐标，避免非定位命令回读成假航点。
 - Flutter 地图、Home/飞机标记、引导操作、任务规划面板、配置和校准页面。
+- 顶部状态栏统一的 0.5 秒长按确认按钮；“移动到此处”、返航、开始任务和解锁
+  在前端确认后才下发。
+- 中文飞控消息翻译、右下角玻璃复合姿态/指南针仪表，以及 20Hz 位置/姿态/VFR
+  HUD 刷新。
 - 统一 MiSans 字体、macOS 风格组件和设计 token 检查。
 
-维护状态和“什么算做完”见 [完成定义与后端维护收口](docs/DEFINITION_OF_DONE.md)
-与 [当前状态审计](docs/STATUS_AUDIT.md)。
+维护状态和“什么算做完”见 [完成定义与后端维护收口](docs/planning/DEFINITION_OF_DONE.md)
+与 [当前状态审计](docs/planning/STATUS_AUDIT.md)。QGC/MP 能力差距、项目定位和
+后续优先级见 [功能差距分析](docs/planning/FEATURE_GAP_ANALYSIS.md)。
 
 ## 快速验证
 
@@ -92,8 +100,8 @@ bridge/ffi/ffi_api.h
 ## 文档
 
 从 [`docs/README.md`](docs/README.md) 开始。任务规划的当前契约是
-[`docs/MISSION_PLANNING.md`](docs/MISSION_PLANNING.md)，当前审计是
-[`docs/STATUS_AUDIT.md`](docs/STATUS_AUDIT.md)。
+[`docs/specs/MISSION_PLANNING.md`](docs/specs/MISSION_PLANNING.md)，当前审计是
+[`docs/planning/STATUS_AUDIT.md`](docs/planning/STATUS_AUDIT.md)。
 
 ## 发布
 

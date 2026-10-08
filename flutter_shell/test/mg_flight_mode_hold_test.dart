@@ -55,12 +55,13 @@ void main() {
     final gesture = await tester.startGesture(
       tester.getCenter(find.byType(MgFlightModeRow)),
     );
+    await tester.pump();
     // 进度拉满前不触发
-    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pump(const Duration(milliseconds: 400));
     expect(triggered, 0);
 
-    // 超过 1.5 s 的按住时长后触发一次
-    await tester.pump(const Duration(milliseconds: 900));
+    // 超过 0.5 s 的按住时长后触发一次
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
     expect(triggered, 1);
 
@@ -76,7 +77,8 @@ void main() {
     final gesture = await tester.startGesture(
       tester.getCenter(find.byType(MgFlightModeRow)),
     );
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     await gesture.up();
     await tester.pumpAndSettle();
 

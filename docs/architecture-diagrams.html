@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>M-GCS 架构图（v0.0.74）</title>
+<title>M-GCS 架构图（v0.0.78）</title>
 <style>
   :root{
     --bg:#f6f7f9;
@@ -120,7 +120,7 @@
 
 <h1>M-GCS 架构图</h1>
 <div class="sub">
-  版本 v0.0.74 · 更新于 2026-10-06 ·
+  版本 v0.0.78 · 更新于 2026-10-08 ·
   结构说明以本文为准，精确行数和消费统计用 <code>tools/audit_status.sh</code> 复核
 </div>
 
@@ -153,7 +153,7 @@
     <div class="layer l-ffi">
       <h3>② 契约层 · C FFI Bridge <span class="path">bridge/ffi/</span></h3>
       <p class="desc">唯一的对外稳定边界。<code>ffi_api.h</code> 是 umbrella，下挂 12 个领域头，
-      导出 <b>288 个 <code>mg_*</code> 函数</b>。只暴露 C 兼容类型，复杂结果走 JSON envelope。</p>
+      导出 <b>306 个 <code>mg_*</code> 函数</b>。只暴露 C 兼容类型，复杂结果走 JSON envelope。</p>
       <div class="kpi">
         <span>43 <code>.cc</code> + 31 <code>.h</code></span>
         <span><code>mg_create()</code> → <code>mg_destroy()</code></span>
@@ -166,7 +166,7 @@
     <div class="layer l-core">
       <h3>③ 领域层 · C++17 Core <span class="path">core/</span></h3>
       <p class="desc">协议解析、连接生命周期、安全敏感命令、任务/参数传输、遥测缓存、校准、固件适配。
-      <b>66 个实现文件 ≈ 19,015 行</b>，72 个公开头文件。不得依赖任何 UI 框架。</p>
+      <b>66 个实现文件 ≈ 20,827 行</b>，73 个公开头文件。不得依赖任何 UI 框架。</p>
       <div class="kpi">
         <span>transport · mavlink · vehicle · mission · calibration</span>
         <span>firmware · telemetry · config · geofence · ftp · log</span>
@@ -233,7 +233,7 @@
 
 <div class="grid2">
   <div class="box b-fe">
-    <div class="t">入口 <code>main.dart</code> · 79 行</div>
+    <div class="t">入口 <code>main.dart</code> · 246 行</div>
     <div class="m">
       macOS 先 <code>MacosWindowUtilsConfig().apply()</code>；<br>
       <code>MacosApp</code> 主题注入 <code>MgTypography.macos(light/dark)</code>；<br>
@@ -243,8 +243,8 @@
   <div class="box b-fe">
     <div class="t">设计 token（唯一数值来源）</div>
     <div class="m">
-      <code>theme/mg_colors.dart</code> · 145 行 —— 颜色<br>
-      <code>theme/mg_typography.dart</code> · 188 行 —— <code>MgFonts</code> / <code>MgTypography</code> / <code>MgMetrics</code><br>
+      <code>theme/mg_colors.dart</code> · 193 行 —— 颜色<br>
+      <code>theme/mg_typography.dart</code> · 251 行 —— <code>MgFonts</code> / <code>MgTypography</code> / <code>MgMetrics</code><br>
       页面禁止裸 <code>fontSize</code>、裸色值、<code>MacosColors.*</code>、平台专属字体名。
     </div>
   </div>
@@ -259,11 +259,11 @@
   </div>
   <div class="grid2" style="margin-top:10px">
     <div class="box">
-      <div class="t">地图页 <code>map/amap_map_view.dart</code> · 1,013 行</div>
+      <div class="t">地图页 <code>map/amap_map_view.dart</code> · 1,780 行</div>
       <div class="m"><code>flutter_map</code> + <code>latlong2</code> 渲染；内嵌 <code>ConnectionPanel</code>；右上角入口进配置工作区。</div>
     </div>
     <div class="box">
-      <div class="t">连接面板 <code>connection_panel.dart</code> · 478 行</div>
+      <div class="t">连接面板 <code>connection_panel.dart</code> · 477 行</div>
       <div class="m">串口 / UDP / TCP 三种传输选择、端口与波特率下拉、连接按钮与状态提示。</div>
     </div>
   </div>
@@ -296,7 +296,7 @@
 <div class="arrow">▲▼<span>AnimatedBuilder(controller) · notifyListeners()</span></div>
 
 <div class="box b-fe" style="border-top-width:3px">
-  <div class="t">状态门面：<code>connection/connection_controller.dart</code> · 2,310 行 · <code>extends ChangeNotifier</code></div>
+  <div class="t">状态门面：<code>connection/connection_controller.dart</code> · 2,924 行 · <code>extends ChangeNotifier</code></div>
   <div class="m">持有共享 Core 和连接状态；领域动态绑定已拆到五个 backend。页面只依赖控制器门面，不直接碰原生库。</div>
   <div class="grid4" style="margin-top:10px">
     <div class="box">
@@ -344,7 +344,7 @@
   </div>
   <div class="box b-fe">
     <div class="t">测试 <code>test/</code></div>
-    <div class="m"><code>app_workspace_shell_test.dart</code> 102 行，3 个用例：<br>
+    <div class="m"><code>app_workspace_shell_test.dart</code> 155 行，3 个用例：<br>
     侧栏导航与搜索用纯 Flutter 控件 / 紧凑布局导航可用 / 背景跟随系统亮度。<br>
     <b>不加载原生库</b>，所以能在无原生构建的 Linux CI 上跑。</div>
   </div>
@@ -355,7 +355,7 @@
   <code>MacosColors.*</code> 直接引用约 40 处 —— <code>configuration_workspace.dart</code> 约 30 处（真实工作量）、
   <code>component_gallery_demo.dart</code> 约 12 处（色板展示页，可豁免）、<code>parameter_load_progress.dart</code> 2 处。
   裸 <code>fontSize</code> 只剩 token 定义文件本身与 gallery 页 3 处。
-  另外 <code>component_gallery_demo.dart</code>（1,051 行）无任何页面引用，是独立组件陈列页。
+  另外 <code>component_gallery_demo.dart</code>（1,053 行）无任何页面引用，是独立组件陈列页。
 </div>
 </section>
 
@@ -365,16 +365,16 @@
 <p class="sec-desc">从 C ABI 入口一路到字节流。连接采用「传输层 / 协议层 / 生命周期层」三层组合（QGC LinkManager 模式）。</p>
 
 <div class="box b-ffi">
-  <div class="t">契约层 <code>bridge/ffi/</code> —— <code>ffi_api.h</code> umbrella 下挂 12 个领域头，共 288 个导出</div>
+  <div class="t">契约层 <code>bridge/ffi/</code> —— <code>ffi_api.h</code> umbrella 下挂 12 个领域头，共 306 个导出</div>
   <div class="sub-h">领域头（按导出函数数排序）</div>
   <div class="chips">
-    <span class="chip ffi"><code>ffi_api_telemetry.h</code> <b>46</b></span>
+    <span class="chip ffi"><code>ffi_api_telemetry.h</code> <b>47</b></span>
     <span class="chip ffi"><code>ffi_api_configuration.h</code> <b>43</b></span>
-    <span class="chip ffi"><code>ffi_api_flight.h</code> <b>33</b></span>
-    <span class="chip ffi"><code>ffi_api_mission.h</code> <b>43</b></span>
+    <span class="chip ffi"><code>ffi_api_flight.h</code> <b>39</b></span>
+    <span class="chip ffi"><code>ffi_api_mission.h</code> <b>54</b></span>
     <span class="chip ffi"><code>ffi_api_connection.h</code> <b>21</b></span>
     <span class="chip ffi"><code>ffi_api_logging.h</code> <b>22</b></span>
-    <span class="chip ffi"><code>ffi_api_params.h</code> <b>20</b></span>
+    <span class="chip ffi"><code>ffi_api_params.h</code> <b>23</b></span>
     <span class="chip ffi"><code>ffi_api_payload.h</code> <b>17</b></span>
     <span class="chip ffi"><code>ffi_api_geofence.h</code> <b>16</b></span>
     <span class="chip ffi"><code>ffi_api_core.h</code> <b>12</b></span>
@@ -418,10 +418,10 @@
 <div class="box b-core">
   <div class="t">多机与飞控对象 <code>core/src/vehicle/</code></div>
   <div class="m">
-    <code>MultiVehicleManager</code>（281 行）：<code>open_vehicle()</code> <b>只建会话不改焦点</b>；
+    <code>MultiVehicleManager</code>（322 行）：<code>open_vehicle()</code> <b>只建会话不改焦点</b>；
     <code>set_active_vehicle()</code> 才是显式焦点操作；<code>on_heartbeat()</code> 自动发现新机；
     <code>get_vehicle_shared()</code> 提供生命周期租约，避免与移除竞争。<br>
-    <code>Vehicle</code>（451 行）：<code>enable_shared_from_this</code>，状态机 Disconnected → Connecting → WaitingHeartbeat → Connected → HeartbeatLost → Disconnecting（+ Initializing）。
+    <code>Vehicle</code>（455 行）：<code>enable_shared_from_this</code>，状态机 Disconnected → Connecting → WaitingHeartbeat → Connected → HeartbeatLost → Disconnecting（+ Initializing）。
   </div>
   <div class="sub-h"><code>Vehicle</code> 组合的子系统（不继承，纯组合）</div>
   <div class="chips">
@@ -456,20 +456,20 @@
     <div class="box">
       <div class="t">协议层 · <code>MavlinkAdapter</code></div>
       <div class="m">
-        <code>mavlink_adapter.cc</code> 625 + <code>internal.h</code> 290 + <code>state.h</code> 180<br>
-        <code>mavlink_adapter_handlers.cc</code> 632 —— 30 个消息处理器<br>
-        <code>mavlink_adapter_mission.cc</code> 263 —— 任务协议与发送辅助函数<br>
-        <code>mavlink_adapter_command.cc</code> 19 · <code>params.cc</code> 41 ·
-        <code>log.cc</code> 90 · <code>dispatch.cc</code> 253<br>
-        <code>mavlink_senders.cc</code> 1,035<br>
-        <code>command_queue</code> 95（ACK 超时重发）<br>
-        <code>param_cache</code> 263 · <code>mission_transfer</code> 63
+        <code>mavlink_adapter.cc</code> 657 + <code>internal.h</code> 295 + <code>state.h</code> 180<br>
+        <code>mavlink_adapter_handlers.cc</code> 650 —— 30 个消息处理器<br>
+        <code>mavlink_adapter_mission.cc</code> 353 —— 任务协议与发送辅助函数<br>
+        <code>mavlink_adapter_command.cc</code> 28 · <code>params.cc</code> 79 ·
+        <code>log.cc</code> 90 · <code>dispatch.cc</code> 256<br>
+        <code>mavlink_senders.cc</code> 1,190<br>
+        <code>command_queue</code> 98（ACK 超时重发）<br>
+        <code>param_cache</code> 531 · <code>mission_transfer</code> 67
       </div>
     </div>
     <div class="box">
       <div class="t">生命周期层 · <code>ConnectionManager</code></div>
       <div class="m">
-        334 行。建传输、桥接 adapter 回调、心跳记录与丢失检测、
+        353 行。建传输、桥接 adapter 回调、心跳记录与丢失检测、
         链路失效后清理会话并暴露明确断连状态；<b>重连由调用方显式发起</b>。
       </div>
     </div>
@@ -483,7 +483,7 @@
   <div class="grid4" style="margin-top:8px">
     <div class="box">
       <div class="t">任务</div>
-      <div class="m"><code>MissionManager</code> 729 · <code>SurveyCalculator</code> 388<br>
+      <div class="m"><code>MissionManager</code> 736 · <code>SurveyCalculator</code> 388<br>
       航点 / 围栏 / 集结点 / 测绘；任务文档与编译属后端</div>
     </div>
     <div class="box">
@@ -554,12 +554,12 @@
   <div style="display:flex;flex-wrap:wrap;gap:4px 22px">
     <span>编写：<b style="font-weight:600">WorkBuddy（AI 助手）</b></span>
     <span>日期：<b style="font-weight:600">2026-09-30</b></span>
-    <span>依据版本：tag <code>v0.0.74</code></span>
+    <span>依据版本：tag <code>v0.0.78</code></span>
     <span>复核状态：<b style="font-weight:600;color:var(--ok)">本地门禁已通过</b></span>
   </div>
   <div style="margin-top:6px">
-    数据来源：本仓库 v0.0.74 实测统计，门禁状态为 2026-10-06 本机运行结果
-    （<code>ctest</code> 35/35、<code>flutter analyze</code> 无告警、<code>flutter test</code> 24/24）。
+    数据来源：本仓库 v0.0.78 实测统计，门禁状态为 2026-10-08 本机运行结果
+    （<code>ctest</code> 35/35、<code>flutter analyze</code> 无告警、<code>flutter test</code> 69/69）。
     本文件为人工可读的图，权威文字描述仍以
     <code>docs/ARCHITECTURE.md</code> 与 <code>bridge/ffi/API_CATALOG.md</code> 为准；
     审计发现与待办清单见 <code>docs/STATUS_AUDIT.md</code>。

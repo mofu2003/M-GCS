@@ -165,8 +165,60 @@ inline const char* frame_name(uint8_t frame) {
         case 1:  return "LOCAL_NED";
         case 2:  return "MISSION";
         case 3:  return "GLOBAL_REL_ALT";
+        case 5:  return "GLOBAL_INT";
+        case 6:  return "GLOBAL_REL_ALT_INT";
         case 10: return "GLOBAL_TERRAIN_ALT";
+        case 11: return "GLOBAL_TERRAIN_ALT_INT";
         default: return "UNKNOWN";
+    }
+}
+
+/// 该 MAV_FRAME 是否使用 x/y 表示全球经纬度（degE7）。
+///
+/// MAV_FRAME_MISSION（2）是例外：QGC/MAVLink 约定其 x/y 对应 param5/param6，
+/// 不是坐标。把这类任务的 x/y 除以 1e7 会在回读航点和导入 QGC plan 时产生
+/// 假航点/航线漂移。INT 系列（5/6/11）与普通帧的坐标语义相同。
+inline bool is_global_coordinate_frame(uint8_t frame) {
+    return frame == 0 || frame == 3 || frame == 5 ||
+           frame == 6 || frame == 10 || frame == 11;
+}
+
+/// 该任务命令的 x/y 是否承载地理位置。
+///
+/// 对齐 ArduPilot `AP_Mission::stored_in_location()`：DO_/CONDITION_ 一类
+/// 命令没有地理位置；飞控回读时即使把 frame 规范成 0，x/y 也不能当经纬度。
+/// 固定翼 `NAV_TAKEOFF`（22）在 ArduPilot 里使用位置，必须保留坐标。
+inline bool mission_command_uses_location(uint16_t command) {
+    switch (command) {
+        case 16:  // NAV_WAYPOINT
+        case 17:  // NAV_LOITER_UNLIM
+        case 18:  // NAV_LOITER_TURNS
+        case 19:  // NAV_LOITER_TIME
+        case 21:  // NAV_LAND
+        case 22:  // NAV_TAKEOFF
+        case 30:  // NAV_CONTINUE_AND_CHANGE_ALT
+        case 31:  // NAV_LOITER_TO_ALT
+        case 36:  // NAV_ARC_WAYPOINT
+        case 82:  // NAV_SPLINE_WAYPOINT
+        case 84:  // NAV_VTOL_TAKEOFF
+        case 85:  // NAV_VTOL_LAND
+        case 92:  // NAV_GUIDED_ENABLE
+        case 94:  // NAV_PAYLOAD_PLACE
+        case 179: // DO_SET_HOME
+        case 188: // DO_RETURN_PATH_START
+        case 189: // DO_LAND_START
+        case 191: // DO_GO_AROUND
+        case 195: // DO_SET_ROI_LOCATION
+        case 201: // DO_SET_ROI
+        case 5000: // NAV_FENCE_RETURN_POINT
+        case 5001: // NAV_FENCE_POLYGON_VERTEX_INCLUSION
+        case 5002: // NAV_FENCE_POLYGON_VERTEX_EXCLUSION
+        case 5003: // NAV_FENCE_CIRCLE_INCLUSION
+        case 5004: // NAV_FENCE_CIRCLE_EXCLUSION
+        case 5100: // NAV_RALLY_POINT
+            return true;
+        default:
+            return false;
     }
 }
 

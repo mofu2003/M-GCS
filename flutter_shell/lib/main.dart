@@ -10,6 +10,8 @@ import 'configuration_workspace.dart';
 import 'gcs_configuration_workspace.dart';
 import 'map/amap_map_view.dart';
 import 'theme/mg_typography.dart';
+import 'widgets/mg_command_confirmation.dart';
+import 'widgets/mg_dialog.dart';
 import 'widgets/mg_settings_menu.dart';
 import 'widgets/mg_top_status_bar.dart';
 
@@ -64,57 +66,64 @@ class _MapPageState extends State<MapPage> {
   final _connectionPanelRequest = ValueNotifier<int>(0);
   final _flightMessagePanelRequest = ValueNotifier<int>(0);
   final _missionPlanningRequest = ValueNotifier<int>(0);
+  final _pendingCommand = ValueNotifier<MgCommandConfirmation?>(null);
 
-  Future<void> _toggleArm(BuildContext actionContext) async {
-    final controller = _connectionController;
-    if (!controller.isConnected || controller.vehicleFlying) return;
-    final armed = controller.vehicleArmed;
-    final confirmed = await showMacosAlertDialog<bool>(
-      context: actionContext,
-      builder: (dialogContext) => MacosAlertDialog(
-        appIcon: Icon(armed ? Icons.lock : Icons.lock_open, size: 48),
-        title: Text(armed ? '上锁？' : '解锁？'),
-        message: Text(
-          armed
-              ? '上锁会立即停止电机。飞行中上锁会掉飞机，地面测试请先拆桨。'
-              : '解锁后电机可以转动。请确认机体周围无人、已拆桨或已做好安全防护。',
-        ),
-        primaryButton: PushButton(
-          controlSize: ControlSize.large,
-          secondary: armed,
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: Text(armed ? '上锁' : '解锁'),
-        ),
-        secondaryButton: PushButton(
-          controlSize: ControlSize.large,
-          secondary: true,
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('取消'),
-        ),
-      ),
-    );
-    if (confirmed != true || !mounted) return;
+  void _requestCommandConfirmation(MgCommandConfirmation command) {
+    _pendingCommand.value = command;
+  }
+
+  void _cancelCommandConfirmation() {
+    _pendingCommand.value = null;
+  }
+
+  void _confirmCommandConfirmation() {
+    final command = _pendingCommand.value;
+    if (command == null) return;
+    _pendingCommand.value = null;
+    unawaited(_executeCommandConfirmation(command));
+  }
+
+  Future<void> _executeCommandConfirmation(
+    MgCommandConfirmation command,
+  ) async {
     try {
-      if (armed) {
-        await controller.disarmVehicle();
-      } else {
-        await controller.armVehicle();
-      }
+      await command.execute();
     } on Object catch (error) {
-      if (!mounted || !actionContext.mounted) return;
-      await showMacosAlertDialog<void>(
-        context: actionContext,
+      if (!mounted) return;
+      await showMgAlertDialog<void>(
+        context: context,
         builder: (dialogContext) => MacosAlertDialog(
-          appIcon: Icon(Icons.error_outline, size: 48),
-          title: Text(armed ? '上锁失败' : '解锁失败'),
-          message: Text(error.toString()),
+          appIcon: const Icon(Icons.error_outline, size: 48),
+          title: Text('${command.label}失败'),
+          message: Text(error.toString().replaceFirst('Bad state: ', '')),
           primaryButton: PushButton(
             controlSize: ControlSize.large,
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('好'),
+            child: const Text('知道了'),
           ),
         ),
       );
+    }
+  }
+
+  /// 解锁/上锁只进入悬浮长按确认，成功不弹窗；失败由统一命令错误处理弹窗。
+  void _requestArmConfirmation() {
+    final controller = _connectionController;
+    if (!controller.isConnected || controller.vehicleFlying) return;
+    final armed = controller.vehicleArmed;
+    _requestCommandConfirmation(
+      MgCommandConfirmation(
+        label: armed ? '上锁' : '解锁',
+        execute: () => _executeArm(armed),
+      ),
+    );
+  }
+
+  Future<void> _executeArm(bool armed) async {
+    if (armed) {
+      await _connectionController.disarmVehicle();
+    } else {
+      await _connectionController.armVehicle();
     }
   }
 
@@ -128,12 +137,16 @@ class _MapPageState extends State<MapPage> {
     if (!mounted || destination == null) return;
     switch (destination) {
       case MgSettingsDestination.connection:
+        _cancelCommandConfirmation();
         _connectionPanelRequest.value++;
       case MgSettingsDestination.configuration:
+        _cancelCommandConfirmation();
         setState(() => _showConfiguration = true);
       case MgSettingsDestination.missionPlanning:
+        _cancelCommandConfirmation();
         _missionPlanningRequest.value++;
       case MgSettingsDestination.gcs:
+        _cancelCommandConfirmation();
         setState(() => _showGcsConfiguration = true);
     }
   }
@@ -180,24 +193,39 @@ class _MapPageState extends State<MapPage> {
             builder: (context, _) => MgTopStatusBar(
               data: MgTopStatusData.fromController(_connectionController),
               onOpenFlightMessages: () => _flightMessagePanelRequest.value++,
-              onToggleArm: () => unawaited(_toggleArm(context)),
+              onToggleArm: _requestArmConfirmation,
               onOpenFlightMode: () => unawaited(_openFlightModeMenu(context)),
               onOpenSettings: () => unawaited(_openSettings(context)),
             ),
           ),
           Expanded(
-            child: MacosScaffold(
-              children: [
-                ContentArea(
-                  builder: (context, _) => AMapMapView(
-                    connectionController: _connectionController,
-                    mapStyle: _mapStyle,
-                    connectionPanelRequest: _connectionPanelRequest,
-                    flightMessagePanelRequest: _flightMessagePanelRequest,
-                    missionPlanningRequest: _missionPlanningRequest,
+            child: ValueListenableBuilder<MgCommandConfirmation?>(
+              valueListenable: _pendingCommand,
+              builder: (context, pendingCommand, _) => Stack(
+                children: [
+                  MacosScaffold(
+                    children: [
+                      ContentArea(
+                        builder: (context, _) => AMapMapView(
+                          connectionController: _connectionController,
+                          mapStyle: _mapStyle,
+                          connectionPanelRequest: _connectionPanelRequest,
+                          flightMessagePanelRequest: _flightMessagePanelRequest,
+                          missionPlanningRequest: _missionPlanningRequest,
+                          onRequestCommandConfirmation:
+                              _requestCommandConfirmation,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  if (pendingCommand != null)
+                    MgCommandConfirmationOverlay(
+                      command: pendingCommand,
+                      onConfirmed: _confirmCommandConfirmation,
+                      onCancelled: _cancelCommandConfirmation,
+                    ),
+                ],
+              ),
             ),
           ),
         ],
@@ -211,6 +239,7 @@ class _MapPageState extends State<MapPage> {
     _connectionPanelRequest.dispose();
     _flightMessagePanelRequest.dispose();
     _missionPlanningRequest.dispose();
+    _pendingCommand.dispose();
     _connectionController.dispose();
     super.dispose();
   }

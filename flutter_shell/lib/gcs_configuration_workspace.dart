@@ -132,7 +132,7 @@ class _MapStyleRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.mgColors;
     return Material(
-      color: selected ? colors.accentSurface : Colors.transparent,
+      color: selected ? colors.accentSurface : colors.transparent,
       child: InkWell(
         onTap: onSelected,
         hoverColor: colors.mapControlHover,

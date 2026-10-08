@@ -63,6 +63,10 @@ ACK/超时/拒绝传到 FFI。
 `SurveyCalculator` 在后端展开；`.waypoints` 和 QGC `.plan` SimpleItem 互操作也在
 后端完成。编辑、校验、保存不写飞控，上传和从飞控读取是显式操作。
 
+任务坐标语义按 command 和 frame 共同判断：`MAV_FRAME_MISSION` 的 `x/y` 是
+`param5/param6`，不是经纬度；非定位命令不能生成假航点，固定翼 `NAV_TAKEOFF`
+的坐标仍按 ArduPilot `AP_Mission::stored_in_location()` 保留。
+
 `mg_mission_doc_*` 是已经发布的兼容 ABI 名称；它们不改变当前产品术语。当前设计概念
 统一称为“任务文档”和“任务规划”。
 
@@ -95,6 +99,9 @@ Flutter 通过 `ConnectionController` 作为状态门面绑定 FFI。任务文�
 地图坐标按地图源在 GCJ-02 与 WGS-84 之间转换。任务面板使用
 `MissionDocumentController`；命令下拉和参数表单来自后端命令目录。UI 统一使用
 `MgColors`、`MgTypography`、`MgMetrics` 和 `MgFonts`。
+
+危险命令统一进入顶部状态栏的 0.5 秒长按确认层。地图右下角使用复合
+MacGlass 姿态/指南针仪表；飞控消息在已知模板下翻译为中文，未知消息保留原文。
 
 ## 平台
 

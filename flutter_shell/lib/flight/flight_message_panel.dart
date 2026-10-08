@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import '../connection/connection_controller.dart';
+import 'flight_message_translator.dart';
 import '../theme/mg_colors.dart';
+import '../theme/mg_typography.dart';
 import '../widgets/mg_floating_panel.dart';
 
 /// 飞控消息框宽度。
@@ -180,23 +182,30 @@ class _MessageLine extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 4),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          _time,
-          style: typography.caption2.copyWith(color: colors.textTertiary),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: SelectableText(
-            message.text,
-            style: typography.caption1.copyWith(color: _color),
+  Widget build(BuildContext context) {
+    final translation = translateFlightMessage(message.text);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: MgMetrics.flightMessageTimeWidth,
+            child: Text(
+              _time,
+              textAlign: TextAlign.right,
+              style: typography.caption2.copyWith(color: colors.textTertiary),
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+          const SizedBox(width: 8),
+          Expanded(
+            child: SelectableText(
+              translation.displayText,
+              style: typography.caption1.copyWith(color: _color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

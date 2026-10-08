@@ -98,12 +98,44 @@ class MgColors {
   /// 浮层阴影。
   Color get shadow => const Color(0x3D000000);
 
-  /// 姿态仪的天地配色。属于航空仪表的固定语义（天蓝 / 地褐），
-  /// 和界面强调色分开定义，避免业务层借用语义色。
-  Color get attitudeSky =>
-      _pick(const Color(0xFF4D8FD1), const Color(0xFF3C6FA8));
-  Color get attitudeGround =>
-      _pick(const Color(0xFF8A6A45), const Color(0xFF6B5335));
+  // ── 旧版 MacGlass 仪表盘配色 ─────────────────────────────────────
+  //
+  // 这一组颜色来自 v0.0.1-v0.0.5 的 MacGlassAttitudePanel，不再由当前页面
+  // 各自发明。刻度、玻璃、姿态球都按这套旧仪表盘的视觉语义取值。
+  /// 仪表盘主墨色。
+  Color get instrumentInk => const Color(0xFF171A21);
+
+  /// 姿态球天空：半透明粉蓝。
+  Color get attitudeSky => const Color(0x8A8FC6EA);
+
+  /// 姿态球地面：半透明沙色。
+  Color get attitudeGround => const Color(0x8AD9C6AA);
+
+  /// 姿态球地平线。
+  Color get attitudeHorizon => const Color(0xEFFFFFFF);
+
+  /// 俯仰刻度线。
+  Color get attitudeLadder => const Color(0x55FFFFFF);
+
+  /// 姿态球边框。
+  Color get attitudeBallBorder => const Color(0x55FFFFFF);
+
+  /// 固定机翼基准。
+  Color get attitudeAircraft => const Color(0xE8171A21);
+
+  /// 仪表玻璃表盘与边框。
+  Color get instrumentGlass => const Color(0xC7FFFFFF);
+  Color get instrumentGlassBorder => const Color(0xE6FFFFFF);
+
+  /// 右下角复合圆形仪表专用玻璃：比其他浮层更实，避免地图透出来干扰读数。
+  Color get attitudeCompassGlass => const Color(0xFAFFFFFF);
+  Color get attitudeCompassGlassBorder => const Color(0xFFFFFFFF);
+
+  /// 罗盘刻度、数字和北向标记。
+  Color get instrumentTick => const Color(0x55171A21);
+  Color get instrumentMajorTick => const Color(0xCC171A21);
+  Color get instrumentLabel => const Color(0xA6171A21);
+  Color get compassNorth => const Color(0xFFD85D53);
 
   // ── 地图浮动控件 ──────────────────────────────────────────────────
 
@@ -121,6 +153,12 @@ class MgColors {
   /// 地图浮动控件的悬停色。
   Color get mapControlHover =>
       _pick(const Color(0x11000000), const Color(0x22FFFFFF));
+
+  /// 地图悬浮指令确认按钮：未按住时保持白色，长按后用强调色填充。
+  Color get commandConfirmSurface => const Color(0xFFFFFFFF);
+
+  /// 白色确认按钮上的文字和边框色。
+  Color get commandConfirmForeground => const Color(0xFF000000);
 
   // ── 波形通道色 ────────────────────────────────────────────────────
 

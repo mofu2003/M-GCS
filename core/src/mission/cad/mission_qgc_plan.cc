@@ -160,16 +160,22 @@ bool parse_qgc_simple_item(cJSON* item,
     }
     const int params_count = cJSON_GetArraySize(params);
     if (params_count >= 7) {
-        entity.latitude = number_or_nan(cJSON_GetArrayItem(params, 4));
-        entity.longitude = number_or_nan(cJSON_GetArrayItem(params, 5));
+        if (is_global_coordinate_frame(entity.frame) &&
+            mission_command_uses_location(entity.command)) {
+            entity.latitude = number_or_nan(cJSON_GetArrayItem(params, 4));
+            entity.longitude = number_or_nan(cJSON_GetArrayItem(params, 5));
+        }
         entity.altitude_m =
             static_cast<float>(number_or_nan(cJSON_GetArrayItem(params, 6)));
     }
     cJSON* coordinate = object_field(item, "coordinate");
     if (coordinate && cJSON_IsArray(coordinate) &&
         cJSON_GetArraySize(coordinate) >= 3) {
-        entity.latitude = number_or_nan(cJSON_GetArrayItem(coordinate, 0));
-        entity.longitude = number_or_nan(cJSON_GetArrayItem(coordinate, 1));
+        if (is_global_coordinate_frame(entity.frame) &&
+            mission_command_uses_location(entity.command)) {
+            entity.latitude = number_or_nan(cJSON_GetArrayItem(coordinate, 0));
+            entity.longitude = number_or_nan(cJSON_GetArrayItem(coordinate, 1));
+        }
         entity.altitude_m =
             static_cast<float>(number_or_nan(cJSON_GetArrayItem(coordinate, 2)));
     }
@@ -242,8 +248,16 @@ cJSON* simple_item_to_qgc_json(const MissionItem& item) {
     cJSON_AddItemToArray(
         params,
         cJSON_CreateNumber(std::isfinite(item.param4) ? item.param4 : 0.0f));
-    cJSON_AddItemToArray(params, cJSON_CreateNumber(item.x / 1e7));
-    cJSON_AddItemToArray(params, cJSON_CreateNumber(item.y / 1e7));
+    // MAV_FRAME_MISSION 的 x/y 是 param5/param6（原始值）；其他全球帧才是
+    // degE7 经纬度。QGC PlanManager.cc 也按同一规则转换。
+    const bool global_frame = is_global_coordinate_frame(item.frame) &&
+                              mission_command_uses_location(item.command);
+    cJSON_AddItemToArray(
+        params,
+        cJSON_CreateNumber(global_frame ? item.x / 1e7 : item.x));
+    cJSON_AddItemToArray(
+        params,
+        cJSON_CreateNumber(global_frame ? item.y / 1e7 : item.y));
     cJSON_AddItemToArray(params, cJSON_CreateNumber(item.z));
     return json;
 }
@@ -437,8 +451,11 @@ std::vector<MissionEntity> expanded_items_to_entities(
         entity.params[1] = item.param2;
         entity.params[2] = item.param3;
         entity.params[3] = item.param4;
-        entity.latitude = item.x / 1e7;
-        entity.longitude = item.y / 1e7;
+        if (is_global_coordinate_frame(item.frame) &&
+            mission_command_uses_location(item.command)) {
+            entity.latitude = item.x / 1e7;
+            entity.longitude = item.y / 1e7;
+        }
         entity.altitude_m = item.z;
         entities.push_back(std::move(entity));
     }
@@ -846,8 +863,16 @@ std::string export_qgc_plan_json(
         for (float value : entity.params) {
             cJSON_AddItemToArray(params, cJSON_CreateNumber(value));
         }
-        add_number_or_null(params, entity.latitude);
-        add_number_or_null(params, entity.longitude);
+        if (is_global_coordinate_frame(entity.frame) &&
+            mission_command_uses_location(entity.command)) {
+            add_number_or_null(params, entity.latitude);
+            add_number_or_null(params, entity.longitude);
+        } else {
+            // MAV_FRAME_MISSION 的 param5/6 不是坐标；不要因为文档里的
+            // 默认值或旧导入残留而把它们写成假经纬度。
+            add_number_or_null(params, std::numeric_limits<double>::quiet_NaN());
+            add_number_or_null(params, std::numeric_limits<double>::quiet_NaN());
+        }
         add_number_or_null(params, entity.altitude_m);
         cJSON_AddItemToArray(items, item);
     }
@@ -1059,16 +1084,22 @@ bool import_qgc_plan_json(
 
         const int params_count = cJSON_GetArraySize(params);
         if (params_count >= 7) {
-            entity.latitude = number_or_nan(cJSON_GetArrayItem(params, 4));
-            entity.longitude = number_or_nan(cJSON_GetArrayItem(params, 5));
+            if (is_global_coordinate_frame(entity.frame) &&
+                mission_command_uses_location(entity.command)) {
+                entity.latitude = number_or_nan(cJSON_GetArrayItem(params, 4));
+                entity.longitude = number_or_nan(cJSON_GetArrayItem(params, 5));
+            }
             entity.altitude_m = static_cast<float>(
                 number_or_nan(cJSON_GetArrayItem(params, 6)));
         }
 
         cJSON* coordinate = object_field(item, "coordinate");
         if (coordinate && cJSON_IsArray(coordinate) && cJSON_GetArraySize(coordinate) >= 3) {
-            entity.latitude = number_or_nan(cJSON_GetArrayItem(coordinate, 0));
-            entity.longitude = number_or_nan(cJSON_GetArrayItem(coordinate, 1));
+            if (is_global_coordinate_frame(entity.frame) &&
+                mission_command_uses_location(entity.command)) {
+                entity.latitude = number_or_nan(cJSON_GetArrayItem(coordinate, 0));
+                entity.longitude = number_or_nan(cJSON_GetArrayItem(coordinate, 1));
+            }
             entity.altitude_m = static_cast<float>(
                 number_or_nan(cJSON_GetArrayItem(coordinate, 2)));
         }

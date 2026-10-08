@@ -39,8 +39,7 @@ final class MissionDocumentController extends ChangeNotifier {
   void bindSession(int? sessionId) {
     if (_boundSessionId == sessionId) return;
     if (sessionId != null) {
-      if (_lastVehicleSessionId != null &&
-          _lastVehicleSessionId != sessionId) {
+      if (_lastVehicleSessionId != null && _lastVehicleSessionId != sessionId) {
         requiresVehicleReconciliation = true;
       }
       _lastVehicleSessionId = sessionId;
@@ -78,6 +77,32 @@ final class MissionDocumentController extends ChangeNotifier {
       await _refreshDerived();
       await _refreshTransfer();
     });
+  }
+
+  /// 用飞控 HOME_POSITION 补齐本地任务文档 Home。
+  ///
+  /// 飞控 Home 与任务文档 Home 是两个不同概念：前者用于 RTL，后者用于
+  /// 任务相对高度/交换文件。已有任务 Home 时不覆盖用户编辑。
+  Future<void> adoptVehicleHomeIfMissing({
+    required double latitude,
+    required double longitude,
+    required double altitudeMeters,
+  }) async {
+    final current = document;
+    if (current == null || current.home.set) return;
+    if (!latitude.isFinite || !longitude.isFinite || !altitudeMeters.isFinite) {
+      return;
+    }
+    await replaceDocument(
+      current.copyWith(
+        home: MissionHome(
+          set: true,
+          latitude: latitude,
+          longitude: longitude,
+          altitudeMeters: altitudeMeters,
+        ),
+      ),
+    );
   }
 
   Future<void> create([JsonMap config = const {}]) =>
@@ -190,9 +215,13 @@ final class MissionDocumentController extends ChangeNotifier {
       final result = verification!;
       if (result.matches) {
         dirty = false;
-        status = result.normalizationCount > 0
-            ? '上传并回读核对通过，自动归一化 ${result.normalizationCount} 处飞控表示'
-            : '上传并回读核对通过';
+        if (result.homeSyncCount > 0) {
+          status = '上传并回读核对通过；飞控 Home 已自动更新';
+        } else {
+          status = result.normalizationCount > 0
+              ? '上传并回读核对通过，自动归一化 ${result.normalizationCount} 处飞控表示'
+              : '上传并回读核对通过';
+        }
       } else {
         dirty = true;
         status = '上传完成，但回读发现 ${result.differenceCount} 处差异';
@@ -235,6 +264,49 @@ final class MissionDocumentController extends ChangeNotifier {
         await _refreshDerived();
         status = '已采用飞控任务 ${document?.entities.length ?? 0} 个任务项';
       });
+
+  /// 把回读得到的飞控 Home 采纳为本地任务 Home，不改动任务实体。
+  Future<void> adoptVehicleHomeFromVerification() async {
+    final current = document;
+    final result = verification;
+    if (current == null || result == null || result.homeSync.isEmpty) return;
+    double? latitude;
+    double? longitude;
+    double? altitude;
+    for (final item in result.homeSync) {
+      final value = double.tryParse(item.actual);
+      if (value == null || !value.isFinite) continue;
+      switch (item.field) {
+        case 'home.latitude':
+          latitude = value;
+        case 'home.longitude':
+          longitude = value;
+        case 'home.altitude_m':
+          altitude = value;
+      }
+    }
+    if (latitude == null || longitude == null) return;
+    await replaceDocument(
+      current.copyWith(
+        home: MissionHome(
+          set: true,
+          latitude: latitude,
+          longitude: longitude,
+          altitudeMeters: altitude ?? current.home.altitudeMeters,
+        ),
+      ),
+    );
+    dirty = false;
+    status = '已采用飞控 Home';
+    notifyListeners();
+  }
+
+  /// 保留本地 Home，只关闭当前的飞控 Home 同步提示。
+  void dismissVerification() {
+    if (verification == null) return;
+    verification = null;
+    notifyListeners();
+  }
 
   Future<void> cancelTransfer() async {
     if (!transferActive) return;
@@ -310,7 +382,7 @@ final class MissionDocumentController extends ChangeNotifier {
   }) async {
     MissionVerificationResult? result;
     await _run('正在核对飞控围栏…', rethrowErrors: true, () async {
-        _requireVehicleSession();
+      _requireVehicleSession();
       await backend.startFenceDownload();
       await _waitForOperation(backend.getFenceTransferProgress, '回读围栏');
       result = await backend.verifyFence(toleranceMeters: toleranceMeters);
@@ -319,13 +391,12 @@ final class MissionDocumentController extends ChangeNotifier {
     return result!;
   }
 
-  Future<void> clearFence() =>
-      _run('正在清除飞控围栏…', rethrowErrors: true, () async {
-        _requireVehicleSession();
-        fenceVerification = null;
-        await backend.clearFence();
-        status = '已请求清除飞控围栏';
-      });
+  Future<void> clearFence() => _run('正在清除飞控围栏…', rethrowErrors: true, () async {
+    _requireVehicleSession();
+    fenceVerification = null;
+    await backend.clearFence();
+    status = '已请求清除飞控围栏';
+  });
 
   /// 下发 Rally 点：上传 → 等待 → 回读 → 核对。
   Future<MissionVerificationResult?> uploadRally({
@@ -370,7 +441,7 @@ final class MissionDocumentController extends ChangeNotifier {
   }) async {
     MissionVerificationResult? result;
     await _run('正在核对飞控 Rally 点…', rethrowErrors: true, () async {
-        _requireVehicleSession();
+      _requireVehicleSession();
       await backend.startRallyDownload();
       await _waitForOperation(backend.getRallyTransferProgress, '回读 Rally 点');
       result = await backend.verifyRally(toleranceMeters: toleranceMeters);

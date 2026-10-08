@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.0.78 - 2026-10-08
+
+### Added
+
+- 顶部状态栏统一的悬浮长按确认条：0.5 秒白底到蓝色进度填充，填满后出现对勾并
+  下发命令；“移动到此处”、返航、开始任务、解锁/上锁共用该流程。解锁成功不弹窗，
+  失败才显示后端错误。
+- 右下角 MacGlass 复合姿态/指南针仪表：固定在圆形玻璃盘内，中央为姿态球，外圈
+  为航向刻度，顶部固定航向箭头，底部胶囊显示中文方向和三位航向。仪表使用旧版
+  MacGlass 配色、毛玻璃和专用玻璃不透明度。
+- 飞控消息中文翻译：覆盖常见 ArduPilot 预解锁、EKF/GPS、电池、模式切换等状态
+  文本；未知消息保留原文，不做猜测翻译。
+- Home 同步语义：`mg_mission_doc_verify` 新增 `home_sync_count` / `home_sync`，
+  飞控动态 Home 漂移不再污染任务差异；任务页提供“采用飞控 Home”和“保留本地 Home”。
+
+### Changed
+
+- 飞行模式切换和顶部危险命令统一为 0.5 秒长按确认，移除重复的确认对话框。
+- 所有弹窗改为纯淡入，移除 macos_ui 默认的缩放回弹跳动。
+- 位置、姿态、VFR HUD 遥测流和前端轮询提高到 20 Hz，地图和仪表刷新更平滑；
+  波形采集保持原有 10 Hz。
+- 飞控消息时间戳固定 72 px 宽度并右对齐，正文独立列对齐。
+- 固定翼 Go to location 继续使用 `WP_LOITER_RAD` 半径和符号方向，盘旋圆箭头位于
+  圆周切线方向。
+- 右侧连接、飞控消息和任务规划面板共享右上槽位，同一时间只显示一个；底部遥测
+  数据条在地图内容区水平居中。
+
+### Fixed
+
+- QGC/ArduPilot 任务坐标帧兼容：`MAV_FRAME_MISSION` 的 `x/y` 按 `param5/param6`
+  语义处理，不再把 DO_/CONDITION_ 等非定位命令回读成 `(0,0)` 假航点；固定翼
+  `NAV_TAKEOFF` 的位置仍保留。
+- QGC `.plan` 和飞控回读共用同一套“命令是否承载位置”判断；非定位命令不再进入
+  假航线，Home 自动更新与任务项差异分开显示。
+- 修复任务文档在 Home 缺失时从飞控 HOME_POSITION 读取后仍重复要求手工设置 Home
+  的前端体验。
+
+### Documentation
+
+- 全量同步 AGENTS、README、Flutter README、API Catalog、架构图、开发指南、状态审计
+  和任务规范到 `0.0.78`。
+- 新增 QGC/MP 功能差距分析和 ADR 0010，明确 M-GCS 是独立实现，不是 QGC/MP 源码
+  分支或完整复刻。
+- 修复全仓 Markdown 内部链接，历史整理报告标记为历史快照。
+
+### Verification
+
+- `ctest --test-dir build_check ...`：35/35 通过。
+- `flutter analyze --no-pub lib test`：无问题。
+- `flutter test --no-pub`：69/69 通过。
+- `flutter build macos --debug --no-pub`：通过。
+- `git diff --check`：通过。
+- QGC `.plan`、飞控任务回读和 `MAV_FRAME_MISSION` 兼容回归测试通过。
+
 ## 0.0.77 - 2026-10-07
 
 ### Changed

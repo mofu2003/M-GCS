@@ -175,10 +175,13 @@ MissionCompileResult compile_document_impl(const MissionDocument& document) {
         item.param2 = entity.params[1];
         item.param3 = entity.params[2];
         item.param4 = entity.params[3];
-        if (std::isfinite(entity.latitude)) {
+        const bool has_geographic_position =
+            is_global_coordinate_frame(item.frame) &&
+            mission_command_uses_location(item.command);
+        if (has_geographic_position && std::isfinite(entity.latitude)) {
             item.x = static_cast<int32_t>(std::llround(entity.latitude * 1e7));
         }
-        if (std::isfinite(entity.longitude)) {
+        if (has_geographic_position && std::isfinite(entity.longitude)) {
             item.y = static_cast<int32_t>(std::llround(entity.longitude * 1e7));
         }
         item.z = std::isfinite(entity.altitude_m)

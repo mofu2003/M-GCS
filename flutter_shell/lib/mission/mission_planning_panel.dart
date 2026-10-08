@@ -8,8 +8,10 @@ import 'package:macos_ui/macos_ui.dart';
 import '../connection/connection_controller.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
-import '../widgets/mg_floating_panel.dart';
 import '../widgets/adaptive_popup_button.dart';
+import '../widgets/mg_command_confirmation.dart';
+import '../widgets/mg_dialog.dart';
+import '../widgets/mg_floating_panel.dart';
 import '../widgets/mac_panel.dart';
 import 'mission_document_controller.dart';
 import 'mission_document_models.dart';
@@ -33,10 +35,14 @@ class MissionPlanningFloatingPanel extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onClose,
+    this.onRequestCommandConfirmation,
   });
 
   final ConnectionController controller;
   final VoidCallback onClose;
+
+  /// 把“开始任务”变成地图悬浮确认层的长按确认指令。
+  final ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation;
 
   @override
   State<MissionPlanningFloatingPanel> createState() =>
@@ -364,7 +370,7 @@ class _MissionPlanningFloatingPanelState
               ),
             ),
             MacosTooltip(
-              message: _mission.dirty ? '请先上传任务' : '解锁并启动任务',
+              message: _mission.dirty ? '请先上传任务' : '解锁并开始任务',
               child: PushButton(
                 controlSize: ControlSize.regular,
                 onPressed: canStartMission ? _startMission : null,
@@ -373,7 +379,7 @@ class _MissionPlanningFloatingPanelState
                   children: [
                     MacosIcon(CupertinoIcons.play_fill, size: 12),
                     SizedBox(width: 5),
-                    Text('启动任务'),
+                    Text('开始任务'),
                   ],
                 ),
               ),
@@ -446,6 +452,17 @@ class _MissionPlanningFloatingPanelState
             onRetryUpload: canRecoverVerification
                 ? () => unawaited(_uploadToVehicle())
                 : null,
+          ),
+        ],
+        if (verification != null && verification.homeSync.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _HomeSyncNotice(
+            result: verification,
+            fieldLabel: _verificationFieldLabel,
+            onAdoptVehicleHome: canRecoverVerification
+                ? () => unawaited(_mission.adoptVehicleHomeFromVerification())
+                : null,
+            onKeepLocalHome: _mission.dismissVerification,
           ),
         ],
         if (diagnostics.isNotEmpty) ...[
@@ -596,81 +613,25 @@ class _MissionPlanningFloatingPanelState
       );
       return;
     }
-    final confirmed = await showMacosAlertDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        final colors = dialogContext.mgColors;
-        return MacosAlertDialog(
-          appIcon: MacosIcon(
-            CupertinoIcons.exclamationmark_triangle,
-            size: 38,
-            color: colors.danger,
-          ),
-          title: const Text('执行任务确认'),
-          message: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 300),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                  decoration: BoxDecoration(
-                    color: colors.warning.withValues(alpha: 0.10),
-                    border: Border.all(
-                      color: colors.warning.withValues(alpha: 0.45),
-                    ),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      MacosIcon(
-                        CupertinoIcons.exclamationmark_triangle,
-                        size: 15,
-                        color: colors.warning,
-                      ),
-                      const SizedBox(width: 7),
-                      const Expanded(
-                        child: Text(
-                          '飞控将自动解锁并进入任务执行状态。请确认航线、返航高度、'
-                          '地理围栏和周围人员安全。',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  _estimateSummary(),
-                  textAlign: TextAlign.center,
-                  style: MacosTheme.of(
-                    dialogContext,
-                  ).typography.caption1.copyWith(color: colors.textSecondary),
-                ),
-              ],
-            ),
-          ),
-          primaryButton: PushButton(
-            controlSize: ControlSize.large,
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('解锁并启动'),
-          ),
-          secondaryButton: PushButton(
-            controlSize: ControlSize.large,
-            secondary: true,
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-        );
-      },
+
+    final command = MgCommandConfirmation(
+      label: '开始任务',
+      execute: _executeStartMission,
     );
-    if (confirmed != true) return;
+    final request = widget.onRequestCommandConfirmation;
+    if (request == null) {
+      await command.execute();
+      return;
+    }
+    request(command);
+  }
+
+  Future<void> _executeStartMission() async {
     try {
       await widget.controller.startMission();
     } on Object catch (error) {
-      if (!mounted) return;
-      await showMacosAlertDialog<void>(
+      if (!mounted) rethrow;
+      await showMgAlertDialog<void>(
         context: context,
         builder: (dialogContext) => MacosAlertDialog(
           appIcon: MacosIcon(
@@ -1400,6 +1361,95 @@ class _MissionDefaultsFormState extends State<_MissionDefaultsForm> {
   );
 }
 
+class _HomeSyncNotice extends StatelessWidget {
+  const _HomeSyncNotice({
+    required this.result,
+    required this.fieldLabel,
+    required this.onAdoptVehicleHome,
+    required this.onKeepLocalHome,
+  });
+
+  final MissionVerificationResult result;
+  final String Function(String field) fieldLabel;
+  final VoidCallback? onAdoptVehicleHome;
+  final VoidCallback onKeepLocalHome;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    final visible = result.homeSync.take(3);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
+      decoration: BoxDecoration(
+        color: colors.accentSurface,
+        border: Border.all(color: colors.accent.withValues(alpha: 0.38)),
+        borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              MacosIcon(
+                CupertinoIcons.location,
+                size: 13,
+                color: colors.accent,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '飞控 Home 已自动更新',
+                  style: MgTypography.sans(
+                    MgTypography.caption.copyWith(color: colors.accent),
+                  ),
+                ),
+              ),
+              Text(
+                '${result.homeSyncCount} 项同步提示',
+                style: MgTypography.sans(
+                  MgTypography.caption.copyWith(color: colors.textSecondary),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          for (final item in visible)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text(
+                '${fieldLabel(item.field)}：${item.expected} → ${item.actual}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: MgTypography.sans(
+                  MgTypography.caption.copyWith(color: colors.textPrimary),
+                ),
+              ),
+            ),
+          const SizedBox(height: 7),
+          Wrap(
+            spacing: 7,
+            runSpacing: 5,
+            children: [
+              if (onAdoptVehicleHome != null)
+                PushButton(
+                  controlSize: ControlSize.regular,
+                  onPressed: onAdoptVehicleHome,
+                  child: const Text('采用飞控 Home'),
+                ),
+              PushButton(
+                controlSize: ControlSize.regular,
+                secondary: true,
+                onPressed: onKeepLocalHome,
+                child: const Text('保留本地 Home'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MissionVerificationPanel extends StatelessWidget {
   const _MissionVerificationPanel({
     required this.result,
@@ -1727,7 +1777,7 @@ Future<bool> confirmMissionAction(
   required String message,
   required String confirmLabel,
 }) async {
-  final result = await showMacosAlertDialog<bool>(
+  final result = await showMgAlertDialog<bool>(
     context: context,
     builder: (dialogContext) => MacosAlertDialog(
       appIcon: MacosIcon(
@@ -1787,22 +1837,7 @@ Future<void> showMissionEntityDialog(
 Future<T?> _showFadeDialog<T>({
   required BuildContext context,
   required WidgetBuilder builder,
-}) {
-  return showGeneralDialog<T>(
-    context: context,
-    barrierDismissible: false,
-    barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-    barrierColor: MgColors.of(context).shadow,
-    transitionDuration: const Duration(milliseconds: 150),
-    pageBuilder: (dialogContext, animation, secondaryAnimation) =>
-        builder(dialogContext),
-    transitionBuilder: (dialogContext, animation, secondaryAnimation, child) =>
-        FadeTransition(
-          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-          child: child,
-        ),
-  );
-}
+}) => showMgSheet<T>(context: context, builder: builder);
 
 class _MissionEntitySheet extends StatefulWidget {
   const _MissionEntitySheet({

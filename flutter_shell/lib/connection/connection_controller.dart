@@ -396,8 +396,9 @@ final class ConnectionController extends ChangeNotifier {
   /// 波形页面按采样间隔请求的消息 ID：SCALED_IMU / SCALED_IMU2 / SCALED_IMU3。
   static const List<int> _waveformMessageIds = [26, 116, 129];
 
-  /// 常规遥测轮询间隔。顶栏数据是给人看的，10Hz 足够顺滑。
-  static const Duration _telemetryPollInterval = Duration(milliseconds: 100);
+  /// 常规遥测轮询间隔。位置/姿态/VFR_HUD 提到 20Hz，地图和仪表更顺滑。
+  /// 波形仍保持独立的 10Hz 采样与轮询，不跟着一起加倍。
+  static const Duration _telemetryPollInterval = Duration(milliseconds: 50);
 
   /// MAV_CMD_DO_SET_MODE 的 base mode 必须声明 custom mode 有效。
   /// QGC 在 Vehicle::setFlightMode() 里也是发送这个标志。
@@ -2660,7 +2661,7 @@ final class ConnectionController extends ChangeNotifier {
     return oldRoll != rollDegrees || oldPitch != pitchDegrees;
   }
 
-  /// VFR_HUD 是空速 / 地速的直接来源。它和位置 / 姿态一样走 10Hz 前端轮询，
+  /// VFR_HUD 是空速 / 地速的直接来源。它和位置 / 姿态一样走 20Hz 前端轮询，
   /// 不通过 telemetryChanges 以外的路径更新。
   bool _pollVfrHud() {
     final oldAirspeed = airspeedMetersPerSecond;

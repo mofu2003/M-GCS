@@ -28,8 +28,8 @@ class MgAttitudeIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.mgColors;
     return SizedBox(
-      width: MgMetrics.compassSize,
-      height: MgMetrics.compassSize,
+      width: MgMetrics.attitudeSize,
+      height: MgMetrics.attitudeSize,
       child: CustomPaint(
         painter: _AttitudePainter(
           rollDegrees: rollDegrees,

@@ -530,7 +530,8 @@ std::string MissionManager::export_json() const {
         cJSON_AddStringToObject(item_json, "frame_name", frame_name(item.frame));
 
         // Add lat/lon in degrees for convenience
-        if (item.frame == 0 || item.frame == 3 || item.frame == 10) {
+        if (is_global_coordinate_frame(item.frame) &&
+            mission_command_uses_location(item.command)) {
             cJSON_AddNumberToObject(item_json, "lat", item.x / 1e7);
             cJSON_AddNumberToObject(item_json, "lon", item.y / 1e7);
         }

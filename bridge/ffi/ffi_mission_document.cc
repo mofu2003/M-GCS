@@ -1097,8 +1097,11 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
     differences.begin_array();
     mg::bridge::JsonBuilder normalizations;
     normalizations.begin_array();
+    mg::bridge::JsonBuilder home_sync;
+    home_sync.begin_array();
     int difference_count = 0;
     int normalization_count = 0;
+    int home_sync_count = 0;
     auto add_difference = [&](
                               int index,
                               const char* field,
@@ -1131,6 +1134,21 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
         item.end_object();
         normalizations.append_json(item.str());
     };
+    auto add_home_sync = [&](
+                             int index,
+                             const char* field,
+                             const std::string& expected,
+                             const std::string& actual) {
+        ++home_sync_count;
+        mg::bridge::JsonBuilder item;
+        item.begin_object();
+        item.field("index", index);
+        item.field("field", field);
+        item.field("expected", expected);
+        item.field("actual", actual);
+        item.end_object();
+        home_sync.append_json(item.str());
+    };
 
     const int count = static_cast<int>(compiled.plan.items.size());
     const int vehicle_count = static_cast<int>(vehicle_plan.items.size());
@@ -1144,7 +1162,7 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
 
     if (document.home.set && mg::bridge::ffi::mission_uses_home_item(core)) {
         if (!vehicle_home_present || !vehicle_home.set) {
-            add_difference(-1, "home", "set", "missing");
+            add_home_sync(-1, "home", "set", "missing");
         } else {
             const int expected_lat_e7 = static_cast<int>(
                 std::llround(document.home.latitude * 1e7));
@@ -1155,14 +1173,14 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
             const int actual_lon_e7 = static_cast<int>(
                 std::llround(vehicle_home.longitude * 1e7));
             if (std::abs(expected_lat_e7 - actual_lat_e7) > 1) {
-                add_difference(
+                add_home_sync(
                     -1,
                     "home.latitude",
                     std::to_string(document.home.latitude),
                     std::to_string(vehicle_home.latitude));
             }
             if (std::abs(expected_lon_e7 - actual_lon_e7) > 1) {
-                add_difference(
+                add_home_sync(
                     -1,
                     "home.longitude",
                     std::to_string(document.home.longitude),
@@ -1170,7 +1188,7 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
             }
             if (std::abs(document.home.altitude_m - vehicle_home.altitude_m) >
                 static_cast<float>(tolerance)) {
-                add_difference(
+                add_home_sync(
                     -1,
                     "home.altitude_m",
                     std::to_string(document.home.altitude_m),
@@ -1333,6 +1351,7 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
     }
     differences.end_array();
     normalizations.end_array();
+    home_sync.end_array();
 
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
@@ -1344,6 +1363,8 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
     jb.raw_field("differences", differences.str());
     jb.field("normalization_count", normalization_count);
     jb.raw_field("normalizations", normalizations.str());
+    jb.field("home_sync_count", home_sync_count);
+    jb.raw_field("home_sync", home_sync.str());
     jb.end_object();
     return to_cstr(jb.str());
 }

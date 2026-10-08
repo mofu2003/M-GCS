@@ -23,7 +23,8 @@ inline std::string mission_item_json(const mg::core::mission::MissionItem& item)
     jb.field("x",            item.x);
     jb.field("y",            item.y);
     jb.field("z",            item.z);
-    if (item.frame == 0 || item.frame == 3 || item.frame == 10) {
+    if (mg::core::mission::is_global_coordinate_frame(item.frame) &&
+        mg::core::mission::mission_command_uses_location(item.command)) {
         jb.field("lat", static_cast<double>(item.x) / 1e7);
         jb.field("lon", static_cast<double>(item.y) / 1e7);
     }

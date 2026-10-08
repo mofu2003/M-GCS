@@ -113,6 +113,22 @@ class MgTypography {
     fontFeatures: [FontFeature.tabularFigures()],
   );
 
+  /// 罗盘顶部的大号航向读数。读数不是标题，保持常规字重。
+  static const TextStyle compassHeading = TextStyle(
+    fontSize: 24,
+    height: 1.15,
+    fontWeight: FontWeight.w400,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
+  /// 复合仪表航向读数：比普通数据字号小一级，保证方向字和三位航向同时放下。
+  static const TextStyle instrumentHeadingReadout = TextStyle(
+    fontSize: 12,
+    height: 1.1,
+    fontWeight: FontWeight.w400,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
   /// macos_ui 组件主题使用的同一套字体标准。
   ///
   /// 这只是兼容当前窗口主题的适配层；业务页面的新组件直接使用上面的
@@ -186,8 +202,46 @@ class MgMetrics {
   /// 仪表盘每列宽度：列内两行读数左对齐，列与列等宽。
   static const double dashboardColumnWidth = 168;
 
-  /// 左舷罗盘直径。
-  static const double compassSize = 140;
+  /// 左下角姿态仪直径。
+  static const double attitudeSize = 140;
+
+  /// 右下角罗盘表盘直径。
+  static const double compassSize = 230;
+
+  /// 右下角复合仪表的玻璃外径。
+  static const double attitudeCompassSize = 196;
+
+  /// 复合仪表内部绘制区域直径。
+  static const double attitudeCompassContentSize = 188;
+
+  /// 姿态球距离复合仪表内部边缘的内缩。
+  static const double attitudeCompassBallInset = 32;
+
+  /// 复合仪表的毛玻璃模糊强度。
+  static const double attitudeCompassBlurSigma = 32;
+
+  /// 飞控消息时间列固定宽度，保证所有消息正文从同一位置开始。
+  static const double flightMessageTimeWidth = 72;
+
+  /// 复合仪表底部航向读数胶囊尺寸。
+  static const double attitudeHeadingReadoutWidth = 58;
+  static const double attitudeHeadingReadoutHeight = 20;
+  static const double attitudeHeadingReadoutRadius = 10;
+
+  /// 罗盘顶部固定箭头的预留高度。
+  static const double compassArrowArea = 16;
+
+  /// 罗盘航向读数与表盘之间的距离。
+  static const double compassHeadingGap = 4;
+
+  /// 顶部状态栏指令确认按钮宽度，保证不同命令文案切换时布局不跳动。
+  static const double commandConfirmWidth = 188;
+
+  /// 窄窗口下的指令确认按钮宽度：隐藏“长按确认”提示，只保留命令名称。
+  static const double commandConfirmCompactWidth = 132;
+
+  /// 地图上方确认按钮离内容区顶边的距离。
+  static const double commandConfirmTopInset = 12;
 
   /// 电机输出 / 遥控器校准的 PWM 进度条高度。
   ///

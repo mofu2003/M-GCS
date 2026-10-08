@@ -1,5 +1,7 @@
 # 任务规划后端契约
 
+当前版本基线：`0.0.78`。
+
 本文是任务规划的当前权威说明。任务规划由“任务文档”和“编译后的 MissionPlan”两层组成：
 
 - `MissionDocument`：前端可编辑、带稳定实体 ID 和 revision 的任务源模型。
@@ -78,6 +80,15 @@
 本地任务前确认。导入会保留 command/frame/参数/位置，但不能还原参数化测绘意图。
 飞控回读的 `_INT` frame 5/6/11 会归一化为文档使用的 0/3/10。
 
+`MAV_FRAME_MISSION`（2）的 `x/y` 是 `param5/param6` 的原始值，不是经纬度。
+回读和 QGC `.plan` 导入必须按命令语义判断是否具有地理位置：DO_/CONDITION_
+一类命令不得生成假航点；固定翼 `NAV_TAKEOFF`（22）的位置仍保留。ArduPilot
+可能把非定位命令规范成 `GLOBAL(0)` 回读，因此不能只凭 frame 判断坐标。
+
+当前 `MissionEntity` 正式表达 `param1..4`、位置和 `param7/altitude_m`；任意
+`MAV_FRAME_MISSION` 命令的原始 `param5/param6` 还没有独立可编辑字段。因此这类
+命令不会被误画成航点，但对非零 param5/6 的通用往返仍属于后续补齐项。
+
 任务传输是严格的事务：mission、fence、rally 任一类型处于 uploading/downloading 时，
 新的同类或跨类型传输会被拒绝；`MISSION_REQUEST` / `MISSION_REQUEST_INT` 必须按请求里的
 `mission_type` 路由，并校验来源 sysid/compid 与期望序号，不能靠“当前正在上传的那个”
@@ -134,7 +145,9 @@ ArduPilot 当前实现会主动忽略该任务项的经纬度，只使用高度�
 返回 `canceled:false`，不会把已经完成的传输追认为取消。
 
 `mg_mission_doc_verify` 只接受完成后的全量下载结果，比较数量、command、frame、位置、
-高度、参数、autocontinue 和 mission_type；ArduPilot 任务还会单独比较第 0 项 Home。
+高度、参数、autocontinue 和 mission_type。ArduPilot 任务第 0 项 Home 的坐标变化属于
+飞控动态 Home 行为，单独通过 `home_sync` / `home_sync_count` 返回，不计入任务
+`differences`，也不会把任务项判定为不一致。
 验证时会把 `GLOBAL_INT/GLOBAL_RELATIVE_ALT_INT/GLOBAL_TERRAIN_ALT_INT` 分别归一为
 对应的普通坐标帧，避免飞控使用 `MISSION_ITEM_INT` 表示同一语义时产生误报。位置和高度
 字段按命令目录的 `requires_position/requires_altitude` 判断；Takeoff、RTL 和 DO/CONDITION
@@ -168,7 +181,7 @@ ArduPilot 当前实现会主动忽略该任务项的经纬度，只使用高度�
 ## 文件互操作
 
 任务文件格式按飞控生态分层，详见
-[ADR 0008](adr/0008-mission-file-format-priority.md)：
+[ADR 0008](../architecture/adr/0008-mission-file-format-priority.md)：
 
 | 场景 | 推荐格式 |
 | --- | --- |

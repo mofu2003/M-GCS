@@ -7,6 +7,7 @@ import 'package:macos_ui/macos_ui.dart';
 import '../connection/connection_controller.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
+import '../widgets/mg_dialog.dart';
 
 /// 飞行模式操作台宽度。
 ///
@@ -104,7 +105,7 @@ class _FlightModeFloatingPanelState extends State<FlightModeFloatingPanel> {
     required String confirmLabel,
     bool singleAction = false,
   }) async {
-    final result = await showMacosAlertDialog<bool>(
+    final result = await showMgAlertDialog<bool>(
       context: context,
       builder: (dialogContext) => MacosAlertDialog(
         appIcon: MacosIcon(
@@ -142,7 +143,7 @@ class _FlightModeFloatingPanelState extends State<FlightModeFloatingPanel> {
       await widget.controller.setFlightMode(name);
     } on Object catch (error) {
       if (mounted) {
-        await showMacosAlertDialog<void>(
+        await showMgAlertDialog<void>(
           context: context,
           builder: (dialogContext) => MacosAlertDialog(
             appIcon: MacosIcon(

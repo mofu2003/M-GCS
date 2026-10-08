@@ -51,7 +51,7 @@ class _MgSettingsPanel extends StatelessWidget {
       child: MgFloatingPanel(
         // Material 必须在带底色的浮层之内，InkWell 的水波纹才不会被盖住。
         child: Material(
-          color: Colors.transparent,
+          color: colors.transparent,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [

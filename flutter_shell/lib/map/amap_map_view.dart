@@ -19,11 +19,11 @@ import '../mission/mission_document_models.dart';
 import '../mission/mission_geo.dart';
 import '../mission/mission_planning_panel.dart';
 import '../widgets/mg_map_action_menu.dart';
-import '../widgets/mg_attitude_indicator.dart';
-import '../widgets/mg_compass.dart';
+import '../widgets/mg_command_confirmation.dart';
+import '../widgets/mg_mac_glass_attitude_panel.dart';
 import '../widgets/mg_floating_panel.dart';
-
 import '../widgets/mg_telemetry_dashboard.dart';
+
 import 'gcj_coordinates.dart';
 import 'vehicle_marker_icon.dart';
 import 'map_preferences.dart';
@@ -118,6 +118,7 @@ class AMapMapView extends StatefulWidget {
     this.connectionPanelRequest,
     this.flightMessagePanelRequest,
     this.missionPlanningRequest,
+    this.onRequestCommandConfirmation,
   });
 
   final ConnectionController connectionController;
@@ -128,6 +129,9 @@ class AMapMapView extends StatefulWidget {
   final ValueListenable<int>? flightMessagePanelRequest;
   final ValueListenable<int>? missionPlanningRequest;
 
+  /// 把飞行命令交给主页面顶部状态栏，等待用户长按确认后再执行。
+  final ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation;
+
   @override
   State<AMapMapView> createState() => _AMapMapViewState();
 }
@@ -135,6 +139,7 @@ class AMapMapView extends StatefulWidget {
 class _AMapMapViewState extends State<AMapMapView> {
   /// 航线规划浮层距内容区顶边的间距。原先贴到顶边（18）显得压在工具栏下面，
   /// 这里整体下移，单独留一个常量方便继续微调。
+  static const double _rightPanelTopInset = 12;
   static const double _missionPanelTopInset = 60;
 
   final _controller = MapController();
@@ -381,6 +386,14 @@ class _AMapMapViewState extends State<AMapMapView> {
 
     if (_showMissionPlanning) {
       await mission.initialize();
+      final home = controller.homePosition;
+      if (home != null && controller.homePositionValid) {
+        await mission.adoptVehicleHomeIfMissing(
+          latitude: home.latitude,
+          longitude: home.longitude,
+          altitudeMeters: home.altitudeMeters ?? 0,
+        );
+      }
       if (!mounted) return;
       await showMissionEntityDialog(
         context,
@@ -461,11 +474,22 @@ class _AMapMapViewState extends State<AMapMapView> {
       unawaited(run());
     }
 
+    void requestConfirmation(String label, Future<void> Function() run) {
+      final onRequest = widget.onRequestCommandConfirmation;
+      if (onRequest == null) {
+        select(() => _runMapCommand(run));
+        return;
+      }
+      _closeMapActionMenu();
+      onRequest(MgCommandConfirmation(label: label, execute: run));
+    }
+
     return <MgMapAction>[
       if (visibility.gotoLocation)
         MgMapAction(
           label: '移动到此处',
-          onSelected: () => select(() => _mapGoto(target)),
+          onSelected: () =>
+              requestConfirmation('移动到此处', () => _mapGotoCommand(target)),
         ),
       if (visibility.orbit)
         MgMapAction(
@@ -507,7 +531,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   /// QGC 的 Go to location 只用点击点的经纬度，高度取飞机当前 **AMSL**，
   /// 也就是“保持现在的高度飞过去”。拿不到绝对高度时必须拒发：DO_REPOSITION
   /// 用的是 MAV_FRAME_GLOBAL，退化到相对高度或 0 等于命令飞机飞向地面。
-  Future<void> _mapGoto(LatLng target) => _runMapCommand(() async {
+  Future<void> _mapGotoCommand(LatLng target) async {
     final controller = widget.connectionController;
     final absoluteAltitude = controller.absoluteAltitudeMeters;
     if (!controller.vehiclePositionValid ||
@@ -520,7 +544,7 @@ class _AMapMapViewState extends State<AMapMapView> {
       target.longitude,
       absoluteAltitude,
     );
-  });
+  }
 
   /// QGC 的 Orbit 高度是 `homePosition.altitude + 滑块高度`（AMSL）。
   Future<void> _mapOrbit(LatLng target) => _runMapCommand(() async {
@@ -586,6 +610,24 @@ class _AMapMapViewState extends State<AMapMapView> {
       _showTransientMessage('连接飞控后才能执行引导操作。');
       return;
     }
+
+    // 返航是 QGC Guided Actions 的核心动作，但这里按 M-GCS 的统一交互走
+    // 顶部状态栏长按确认，不再进入二次弹窗流程。
+    if (actionLabel.startsWith('返航')) {
+      final onRequest = widget.onRequestCommandConfirmation;
+      if (onRequest == null) {
+        await _runMapCommand(controller.guidedReturnToLaunch);
+      } else {
+        onRequest(
+          MgCommandConfirmation(
+            label: '返航',
+            execute: controller.guidedReturnToLaunch,
+          ),
+        );
+      }
+      return;
+    }
+
     final fix = controller.vehiclePosition;
     final position = fix == null
         ? _center
@@ -1094,26 +1136,33 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           ],
         ),
-        // 右下角仪表组：姿态仪在左、罗盘在右。底图来源选择与数据来源说明
-        // 已移入「设置 → 地面站配置 → 地图配置」。
+        // 右下角组合仪表：只保留 v0.0.5 MacGlass 的指南针 + 姿态球本体。
         Positioned(
           right: 18,
           bottom: 18,
           child: AnimatedBuilder(
             animation: _vehicleStatusSources,
-            builder: (context, _) => Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                MgAttitudeIndicator(
-                  rollDegrees: widget.connectionController.rollDegrees,
-                  pitchDegrees: widget.connectionController.pitchDegrees,
+            builder: (context, _) => RepaintBoundary(
+              child: MgMacGlassAttitudeCompass(
+                headingDegrees: widget.connectionController.headingDegrees ?? 0,
+                rollDegrees: widget.connectionController.rollDegrees ?? 0,
+                pitchDegrees: widget.connectionController.pitchDegrees ?? 0,
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 18,
+          child: Center(
+            child: AnimatedBuilder(
+              animation: _vehicleStatusSources,
+              builder: (context, _) => MgTelemetryDashboard(
+                data: MgTelemetryDashboardData.fromController(
+                  widget.connectionController,
                 ),
-                const SizedBox(width: 14),
-                MgCompass(
-                  headingDegrees: widget.connectionController.headingDegrees,
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -1164,24 +1213,9 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           ),
         ),
-        Positioned(
-          left: 72,
-          right: 340,
-          bottom: 18,
-          child: Center(
-            child: AnimatedBuilder(
-              animation: _vehicleStatusSources,
-              builder: (context, _) => MgTelemetryDashboard(
-                data: MgTelemetryDashboardData.fromController(
-                  widget.connectionController,
-                ),
-              ),
-            ),
-          ),
-        ),
         if (_showConnectionPanel)
           Positioned(
-            top: 12,
+            top: _rightPanelTopInset,
             right: 18,
             child: ConnectionFloatingPanel(
               controller: widget.connectionController,
@@ -1195,13 +1229,14 @@ class _AMapMapViewState extends State<AMapMapView> {
             right: 18,
             child: MissionPlanningFloatingPanel(
               controller: widget.connectionController,
+              onRequestCommandConfirmation: widget.onRequestCommandConfirmation,
               onClose: () => setState(() => _showMissionPlanning = false),
             ),
           ),
         if (_showFlightMessagePanel)
-          // 右上角，和连接面板 / 航线规划同一列。固定高度而不是通到底。
+          // 右上角与连接面板共用同一个槽位，避免互相覆盖。
           Positioned(
-            top: 12,
+            top: _rightPanelTopInset,
             right: 18,
             height: 340,
             child: FlightMessageFloatingPanel(
