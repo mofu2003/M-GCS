@@ -291,6 +291,7 @@ class MgTopStatusData {
     required this.batteryVoltage,
     required this.transportLabel,
     required this.messageCount,
+    this.stale = false,
     this.isVtolVehicle = false,
   });
 
@@ -307,6 +308,7 @@ class MgTopStatusData {
       batteryVoltage: controller.batteryVoltage,
       transportLabel: controller.selectedTransportLabel,
       messageCount: controller.flightMessages.length,
+      stale: controller.telemetryStale,
       isVtolVehicle:
           controller.controlProfile == VehicleControlProfile.planeVtol ||
           const {19, 20, 21, 22, 23, 24, 25}.contains(controller.vehicleType),
@@ -324,6 +326,10 @@ class MgTopStatusData {
   final double? batteryVoltage;
   final String transportLabel;
   final int messageCount;
+
+  /// 遥测读数已过期（链路断开或心跳超时后仍保留最后一帧）。
+  /// 为真时读数必须显示为占位符，不能当成当前值。
+  final bool stale;
   final bool isVtolVehicle;
 
   String get statusLabel {
@@ -380,6 +386,7 @@ class MgTopStatusBar extends StatelessWidget {
     this.onOpenFleetBatch,
     this.onOpenFlightMessages,
     this.onToggleArm,
+    this.onEmergencyStop,
     this.onOpenFlightMode,
     this.onOpenSettings,
   });
@@ -393,6 +400,9 @@ class MgTopStatusBar extends StatelessWidget {
   final VoidCallback? onOpenFleetBatch;
   final VoidCallback? onOpenFlightMessages;
   final VoidCallback? onToggleArm;
+
+  /// 急停（强制上锁）入口。仅在已解锁时出现——飞行中也要能触达。
+  final VoidCallback? onEmergencyStop;
   final VoidCallback? onOpenFlightMode;
   final VoidCallback? onOpenSettings;
 
@@ -464,6 +474,14 @@ class MgTopStatusBar extends StatelessWidget {
                     const SizedBox(width: 12),
                     if (data.connected && !data.flying) ...[
                       _ArmButton(data: data, onPressed: onToggleArm),
+                      const SizedBox(width: 4),
+                    ],
+                    // 急停与常规上锁分开：常规上锁在飞行中被禁用，急停必须仍可触达。
+                    if (data.connected && data.armed) ...[
+                      _EmergencyStopButton(
+                        data: data,
+                        onPressed: onEmergencyStop,
+                      ),
                       const SizedBox(width: 4),
                     ],
                     _TopActionButton(
@@ -572,6 +590,40 @@ class _FleetVehicleSelector extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmergencyStopButton extends StatelessWidget {
+  const _EmergencyStopButton({required this.data, required this.onPressed});
+
+  final MgTopStatusData data;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    final enabled = data.connected && onPressed != null;
+    return MacosTooltip(
+      message: data.connected
+          ? '急停：跳过解锁前检查强制上锁，立即停止电机'
+          : '未连接飞控',
+      child: PushButton(
+        controlSize: ControlSize.regular,
+        onPressed: enabled ? onPressed : null,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.dangerous_outlined,
+              size: 14,
+              color: enabled ? colors.danger : colors.textTertiary,
+            ),
+            const SizedBox(width: 5),
+            Text('急停', style: TextStyle(color: enabled ? colors.danger : null)),
+          ],
         ),
       ),
     );
@@ -765,17 +817,21 @@ class _FlightMode extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
+    // 过期（含断链后保留的最后一帧）时不能把旧模式名当成当前模式。
+    final stale = data.stale;
     return InkWell(
-      onTap: data.connected ? onPressed : null,
+      onTap: data.connected && !stale ? onPressed : null,
       borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         child: Text(
-          data.modeLabel,
+          stale ? '—' : data.modeLabel,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: MgTypography.sans(
-            MgTypography.data.copyWith(color: colors.textPrimary),
+            MgTypography.data.copyWith(
+              color: stale ? colors.textTertiary : colors.textPrimary,
+            ),
           ),
         ),
       ),
@@ -792,25 +848,29 @@ class _GpsIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
-    final color = !data.connected || (data.gpsFixType ?? 0) < 3
+    final stale = data.stale;
+    final fixType = data.gpsFixType;
+    final satellites = data.satellitesVisible;
+    final color = stale || !data.connected || (fixType ?? 0) < 3
         ? colors.warning
         : colors.success;
     return MacosTooltip(
-      message: 'GPS：${data.gpsFixLabel}',
+      message: stale ? 'GPS：数据已过期' : 'GPS：${data.gpsFixLabel}',
       child: _TopBarMetric(
         icon: Icons.gps_fixed,
         label: 'GPS',
         showLabel: showLabel,
         color: color,
         value: MgAnimatedNumber(
-          value: data.satellitesVisible?.toDouble() ?? double.nan,
+          // 过期时直接用占位符，避免把最后一帧星数当成当前值。
+          value: stale ? double.nan : (satellites?.toDouble() ?? double.nan),
           fractionDigits: 0,
           textAlign: TextAlign.left,
           style: MgTypography.data,
           color: colors.textPrimary,
           placeholder: '—',
         ),
-        suffix: data.satellitesVisible == null ? null : '星',
+        suffix: stale || satellites == null ? null : '星',
       ),
     );
   }
@@ -825,18 +885,20 @@ class _BatteryIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
-    final percent = data.batteryRemainingPercent;
+    final stale = data.stale;
+    final voltage = stale ? null : data.batteryVoltage;
+    final percent = stale ? null : data.batteryRemainingPercent;
     final color = switch (percent) {
-      null => colors.textSecondary,
+      null => stale ? colors.warning : colors.textSecondary,
       <= 20 => colors.danger,
       <= 35 => colors.warning,
       _ => colors.success,
     };
-    final voltage = data.batteryVoltage;
     return MacosTooltip(
-      message:
-          '电池：${percent == null ? '—' : '$percent%'}'
-          '${voltage == null ? '' : ' · ${voltage.toStringAsFixed(1)} V'}',
+      message: stale
+          ? '电池：数据已过期'
+          : '电池：${percent == null ? '—' : '$percent%'}'
+                '${voltage == null ? '' : ' · ${voltage.toStringAsFixed(1)} V'}',
       child: _TopBarMetric(
         icon: Icons.battery_std,
         label: 'BAT',
@@ -870,21 +932,30 @@ class _LinkIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
+    final stale = data.stale;
     return MacosTooltip(
-      message: data.connected ? '链路已连接' : '链路未连接',
+      message: stale
+          ? (data.connected ? '链路在，但遥测数据已过期' : '链路已断开，遥测数据已过期')
+          : (data.connected ? '链路已连接' : '链路未连接'),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.link,
+            stale ? Icons.warning_amber_rounded : Icons.link,
             size: 15,
-            color: data.connected ? colors.success : colors.danger,
+            color: stale
+                ? colors.warning
+                : (data.connected ? colors.success : colors.danger),
           ),
           const SizedBox(width: 6),
           Text(
-            data.connected ? data.transportLabel : '未连接',
+            stale
+                ? '数据过期'
+                : (data.connected ? data.transportLabel : '未连接'),
             style: MgTypography.sans(
-              MgTypography.caption.copyWith(color: colors.textSecondary),
+              MgTypography.caption.copyWith(
+                color: stale ? colors.warning : colors.textSecondary,
+              ),
             ),
           ),
         ],

@@ -223,6 +223,19 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  /// 急停不走 [_requestArmConfirmation]：常规上锁在飞行中被禁用，急停必须仍可触达。
+  void _requestEmergencyStopConfirmation() {
+    final controller = _connectionController;
+    if (!controller.isConnected || !controller.vehicleArmed) return;
+    _requestCommandConfirmation(
+      MgCommandConfirmation(
+        label: '急停',
+        detail: '跳过解锁前检查并强制上锁，立即停止电机。飞行中执行会导致坠机。',
+        execute: controller.emergencyDisarmVehicle,
+      ),
+    );
+  }
+
   Future<void> _executeArm(bool armed) async {
     if (armed) {
       await _connectionController.disarmVehicle();
@@ -330,6 +343,7 @@ class _MapPageState extends State<MapPage> {
               onOpenFleetBatch: () => unawaited(_openFleetBatch(context)),
               onOpenFlightMessages: () => _flightMessagePanelRequest.value++,
               onToggleArm: _requestArmConfirmation,
+              onEmergencyStop: _requestEmergencyStopConfirmation,
               onOpenFlightMode: () => unawaited(_openFlightModeMenu(context)),
               onOpenSettings: () => unawaited(_openSettings(context)),
             ),

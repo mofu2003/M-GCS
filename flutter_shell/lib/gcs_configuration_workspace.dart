@@ -171,7 +171,7 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
   }
 
   void _syncFieldsFromActive() {
-    final active = widget.controller.signingPreference;
+    final active = widget.controller.signing.preference;
     _nameController.text = active?.name ?? '';
     _keyController.text = active?.keyHex ?? '';
     _signOutgoing = active?.signOutgoing ?? true;
@@ -180,7 +180,7 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
   Future<void> _refreshStatus() async {
     if (!mounted) return;
     try {
-      final status = await widget.controller.readSigningStatus();
+      final status = await widget.controller.signing.readSigningStatus();
       if (!mounted) return;
       setState(() => _status = status);
     } on Object {
@@ -196,7 +196,7 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
       _message = null;
     });
     try {
-      await widget.controller.selectSigningKey(entry.name);
+      await widget.controller.signing.selectSigningKey(entry.name);
       if (!mounted) return;
       setState(() {
         _syncFieldsFromActive();
@@ -228,7 +228,7 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
       _message = null;
     });
     try {
-      await widget.controller.upsertSigningKey(
+      await widget.controller.signing.upsertSigningKey(
         name: name,
         keyHex: key,
         signOutgoing: _signOutgoing,
@@ -260,10 +260,10 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
       _message = null;
     });
     try {
-      await widget.controller.sendSetupSigning(
+      await widget.controller.signing.sendSetupSigning(
         keyHex: key,
         initialTimestampTicks:
-            widget.controller.signingPreference?.lastTimestampTicks ?? 0,
+            widget.controller.signing.preference?.lastTimestampTicks ?? 0,
       );
       if (!mounted) return;
       setState(() => _message = 'SETUP_SIGNING 已发送到当前飞控。');
@@ -284,7 +284,7 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
       _message = null;
     });
     try {
-      await widget.controller.removeSigningKey(name);
+      await widget.controller.signing.removeSigningKey(name);
       if (!mounted) return;
       setState(() {
         _syncFieldsFromActive();
@@ -306,7 +306,7 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
       _message = null;
     });
     try {
-      await widget.controller.clearSigningKeyPreference();
+      await widget.controller.signing.clearSigningKeyPreference();
       if (!mounted) return;
       setState(() {
         _syncFieldsFromActive();
@@ -343,8 +343,8 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
-    final keys = widget.controller.signingKeys;
-    final activeName = widget.controller.signingPreference?.name;
+    final keys = widget.controller.signing.keys;
+    final activeName = widget.controller.signing.preference?.name;
     return ListView(
       controller: widget.scrollController,
       padding: const EdgeInsets.all(20),

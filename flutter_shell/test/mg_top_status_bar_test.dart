@@ -122,6 +122,39 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('stale telemetry is marked expired instead of shown as current', (
+    tester,
+  ) async {
+    // 链路断开后界面仍保留最后一帧，这些值必须变成占位符并显式提示过期，
+    // 否则操作者会照着冻结的星数/电量/模式继续判断。
+    await show(
+      tester,
+      const MgTopStatusData(
+        connected: false,
+        armed: false,
+        flying: false,
+        flightMode: 'AUTO',
+        vtolState: 0,
+        gpsFixType: 3,
+        satellitesVisible: 16,
+        batteryRemainingPercent: 78,
+        batteryVoltage: 12.6,
+        transportLabel: '串口',
+        messageCount: 0,
+        stale: true,
+      ),
+    );
+
+    expect(find.text('数据过期'), findsOneWidget);
+    // 过期时不再显示旧链路标签，只剩状态标签的"未连接"。
+    expect(find.text('未连接'), findsOneWidget);
+    expect(find.text('16'), findsNothing);
+    expect(find.text('78'), findsNothing);
+    expect(find.text('AUTO'), findsNothing);
+    expect(find.text('—'), findsNWidgets(3));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('top status bar mirrors the active vehicle state', (
     tester,
   ) async {
@@ -343,5 +376,60 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('fleet-vehicle-selector')));
     expect(opened, 1);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('急停入口只在已解锁时出现，并走确认回调（U8）', (tester) async {
+    tester.view.physicalSize = const Size(1600, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var emergencyStops = 0;
+
+    Widget build({required bool armed, required bool flying}) => MacosTheme(
+      data: MacosThemeData.light(),
+      child: MaterialApp(
+        home: Scaffold(
+          body: MgTopStatusBar(
+            data: MgTopStatusData(
+              connected: true,
+              armed: armed,
+              flying: flying,
+              flightMode: 'Loiter',
+              vtolState: 0,
+              gpsFixType: 3,
+              satellitesVisible: 12,
+              batteryRemainingPercent: 80,
+              batteryVoltage: 12.4,
+              transportLabel: 'UDP',
+              messageCount: 0,
+            ),
+            onToggleArm: () {},
+            onEmergencyStop: () => emergencyStops++,
+          ),
+        ),
+      ),
+    );
+
+    // 未解锁：没有急停，因为没有什么可停的。
+    await tester.pumpWidget(build(armed: false, flying: false));
+    expect(find.text('急停'), findsNothing);
+
+    // 已解锁但未飞行：常规上锁与急停同时可见，且是两条不同的入口。
+    await tester.pumpWidget(build(armed: true, flying: false));
+    expect(find.text('急停'), findsOneWidget);
+    expect(find.text('上锁'), findsOneWidget);
+
+    await tester.tap(find.text('急停'));
+    await tester.pump();
+    expect(emergencyStops, 1);
+
+    // 飞行中：常规上锁被禁用，急停必须仍然可触达——这正是它存在的理由。
+    await tester.pumpWidget(build(armed: true, flying: true));
+    expect(find.text('上锁'), findsNothing);
+    expect(find.text('急停'), findsOneWidget);
+    await tester.tap(find.text('急停'));
+    await tester.pump();
+    expect(emergencyStops, 2);
   });
 }

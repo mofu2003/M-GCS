@@ -620,16 +620,24 @@ class _MissionPlanningFloatingPanelState
       return;
     }
 
-    final command = MgCommandConfirmation(
-      label: '开始任务',
-      execute: _executeStartMission,
-    );
     final request = widget.onRequestCommandConfirmation;
-    if (request == null) {
-      await command.execute();
+    if (request != null) {
+      request(
+        MgCommandConfirmation(label: '开始任务', execute: _executeStartMission),
+      );
       return;
     }
-    request(command);
+
+    // 没有悬浮确认层时退回对话框确认。任务启动会立刻让飞机按航线运动，
+    // 不允许存在"缺确认组件就直发"的降级路径。
+    final confirmed = await confirmMissionAction(
+      context,
+      title: '开始任务',
+      message: '飞控将按当前任务开始执行，飞机随即开始运动。',
+      confirmLabel: '开始任务',
+    );
+    if (!confirmed || !mounted) return;
+    await _executeStartMission();
   }
 
   Future<void> _executeStartMission() async {

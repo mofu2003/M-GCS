@@ -1,9 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi';
-import 'dart:io';
 
-import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -18,8 +15,9 @@ import 'telemetry_ffi_backend.dart';
 import 'parameter_ffi_backend.dart';
 import 'calibration_ffi_backend.dart';
 import 'flight_command_ffi_backend.dart';
+import 'native_core.dart';
+import 'signing_controller.dart';
 import 'signing_key_store.dart';
-import 'vehicle_signing_bindings.dart';
 
 final class SerialPortInfo {
   const SerialPortInfo({
@@ -464,17 +462,28 @@ final class _VehicleRuntimeSnapshot {
 }
 
 final class ConnectionController extends ChangeNotifier {
-  ConnectionController({SigningKeyStore? signingKeyStore})
-    : _signingKeyStore = signingKeyStore ?? SigningKeyStore() {
+  /// [telemetryBackend] 等可选参数用于注入替身（测试）或复用已绑定的后端；
+  /// 不传时按 [NativeCore] 懒创建。
+  ConnectionController({
+    SigningKeyStore? signingKeyStore,
+    this._telemetryBackend,
+    this._parameterBackend,
+    this._calibrationBackend,
+    this._flightCommandBackend,
+  }) {
+    _signing = SigningController(
+      native: () => _native,
+      ready: () => initializationError == null,
+      sessionId: () => sessionId,
+      refreshVehicles: () => fleet.refresh(),
+      vehicleIds: () => fleetSnapshot.vehicles.map((vehicle) => vehicle.id),
+      keyStore: signingKeyStore,
+    )..addListener(notifyListeners);
     _initialize();
-    unawaited(_loadSigningLibrary());
+    unawaited(_signing.loadLibrary());
   }
 
-  final SigningKeyStore _signingKeyStore;
-  List<SigningKeyPreference> _signingKeys = const [];
-  String? _activeSigningKeyName;
-  final _signingBindings = VehicleSigningBindings();
-  int? _signingCandidatesVehicleId;
+  late final SigningController _signing;
 
   /// MV1 seam: connection registry and command target tokens.
   /// Multi-link UI is intentionally not exposed until per-vehicle rebinding is verified.
@@ -485,32 +494,9 @@ final class ConnectionController extends ChangeNotifier {
   FleetController get fleet => _fleet ?? (throw StateError('多机后端尚未就绪'));
   Timer? _fleetTimer;
 
-  late final DynamicLibrary _library;
-  late final Pointer<Void> _core;
-  late final Pointer<Void> Function() _create;
-  late final void Function(Pointer<Void>) _destroy;
-  late final Pointer<Utf8> Function(Pointer<Void>) _listPorts;
-  late final Pointer<Utf8> Function(Pointer<Void>, int) _getSessionState;
-  late final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>, int, int)
-  _setSigningKey;
-  late final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
-  _setSigningCandidates;
-  late final Pointer<Utf8> Function(Pointer<Void>, int) _clearSigningKey;
-  late final Pointer<Utf8> Function(Pointer<Void>, int) _clearSigningCandidates;
-  late final Pointer<Utf8> Function(Pointer<Void>, int) _getSigningStatus;
-  late final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>, int)
-  _sendSetupSigning;
-  late final int Function(Pointer<Void>, Pointer<Float>, int, int, int, int)
-  _readWaveform;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getWaveformInstances;
-  late final Pointer<Utf8> Function(Pointer<Void>, int, int) _setStreamInterval;
-  late final Pointer<Utf8> Function(Pointer<Void>) _requestFirmwareVersion;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
-  late final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
-  _cancelOperationForVehicle;
-  late final Pointer<Utf8> Function(Pointer<Void>) _getFlightModes;
-  late final Pointer<Utf8> Function(Pointer<Void>, int) _getMessages;
-  late final void Function(Pointer<Utf8>) _freeString;
+  /// mgcore 原生库与句柄。全部原生调用都经过它，控制器本身不接触 dart:ffi。
+  /// 初始化失败时为 null，此时仅 [initializationError] 可用。
+  NativeCore? _native;
 
   MissionDocumentController? _offlineMissionPlanning;
   final Map<int, MissionDocumentController> _missionPlanningBySession = {};
@@ -541,8 +527,8 @@ final class ConnectionController extends ChangeNotifier {
   MissionDocumentController _newMissionController(int? ownerId) =>
       MissionDocumentController(
         backend: MissionDocumentFfiBackend(
-          _library,
-          _core,
+          _requireNative().library,
+          _requireNative().handle,
           isConnected: () => isConnected && sessionId == ownerId,
           beforeAccess: () {
             if (_disposed ||
@@ -555,18 +541,18 @@ final class ConnectionController extends ChangeNotifier {
       );
 
   TelemetryFfiBackend get telemetryBackend =>
-      _telemetryBackend ??= TelemetryFfiBackend(_library, _core);
+      _telemetryBackend ??= TelemetryFfiBackend(_requireNative().library, _requireNative().handle);
 
   ParameterFfiBackend get parameterBackend =>
-      _parameterBackend ??= ParameterFfiBackend(_library, _core);
+      _parameterBackend ??= ParameterFfiBackend(_requireNative().library, _requireNative().handle);
 
   CalibrationFfiBackend get calibrationBackend =>
-      _calibrationBackend ??= CalibrationFfiBackend(_library, _core);
+      _calibrationBackend ??= CalibrationFfiBackend(_requireNative().library, _requireNative().handle);
 
   FlightCommandFfiBackend get flightCommandBackend =>
       _flightCommandBackend ??= FlightCommandFfiBackend(
-        _library,
-        _core,
+        _requireNative().library,
+        _requireNative().handle,
         beforeCommand: () {
           _requireConnected('发送指令');
           fleet.refresh();
@@ -818,7 +804,6 @@ final class ConnectionController extends ChangeNotifier {
   Timer? _waveformTimer;
   Timer? _calibrationTimer;
   bool _waveformActive = false;
-  late final Pointer<Float> _waveformBuffer;
   int _lastSystemStatusPollMs = 0;
   bool _busy = false;
   bool _switchingSession = false;
@@ -827,14 +812,25 @@ final class ConnectionController extends ChangeNotifier {
   bool _firmwareVersionRequested = false;
   bool _parameterRequestStarted = false;
   bool _loadingParameterMetadata = false;
+  /// 本次会话是否收到过遥测（用于区分"还没连上"与"连上后掉线"）。
+  bool _telemetrySnapshotValid = false;
+  /// 链路仍在，但 core 报告的 heartbeat age 已超过新鲜度阈值。
+  bool _telemetryGroupsStale = false;
   VehicleControlProfile? _lastPublishedControlProfile;
 
   bool get busy => _busy;
   bool get isConnected => phase == SerialConnectionPhase.connected;
   bool get hasSession => sessionId != null;
+
+  /// 最后一次有效遥测是否已过期。
+  ///
+  /// core 的 `TelemetryFreshness` 为每类遥测维护 age（默认 3000ms 即过期）。链路断开
+  /// 或心跳丢失后 `_pollTelemetry` 会提前返回，界面保留的是最后一帧；此时必须把读数
+  /// 标记为过期，不能继续当成当前值展示，否则操作者会照着冻结的高度/电压/模式判断。
+  bool get telemetryStale =>
+      _telemetrySnapshotValid && (!isConnected || _telemetryGroupsStale);
   int? get activeLinkId => _activeLinkId;
-  List<SigningKeyPreference> get signingKeys => List.unmodifiable(_signingKeys);
-  SigningKeyPreference? get signingPreference => _activeSigningKey;
+  SigningController get signing => _signing;
   List<FleetLinkSummary> get fleetLinks => fleetSnapshot.links;
 
   /// True while a fleet-scoped asynchronous operation pins the active target.
@@ -998,7 +994,7 @@ final class ConnectionController extends ChangeNotifier {
     try {
       final result = calibrationBackend.start(1, nativeMode);
       if (result['success'] != true) {
-        throw StateError(_nativeError(result, '启动加速度计校准失败'));
+        throw StateError(nativeErrorText(result, '启动加速度计校准失败'));
       }
       _startCalibrationPolling();
       await _pollCalibrationStatus();
@@ -1027,7 +1023,7 @@ final class ConnectionController extends ChangeNotifier {
       };
       final result = calibrationBackend.start(nativeType, 1);
       if (result['success'] != true) {
-        throw StateError(_nativeError(result, '启动校准失败'));
+        throw StateError(nativeErrorText(result, '启动校准失败'));
       }
       _startCalibrationPolling();
       await _pollCalibrationStatus();
@@ -1043,7 +1039,7 @@ final class ConnectionController extends ChangeNotifier {
     try {
       final result = calibrationBackend.confirmAccelerometerPosition(position);
       if (result['success'] != true) {
-        throw StateError(_nativeError(result, '确认姿态失败'));
+        throw StateError(nativeErrorText(result, '确认姿态失败'));
       }
       await _pollCalibrationStatus();
     } on Object catch (error) {
@@ -1073,7 +1069,7 @@ final class ConnectionController extends ChangeNotifier {
     try {
       final result = calibrationBackend.cancel();
       if (result['success'] != true) {
-        final message = _nativeError(result, '取消校准失败');
+        final message = nativeErrorText(result, '取消校准失败');
         // A stale UI snapshot can outlive the native calibration state. In
         // that case the local clear above is already the correct end state.
         if (!message.contains('no calibration in progress')) {
@@ -1152,314 +1148,8 @@ final class ConnectionController extends ChangeNotifier {
     _ => CalibrationType.gyroscope,
   };
 
-  String _nativeError(Object? result, String fallback) {
-    if (result is Map<String, Object?>) {
-      final error = result['error'];
-      if (error is String && error.isNotEmpty) return error;
-      if (error is Map<String, Object?>) {
-        final message = error['message'];
-        if (message is String && message.isNotEmpty) return message;
-      }
-    }
-    return fallback;
-  }
-
   String _friendlyError(Object error) =>
       error.toString().replaceFirst('Bad state: ', '');
-
-  SigningKeyPreference? get _activeSigningKey {
-    final name = _activeSigningKeyName;
-    if (name == null) return null;
-    for (final entry in _signingKeys) {
-      if (entry.name == name) return entry;
-    }
-    return null;
-  }
-
-  Future<void> _loadSigningLibrary() async {
-    final library = await _signingKeyStore.loadLibrary();
-    _signingKeys = List.of(library.entries);
-    _activeSigningKeyName = library.activeName;
-    if (sessionId case final int id) _signingBindings.invalidate(id);
-    _signingCandidatesVehicleId = null;
-    unawaited(_applySigningConfigurationIfNeeded());
-    notifyListeners();
-  }
-
-  Future<void> _persistSigningLibrary() async {
-    await _signingKeyStore.saveLibrary(
-      SigningKeyLibrary(
-        entries: List.of(_signingKeys),
-        activeName: _activeSigningKeyName,
-      ),
-    );
-  }
-
-  Future<void> upsertSigningKey({
-    required String name,
-    required String keyHex,
-    bool signOutgoing = true,
-    int lastTimestampTicks = 0,
-  }) async {
-    final normalizedName = name.trim();
-    final normalizedKey = keyHex.trim().toLowerCase();
-    if (normalizedName.isEmpty) {
-      throw ArgumentError('密钥名称不能为空');
-    }
-    if (!isValidSigningKeyHex(normalizedKey)) {
-      throw ArgumentError('MAVLink signing key 必须是 64 位十六进制字符');
-    }
-    final next = List<SigningKeyPreference>.of(_signingKeys);
-    final index = next.indexWhere(
-      (entry) => entry.name.toLowerCase() == normalizedName.toLowerCase(),
-    );
-    final entry = SigningKeyPreference(
-      name: normalizedName,
-      keyHex: normalizedKey,
-      signOutgoing: signOutgoing,
-      lastTimestampTicks: lastTimestampTicks,
-    );
-    if (index >= 0) {
-      next[index] = entry;
-    } else {
-      next.add(entry);
-    }
-    _signingKeys = next;
-    _activeSigningKeyName = normalizedName;
-    if (sessionId case final int id) _signingBindings.bind(id, normalizedName);
-    _signingCandidatesVehicleId = null;
-    await _persistSigningLibrary();
-    if (sessionId case final int id) _signingBindings.invalidate(id);
-    await _applySigningConfigurationIfNeeded();
-    notifyListeners();
-  }
-
-  Future<void> selectSigningKey(String name) async {
-    final entry = _signingKeys.firstWhere(
-      (candidate) => candidate.name == name,
-      orElse: () => throw StateError('密钥不存在'),
-    );
-    _activeSigningKeyName = entry.name;
-    if (sessionId case final int id) _signingBindings.bind(id, entry.name);
-    await _persistSigningLibrary();
-    if (sessionId case final int id) _signingBindings.invalidate(id);
-    await _applySigningConfigurationIfNeeded();
-    notifyListeners();
-  }
-
-  Future<void> removeSigningKey(String name) async {
-    for (final id in _signingBindings.removeKey(name)) {
-      if (initializationError == null) {
-        _readJson(_clearSigningKey(_core, id));
-      }
-    }
-    if (initializationError == null) {
-      fleet.refresh();
-      for (final vehicle in fleet.snapshot.vehicles) {
-        _readJson(_clearSigningCandidates(_core, vehicle.id));
-      }
-    }
-    final next = List<SigningKeyPreference>.of(_signingKeys)
-      ..removeWhere((entry) => entry.name == name);
-    _signingKeys = next;
-    if (_activeSigningKeyName == name) {
-      _activeSigningKeyName = next.isEmpty ? null : next.first.name;
-    }
-    await _persistSigningLibrary();
-    if (sessionId case final int id) _signingBindings.invalidate(id);
-    _signingCandidatesVehicleId = null;
-    await _applySigningConfigurationIfNeeded();
-    if (_activeSigningKey == null) {
-      await _clearNativeSigning();
-    }
-    notifyListeners();
-  }
-
-  Future<void> saveSigningKeyPreference({
-    required String keyHex,
-    bool signOutgoing = true,
-    int lastTimestampTicks = 0,
-  }) {
-    return upsertSigningKey(
-      name: _activeSigningKeyName ?? '默认密钥',
-      keyHex: keyHex,
-      signOutgoing: signOutgoing,
-      lastTimestampTicks: lastTimestampTicks,
-    );
-  }
-
-  Future<void> _clearNativeSigning() async {
-    if (sessionId == null || initializationError != null) return;
-    final response = _readJson(_clearSigningKey(_core, sessionId!));
-    if (response is! Map || response['success'] != true) {
-      throw StateError(_nativeError(response, '清除 MAVLink 签名失败'));
-    }
-    if (sessionId case final int id) _signingBindings.invalidate(id);
-  }
-
-  Future<void> clearSigningKeyPreference() async {
-    _signingKeys = const [];
-    _signingBindings.clear();
-    if (initializationError == null) {
-      fleet.refresh();
-      for (final vehicle in fleet.snapshot.vehicles) {
-        _readJson(_clearSigningKey(_core, vehicle.id));
-        _readJson(_clearSigningCandidates(_core, vehicle.id));
-      }
-    }
-    _activeSigningKeyName = null;
-    if (sessionId case final int id) _signingBindings.invalidate(id);
-    _signingCandidatesVehicleId = null;
-    await _signingKeyStore.clear();
-    await _applySigningConfigurationIfNeeded();
-    await _clearNativeSigning();
-    notifyListeners();
-  }
-
-  Future<Map<String, Object?>> readSigningStatus() async {
-    final id = sessionId;
-    if (id == null || initializationError != null) {
-      return const {'success': true, 'enabled': false, 'status': 'offline'};
-    }
-    final response = _readJson(_getSigningStatus(_core, id));
-    if (response is! Map<String, Object?>) {
-      throw StateError('MAVLink 签名状态格式无效');
-    }
-    if (_adoptDetectedSigning(response, id)) {
-      await _persistSigningLibrary();
-      notifyListeners();
-    }
-    return response;
-  }
-
-  String _signingFingerprint(SigningKeyPreference key) =>
-      '${key.name}:${key.keyHex}:${key.signOutgoing}';
-
-  bool _adoptDetectedSigning(Map<String, Object?> status, int vehicleId) {
-    if (status['auto_detected'] != true) return false;
-    final name = status['key_name'];
-    if (name is! String || name.isEmpty) return false;
-    final index = _signingKeys.indexWhere((entry) => entry.name == name);
-    if (index < 0) return false;
-    final current = _signingKeys[index];
-    final timestamp = (status['timestamp_ticks'] as num?)?.toInt() ?? 0;
-    final nextTimestamp = timestamp > current.lastTimestampTicks
-        ? timestamp
-        : current.lastTimestampTicks;
-    final changed = nextTimestamp != current.lastTimestampTicks;
-    if (changed) {
-      final next = List<SigningKeyPreference>.of(_signingKeys);
-      next[index] = current.copyWith(lastTimestampTicks: nextTimestamp);
-      _signingKeys = next;
-    }
-    _signingBindings.bind(vehicleId, name);
-    _signingBindings.markApplied(vehicleId, _signingFingerprint(current));
-    return changed;
-  }
-
-  Future<void> _refreshAutoDetectedSigning(int vehicleId) async {
-    if (_disposed || sessionId != vehicleId || initializationError != null) {
-      return;
-    }
-    try {
-      final response = _readJson(_getSigningStatus(_core, vehicleId));
-      if (response is! Map<String, Object?> || response['success'] != true) {
-        return;
-      }
-      if (_adoptDetectedSigning(response, vehicleId)) {
-        await _persistSigningLibrary();
-        notifyListeners();
-      }
-    } on Object {
-      // Status polling is best effort and must not disturb telemetry.
-    }
-  }
-
-  Future<void> sendSetupSigning({
-    required String keyHex,
-    int initialTimestampTicks = 0,
-  }) async {
-    final normalized = keyHex.trim().toLowerCase();
-    if (!isValidSigningKeyHex(normalized)) {
-      throw ArgumentError('MAVLink signing key 必须是 64 位十六进制字符');
-    }
-    final id = sessionId;
-    if (id == null || initializationError != null) {
-      throw StateError('未连接飞控，无法下发 SETUP_SIGNING');
-    }
-    final key = normalized.toNativeUtf8();
-    try {
-      final response = _readJson(
-        _sendSetupSigning(_core, id, key, initialTimestampTicks),
-      );
-      if (response is! Map || response['success'] != true) {
-        throw StateError(_nativeError(response, '下发 SETUP_SIGNING 失败'));
-      }
-    } finally {
-      malloc.free(key);
-    }
-    notifyListeners();
-  }
-
-  Future<void> _applySigningConfigurationIfNeeded() async {
-    final id = sessionId;
-    if (id == null || initializationError != null) return;
-
-    if (_signingCandidatesVehicleId != id) {
-      final candidates = jsonEncode([
-        for (final entry in _signingKeys)
-          {
-            'name': entry.name,
-            'key_hex': entry.keyHex,
-            'timestamp_ticks': entry.lastTimestampTicks,
-          },
-      ]);
-      final nativeCandidates = candidates.toNativeUtf8();
-      try {
-        final response = _readJson(
-          _setSigningCandidates(_core, id, nativeCandidates),
-        );
-        if (response is! Map || response['success'] != true) {
-          throw StateError(_nativeError(response, '配置 MAVLink 签名候选密钥失败'));
-        }
-        _signingCandidatesVehicleId = id;
-      } finally {
-        malloc.free(nativeCandidates);
-      }
-    }
-
-    final nativeStatus = _readJson(_getSigningStatus(_core, id));
-    if (nativeStatus is Map<String, Object?> &&
-        _signingBindings.nameFor(id) == null) {
-      _adoptDetectedSigning(nativeStatus, id);
-    }
-    final boundName = _signingBindings.nameFor(id);
-    final matches = _signingKeys.where((entry) => entry.name == boundName);
-    if (matches.isEmpty) {
-      return;
-    } // New sessions use candidates, never a global default key.
-    final preference = matches.first;
-    final fingerprint = _signingFingerprint(preference);
-    if (_signingBindings.isApplied(id, fingerprint)) return;
-    final key = preference.keyHex.toNativeUtf8();
-    try {
-      final response = _readJson(
-        _setSigningKey(
-          _core,
-          id,
-          key,
-          preference.signOutgoing ? 1 : 0,
-          preference.lastTimestampTicks,
-        ),
-      );
-      if (response is! Map || response['success'] != true) {
-        throw StateError(_nativeError(response, '应用 MAVLink 签名失败'));
-      }
-      _signingBindings.markApplied(id, fingerprint);
-    } finally {
-      malloc.free(key);
-    }
-  }
 
   bool _isProfileParameter(String name) =>
       name == 'Q_ENABLE' ||
@@ -1602,7 +1292,7 @@ final class ConnectionController extends ChangeNotifier {
     if (_disposed || generation != _sessionGeneration) return;
     try {
       final result =
-          _readJson(_getSerialUartNames(_core)) as Map<String, Object?>;
+          _native!.serialUartNames() as Map<String, Object?>;
       final items = result['items'] as List<Object?>? ?? const [];
       serialHardwareMappings
         ..clear()
@@ -1829,127 +1519,9 @@ final class ConnectionController extends ChangeNotifier {
 
   void _initialize() {
     try {
-      _library = _openPlatformLibrary();
-      _create = _library
-          .lookup<NativeFunction<Pointer<Void> Function()>>('mg_create')
-          .asFunction();
-      _destroy = _library
-          .lookup<NativeFunction<Void Function(Pointer<Void>)>>('mg_destroy')
-          .asFunction();
-      _freeString = _library
-          .lookup<NativeFunction<Void Function(Pointer<Utf8>)>>(
-            'mg_free_string',
-          )
-          .asFunction();
-      _listPorts = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_connection_list_ports',
-          )
-          .asFunction();
-      _getSessionState = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
-            'mg_connection_get_session_state',
-          )
-          .asFunction();
-      _setSigningKey = _library
-          .lookup<
-            NativeFunction<
-              Pointer<Utf8> Function(
-                Pointer<Void>,
-                Int32,
-                Pointer<Utf8>,
-                Int32,
-                Uint64,
-              )
-            >
-          >('mg_vehicle_set_signing_key')
-          .asFunction();
-      _setSigningCandidates = _library
-          .lookupFunction<
-            Pointer<Utf8> Function(Pointer<Void>, Int32, Pointer<Utf8>),
-            Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
-          >('mg_vehicle_set_signing_candidates');
-      _clearSigningCandidates = _library
-          .lookupFunction<
-            Pointer<Utf8> Function(Pointer<Void>, Int32),
-            Pointer<Utf8> Function(Pointer<Void>, int)
-          >('mg_vehicle_clear_signing_candidates');
-      _clearSigningKey = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
-            'mg_vehicle_clear_signing_key',
-          )
-          .asFunction();
-      _getSigningStatus = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
-            'mg_vehicle_get_signing_status',
-          )
-          .asFunction();
-      _sendSetupSigning = _library
-          .lookup<
-            NativeFunction<
-              Pointer<Utf8> Function(
-                Pointer<Void>,
-                Int32,
-                Pointer<Utf8>,
-                Uint64,
-              )
-            >
-          >('mg_vehicle_send_setup_signing')
-          .asFunction();
-      _readWaveform = _library
-          .lookup<
-            NativeFunction<
-              Int32 Function(
-                Pointer<Void>,
-                Pointer<Float>,
-                Int32,
-                Int32,
-                Int32,
-                Int32,
-              )
-            >
-          >('mg_waveform_poll')
-          .asFunction();
-      _getWaveformInstances = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_waveform_get_instances',
-          )
-          .asFunction();
-      _setStreamInterval = _library
-          .lookup<
-            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32, Int32)>
-          >('mg_stream_set_interval')
-          .asFunction();
-      _requestFirmwareVersion = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_vehicle_request_firmware_version',
-          )
-          .asFunction();
-      _getSerialUartNames = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_serial_get_uart_names',
-          )
-          .asFunction();
-      _cancelOperationForVehicle = _library
-          .lookup<
-            NativeFunction<
-              Pointer<Utf8> Function(Pointer<Void>, Int32, Pointer<Utf8>)
-            >
-          >('mg_operations_cancel_for_vehicle')
-          .asFunction();
-      _getFlightModes = _library
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-            'mg_flight_get_modes',
-          )
-          .asFunction();
-      _getMessages = _library
-          .lookup<
-            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Uint64)>
-          >('mg_telemetry_get_messages')
-          .asFunction();
-      _core = _create();
+      _native = NativeCore.open();
       _fleet = FleetController(
-        FleetFfiBackend(_library, _core),
+        FleetFfiBackend(_native!.library, _native!.handle),
         canChangeFocus: _canSwitchActiveVehicle,
         executeBatchCommand: _executeFleetBatchCommand,
       )..addListener(_handleFleetChanged);
@@ -1961,9 +1533,6 @@ final class ConnectionController extends ChangeNotifier {
           // Keep last fleet snapshot on transient reads; never change focus here.
         }
       });
-      _waveformBuffer = calloc<Float>(
-        _waveformMaxPoints * _waveformFloatsPerPoint,
-      );
       waveformImuPoints = Float32List(
         _waveformMaxPoints * _waveformFloatsPerPoint,
       );
@@ -1975,6 +1544,15 @@ final class ConnectionController extends ChangeNotifier {
       initializationError = '串口连接后端初始化失败：$error';
       notifyListeners();
     }
+  }
+
+  /// 取原生核心；未初始化成功时抛出，避免各处重复判空。
+  NativeCore _requireNative() {
+    final native = _native;
+    if (native == null) {
+      throw StateError(initializationError ?? '原生后端未初始化');
+    }
+    return native;
   }
 
   /// Cancellable long operations no longer pin the UI focus. Parameter
@@ -2136,7 +1714,7 @@ final class ConnectionController extends ChangeNotifier {
       _pollTelemetry(target); // Fresh native cache before publishing UI state.
       missionPlanning.bindSession(target);
       _startSessionPolling();
-      unawaited(_applySigningConfigurationIfNeeded());
+      unawaited(_signing.applyIfNeeded());
       _lastPublishedControlProfile = null;
       _notifyConnectionChanges();
       _notifyParameterChanges();
@@ -2373,7 +1951,7 @@ final class ConnectionController extends ChangeNotifier {
     if (id == null) return;
     try {
       final response =
-          _readJson(_getMessages(_core, _lastMessageSeq))
+          _native!.messages(_lastMessageSeq)
               as Map<String, Object?>;
       if (_disposed || sessionId != id) return;
       if (response['success'] != true) return;
@@ -2431,7 +2009,7 @@ final class ConnectionController extends ChangeNotifier {
     if (id == null) return;
     try {
       final response =
-          _readJson(_getFlightModes(_core)) as Map<String, Object?>;
+          _native!.flightModes() as Map<String, Object?>;
       if (_disposed || sessionId != id) return;
       if (response['success'] != true) return;
       final options = (response['modes'] as List<Object?>? ?? const [])
@@ -2478,7 +2056,7 @@ final class ConnectionController extends ChangeNotifier {
   void _requireCommandSuccess(Object? raw, String action) {
     if (raw is! JsonMap) throw const FormatException('指令响应格式无效');
     if (raw['success'] == true) return;
-    final reason = _nativeError(
+    final reason = nativeErrorText(
       raw,
       raw['result_text'] as String? ?? _commandAckReason(raw),
     );
@@ -2721,6 +2299,24 @@ final class ConnectionController extends ChangeNotifier {
     await _disarmVehicleAndValidate();
   }
 
+  /// 急停：强制上锁（COMPONENT_ARM_DISARM，param2=21196）。
+  ///
+  /// 与 [disarmVehicle] 的区别是它让飞控跳过解锁前检查，用于常规上锁被飞控拒绝
+  /// 的场合——`safety.md` 的 S3 里列的"急停"就是这一条，可恢复（可以再解锁）。
+  /// 它**不是**终止飞行（DO_FLIGHTTERMINATION，不可撤销），两者在界面上必须分开。
+  Future<void> emergencyDisarmVehicle() async {
+    _requireConnected('急停');
+    if (!vehicleArmed) return;
+    _requireCommandSuccess(await flightCommandBackend.disarm(1), '急停');
+    if (await _waitForVehicleState(
+      armed: false,
+      timeout: _armValidationWindow,
+    )) {
+      return;
+    }
+    throw StateError('急停失败：飞控仍报告 armed=true');
+  }
+
   Future<void> _armVehicleAndValidate() async {
     if (vehicleArmed) return;
     _requireCommandSuccess(await flightCommandBackend.arm(0), '解锁');
@@ -2938,47 +2534,6 @@ final class ConnectionController extends ChangeNotifier {
     );
   }
 
-  /// 打开当前平台对应的 MgCore FFI 共享库。
-  ///
-  /// 桌面平台的构建脚本会把共享库放到可执行文件旁边；macOS 仍使用
-  /// app bundle 的 Frameworks 目录。Android 由系统 linker 按 JNI 库名查找，
-  /// 但真正的 USB Host 串口发现仍需要 Android 原生层提供设备路径和权限。
-  DynamicLibrary _openPlatformLibrary() {
-    final testLibrary = Platform.environment['MGCS_FLEET_LIBRARY'];
-    if (testLibrary != null && testLibrary.isNotEmpty) {
-      return DynamicLibrary.open(testLibrary);
-    }
-    if (Platform.isAndroid) {
-      return DynamicLibrary.open('libmgcore.so');
-    }
-
-    final executable = File(Platform.resolvedExecutable);
-    final candidates = <String>[];
-    if (Platform.isMacOS) {
-      candidates.add(
-        '${executable.parent.parent.path}/Frameworks/libmgcore.dylib',
-      );
-    } else if (Platform.isWindows) {
-      candidates.add('${executable.parent.path}/mgcore.dll');
-    } else if (Platform.isLinux) {
-      candidates.add('${executable.parent.path}/libmgcore.so');
-      candidates.add('${executable.parent.path}/lib/libmgcore.so');
-    }
-
-    for (final path in candidates) {
-      final file = File(path);
-      if (file.existsSync()) return DynamicLibrary.open(file.path);
-    }
-
-    // Linux distributions may resolve a library installed in the process
-    // search path even when it is not beside the executable.
-    if (Platform.isLinux) return DynamicLibrary.open('libmgcore.so');
-
-    final expected = candidates.isEmpty
-        ? '当前平台的 mgcore 共享库'
-        : candidates.join(' 或 ');
-    throw FileSystemException('找不到 $expected');
-  }
 
   Future<void> refreshPorts() async {
     if (initializationError != null || _busy) return;
@@ -2987,7 +2542,7 @@ final class ConnectionController extends ChangeNotifier {
     _notifyConnectionChanges();
     notifyListeners();
     try {
-      final result = _readJson(_listPorts(_core));
+      final result = _native!.listPorts();
       ports
         ..clear()
         ..addAll(
@@ -3148,7 +2703,7 @@ final class ConnectionController extends ChangeNotifier {
           state = <String, Object?>{'success': false};
         }
       } else {
-        state = _readJson(_getSessionState(_core, id)) as Map<String, Object?>;
+        state = _native!.sessionState(id) as Map<String, Object?>;
       }
       fleet.refresh();
       // refresh() may synchronously rebind to a replacement session/link.
@@ -3177,7 +2732,7 @@ final class ConnectionController extends ChangeNotifier {
         }
       } else if (state['heartbeat_alive'] == true) {
         if (capturedVehicleId != null) {
-          unawaited(_refreshAutoDetectedSigning(capturedVehicleId));
+          unawaited(_signing.refreshAutoDetected(capturedVehicleId));
         }
         if (capturedVehicleId == null) {
           final discoveredVehicleId = capturedLinkId == null
@@ -3190,7 +2745,7 @@ final class ConnectionController extends ChangeNotifier {
         }
         phase = SerialConnectionPhase.connected;
         message = '飞控已连接';
-        unawaited(_applySigningConfigurationIfNeeded());
+        unawaited(_signing.applyIfNeeded());
         if (previousPhase != SerialConnectionPhase.connected &&
             _waveformActive) {
           _applyWaveformStreamRate();
@@ -3199,7 +2754,7 @@ final class ConnectionController extends ChangeNotifier {
         if (capturedVehicleId != null && !_firmwareVersionRequested) {
           _firmwareVersionRequested = true;
           try {
-            _readJson(_requestFirmwareVersion(_core));
+            _native!.requestFirmwareVersion();
           } on Object {
             // Firmware identification remains available from HEARTBEAT.
           }
@@ -3248,14 +2803,10 @@ final class ConnectionController extends ChangeNotifier {
       'calibration',
       'log',
     ]) {
-      final name = operation.toNativeUtf8();
       try {
-        final response = _cancelOperationForVehicle(_core, vehicleId, name);
-        if (response != nullptr) _freeString(response);
+        _native!.cancelOperationForVehicle(vehicleId, operation);
       } on Object {
         // Best effort: closing the link still tears down the transport.
-      } finally {
-        malloc.free(name);
       }
     }
   }
@@ -3463,14 +3014,6 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
-  Object? _readJson(Pointer<Utf8> pointer) {
-    if (pointer == nullptr) throw StateError('后端返回空结果');
-    try {
-      return jsonDecode(pointer.toDartString());
-    } finally {
-      _freeString(pointer);
-    }
-  }
 
   void _pollTelemetry(int id) {
     if (!isConnected || sessionId != id || _disposed) return;
@@ -3617,8 +3160,7 @@ final class ConnectionController extends ChangeNotifier {
         : _waveformIdleStreamIntervalUs;
     for (final messageId in _waveformMessageIds) {
       try {
-        final response = _setStreamInterval(_core, messageId, intervalUs);
-        if (response != nullptr) _freeString(response);
+        _native!.setStreamInterval(messageId, intervalUs);
       } on Object {
         // 速率只是画质优化，失败不影响波形页面本身。
       }
@@ -3668,20 +3210,18 @@ final class ConnectionController extends ChangeNotifier {
     for (final instance in waveformMagInstances) {
       if (instance.index == waveformMagInstance) continue; // 整窗取数已经顺手更新过
       try {
-        final written = _readWaveform(
-          _core,
-          _waveformBuffer,
-          _waveformMaxPoints,
-          _waveformMaxPoints,
-          1, // window_ms = 1：只保留最新一帧
-          instance.index,
+        final written = _native!.readWaveform(
+          maxPoints: _waveformMaxPoints,
+          floatsPerPoint: _waveformFloatsPerPoint,
+          windowMs: 1, // 只保留最新一帧
+          instance: instance.index,
         );
         if (written <= 0) continue;
         final base = (written - 1) * _waveformFloatsPerPoint + 7;
         waveformMagLatestByInstance[instance.index] = [
-          _waveformBuffer[base].toDouble(),
-          _waveformBuffer[base + 1].toDouble(),
-          _waveformBuffer[base + 2].toDouble(),
+          _native!.waveformValueAt(base),
+          _native!.waveformValueAt(base + 1),
+          _native!.waveformValueAt(base + 2),
         ];
       } on Object {
         // 单个实例取不到数据不影响其它实例。
@@ -3695,16 +3235,14 @@ final class ConnectionController extends ChangeNotifier {
     final instance = waveformInstanceIndex(kind);
     var count = 0;
     try {
-      final written = _readWaveform(
-        _core,
-        _waveformBuffer,
-        _waveformMaxPoints,
-        _waveformMaxPoints,
-        waveformWindowMs,
-        instance,
+      final written = _native!.readWaveform(
+        maxPoints: _waveformMaxPoints,
+        floatsPerPoint: _waveformFloatsPerPoint,
+        windowMs: waveformWindowMs,
+        instance: instance,
       );
       if (written > 0) {
-        final view = _waveformBuffer.asTypedList(
+        final view = _native!.waveformView(
           written * _waveformFloatsPerPoint,
         );
         waveformPoints(kind).setRange(0, view.length, view);
@@ -3712,9 +3250,9 @@ final class ConnectionController extends ChangeNotifier {
         if (kind == WaveformInstanceKind.mag) {
           final base = (written - 1) * _waveformFloatsPerPoint + 7;
           waveformMagLatestByInstance[instance] = [
-            _waveformBuffer[base].toDouble(),
-            _waveformBuffer[base + 1].toDouble(),
-            _waveformBuffer[base + 2].toDouble(),
+            _native!.waveformValueAt(base),
+            _native!.waveformValueAt(base + 1),
+            _native!.waveformValueAt(base + 2),
           ];
         }
       }
@@ -3733,7 +3271,7 @@ final class ConnectionController extends ChangeNotifier {
   void _refreshWaveformInstances() {
     try {
       final payload =
-          _readJson(_getWaveformInstances(_core)) as Map<String, Object?>;
+          _native!.waveformInstances() as Map<String, Object?>;
       final imu = _parseWaveformInstances(payload['imu']);
       final mag = _parseWaveformInstances(payload['mag']);
       if (listEquals(imu, waveformImuInstances) &&
@@ -4062,6 +3600,10 @@ final class ConnectionController extends ChangeNotifier {
 
       final freshness = telemetryBackend.telemetryFreshness();
       final groups = freshness['groups'] as Map<String, Object?>?;
+      final heartbeatFresh = groups?['heartbeat_fresh'] == true;
+      // 收到过遥测后若不再新鲜，界面必须标记过期而不是继续显示冻结值。
+      _telemetrySnapshotValid = _telemetrySnapshotValid || heartbeatFresh;
+      _telemetryGroupsStale = _telemetrySnapshotValid && !heartbeatFresh;
       if (groups?['sys_status_fresh'] == true) {
         sensorHealth = telemetryBackend.sensorHealth();
       } else {
@@ -4129,6 +3671,8 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   void _clearTelemetry() {
+    _telemetrySnapshotValid = false;
+    _telemetryGroupsStale = false;
     _resetRuntimeState();
     _notifyParameterChanges();
     _notifyTelemetryChanges();
@@ -4235,10 +3779,9 @@ final class ConnectionController extends ChangeNotifier {
     _telemetryTimer?.cancel();
     _waveformTimer?.cancel();
     _calibrationTimer?.cancel();
-    if (initializationError == null) {
-      calloc.free(_waveformBuffer);
-      _destroy(_core);
-    }
+    _signing.removeListener(notifyListeners);
+    _signing.dispose();
+    _native?.dispose();
     parameterChanges.dispose();
     telemetryChanges.dispose();
     profileChanges.dispose();

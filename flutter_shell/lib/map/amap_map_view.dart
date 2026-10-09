@@ -490,6 +490,21 @@ class _AMapMapViewState extends State<AMapMapView> {
     });
   }
 
+  /// 把一条会改变飞机状态的指令交给顶部悬浮长按确认层。
+  ///
+  /// 未装配确认通道时**不下发**，只提示：缺少确认组件不能降级成"无确认直发"，
+  /// 否则一旦宿主忘记传回调，地图上的飞行指令就会变成单击即执行。
+  /// 返回是否已进入确认流程。
+  bool _requestConfirmedCommand(String label, Future<void> Function() run) {
+    final onRequest = widget.onRequestCommandConfirmation;
+    if (onRequest == null) {
+      _showTransientMessage('$label 需要长按确认，当前没有确认通道，命令未下发。');
+      return false;
+    }
+    onRequest(MgCommandConfirmation(label: label, execute: run));
+    return true;
+  }
+
   /// 触点是否落在地图区域内——只有"点在地图上"才需要吃掉随后那一次 onTap。
   bool _isPointInsideMap(Offset globalPosition) {
     final box = context.findRenderObject();
@@ -527,19 +542,9 @@ class _AMapMapViewState extends State<AMapMapView> {
       supportsChangeHeading: controller.supportsChangeHeading,
     );
 
-    void select(Future<void> Function() run) {
-      _closeMapActionMenu();
-      unawaited(run());
-    }
-
     void requestConfirmation(String label, Future<void> Function() run) {
-      final onRequest = widget.onRequestCommandConfirmation;
-      if (onRequest == null) {
-        select(() => _runMapCommand(run));
-        return;
-      }
       _closeMapActionMenu();
-      onRequest(MgCommandConfirmation(label: label, execute: run));
+      _requestConfirmedCommand(label, run);
     }
 
     return <MgMapAction>[
@@ -552,12 +557,14 @@ class _AMapMapViewState extends State<AMapMapView> {
       if (visibility.orbit)
         MgMapAction(
           label: '环绕飞行',
-          onSelected: () => select(() => _mapOrbit(target)),
+          onSelected: () =>
+              requestConfirmation('环绕飞行', () => _mapOrbit(target)),
         ),
       if (visibility.roi)
         MgMapAction(
           label: '在此外设置兴趣点',
-          onSelected: () => select(() => _mapSetRoi(target)),
+          onSelected: () =>
+              requestConfirmation('设置兴趣点', () => _mapSetRoi(target)),
         ),
       if (visibility.setHome)
         MgMapAction(
@@ -568,7 +575,8 @@ class _AMapMapViewState extends State<AMapMapView> {
       if (visibility.setEstimatorOrigin)
         MgMapAction(
           label: '设置估计原点',
-          onSelected: () => select(() => _mapSetEstimatorOrigin(target)),
+          onSelected: () =>
+              requestConfirmation('设置估计原点', () => _mapSetEstimatorOrigin(target)),
         ),
       if (visibility.changeHeading)
         MgMapAction(
@@ -665,30 +673,13 @@ class _AMapMapViewState extends State<AMapMapView> {
     // 返航是 QGC Guided Actions 的核心动作，但这里按 M-GCS 的统一交互走
     // 顶部状态栏长按确认，不再进入二次弹窗流程。
     if (actionLabel.startsWith('返航')) {
-      final onRequest = widget.onRequestCommandConfirmation;
-      if (onRequest == null) {
-        await _runMapCommand(controller.guidedReturnToLaunch);
-      } else {
-        onRequest(
-          MgCommandConfirmation(
-            label: '返航',
-            execute: controller.guidedReturnToLaunch,
-          ),
-        );
-      }
+      _requestConfirmedCommand('返航', controller.guidedReturnToLaunch);
       return;
     }
 
     // 降落同样直接交给顶部悬浮长按确认，避免再进入引导模式二次弹窗。
     if (actionLabel.startsWith('降落')) {
-      final onRequest = widget.onRequestCommandConfirmation;
-      if (onRequest == null) {
-        await _runMapCommand(controller.guidedLand);
-      } else {
-        onRequest(
-          MgCommandConfirmation(label: '降落', execute: controller.guidedLand),
-        );
-      }
+      _requestConfirmedCommand('降落', controller.guidedLand);
       return;
     }
 
