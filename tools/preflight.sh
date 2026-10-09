@@ -218,6 +218,32 @@ if [[ -z "$cmake_version" || "$cmake_version" != "$pubspec_version" || "$cmake_v
 fi
 echo "[preflight] 版本一致：$cmake_version"
 
+# 编译并发上限。
+# 不带数字的 `cmake --build --parallel` 等于不限并发：16 GB 机器上 10+ 个 clang
+# 同时编译 mavlink 重头文件的 TU 会触发换页，实测 165 s，而限成 8 路只要 26 s。
+# 按内存给一半，再不超过实测最优点。
+build_jobs="${MGCORE_BUILD_JOBS:-}"
+if [[ -z "$build_jobs" ]]; then
+  cpu_count="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
+  mem_bytes="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+  mem_gb=$(( mem_bytes / 1073741824 ))
+  if [[ "$mem_gb" -le 0 ]]; then
+    mem_gb=8
+  fi
+  mem_jobs=$(( mem_gb / 2 ))
+  if [[ "$mem_jobs" -lt 2 ]]; then
+    mem_jobs=2
+  fi
+  build_jobs="$cpu_count"
+  if [[ "$mem_jobs" -lt "$build_jobs" ]]; then
+    build_jobs="$mem_jobs"
+  fi
+  if [[ "$build_jobs" -gt 8 ]]; then
+    build_jobs=8
+  fi
+fi
+echo "[preflight] 编译并发：${build_jobs}（可用 MGCORE_BUILD_JOBS 覆盖）"
+
 if [[ "$run_frontend" -eq 1 ]]; then
   command -v dart >/dev/null 2>&1 || {
     echo "[preflight] 未找到 dart；请先安装 Flutter SDK。" >&2
@@ -295,7 +321,7 @@ EOF
     echo "[preflight] 跳过后端门禁"
   elif [[ "$backend_scope" == "targets" ]]; then
     echo "[preflight] 编译后端测试（定向）"
-    cmake --build build_check --config Release --parallel --target $backend_targets
+    cmake --build build_check --config Release --parallel "$build_jobs" --target $backend_targets
 
     filter="^($(echo "$backend_targets" | xargs | tr ' ' '|'))$"
     echo "[preflight] 后端 offline/simulation 门禁（定向：$(echo "$backend_targets" | xargs)）"
@@ -306,7 +332,7 @@ EOF
       -LE "hardware|manual"
   else
     echo "[preflight] 编译后端测试"
-    cmake --build build_check --config Release --parallel
+    cmake --build build_check --config Release --parallel "$build_jobs"
 
     echo "[preflight] 后端 offline/simulation 门禁"
     ctest --test-dir build_check --output-on-failure \

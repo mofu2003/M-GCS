@@ -42,9 +42,24 @@ cd flutter_shell && flutter run -d macos
 
 ```bash
 cmake -S . -B build_check -DMGCORE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build_check
+cmake --build build_check --parallel 8
 ctest --test-dir build_check -L "offline|simulation" -LE "hardware|manual"
 ```
+
+### 构建并发必须设上限
+
+`cmake --build build_check --parallel`（不带数字）等于**不限并发**，这是本项目最贵的一个坑：每个含 MAVLink 重头文件的编译单元峰值内存约 1.5–2 GB，16 GB 机器上同时跑 10+ 个 clang 会触发换页。实测同一个头文件的增量重编：
+
+| 并发 | 耗时 |
+|---|---|
+| 不限（`--parallel`） | **165 s** |
+| `--parallel 8` | **26 s** |
+| `--parallel 10` | 36 s |
+| `--parallel 6` | 41 s |
+
+同一份工作相差 6 倍，纯粹是内存压力。`tools/preflight.sh` 会按内存自动选上限（16 GB 机器选 8）并打印；要覆盖用 `MGCORE_BUILD_JOBS=6 tools/preflight.sh`。手敲命令时请显式写 `--parallel 8`。
+
+链接不是瓶颈：一次改动重链 46 个测试二进制只要约 2 秒。
 
 ## 门禁
 
