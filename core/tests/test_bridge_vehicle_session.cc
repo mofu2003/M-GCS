@@ -319,9 +319,22 @@ static void test_nonblocking_commands_and_mission_rejection() {
     char* raw = mg_command_poll(env.core, ticket);
     CHECK(raw && strstr(raw, "\"state\":\"pending\""), "unanswered job is pending, not success");
     mg_free_string(raw);
-    raw = mg_command_submit_for_vehicle(env.core, 42, R"({"command":"arm"})");
-    CHECK(raw && strstr(raw, "\"success\":false"), "same vehicle overlapping command refused");
+    // 不同命令允许并发（QGC MavCommandQueue.cc:289-296 的 isPending(compId, command)
+    // 规则）：等引导到位时再点返航不该被硬拒。
+    raw = mg_command_submit_for_vehicle(env.core, 42, R"({"command":"set_mode","args":{"mode":"LOITER"}})");
+    CHECK(raw && strstr(raw, "\"success\":true"), "different command may run concurrently");
+    const auto mode_ticket = command_ticket(raw);  // 该 helper 内部已释放 raw
+    CHECK(mode_ticket > 0, "concurrent command returns its own ticket");
+
+    // 同一条命令重复下发仍然要拦：两条相同的命令无法分辨 ACK 归属。
+    raw = mg_command_submit_for_vehicle(env.core, 42, R"({"command":"rtl"})");
+    CHECK(raw && strstr(raw, "\"success\":false"), "duplicate command is still refused");
+    CHECK(raw && strstr(raw, "same command") != nullptr,
+          "duplicate refusal names the reason");
     mg_free_string(raw);
+    env.start_pump();
+    poll_command(env.core, mode_ticket);
+    env.stop_pump();
     env.start_pump();
     auto done = poll_command(env.core, ticket);
     env.stop_pump();

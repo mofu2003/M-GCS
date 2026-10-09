@@ -31,8 +31,13 @@ MGCORE_API char* mg_command_execute_for_vehicle(mg_core_t* core,
 
 // Nonblocking explicit-target commands. Submit returns {success,ticket}; poll
 // returns {success,ticket,state:"pending"} or state:"complete",result:{...}.
-// A complete poll consumes the ticket. One in-flight job per Vehicle; bounded
-// queue. Core destruction drains all workers before releasing state.
+// A complete poll consumes the ticket. Core destruction drains all workers
+// before releasing state.
+//
+// 并发规则（对标 QGC MavCommandQueue.cc:289-296 的 isPending(compId, command)）：
+// 同一架飞机的**不同**命令可以并发下发，各有各的 ticket；只有"同一条命令尚未
+// 收到 ACK 又重复下发"才返回 MG_ERROR_BUSY（两条相同命令无法分辨 ACK 归属）。
+// 队列上限 32，全局共享。
 MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
                                                const char* command_json);
 MGCORE_API char* mg_command_poll(mg_core_t* core, uint64_t ticket);
@@ -53,6 +58,16 @@ MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core);
 MGCORE_API char* mg_command_rtl(mg_core_t* core);
 MGCORE_API char* mg_command_takeoff(mg_core_t* core, float altitude_m);
 MGCORE_API char* mg_command_land(mg_core_t* core);
+// 终止飞行：下发 MAV_CMD_DO_FLIGHTTERMINATION（param1=1）。飞控立即切断动力，
+// 空中执行等于坠机，不可撤销。
+//
+// 它**不是**"上锁/紧急停桨"（那是 COMPONENT_ARM_DISARM + param2=21196，可恢复）。
+// 界面上的任何入口都必须按"终止飞行"如实标注并做二次确认。当前决定：
+// core 保留能力、界面不暴露（QGC 全仓不引用该命令；MP 在 Actions 下拉里以
+// Terminate Flight 暴露并要求一次 Yes/No 确认）。
+MGCORE_API char* mg_command_terminate_flight(mg_core_t* core);
+// 历史命名，语义是终止飞行，与名字不符。保留以免打断并行分支；新代码请用
+// mg_command_terminate_flight。
 MGCORE_API char* mg_command_emergency_stop(mg_core_t* core);
 MGCORE_API char* mg_command_guided_point(mg_core_t* core,
                                          double lat, double lon, float alt,

@@ -4,7 +4,7 @@
  *
  * 飞行指令：解锁/上锁、起降、模式切换、RTL、引导模式、紧急停止。
  *
- * arm, disarm, takeoff, land, set_mode, RTL, emergency_stop, guided_*
+ * arm, disarm, takeoff, land, set_mode, RTL, terminate_flight, guided_*
  */
 #include "ffi_internal.h"
 #include "json_serializers.h"
@@ -130,12 +130,17 @@ MGCORE_API char* mg_command_land(mg_core_t* core) {
         0, 0, 0, 0, 0, 0, 0);
 }
 
-MGCORE_API char* mg_command_emergency_stop(mg_core_t* core) {
+MGCORE_API char* mg_command_terminate_flight(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
     return cmd_result_queued(core, mav, MAV_CMD_DO_FLIGHTTERMINATION,
         active_target_sys(core), active_target_comp(core),
         1.0f, 0, 0, 0, 0, 0, 0);
+}
+
+// 旧名（与语义不符）：保留为转发，见 ffi_api_flight.h 的说明。
+MGCORE_API char* mg_command_emergency_stop(mg_core_t* core) {
+    return mg_command_terminate_flight(core);
 }
 
 // ================================================================
@@ -592,6 +597,24 @@ MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
     if (!connection || !adapter || !connection->is_connected())
         return fail(MG_ERROR_NOT_CONNECTED, "target vehicle disconnected");
     const std::string json(command_json);
+
+    // 并发判定：只拦"同一架飞机的同一条命令"重复下发。
+    // QGC 的规则是 isPending(compId, command) 才算重复，不同命令本来就是并发的
+    // （MavCommandQueue.cc:289-296）；旧实现按"该飞机已有任何命令在跑"一律拒绝，
+    // 于是等引导到位时点返航会被硬拒。QGC 另有一张可重复白名单
+    // （_canBeDuplicated：DO_MOTOR_TEST、SET_MESSAGE_INTERVAL），M-GCS 目前可提交的
+    // 命令里没有对应项，故未保留空名单；将来加入时按同一位置补。
+    std::string command_key;
+    {
+        cJSON* job_root = cJSON_Parse(command_json);
+        if (job_root && cJSON_IsObject(job_root)) {
+            cJSON* item = cJSON_GetObjectItemCaseSensitive(job_root, "command");
+            if (cJSON_IsString(item) && item->valuestring) command_key = item->valuestring;
+        }
+        if (job_root) cJSON_Delete(job_root);
+        if (command_key.empty()) command_key = json;  // 名字缺失时按原始载荷判重
+    }
+
     uint64_t ticket = 0;
     {
         mg::core::platform::LockGuard lk(core->command_jobs_mtx);
@@ -599,12 +622,15 @@ MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
         if (core->command_jobs.size() >= 32) return fail(MG_ERROR_BUSY, "command job queue full");
         for (auto& [id, job] : core->command_jobs) {
             (void)id;
-            if (job.vehicle_id == vehicle_id && job.result.wait_for(std::chrono::milliseconds(0)) !=
-                    std::future_status::ready) return fail(MG_ERROR_BUSY, "vehicle command already running");
+            if (job.vehicle_id == vehicle_id && job.command_key == command_key &&
+                job.result.wait_for(std::chrono::milliseconds(0)) !=
+                    std::future_status::ready) {
+                return fail(MG_ERROR_BUSY, "waiting on previous response to same command");
+            }
         }
         ticket = core->next_command_job++;
         try {
-            core->command_jobs.emplace(ticket, mg_core_t::CommandJob{vehicle_id,
+            core->command_jobs.emplace(ticket, mg_core_t::CommandJob{vehicle_id, command_key,
                 std::async(std::launch::async, [core, vehicle, connection, adapter, json]() {
                     try {
                         mg::bridge::ffi::VehicleTargetScope scope(core, vehicle.get(), connection);

@@ -79,6 +79,9 @@ struct mg_core_t {
 
     struct CommandJob {
         int vehicle_id;
+        /// 该任务正在下发的命令名。并发判定按 (vehicle, command) 判重，
+        /// 与 QGC MavCommandQueue 的 isPending(compId, command) 规则一致。
+        std::string command_key;
         std::future<std::string> result;
     };
     mg::core::platform::Mutex command_jobs_mtx;

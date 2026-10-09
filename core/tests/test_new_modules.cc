@@ -397,7 +397,11 @@ static void test_extended_commands() {
     CHECK(core != nullptr, "mg_create");
 
     // Emergency stop - should fail with not connected
-    char* r = mg_command_emergency_stop(core);
+    char* r = mg_command_terminate_flight(core);
+    CHECK(r != nullptr, "mg_command_terminate_flight returns non-null");
+    if (r) mg_free_string(r);
+    // 旧名保留为转发，避免打断并行分支。
+    r = mg_command_emergency_stop(core);
     CHECK(r != nullptr, "emergency_stop returns non-null");
     if (r) mg_free_string(r);
 
