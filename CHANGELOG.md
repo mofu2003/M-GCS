@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Mission upload: accept `MISSION_ACK` only from the transfer target (sysid/compid) and only while a
+  transaction is actually waiting for it, so another vehicle on a shared link cannot end this
+  vehicle's transfer (#4). ACK matching for commands now includes the source system for the same reason.
+- Mission upload: back up the vehicle plan before the upload and roll it back when the flight
+  controller rejects it, the send fails or the transfer times out. `mission_get_plan` no longer
+  reports a mission the vehicle never accepted (#4, KD-19).
+- Mission transfer: timeouts and send failures were reported as `MAV_MISSION_OPERATION_CANCELLED`,
+  which surfaced as "cancelled by the user" in the verification flow. They now report
+  `MAV_MISSION_ERROR` and keep the timeout reason visible (KD-14).
+- PX4: compass calibration now sends `PREFLIGHT_CALIBRATION` with param2=1 instead of the
+  ArduPilot-only `DO_START_MAG_CAL`, which PX4 ignored while the UI showed "calibrating" (#7).
+- PX4: calibration cancel and the six-face accelerometer confirmation report "not supported"
+  instead of pretending to succeed; calibration also fails after a 30 s stall (KD-17).
+- `mg_params_load_from_file` reports partial failure together with the rejected parameter names.
+- Flutter: the top status bar shows `—` instead of stale GPS/battery/mode values after telemetry
+  goes silent, and map/mission commands without a confirmation callback no longer execute silently.
+
+### Changed
+- Different commands may now run concurrently for the same vehicle; only a duplicate of a command
+  that is still awaiting its ACK is refused (QGC `MavCommandQueue` rule). This unblocks e.g. RTL
+  while a guided reposition is pending (#3).
+- `mg_command_emergency_stop` renamed to `mg_command_terminate_flight` with the old name kept as a
+  forwarding alias. It sends `DO_FLIGHTTERMINATION` (irreversible), which is not the recoverable
+  emergency stop (`COMPONENT_ARM_DISARM` + param2=21196).
+- Extracted `NativeCore` (sole owner of the native library and handle) and `SigningController` out
+  of `ConnectionController`: 4273 → 3780 lines, with no `dart:ffi` left in the controller.
+
+### Added
+- Emergency stop entry in the top status bar: forced disarm behind the S3 confirmation component,
+  shown only while armed so it stays reachable in flight.
+
 ## [0.1.1] - 2026-10-09
 
 ### Added

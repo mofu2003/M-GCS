@@ -22,12 +22,9 @@
 | KD-11 | S3 调整为建议（写入类操作） | `flutter_shell/lib/gcs_configuration_workspace.dart` 约 240、495 行 | 签名密钥下发（SETUP_SIGNING）与"保存并应用"无确认 | 建议偏差，待决定 |
 | KD-12 | S3 | `flutter_shell/lib/map/amap_map_view.dart:555-565` | 地图菜单的 Orbit、ROI、估计器原点直接执行 | 待修复 |
 | KD-13 | S3 | `flutter_shell/lib/flight/flight_mode_panel.dart:22` | `FlightModeFloatingPanel` 为死代码，其解锁对话框不可达；需删除或接入 | 待决定 |
-| KD-14 | S4 | `core/src/mavlink/mission_transfer.cc:41-63` | 任务传输超时只设置 `progress.error`，不触发回调 | 待修复 |
 | KD-15 | S5 | `core/src/vehicle/vehicle.cc` | 链路断开后 `Vehicle::state_` 不更新，界面可能仍显示已连接 | 待修复 |
 | KD-16 | S5 | `core/src/flight/flight_mode_manager.cc:54` | 断链后 `armed_` 不清零，界面可能显示过期的解锁状态 | 待修复 |
-| KD-17 | S8、S4 | `core/src/calibration/calibration_service.cc:132-146`；`core/src/calibration/strategies/compass_calibration.cc:31-35` | 校准无超时（S4），取消只改本地状态，不下发到飞控（S8） | 待修复 |
 | KD-18 | S6 | `core/src/flight/flight_mode_manager.cc:216-236` | RTL、降落、悬停的模式号硬编码为 ArduCopter 值，绕过固件插件 | 待修复 |
-| KD-19 | S7 | 位置待补充（`mission_clear` 相关代码） | 清除任务时先清空本地计划，发送失败不回滚；回滚不是约束，但需确认是否影响 S7 | 待核对 |
 | KD-20 | A1 | `CMakeLists.txt:251-254`；`core/tests/test_bridge_architecture_guards.cc:220` | `bridge/ffi` 位于 core 的公共 include 路径上；守卫测试只匹配 `bridge/` 前缀 | 待修复 |
 | KD-21 | A2 | `core/include/core/transport/connection_manager.h:28`；`core/include/core/mavlink/mavlink_adapter.h:8`；`core/include/core/firmware/firmware_flasher.h:17` | `transport → mavlink → firmware → transport` 存在依赖环 | 待修复 |
 | KD-22 | A3、A4 | `core/src/mavlink/mavlink_senders.cc:676-681`；`core/include/core/platform/platform_mutex.h:135-142` | 发送回调在 adapter 锁内执行；Windows（递归临界区）与 POSIX（`std::mutex`）语义不同 | 待修复 |

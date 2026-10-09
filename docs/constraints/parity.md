@@ -40,17 +40,17 @@
 
 ### 任务上传确认与失败处理
 
-- **QGC**：上传无确认（`PlanView/PlanView.qml:112-127`）。解锁状态下禁止在任务模式上传（`MissionController.cc:2423-2433`）。超时 1.5 s，重试间隔 250 ms，最多 5 次（`MissionManager/PlanManager.h:59-62`）。收到 MISSION_ACK 错误时立即失败，不重试（`PlanManager.cc:560-641`）。失败只弹出提示（`Vehicle/Vehicle.cc:1611-1615`）。无回滚，本地计划保留（`PlanManager.cc:809`）。
-- **MP**：上传无确认，只在绝对高度时询问（`FlightPlanner.cs:650-656`）。单个条目超时 450 ms，重试 10 次（`MAVLinkInterface.cs:4061-4093`）。失败在进度框中显示。取消后留下部分写入的任务（`FlightPlanner.cs:6264-6271`）。无回滚。
-- **M-GCS**：上传无确认（KD-08）。超时无回调（KD-14，违反 S4 约束）。
-- **结论**：建议偏差（上传确认）。已决定为建议级别，见下文"已记录的决定"第 1 条。超时无回调属于约束偏差（KD-14），须修复。失败处理按 QGC 的做法，要求显示明确的错误。
+- **QGC**：上传无确认（`PlanView/PlanView.qml:112-127`）。解锁状态下禁止在任务模式上传（`MissionController.cc:2423-2433`）。超时 1.5 s，重试间隔 250 ms，最多 5 次（`MissionManager/PlanManager.h:59-62`）。收到 MISSION_ACK 错误时立即失败，不重试（`PlanManager.cc:560-641`）。失败只弹出提示（`Vehicle/Vehicle.cc:1611-1615`）。**写入采用双槽**：待写列表 `_writeMissionItems` 与当前任务 `_missionItems` 分开，只有 ACK 成功后才用待写列表覆盖当前任务，失败则丢弃待写列表、当前任务保持原样（`PlanManager.cc:833-847`）。`_handleMissionAck` 会先校验 `mission_type`，不匹配直接忽略（`PlanManager.cc:568`）。QGC 不在此处校验 sysid，因为它为每架飞机建立独立 MAVLink 通道，来源过滤发生在上游。
+- **MP**：上传无确认，只在绝对高度时询问（`FlightPlanner.cs:650-656`）。单个条目超时 450 ms，重试 10 次（`MAVLinkInterface.cs:4061-4093`）。失败在进度框中显示。取消后留下部分写入的任务（`FlightPlanner.cs:6264-6271`）。接收 MISSION_ACK 时校验来源 `buffer.sysid == req.target_system`（`MAVLinkInterface.cs:4098`，另见 `:3863`、`:4273`），不匹配的 ACK 不参与本次事务判定。
+- **M-GCS**：上传无确认（KD-08）。超时无回调（KD-14，违反 S4 约束）。上传 ACK 的来源校验与失败回滚已在 `mavlink_adapter_mission.cc:266-296` 补齐：校验 `mission_type`（取 QGC）+ 校验来源 sysid/compid（取 MP，多机共用链路时必需）+ 上传前备份、被拒绝/发送失败/超时后回滚（取 QGC 的双槽语义，但用单槽 + 备份实现，改动面更小）。清除任务的发送失败与 NACK 也走同一套回滚。
+- **结论**：建议偏差（上传确认）。已决定为建议级别，见下文"已记录的决定"第 1 条。超时无回调属于约束偏差（KD-14），须修复。失败处理按 QGC 的做法，要求显示明确的错误。来源校验与失败回滚三项已对齐两者较优做法：QGC 有双槽与 `mission_type` 校验但依赖上游 sysid 过滤，MP 有 sysid 校验但无回滚，M-GCS 三者兼有。
 
 ### 校准取消
 
-- **QGC**：APM 罗盘校准启动前先发送 `DO_CANCEL_MAG_CAL`，确认后再发送 `DO_START_MAG_CAL`（`APM/APMSensorsComponentController.cc:215-285`）。取消时发送 `DO_CANCEL_MAG_CAL`（`cc:428-436`）。其他类型取消只在本地停止，PX4 发送全零的 `PREFLIGHT_CALIBRATION`（`Vehicle/Vehicle.cc:2485-2497`）。QGC 自身没有校准超时，依赖固件超时。遥控器校准取消纯本地（`Vehicle/VehicleSetup/RemoteControlCalibrationController.cc:499-502`）。
+- **QGC**：APM 罗盘校准启动前先发送 `DO_CANCEL_MAG_CAL`，确认后再发送 `DO_START_MAG_CAL`（`APM/APMSensorsComponentController.cc:215-285`）。取消时发送 `DO_CANCEL_MAG_CAL`（`cc:428-436`）。其他类型取消只在本地停止，PX4 发送全零的 `PREFLIGHT_CALIBRATION`（`Vehicle/Vehicle.cc:2485-2497`）。**PX4 上 QGC 不发任何取消命令**——其 PX4 控制器直接注明固件不支持取消、只能等飞控自己结束（`PX4/SensorsComponentController.cc:397-399`）。QGC 自身没有校准超时，依赖固件超时。遥控器校准取消纯本地（`VehicleSetup/RemoteControlCalibrationController.cc:499-502`）。
 - **MP**：罗盘取消发送 `DO_CANCEL_MAG_CAL`（`GCSViews/ConfigurationView/ConfigHWCompass.cs:449-510`）。无超时。加速度、电调、遥控器校准无取消（`ConfigAccelerometerCalibration.cs`，`ConfigESCCalibration.cs:31-38`，`ConfigRadioInput.cs:197-227`）。`PREFLIGHT_CALIBRATION` 的超时为 25 s，重试 1 次（`MAVLinkInterface.cs:2725-2760`）。
-- **M-GCS**：只改本地状态，无超时（KD-17）。
-- **结论**：有差距。两者的罗盘取消都会下发命令，M-GCS 必须下发（`safety.md` 的 S8）。无超时违反 S4，须修复。超时数值可参考 MP 的 25 s。
+- **M-GCS**：取消已按类型下发命令——陀螺/气压/遥控发全零 `PREFLIGHT_CALIBRATION`（对齐 QGC 的 `Vehicle::stopCalibration`），罗盘发 `DO_CANCEL_MAG_CAL` 并关闭流，加速度发 `ACCELCAL_VEHICLE_POS`（位置 16777216 = 取消）。停摆超时 30 s 判失败（`core/src/calibration/calibration_service.cc`）。**PX4 分支**：固件只认 `MAV_CMD_PREFLIGHT_CALIBRATION`（`PX4-Autopilot/src/modules/commander/Commander.cpp:1440-1500` 的 param1/param2/param3/param4/param5 映射），罗盘启动因此改用 `241 param2=1`——原 `DO_START_MAG_CAL` 会被 PX4 直接忽略，界面看着在校准、实际什么都没发生；取消与六面确认在 PX4 上明确返回「不支持」，而不是假装成功（S8）。
+- **结论**：有差距。两者的罗盘取消都会下发命令，M-GCS 已下发（`safety.md` 的 S8）。无超时违反 S4，已用 30 s 停摆超时修复。PX4 的命令映射与「不支持取消」的诚实提示均已按 QGC 的做法对齐；超时数值仍可参考 MP 的 25 s 收窄。
 
 ### 断链后的状态清理
 
@@ -141,3 +141,8 @@
 4. **QGC 的疑似缺陷**。
    - 决定：不采纳，不写入任何规则。在本表中保留"待运行验证"的标记。
    - 理由：尚未运行验证，不能作为依据。M-GCS 的做法已经由 `safety.md` 的约束决定。
+
+5. **终止飞行（DO_FLIGHTTERMINATION）的暴露方式**。
+   - 决定：core 保留能力，**界面不暴露**。FFI 主名改为 `mg_command_terminate_flight`，旧名 `mg_command_emergency_stop` 保留为转发以免打断并行分支。
+   - 理由：该命令让飞控立即切断动力，空中执行等于坠机且不可撤销。QGC 全仓 0 处引用，即刻意不暴露；MP 在 Actions 下拉里以 `Terminate_Flight` 暴露并要求一次 Yes/No 确认。M-GCS 的 `safety.md` S3 只规定"若有入口必须确认"，并未要求该入口存在。
+   - 一并澄清：S3 里的"急停"指的是 `COMPONENT_ARM_DISARM` 的 `param2=21196`（MAVLink 官方描述即 emergency stop），**可恢复**，与终止飞行是两件事。该能力已接通（`disarm(force: true)`），界面暂未入口；将来若要加"急停"按钮，应加这一个，且按 S3 做确认。
