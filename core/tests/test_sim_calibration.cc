@@ -5,6 +5,9 @@
 #include "core/calibration/strategies/compass_calibration.h"
 #include "core/calibration/strategies/radio_calibration.h"
 #include "core/calibration/calibration_types.h"
+#include "core/transport/connection_manager.h"
+#include "core/transport/in_memory_link.h"
+#include "core/mavlink/mavlink_adapter.h"
 #include "ffi_api.h"
 
 #include <cstdio>
@@ -13,6 +16,9 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <chrono>
+#include <memory>
+#include <thread>
 
 using namespace mg::core::calibration;
 
@@ -613,6 +619,168 @@ static void test_interpret_ack() {
           "ACK rejected -> Failed");
 }
 
+
+// ================================================================
+// 取消必须到达飞控（S8）+ 校准必须超时（S4）
+// ================================================================
+
+static void test_non_magnetometer_cancel_reaches_vehicle() {
+    fprintf(stderr, "\n[Group] Cancel reaches the vehicle for every type\n");
+    TestEnv env;
+    for (int i = 0; i < 15; ++i) env.tick(100);
+
+    // 让飞控不回应，校准才会停在"进行中"，否则陀螺 ACCEPTED 直接算成功。
+    env.mock->set_cmd_no_response(true);
+
+    char* start = mg_calibration_start(env.core, 0 /*gyro*/, 0);
+    CHECK(start && strstr(start, "\"success\":true") != nullptr, "gyro calibration starts");
+    if (start) mg_free_string(start);
+
+    env.mock->received_cmds.clear();
+
+    char* cancel = mg_calibration_cancel(env.core);
+    CHECK(cancel && strstr(cancel, "\"success\":true") != nullptr,
+          "gyro cancellation reports success");
+    if (cancel) mg_free_string(cancel);
+
+    for (int i = 0; i < 10; ++i) env.tick(20);
+
+    bool sent_cancel = false;
+    for (const auto& command : env.mock->received_cmds) {
+        if (command.command == 241 && command.p1 == 0.0f && command.p2 == 0.0f &&
+            command.p3 == 0.0f && command.p4 == 0.0f && command.x == 0 &&
+            command.y == 0 && command.z == 0) {
+            sent_cancel = true;
+        }
+    }
+    CHECK(sent_cancel,
+          "gyro cancellation sends an all-zero PREFLIGHT_CALIBRATION to the vehicle");
+}
+
+static void test_calibration_fails_when_link_is_lost() {
+    fprintf(stderr, "\n[Group] Calibration watchdog: link loss\n");
+
+    mg::core::transport::ConnectionManager conn;
+    auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
+    conn.wire_for_test(std::make_unique<mg::core::transport::InMemoryLink>(), std::move(mav));
+    // 本组只验证看门狗，不关心链路对端：wire_for_test 装好之后再把发送置为成功。
+    conn.get_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
+    conn.record_heartbeat();  // WaitingHeartbeat -> Connected
+    CHECK(conn.is_connected(), "test link starts connected");
+
+    CalibrationService svc;
+    svc.set_connection(&conn);
+    svc.set_target(1, 1);
+    CHECK(svc.start(CalibrationType::Gyroscope), "calibration starts on a connected link");
+    CHECK(svc.is_active(), "calibration is active before the link drops");
+
+    conn.disconnect();
+    svc.poll();
+
+    const auto status = svc.get_status();
+    CHECK(!status.active, "link loss clears the active flag");
+    CHECK(status.stage == CalibrationStage::Failed, "link loss moves the stage to Failed");
+    CHECK(status.failure_reason.find("link lost") != std::string::npos,
+          "link loss reports the link as the failure reason");
+}
+
+static void test_calibration_stall_timeout_fails() {
+    fprintf(stderr, "\n[Group] Calibration watchdog: sampling stall\n");
+
+    mg::core::transport::ConnectionManager conn;
+    auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
+    conn.wire_for_test(std::make_unique<mg::core::transport::InMemoryLink>(), std::move(mav));
+    // 同上：只验证看门狗，发送直接置为成功。
+    conn.get_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
+    conn.record_heartbeat();
+
+    CalibrationService svc;
+    svc.set_connection(&conn);
+    svc.set_target(1, 1);
+    svc.set_stall_timeout_ms(1);  // 用极短阈值，避免测试真的等 30 秒
+    CHECK(svc.start(CalibrationType::Gyroscope), "calibration starts before the stall test");
+
+    // 每次 poll 都会判定停滞并触发一次重试，重试额度用完后应稳定停在 Failed。
+    for (int i = 0; i < 20 && svc.get_status().active; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(3));
+        svc.poll();
+    }
+
+    const auto status = svc.get_status();
+    CHECK(!status.active, "sampling stall stops the calibration");
+    CHECK(status.stage == CalibrationStage::Failed, "sampling stall ends in Failed");
+    CHECK(status.failure_reason.find("timed out") != std::string::npos,
+          "sampling stall reports a timeout reason");
+}
+
+
+// ================================================================
+// PX4 固件分支（S6：固件专属命令不能只在 ArduPilot 上正确）
+// ================================================================
+
+/// PX4 只认 MAV_CMD_PREFLIGHT_CALIBRATION；发 DO_START_MAG_CAL 会被直接忽略。
+static void test_px4_compass_calibration_uses_preflight_calibration() {
+    fprintf(stderr, "\n[Group] PX4 calibration command mapping\n");
+    MockFlightController::Config cfg;
+    cfg.firmware = MockFlightController::PX4;
+    TestEnv env(cfg);
+    for (int i = 0; i < 15; ++i) env.tick(100);
+
+    env.mock->received_cmds.clear();
+    char* start = mg_calibration_start(env.core, 2 /*compass*/, 0);
+    CHECK(start && strstr(start, "\"success\":true") != nullptr,
+          "PX4 compass calibration starts");
+    if (start) mg_free_string(start);
+    for (int i = 0; i < 10; ++i) env.tick(20);  // 命令是异步下发的，先让它发出去
+
+    bool sent_preflight_compass = false;
+    bool sent_ardupilot_only = false;
+    for (const auto& command : env.mock->received_cmds) {
+        if (command.command == 241 && command.p2 == 1.0f) sent_preflight_compass = true;
+        if (command.command == 42424 || command.command == 42426) sent_ardupilot_only = true;
+    }
+    CHECK(sent_preflight_compass,
+          "PX4 gets PREFLIGHT_CALIBRATION with param2=1 for the compass");
+    CHECK(!sent_ardupilot_only,
+          "PX4 is not sent ArduPilot-only MAG_CAL commands");
+}
+
+/// PX4 固件没有取消校准的命令，界面不能显示"已取消"。
+static void test_px4_calibration_cancel_is_refused() {
+    fprintf(stderr, "\n[Group] PX4 calibration cancel\n");
+    MockFlightController::Config cfg;
+    cfg.firmware = MockFlightController::PX4;
+    TestEnv env(cfg);
+    for (int i = 0; i < 15; ++i) env.tick(100);
+
+    char* start = mg_calibration_start(env.core, 2, 0);
+    CHECK(start && strstr(start, "\"success\":true") != nullptr,
+          "PX4 compass calibration starts before cancel");
+    if (start) mg_free_string(start);
+    for (int i = 0; i < 10; ++i) env.tick(20);  // 等启动命令发完，再统计取消命令
+
+    env.mock->received_cmds.clear();
+    char* cancel = mg_calibration_cancel(env.core);
+    CHECK(cancel != nullptr, "cancel returns a result");
+    CHECK(cancel && strstr(cancel, "\"success\":false") != nullptr,
+          "PX4 cancel is reported as unsupported instead of pretending to succeed");
+    CHECK(cancel && strstr(cancel, "PX4") != nullptr,
+          "the refusal names PX4 so the operator knows why");
+    if (cancel) mg_free_string(cancel);
+
+    for (int i = 0; i < 5; ++i) env.tick(20);
+    bool sent_any_cancel = false;
+    for (const auto& command : env.mock->received_cmds) {
+        if (command.command == 42426 || command.command == 42429 ||
+            command.command == 241) {
+            sent_any_cancel = true;
+        }
+    }
+    CHECK(!sent_any_cancel, "no cancel command is sent to a PX4 vehicle");
+    CHECK(mg_calibration_get_status(env.core) != nullptr,
+          "status stays readable after a refused cancel");
+}
+
 int main() {
     fprintf(stderr, "=== Calibration Simulation Tests ===\n");
     test_cal_start_compass();
@@ -634,6 +802,11 @@ int main() {
     test_failure_reason_keeps_flight_controller_text();
     test_parse_statustext_edge_cases();
     test_interpret_ack();
+    test_non_magnetometer_cancel_reaches_vehicle();
+    test_px4_compass_calibration_uses_preflight_calibration();
+    test_px4_calibration_cancel_is_refused();
+    test_calibration_fails_when_link_is_lost();
+    test_calibration_stall_timeout_fails();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

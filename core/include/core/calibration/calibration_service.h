@@ -90,6 +90,17 @@ public:
     /// 取消当前校准。
     bool cancel();
 
+    /// 驱动校准看门狗：检测链路断开与采样停滞。
+    ///
+    /// 由调用方按轮询节奏调用（FFI 的状态查询会调用它）。不做阻塞 I/O，也不新建
+    /// 线程。判定超时后校准转入 Failed 并给出明确原因，避免界面永远停在"校准中"。
+    void poll();
+
+    /// 采样停滞多久判定为超时，默认 30 秒。
+    /// 等待用户操作的阶段（WaitingForStart / WaitingOrientation）不计入停滞。
+    void set_stall_timeout_ms(uint64_t ms) { stall_timeout_ms_ = ms; }
+    uint64_t stall_timeout_ms() const { return stall_timeout_ms_; }
+
     /// 处理飞控发来的 STATUSTEXT。
     void process_statustext(const std::string& text, uint8_t severity);
 
@@ -143,6 +154,12 @@ private:
     CalibrationResult current_result_;
     RetryInfo retry_info_;
     AccelCalMode accel_mode_ = AccelCalMode::Full;
+
+    // 最近一次收到飞控进度/消息的时间戳；0 表示本轮还没有任何进度。
+    // 看门狗用它判断采样是否停滞。
+    uint64_t last_progress_ms_ = 0;
+    // 采样停滞判定阈值（毫秒）。
+    uint64_t stall_timeout_ms_ = 30000;
 
     // 按校准类型保存历史。
     std::array<std::vector<CalibrationResult>, 5> history_;

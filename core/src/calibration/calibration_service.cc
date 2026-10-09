@@ -125,6 +125,7 @@ bool CalibrationService::start(CalibrationType type,
     }
 
     // Transition to Calibrating
+    last_progress_ms_ = now_ms();
     transition_to(CalibrationStage::Calibrating);
     return true;
 }
@@ -145,6 +146,32 @@ bool CalibrationService::cancel() {
     return true;
 }
 
+void CalibrationService::poll() {
+    EventDispatchScope dispatch(*this);
+    mg::core::platform::LockGuard lk(mtx_);
+
+    if (!status_.active) return;
+
+    // 链路断开后飞控不可能继续上报进度，直接失败，避免界面永远停在"校准中"。
+    if (conn_ && !conn_->is_connected()) {
+        // 链路都没了，重试没有意义：把重试额度用掉，让 handle_failure 直接收尾。
+        retry_info_.retry_count = retry_info_.max_retries;
+        handle_failure("Calibration aborted: link lost");
+        return;
+    }
+
+    // 只有采样阶段才判定停滞。WaitingForStart / WaitingOrientation 是等用户操作的
+    // 阶段（例如加速度计要人搬动机体），把等待时间算进去会误判超时。
+    if (status_.stage != CalibrationStage::Calibrating) return;
+    if (last_progress_ms_ == 0) return;
+
+    const uint64_t now = now_ms();
+    if (now > last_progress_ms_ && now - last_progress_ms_ > stall_timeout_ms_) {
+        handle_failure("Calibration timed out: no progress from the flight controller for " +
+                       std::to_string(stall_timeout_ms_ / 1000) + "s");
+    }
+}
+
 void CalibrationService::process_statustext(const std::string& text, uint8_t severity) {
     EventDispatchScope dispatch(*this);
     mg::core::platform::LockGuard lk(mtx_);
@@ -159,6 +186,8 @@ void CalibrationService::process_statustext(const std::string& text, uint8_t sev
         text, severity, status_.stage);
 
     if (!parse_result.is_calibration_text) return;
+
+    last_progress_ms_ = now_ms();
 
     if (status_.current_type == CalibrationType::Accelerometer &&
         accel_mode_ != AccelCalMode::Full) {
@@ -219,6 +248,8 @@ void CalibrationService::process_command_ack(uint16_t command, uint8_t result,
     // Only process ACK for our calibration command
     if (command != active_strategy_->mav_command()) return;
 
+    last_progress_ms_ = now_ms();
+
     auto new_stage = active_strategy_->interpret_ack(result, progress, status_.stage);
     // PREFLIGHT_CALIBRATION accepted only confirms that the six-face workflow
     // started. Completion is reported later by STATUSTEXT, not this ACK.
@@ -254,6 +285,8 @@ void CalibrationService::process_mag_cal_progress(
     EventDispatchScope dispatch(*this);
     mg::core::platform::LockGuard lk(mtx_);
     if (!status_.active || status_.current_type != CalibrationType::Magnetometer) return;
+
+    last_progress_ms_ = now_ms();
 
     status_.progress = progress.completion_pct;
     current_result_.progress = progress.completion_pct;
@@ -302,6 +335,8 @@ void CalibrationService::process_mag_cal_report(
     mg::core::platform::LockGuard lk(mtx_);
     if (!status_.active || status_.current_type != CalibrationType::Magnetometer) return;
 
+    last_progress_ms_ = now_ms();
+
     if (report.cal_status >= kMagCalFailed) {
         current_result_.failure_reason = "Flight controller reported magnetometer calibration failure (status " +
             std::to_string(static_cast<unsigned>(report.cal_status)) + ")";
@@ -341,6 +376,8 @@ void CalibrationService::process_accelerometer_position_request(uint32_t positio
         accel_mode_ != AccelCalMode::Full) {
         return;
     }
+
+    last_progress_ms_ = now_ms();
 
     if (position == kAccelCalSuccess) {
         status_.current_step = 6;
@@ -579,6 +616,8 @@ void CalibrationService::attempt_retry() {
             current_result_.stage = CalibrationStage::Failed;
             current_result_.failure_reason = status_.failure_reason;
         } else {
+            // 重试等于重新开始一轮采样，重置停滞计时。
+            last_progress_ms_ = now_ms();
             fire_event();
         }
     }
