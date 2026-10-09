@@ -16,6 +16,6 @@
 
 - [docs/development.md](docs/development.md)：环境、构建、测试、门禁、发布
 - [AGENTS.md](AGENTS.md)：协作入口，列出各类任务必读的约束
-- [docs/workflow.md](docs/workflow.md)：多 agent 分工、任务流转与验收
+- [docs/workflow/COLLABORATION.md](docs/workflow/COLLABORATION.md)：多 agent 协作指南
 - [docs/constraints/](docs/constraints/)：约束细则
 - [docs/adr/](docs/adr/)：架构决策记录

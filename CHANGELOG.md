@@ -9,12 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Multi-agent collaboration framework with roles for Claude, Codex, DeepSeek, and WorkBuddy
-- Task board system in `tasks/` for tracking work across agents
+- Pragmatic on-demand workflow in `docs/workflow/COLLABORATION.md`
 - Comprehensive constraint documentation with three-level priority (MUST/SHOULD/INFO)
-- `docs/workflow.md`: complete agent workflow, verification rules, and risk classification
 - `docs/constraints/`: structured constraint files replacing scattered documentation
 - `docs/adr/`: migrated architectural decision records 0001-0004
-- `tasks/_template/`: templates for research, card, accept script, claim, and review
 - `CLAUDE.md`: entry point for Claude Code automatic loading
 
 ### Changed
