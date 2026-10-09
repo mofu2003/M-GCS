@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Flutter: the top status bar shows `—` instead of stale GPS/battery/mode values after telemetry
   goes silent, and map/mission commands without a confirmation callback no longer execute silently.
 
+- ArduCopter, ArduRover and AntennaTracker mode tables were built from list indices instead of
+  the upstream enum values, shifting every mode from a certain point onward. Copter 9 (LAND) decoded
+  as "Drift", so the UI showed Drift while landing; Rover 9 is CIRCLE while `land()` sent 9. Tables
+  rewritten from `ArduCopter/mode.h`, `Rover/mode.h` and `AntennaTracker/mode.h`, with tests pinning
+  the safety-relevant entries.
+- RTL / land / loiter now resolve through the firmware plugin by semantic role instead of hardcoded
+  ArduCopter numbers (KD-18, safety.md S6). Modes a firmware/vehicle does not have (Land on Rover or
+  Plane, RTL on Sub) are refused with a warning instead of sending another vehicle's value.
 ### Changed
 - Different commands may now run concurrently for the same vehicle; only a duplicate of a command
   that is still awaiting its ACK is refused (QGC `MavCommandQueue` rule). This unblocks e.g. RTL

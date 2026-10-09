@@ -24,7 +24,6 @@
 | KD-13 | S3 | `flutter_shell/lib/flight/flight_mode_panel.dart:22` | `FlightModeFloatingPanel` 为死代码，其解锁对话框不可达；需删除或接入 | 待决定 |
 | KD-15 | S5 | `core/src/vehicle/vehicle.cc` | 链路断开后 `Vehicle::state_` 不更新，界面可能仍显示已连接 | 待修复 |
 | KD-16 | S5 | `core/src/flight/flight_mode_manager.cc:54` | 断链后 `armed_` 不清零，界面可能显示过期的解锁状态 | 待修复 |
-| KD-18 | S6 | `core/src/flight/flight_mode_manager.cc:216-236` | RTL、降落、悬停的模式号硬编码为 ArduCopter 值，绕过固件插件 | 待修复 |
 | KD-20 | A1 | `CMakeLists.txt:251-254`；`core/tests/test_bridge_architecture_guards.cc:220` | `bridge/ffi` 位于 core 的公共 include 路径上；守卫测试只匹配 `bridge/` 前缀 | 待修复 |
 | KD-21 | A2 | `core/include/core/transport/connection_manager.h:28`；`core/include/core/mavlink/mavlink_adapter.h:8`；`core/include/core/firmware/firmware_flasher.h:17` | `transport → mavlink → firmware → transport` 存在依赖环 | 待修复 |
 | KD-22 | A3、A4 | `core/src/mavlink/mavlink_senders.cc:676-681`；`core/include/core/platform/platform_mutex.h:135-142` | 发送回调在 adapter 锁内执行；Windows（递归临界区）与 POSIX（`std::mutex`）语义不同 | 待修复 |

@@ -121,6 +121,10 @@ public:
 
     bool arm(bool force = false);
     bool disarm(bool force = false);
+    /// 按语义角色切模式（模式号来自固件插件，见 S6）。见 .cc 中的说明。
+    bool set_mode_role(
+        mg::core::firmware::FirmwareAdapter::ModeRole role, const char* label);
+
     bool return_to_launch();
     bool land();
     bool loiter();

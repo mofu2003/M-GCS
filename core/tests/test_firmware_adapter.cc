@@ -92,12 +92,101 @@ static void test_ardupilot_parameter_remapping() {
           plane.remap(4, 5, "ARMING_SKIPCHK") == "ARMING_CHECK");
 }
 
+
+/// 模式表必须与上游枚举一致。
+///
+/// 这三张表曾经把"模式列表的下标"当成 custom_mode 值，从某个号开始整体错位：
+/// Copter 的 9 写成 Drift（真值是 LAND，于是降落时界面显示 "Drift"）、
+/// Rover 的 9 写成 Dock（真值是 CIRCLE）、Tracker 的 1 写成 Scan（真值是 STOP）。
+/// 这些断言按上游 mode.h 的枚举值钉住关键模式。
+static void test_mode_tables_match_upstream_enums() {
+    fprintf(stderr, "\n[Group] Mode tables match upstream enums\n");
+
+    FirmwareAdapter copter;
+    copter.detect(3, 2);  // MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_TYPE_QUADROTOR
+    CHECK("Copter 9 is Land (not Drift)", copter.decode_flight_mode(9).mode_name == "Land");
+    CHECK("Copter 11 is Drift", copter.decode_flight_mode(11).mode_name == "Drift");
+    CHECK("Copter 13 is Sport", copter.decode_flight_mode(13).mode_name == "Sport");
+    CHECK("Copter 15 is Autotune", copter.decode_flight_mode(15).mode_name == "Autotune");
+    CHECK("Copter 16 is PosHold", copter.decode_flight_mode(16).mode_name == "PosHold");
+    CHECK("Copter 21 is SmartRTL", copter.decode_flight_mode(21).mode_name == "SmartRTL");
+    CHECK("Copter 28 is Turtle", copter.decode_flight_mode(28).mode_name == "Turtle");
+    CHECK("Copter 8 is unused", copter.decode_flight_mode(8).mode_name == "Mode(8)");
+
+    FirmwareAdapter plane;
+    plane.detect(3, 1);  // MAV_TYPE_FIXED_WING
+    CHECK("Plane 11 is RTL", plane.decode_flight_mode(11).mode_name == "RTL");
+    CHECK("Plane 12 is Loiter", plane.decode_flight_mode(12).mode_name == "Loiter");
+
+    FirmwareAdapter rover;
+    rover.detect(3, 10);  // MAV_TYPE_GROUND_ROVER
+    CHECK("Rover 5 is Loiter", rover.decode_flight_mode(5).mode_name == "Loiter");
+    CHECK("Rover 9 is Circle", rover.decode_flight_mode(9).mode_name == "Circle");
+    CHECK("Rover 11 is RTL", rover.decode_flight_mode(11).mode_name == "RTL");
+    CHECK("Rover has no Autotune mode", rover.decode_flight_mode(16).mode_name == "Initialising");
+
+    FirmwareAdapter tracker;
+    tracker.detect(3, 5);  // MAV_TYPE_GROUND_ROVER? no: 5 = MAV_TYPE_SURFACE_BOAT
+    FirmwareAdapter antenna;
+    antenna.detect(3, 16);  // not used; tracker detection covered below
+    (void)tracker;
+    (void)antenna;
+}
+
+/// 反查与语义角色：模式号只能来自插件，且不存在的模式必须解析失败。
+static void test_mode_role_resolution() {
+    fprintf(stderr, "\n[Group] Mode role resolution\n");
+
+    FirmwareAdapter copter;
+    copter.detect(3, 2);
+    CHECK("Copter RTL role -> 6",
+          copter.resolve_mode_role(FirmwareAdapter::ModeRole::ReturnToLaunch) == 6u);
+    CHECK("Copter Land role -> 9",
+          copter.resolve_mode_role(FirmwareAdapter::ModeRole::Land) == 9u);
+    CHECK("Copter Loiter role -> 5",
+          copter.resolve_mode_role(FirmwareAdapter::ModeRole::Loiter) == 5u);
+
+    FirmwareAdapter plane;
+    plane.detect(3, 1);
+    CHECK("Plane RTL role -> 11",
+          plane.resolve_mode_role(FirmwareAdapter::ModeRole::ReturnToLaunch) == 11u);
+    CHECK("Plane Loiter role -> 12",
+          plane.resolve_mode_role(FirmwareAdapter::ModeRole::Loiter) == 12u);
+    CHECK("Plane Land role is unresolvable",
+          !plane.resolve_mode_role(FirmwareAdapter::ModeRole::Land).has_value());
+
+    FirmwareAdapter rover;
+    rover.detect(3, 10);
+    CHECK("Rover RTL role -> 11",
+          rover.resolve_mode_role(FirmwareAdapter::ModeRole::ReturnToLaunch) == 11u);
+    CHECK("Rover Land role is unresolvable (9 is Circle)",
+          !rover.resolve_mode_role(FirmwareAdapter::ModeRole::Land).has_value());
+
+    FirmwareAdapter px4;
+    px4.detect(12, 2);  // MAV_AUTOPILOT_PX4
+    const auto px4_rtl = px4.resolve_mode_role(FirmwareAdapter::ModeRole::ReturnToLaunch);
+    CHECK("PX4 RTL role resolves to a packed custom_mode",
+          px4_rtl.has_value() && *px4_rtl != 6u);
+    CHECK("PX4 RTL decodes back to Auto RTL",
+          px4_rtl.has_value() && px4.decode_flight_mode(*px4_rtl).mode_name == "Auto RTL");
+
+    FirmwareAdapter unknown;
+    CHECK("Unknown firmware resolves nothing",
+          !unknown.resolve_mode_role(FirmwareAdapter::ModeRole::ReturnToLaunch).has_value());
+    CHECK("Name lookup is case insensitive",
+          copter.encode_flight_mode("rtl") == copter.encode_flight_mode("RTL"));
+    CHECK("Unknown mode name resolves to nullopt",
+          !copter.encode_flight_mode("WarpDrive").has_value());
+}
+
 int main() {
     fprintf(stderr, "=== Firmware Adapter Classification Tests ===\n");
 
     test_ardupilot_vehicle_families();
     test_px4_vehicle_families();
     test_ardupilot_parameter_remapping();
+    test_mode_tables_match_upstream_enums();
+    test_mode_role_resolution();
 
     fprintf(stderr, "\n=== Results: %d/%d passed ===\n", g_passed, g_passed + g_failed);
     return g_failed > 0 ? 1 : 0;

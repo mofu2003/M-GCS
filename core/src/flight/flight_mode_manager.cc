@@ -211,25 +211,36 @@ bool FlightModeManager::disarm(bool force) {
     return false;
 }
 
-bool FlightModeManager::return_to_launch() {
+/// 按语义角色切模式：模式号由固件插件给出，通用代码不写字面量（S6）。
+///
+/// 该固件/机型没有这个模式时**不下发**并返回 false。以前这里写死的是 ArduCopter
+/// 的值（RTL=6、Land=9、Loiter=5），在别的机型上会切到完全不同的模式：
+/// Rover 的 9 是 CIRCLE（"降落"变成原地转圈），Plane 的 5 是 FBWA。
+bool FlightModeManager::set_mode_role(
+    mg::core::firmware::FirmwareAdapter::ModeRole role, const char* label) {
     mg::core::platform::LockGuard lk(mtx_);
-    MGC_LOG_INFO("[FlightMode] RTL requested");
-    if (mavlink_) return mavlink_->set_mode(target_sys_, target_comp_, 0, 6);
-    return false;
+    if (!mavlink_) return false;
+    const auto custom_mode = fw_adapter_.resolve_mode_role(role);
+    if (!custom_mode.has_value()) {
+        MGC_LOG_WARN("[FlightMode] %s is not a mode of %s/%s; command not sent",
+                     label, fw_adapter_.firmware_name().c_str(),
+                     fw_adapter_.vehicle_name().c_str());
+        return false;
+    }
+    MGC_LOG_INFO("[FlightMode] %s requested (custom_mode=%u)", label, *custom_mode);
+    return mavlink_->set_mode(target_sys_, target_comp_, 0, *custom_mode);
+}
+
+bool FlightModeManager::return_to_launch() {
+    return set_mode_role(mg::core::firmware::FirmwareAdapter::ModeRole::ReturnToLaunch, "RTL");
 }
 
 bool FlightModeManager::land() {
-    mg::core::platform::LockGuard lk(mtx_);
-    MGC_LOG_INFO("[FlightMode] Land requested");
-    if (mavlink_) return mavlink_->set_mode(target_sys_, target_comp_, 0, 9);
-    return false;
+    return set_mode_role(mg::core::firmware::FirmwareAdapter::ModeRole::Land, "Land");
 }
 
 bool FlightModeManager::loiter() {
-    mg::core::platform::LockGuard lk(mtx_);
-    MGC_LOG_INFO("[FlightMode] Loiter requested");
-    if (mavlink_) return mavlink_->set_mode(target_sys_, target_comp_, 0, 5);
-    return false;
+    return set_mode_role(mg::core::firmware::FirmwareAdapter::ModeRole::Loiter, "Loiter");
 }
 
 // ================================================================

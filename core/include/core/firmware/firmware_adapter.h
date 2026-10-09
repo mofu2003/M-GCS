@@ -91,6 +91,20 @@ public:
     /// Returns FlightModeInfo with mode_name and valid flag.
     FlightModeInfo decode_flight_mode(uint32_t custom_mode) const;
 
+    /// Resolve a flight mode name (e.g. "RTL", "Land", "Loiter") to this
+    /// firmware/vehicle's custom_mode value. nullopt when the mode does not
+    /// exist for this combination (e.g. Rover has no Land).
+    ///
+    /// 由 decode_flight_mode 反查得到，因此两张表不可能各自漂移（S6：
+    /// 模式号只能来自插件，通用代码不得写字面量）。
+    std::optional<uint32_t> encode_flight_mode(const std::string& name) const;
+
+    /// 语义化模式角色。通用代码只按角色请求，具体模式号与名称由插件决定：
+    /// ArduPilot 用 "RTL"/"Land"/"Loiter"，PX4 用 "Auto RTL"/"Auto Land"/
+    /// "Auto Loiter"。不属于该固件的角色返回 nullopt，调用方必须放弃下发。
+    enum class ModeRole { ReturnToLaunch, Land, Loiter };
+    std::optional<uint32_t> resolve_mode_role(ModeRole role) const;
+
 private:
     FirmwareKind firmware_kind_ = FirmwareKind::Unknown;
     VehicleKind  vehicle_kind_  = VehicleKind::Unknown;

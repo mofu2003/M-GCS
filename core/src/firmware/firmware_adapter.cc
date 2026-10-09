@@ -21,6 +21,8 @@
  */
 
 #include "core/firmware/firmware_adapter.h"
+
+#include <cctype>
 #include "core/firmware/modes/ardu_copter_modes.h"
 #include "core/firmware/modes/ardu_plane_modes.h"
 #include "core/firmware/modes/ardu_rover_modes.h"
@@ -185,6 +187,79 @@ FlightModeInfo FirmwareAdapter::decode_flight_mode(uint32_t custom_mode) const {
     }
 
     return info;
+}
+
+namespace {
+
+/// 大小写不敏感比较：界面与 FFI 可能传来 "rtl" / "RTL"。
+bool mode_name_equals(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        const unsigned char ca = static_cast<unsigned char>(a[i]);
+        const unsigned char cb = static_cast<unsigned char>(b[i]);
+        if (std::tolower(ca) != std::tolower(cb)) return false;
+    }
+    return true;
+}
+
+/// decode 对未知值会返回 "Mode(N)" 兜底串，反查时必须跳过。
+bool is_placeholder_mode_name(const std::string& name) {
+    return name.rfind("Mode(", 0) == 0;
+}
+
+}  // namespace
+
+std::optional<uint32_t> FirmwareAdapter::encode_flight_mode(const std::string& name) const {
+    if (name.empty() || firmware_kind_ == FirmwareKind::Unknown) return std::nullopt;
+
+    const auto matches = [this, &name](uint32_t custom_mode) {
+        const std::string candidate = decode_flight_mode(custom_mode).mode_name;
+        if (candidate.empty() || is_placeholder_mode_name(candidate)) return false;
+        return mode_name_equals(candidate, name);
+    };
+
+    if (firmware_kind_ == FirmwareKind::PX4) {
+        // PX4 把 main_mode/sub_mode 打包进 custom_mode，要两维都扫。
+        for (uint32_t main = 0; main <= 0xFF; ++main) {
+            for (uint32_t sub = 0; sub <= 0xFF; ++sub) {
+                const uint32_t custom = (main << 16) | (sub << 24);
+                if (matches(custom)) return custom;
+            }
+        }
+        return std::nullopt;
+    }
+
+    for (uint32_t mode = 0; mode <= 0xFF; ++mode) {
+        if (matches(mode)) return mode;
+    }
+    return std::nullopt;
+}
+
+std::optional<uint32_t> FirmwareAdapter::resolve_mode_role(ModeRole role) const {
+    const char* ardupilot_name = nullptr;
+    const char* px4_name = nullptr;
+    switch (role) {
+        case ModeRole::ReturnToLaunch:
+            ardupilot_name = "RTL";
+            px4_name = "Auto RTL";
+            break;
+        case ModeRole::Land:
+            ardupilot_name = "Land";
+            px4_name = "Auto Land";
+            break;
+        case ModeRole::Loiter:
+            ardupilot_name = "Loiter";
+            px4_name = "Auto Loiter";
+            break;
+    }
+
+    if (firmware_kind_ == FirmwareKind::PX4) {
+        return px4_name ? encode_flight_mode(px4_name) : std::nullopt;
+    }
+    if (firmware_kind_ == FirmwareKind::ArduPilot) {
+        return ardupilot_name ? encode_flight_mode(ardupilot_name) : std::nullopt;
+    }
+    return std::nullopt;
 }
 
 std::string FirmwareAdapter::decode_ardupilot_mode(uint32_t custom_mode) const {

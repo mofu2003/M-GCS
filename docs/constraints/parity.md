@@ -105,8 +105,8 @@
 
 - **QGC**：有 `FirmwarePlugin` 抽象，按固件选择插件（`FirmwarePlugin/FirmwarePluginManager.cc:75-91`）。APM 按机型细分子类（`FirmwarePlugin/APM/APMFirmwarePlugin.h:22`）。模式列表、参数元数据与 MAV_CMD 信息按固件分离。
 - **MP**：没有插件抽象。固件是一个枚举（`ExtLibs/ArduPilot/Firmwares.cs:6-18`）。模式列表在 `Common.cs` 中硬编码，参数名与命令编码在配置页面中硬编码。
-- **M-GCS**：核心层有固件插件（与 QGC 结构相同）。RTL、降落、悬停的模式号硬编码，绕过了插件（KD-18）。
-- **结论**：结构已对齐 QGC。模式号硬编码违反 `safety.md` 的 S6 约束，须修复。
+- **M-GCS**：核心层有固件插件（与 QGC 结构相同）。RTL / 降落 / 悬停已改为按**语义角色**向插件请求（`FirmwareAdapter::resolve_mode_role`），通用代码里不再出现模式号字面量。该机型没有这个模式时**不下发**并打印警告（Rover 与 Plane 没有 Land、Sub 没有 RTL），而不是把别的机型的数值发出去。
+- **结论**：结构已对齐 QGC，S6 与 KD-18 闭环。核对过程中还发现模式表本身有错：三张表把「模式列表下标」当成 `custom_mode` 枚举值，从某一号起整体错位——Copter 的 9 写成 Drift（真值 LAND，于是降落时界面显示「Drift」），Rover 的 9 写成 Dock（真值 CIRCLE，而旧 `land()` 恰好发 9，在 Rover 上「降落」= 原地转圈），Tracker 的 1 写成 Scan（真值 STOP）。已按 `ArduCopter/mode.h`、`Rover/mode.h`、`AntennaTracker/mode.h` 的枚举值重写，并用 `test_firmware_adapter.cc` 钉住关键项。
 
 ### 日志
 
