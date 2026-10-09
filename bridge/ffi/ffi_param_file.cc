@@ -74,19 +74,38 @@ MGCORE_API char* mg_params_load_from_file(mg_core_t* core, const char* filepath)
     auto* mav = get_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "not connected");
 
+    // 逐项写入并把失败项报出来。set_param() 的返回值只代表"已交给发送层"，
+    // 不代表飞控已接受，所以这里只承诺发送阶段的结果，调用方需自行回读确认。
+    // 返回结构对齐 mg_params_commit_change_set 的 succeeded/failed 约定。
     int applied = 0;
+    std::vector<std::string> failed;
     for (const auto& p : params) {
         if (mav->set_param(active_target_sys(core), active_target_comp(core),
                            p.name.c_str(), p.value, p.type)) {
             applied++;
+        } else {
+            failed.push_back(p.name);
         }
     }
 
+    mg::bridge::JsonBuilder failed_json;
+    failed_json.begin_array();
+    for (const auto& name : failed) {
+        mg::bridge::JsonBuilder item;
+        item.begin_object();
+        item.field("name", name);
+        item.field("reason", "failed to send parameter write");
+        item.end_object();
+        failed_json.append_json(item.str());
+    }
+    failed_json.end_array();
+
     mg::bridge::JsonBuilder jb;
     jb.begin_object();
-    jb.field("success", true);
+    jb.field("success", failed.empty());
     jb.field("count", (int)params.size());
     jb.field("applied", applied);
+    jb.raw_field("failed", failed_json.str());
     jb.end_object();
     return to_cstr(jb.str());
 }

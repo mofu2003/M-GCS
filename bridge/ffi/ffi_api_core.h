@@ -8,8 +8,8 @@ extern "C" {
 #endif
 
 #define MGCORE_VERSION_MAJOR 0
-#define MGCORE_VERSION_MINOR 0
-#define MGCORE_VERSION_PATCH 80
+#define MGCORE_VERSION_MINOR 1
+#define MGCORE_VERSION_PATCH 1
 
 #ifdef _WIN32
   #ifdef MGCORE_EXPORTS
