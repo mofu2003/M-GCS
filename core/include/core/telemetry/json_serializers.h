@@ -156,6 +156,8 @@ inline std::string command_ack_json(const mg::core::mavlink::CommandAckInfo& ack
         case 5: result_str = "in_progress"; break;
     }
     jb.field("result_str", result_str);
+    jb.field("success", ack.result == 0 || ack.result == 5);
+    jb.field("result_text", ack.result == 0 ? "accepted" : result_str);
     jb.end_object();
     return jb.str();
 }

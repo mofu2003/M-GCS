@@ -19,6 +19,7 @@ import 'parameter_ffi_backend.dart';
 import 'calibration_ffi_backend.dart';
 import 'flight_command_ffi_backend.dart';
 import 'signing_key_store.dart';
+import 'vehicle_signing_bindings.dart';
 
 final class SerialPortInfo {
   const SerialPortInfo({
@@ -472,7 +473,8 @@ final class ConnectionController extends ChangeNotifier {
   final SigningKeyStore _signingKeyStore;
   List<SigningKeyPreference> _signingKeys = const [];
   String? _activeSigningKeyName;
-  int? _signingAppliedVehicleId;
+  final _signingBindings = VehicleSigningBindings();
+  int? _signingCandidatesVehicleId;
 
   /// MV1 seam: connection registry and command target tokens.
   /// Multi-link UI is intentionally not exposed until per-vehicle rebinding is verified.
@@ -491,7 +493,10 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>, int) _getSessionState;
   late final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>, int, int)
   _setSigningKey;
+  late final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
+  _setSigningCandidates;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _clearSigningKey;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _clearSigningCandidates;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _getSigningStatus;
   late final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>, int)
   _sendSetupSigning;
@@ -501,8 +506,8 @@ final class ConnectionController extends ChangeNotifier {
   late final Pointer<Utf8> Function(Pointer<Void>, int, int) _setStreamInterval;
   late final Pointer<Utf8> Function(Pointer<Void>) _requestFirmwareVersion;
   late final Pointer<Utf8> Function(Pointer<Void>) _getSerialUartNames;
-  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
-  _cancelOperation;
+  late final Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
+  _cancelOperationForVehicle;
   late final Pointer<Utf8> Function(Pointer<Void>) _getFlightModes;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _getMessages;
   late final void Function(Pointer<Utf8>) _freeString;
@@ -1175,10 +1180,9 @@ final class ConnectionController extends ChangeNotifier {
     final library = await _signingKeyStore.loadLibrary();
     _signingKeys = List.of(library.entries);
     _activeSigningKeyName = library.activeName;
-    _signingAppliedVehicleId = null;
-    if (_activeSigningKey != null) {
-      unawaited(_applySigningPreferenceIfAny());
-    }
+    if (sessionId case final int id) _signingBindings.invalidate(id);
+    _signingCandidatesVehicleId = null;
+    unawaited(_applySigningConfigurationIfNeeded());
     notifyListeners();
   }
 
@@ -1222,9 +1226,11 @@ final class ConnectionController extends ChangeNotifier {
     }
     _signingKeys = next;
     _activeSigningKeyName = normalizedName;
+    if (sessionId case final int id) _signingBindings.bind(id, normalizedName);
+    _signingCandidatesVehicleId = null;
     await _persistSigningLibrary();
-    _signingAppliedVehicleId = null;
-    await _applySigningPreferenceIfAny();
+    if (sessionId case final int id) _signingBindings.invalidate(id);
+    await _applySigningConfigurationIfNeeded();
     notifyListeners();
   }
 
@@ -1234,13 +1240,25 @@ final class ConnectionController extends ChangeNotifier {
       orElse: () => throw StateError('密钥不存在'),
     );
     _activeSigningKeyName = entry.name;
+    if (sessionId case final int id) _signingBindings.bind(id, entry.name);
     await _persistSigningLibrary();
-    _signingAppliedVehicleId = null;
-    await _applySigningPreferenceIfAny();
+    if (sessionId case final int id) _signingBindings.invalidate(id);
+    await _applySigningConfigurationIfNeeded();
     notifyListeners();
   }
 
   Future<void> removeSigningKey(String name) async {
+    for (final id in _signingBindings.removeKey(name)) {
+      if (initializationError == null) {
+        _readJson(_clearSigningKey(_core, id));
+      }
+    }
+    if (initializationError == null) {
+      fleet.refresh();
+      for (final vehicle in fleet.snapshot.vehicles) {
+        _readJson(_clearSigningCandidates(_core, vehicle.id));
+      }
+    }
     final next = List<SigningKeyPreference>.of(_signingKeys)
       ..removeWhere((entry) => entry.name == name);
     _signingKeys = next;
@@ -1248,11 +1266,11 @@ final class ConnectionController extends ChangeNotifier {
       _activeSigningKeyName = next.isEmpty ? null : next.first.name;
     }
     await _persistSigningLibrary();
-    _signingAppliedVehicleId = null;
+    if (sessionId case final int id) _signingBindings.invalidate(id);
+    _signingCandidatesVehicleId = null;
+    await _applySigningConfigurationIfNeeded();
     if (_activeSigningKey == null) {
       await _clearNativeSigning();
-    } else {
-      await _applySigningPreferenceIfAny();
     }
     notifyListeners();
   }
@@ -1276,14 +1294,24 @@ final class ConnectionController extends ChangeNotifier {
     if (response is! Map || response['success'] != true) {
       throw StateError(_nativeError(response, '清除 MAVLink 签名失败'));
     }
-    _signingAppliedVehicleId = null;
+    if (sessionId case final int id) _signingBindings.invalidate(id);
   }
 
   Future<void> clearSigningKeyPreference() async {
     _signingKeys = const [];
+    _signingBindings.clear();
+    if (initializationError == null) {
+      fleet.refresh();
+      for (final vehicle in fleet.snapshot.vehicles) {
+        _readJson(_clearSigningKey(_core, vehicle.id));
+        _readJson(_clearSigningCandidates(_core, vehicle.id));
+      }
+    }
     _activeSigningKeyName = null;
-    _signingAppliedVehicleId = null;
+    if (sessionId case final int id) _signingBindings.invalidate(id);
+    _signingCandidatesVehicleId = null;
     await _signingKeyStore.clear();
+    await _applySigningConfigurationIfNeeded();
     await _clearNativeSigning();
     notifyListeners();
   }
@@ -1297,7 +1325,54 @@ final class ConnectionController extends ChangeNotifier {
     if (response is! Map<String, Object?>) {
       throw StateError('MAVLink 签名状态格式无效');
     }
+    if (_adoptDetectedSigning(response, id)) {
+      await _persistSigningLibrary();
+      notifyListeners();
+    }
     return response;
+  }
+
+  String _signingFingerprint(SigningKeyPreference key) =>
+      '${key.name}:${key.keyHex}:${key.signOutgoing}';
+
+  bool _adoptDetectedSigning(Map<String, Object?> status, int vehicleId) {
+    if (status['auto_detected'] != true) return false;
+    final name = status['key_name'];
+    if (name is! String || name.isEmpty) return false;
+    final index = _signingKeys.indexWhere((entry) => entry.name == name);
+    if (index < 0) return false;
+    final current = _signingKeys[index];
+    final timestamp = (status['timestamp_ticks'] as num?)?.toInt() ?? 0;
+    final nextTimestamp = timestamp > current.lastTimestampTicks
+        ? timestamp
+        : current.lastTimestampTicks;
+    final changed = nextTimestamp != current.lastTimestampTicks;
+    if (changed) {
+      final next = List<SigningKeyPreference>.of(_signingKeys);
+      next[index] = current.copyWith(lastTimestampTicks: nextTimestamp);
+      _signingKeys = next;
+    }
+    _signingBindings.bind(vehicleId, name);
+    _signingBindings.markApplied(vehicleId, _signingFingerprint(current));
+    return changed;
+  }
+
+  Future<void> _refreshAutoDetectedSigning(int vehicleId) async {
+    if (_disposed || sessionId != vehicleId || initializationError != null) {
+      return;
+    }
+    try {
+      final response = _readJson(_getSigningStatus(_core, vehicleId));
+      if (response is! Map<String, Object?> || response['success'] != true) {
+        return;
+      }
+      if (_adoptDetectedSigning(response, vehicleId)) {
+        await _persistSigningLibrary();
+        notifyListeners();
+      }
+    } on Object {
+      // Status polling is best effort and must not disturb telemetry.
+    }
   }
 
   Future<void> sendSetupSigning({
@@ -1326,13 +1401,46 @@ final class ConnectionController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _applySigningPreferenceIfAny() async {
-    final preference = _activeSigningKey;
+  Future<void> _applySigningConfigurationIfNeeded() async {
     final id = sessionId;
-    if (preference == null || id == null || initializationError != null) {
-      return;
+    if (id == null || initializationError != null) return;
+
+    if (_signingCandidatesVehicleId != id) {
+      final candidates = jsonEncode([
+        for (final entry in _signingKeys)
+          {
+            'name': entry.name,
+            'key_hex': entry.keyHex,
+            'timestamp_ticks': entry.lastTimestampTicks,
+          },
+      ]);
+      final nativeCandidates = candidates.toNativeUtf8();
+      try {
+        final response = _readJson(
+          _setSigningCandidates(_core, id, nativeCandidates),
+        );
+        if (response is! Map || response['success'] != true) {
+          throw StateError(_nativeError(response, '配置 MAVLink 签名候选密钥失败'));
+        }
+        _signingCandidatesVehicleId = id;
+      } finally {
+        malloc.free(nativeCandidates);
+      }
     }
-    if (_signingAppliedVehicleId == id) return;
+
+    final nativeStatus = _readJson(_getSigningStatus(_core, id));
+    if (nativeStatus is Map<String, Object?> &&
+        _signingBindings.nameFor(id) == null) {
+      _adoptDetectedSigning(nativeStatus, id);
+    }
+    final boundName = _signingBindings.nameFor(id);
+    final matches = _signingKeys.where((entry) => entry.name == boundName);
+    if (matches.isEmpty) {
+      return;
+    } // New sessions use candidates, never a global default key.
+    final preference = matches.first;
+    final fingerprint = _signingFingerprint(preference);
+    if (_signingBindings.isApplied(id, fingerprint)) return;
     final key = preference.keyHex.toNativeUtf8();
     try {
       final response = _readJson(
@@ -1347,7 +1455,7 @@ final class ConnectionController extends ChangeNotifier {
       if (response is! Map || response['success'] != true) {
         throw StateError(_nativeError(response, '应用 MAVLink 签名失败'));
       }
-      _signingAppliedVehicleId = id;
+      _signingBindings.markApplied(id, fingerprint);
     } finally {
       malloc.free(key);
     }
@@ -1756,6 +1864,16 @@ final class ConnectionController extends ChangeNotifier {
             >
           >('mg_vehicle_set_signing_key')
           .asFunction();
+      _setSigningCandidates = _library
+          .lookupFunction<
+            Pointer<Utf8> Function(Pointer<Void>, Int32, Pointer<Utf8>),
+            Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
+          >('mg_vehicle_set_signing_candidates');
+      _clearSigningCandidates = _library
+          .lookupFunction<
+            Pointer<Utf8> Function(Pointer<Void>, Int32),
+            Pointer<Utf8> Function(Pointer<Void>, int)
+          >('mg_vehicle_clear_signing_candidates');
       _clearSigningKey = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32)>>(
             'mg_vehicle_clear_signing_key',
@@ -1812,10 +1930,12 @@ final class ConnectionController extends ChangeNotifier {
             'mg_serial_get_uart_names',
           )
           .asFunction();
-      _cancelOperation = _library
+      _cancelOperationForVehicle = _library
           .lookup<
-            NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
-          >('mg_operations_cancel')
+            NativeFunction<
+              Pointer<Utf8> Function(Pointer<Void>, Int32, Pointer<Utf8>)
+            >
+          >('mg_operations_cancel_for_vehicle')
           .asFunction();
       _getFlightModes = _library
           .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
@@ -1831,6 +1951,7 @@ final class ConnectionController extends ChangeNotifier {
       _fleet = FleetController(
         FleetFfiBackend(_library, _core),
         canChangeFocus: _canSwitchActiveVehicle,
+        executeBatchCommand: _executeFleetBatchCommand,
       )..addListener(_handleFleetChanged);
       _fleetTimer = Timer.periodic(const Duration(milliseconds: 750), (_) {
         if (_disposed) return;
@@ -1856,23 +1977,33 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
-  /// A switch is allowed only when no operation is tied to the current
-  /// vehicle. Parameter writes, mission transfer and calibration are not
-  /// safely movable to another aircraft.
+  /// Cancellable long operations no longer pin the UI focus. Parameter
+  /// writes and metadata/hardware reads remain non-movable because switching
+  /// them mid-command could write to the wrong aircraft.
   bool _canSwitchActiveVehicle() {
     // First focus binding happens while connect() intentionally holds _busy.
     if (sessionId == null) return true;
     if (_busy) return false;
     if (_parameterWriteJobs.isNotEmpty) return false;
-    if (calibrationStatus.active ||
-        serialHardwareMappingLoading ||
-        _loadingParameterMetadata) {
+    if (serialHardwareMappingLoading || _loadingParameterMetadata) {
       return false;
     }
     final mission = sessionId == null
         ? _offlineMissionPlanning
         : _missionPlanningBySession[sessionId];
-    return !(mission?.transferActive ?? false) && !(mission?.busy ?? false);
+    if (mission?.transferActive == true) return true;
+    return !(mission?.busy ?? false);
+  }
+
+  /// Switches UI focus after cancelling cancellable long operations belonging
+  /// to the old vehicle. Command confirmations still remain pinned.
+  void selectVehicle(int vehicleId) {
+    if (_busy || vehicleId == sessionId) return;
+    final previousVehicleId = sessionId;
+    if (previousVehicleId != null) {
+      _cancelOperationsForVehicle(previousVehicleId);
+    }
+    fleet.selectVehicle(vehicleId);
   }
 
   FleetLinkSummary? _preferredLinkForVehicle(int? vehicleId) {
@@ -2005,7 +2136,7 @@ final class ConnectionController extends ChangeNotifier {
       _pollTelemetry(target); // Fresh native cache before publishing UI state.
       missionPlanning.bindSession(target);
       _startSessionPolling();
-      unawaited(_applySigningPreferenceIfAny());
+      unawaited(_applySigningConfigurationIfNeeded());
       _lastPublishedControlProfile = null;
       _notifyConnectionChanges();
       _notifyParameterChanges();
@@ -2334,7 +2465,7 @@ final class ConnectionController extends ChangeNotifier {
     final target = fleet.captureTarget(expectedVehicleId: sessionId);
     await fleet.runForTarget(target, () async {
       _requireCommandSuccess(
-        flightCommandBackend.setMode(
+        await flightCommandBackend.setMode(
           vehicleArmed ? 0x81 : 0x01,
           options.first.id,
         ),
@@ -2347,8 +2478,107 @@ final class ConnectionController extends ChangeNotifier {
   void _requireCommandSuccess(Object? raw, String action) {
     if (raw is! JsonMap) throw const FormatException('指令响应格式无效');
     if (raw['success'] == true) return;
-    final reason = raw['error'] ?? raw['result_text'] ?? _commandAckReason(raw);
+    final reason = _nativeError(
+      raw,
+      raw['result_text'] as String? ?? _commandAckReason(raw),
+    );
     throw StateError('$action失败：$reason');
+  }
+
+  /// MV6 批量动作的显式目标执行器。每个目标都经
+  /// 显式提交/轮询接口按 vehicle_id 下发，不读取或修改
+  /// active focus；单架失败只记录在该架飞机的结果中，继续执行其余目标。
+  Future<FleetBatchCommandResult> _executeFleetBatchCommand(
+    FleetVehicleSummary vehicle,
+    FleetBatchAction action,
+  ) async {
+    if (_disposed || initializationError != null) {
+      return FleetBatchCommandResult.failure(
+        vehicleId: vehicle.id,
+        systemId: vehicle.systemId,
+        status: FleetBatchCommandStatus.error,
+        message: initializationError ?? '多机后端已关闭',
+      );
+    }
+    fleet.refresh();
+    final current = fleet.snapshot.vehicle(vehicle.id);
+    if (current == null || !current.connected || !current.identified) {
+      return FleetBatchCommandResult.failure(
+        vehicleId: vehicle.id,
+        systemId: vehicle.systemId,
+        status: FleetBatchCommandStatus.error,
+        message: '飞机已断开或尚未完成识别',
+      );
+    }
+    final (command, args) = switch (action) {
+      FleetBatchAction.arm => ('arm', <String, Object?>{'force': 0}),
+      FleetBatchAction.disarm => ('disarm', <String, Object?>{'force': 0}),
+      FleetBatchAction.returnToLaunch => ('rtl', <String, Object?>{}),
+      FleetBatchAction.startMission => (
+        'start_mission',
+        <String, Object?>{'arm_if_needed': 1},
+      ),
+    };
+    try {
+      final raw = await flightCommandBackend.executeRawForVehicle(
+        vehicle.id,
+        command,
+        args,
+      );
+      if (raw['success'] == true) {
+        return FleetBatchCommandResult.success(
+          vehicleId: vehicle.id,
+          systemId: vehicle.systemId,
+        );
+      }
+      final status = _fleetBatchFailureStatus(raw);
+      return FleetBatchCommandResult.failure(
+        vehicleId: vehicle.id,
+        systemId: vehicle.systemId,
+        status: status,
+        message: _fleetBatchFailureText(raw),
+      );
+    } on Object catch (error) {
+      return FleetBatchCommandResult.failure(
+        vehicleId: vehicle.id,
+        systemId: vehicle.systemId,
+        status: FleetBatchCommandStatus.error,
+        message: error.toString().replaceFirst('Bad state: ', ''),
+      );
+    }
+  }
+
+  FleetBatchCommandStatus _fleetBatchFailureStatus(JsonMap raw) {
+    final result = raw['result_str'];
+    if (result is String &&
+        const {
+          'temporarily_rejected',
+          'denied',
+          'unsupported',
+          'failed',
+          'in_progress',
+        }.contains(result)) {
+      return FleetBatchCommandStatus.rejected;
+    }
+    final error = raw['error'];
+    final code = error is Map ? error['code'] : null;
+    if (code == -6 ||
+        error.toString().toLowerCase().contains('timeout') ||
+        raw['result_text'].toString().toLowerCase().contains('timeout')) {
+      return FleetBatchCommandStatus.timeout;
+    }
+    return FleetBatchCommandStatus.error;
+  }
+
+  String _fleetBatchFailureText(JsonMap raw) {
+    final error = raw['error'];
+    if (error is Map) {
+      final message = error['message'];
+      if (message is String && message.isNotEmpty) return message;
+    }
+    final resultText = raw['result_text'];
+    if (resultText is String && resultText.isNotEmpty) return resultText;
+    return _commandAckReason(raw);
   }
 
   String _commandAckReason(JsonMap raw) {
@@ -2376,7 +2606,7 @@ final class ConnectionController extends ChangeNotifier {
       throw StateError('移动到此处失败：没有有效的海拔高度');
     }
     _requireCommandSuccess(
-      flightCommandBackend.guidedPoint(
+      await flightCommandBackend.guidedPoint(
         latitude,
         longitude,
         altitudeMeters,
@@ -2401,12 +2631,12 @@ final class ConnectionController extends ChangeNotifier {
 
   Future<void> guidedReturnToLaunch() async {
     _requireConnected('返航');
-    _requireCommandSuccess(flightCommandBackend.rtl(), '返航');
+    _requireCommandSuccess(await flightCommandBackend.rtl(), '返航');
   }
 
   Future<void> guidedLand() async {
     _requireConnected('降落');
-    _requireCommandSuccess(flightCommandBackend.land(), '降落');
+    _requireCommandSuccess(await flightCommandBackend.land(), '降落');
   }
 
   Future<void> guidedTakeoff(double altitudeMeters) async {
@@ -2432,7 +2662,7 @@ final class ConnectionController extends ChangeNotifier {
     // ArduPilot requires GUIDED and an armed vehicle before NAV_TAKEOFF.
     if (vehicleAutopilotType == 12) {
       _requireCommandSuccess(
-        flightCommandBackend.takeoff(takeoffAltitude),
+        await flightCommandBackend.takeoff(takeoffAltitude),
         '起飞',
       );
       if (!vehicleArmed) await _armVehicleAndValidate();
@@ -2441,49 +2671,18 @@ final class ConnectionController extends ChangeNotifier {
 
     await _setFlightModeAndValidate(_guidedCustomMode, 'Guided');
     if (!vehicleArmed) await _armVehicleAndValidate();
-    _requireCommandSuccess(flightCommandBackend.takeoff(takeoffAltitude), '起飞');
+    _requireCommandSuccess(
+      await flightCommandBackend.takeoff(takeoffAltitude),
+      '起飞',
+    );
   }
 
-  /// 按 QGC 的 APM/PX4 Start Mission 流程解锁并启动当前飞控任务。
-  ///
-  /// ArduPilot 固定翼需要先进入 AUTO 再解锁，避免 VTOL/固定翼在错误姿态下上锁；
-  /// 多旋翼先进入 GUIDED、解锁后再发 MISSION_START。PX4 统一进入 AUTO_MISSION。
+  /// Shared native workflow, also used by explicitly targeted batch starts.
+  /// QGC APM: Plane/VTOL AUTO before arm; Copter GUIDED before arm.
+  /// PX4 uses AUTO_MISSION. Worker validates ACK and heartbeat state.
   Future<void> startMission() async {
     _requireConnected('启动任务');
-    // QGC uses Vehicle::fixedWing() here. ArduPilot VTOL reports the VTOL MAV
-    // type, so it is *not* in QGC's fixed-wing class and must go through the
-    // GUIDED + MISSION_START path instead of being treated like a runway plane.
-    final qgcFixedWing = controlProfile == VehicleControlProfile.fixedWing;
-    final planeFirmware =
-        qgcFixedWing || controlProfile == VehicleControlProfile.planeVtol;
-
-    if (vehicleAutopilotType == 12) {
-      const px4AutoMissionMode = 0x04040000;
-      await _setFlightModeAndValidate(px4AutoMissionMode, 'Auto Mission');
-      await _armVehicleAndValidate();
-      return;
-    }
-
-    final autoMode = planeFirmware ? 10 : 3;
-    final guidedMode = planeFirmware ? 15 : 4;
-    if (vehicleFlying) {
-      await _setFlightModeAndValidate(autoMode, 'Auto');
-      return;
-    }
-
-    if (qgcFixedWing) {
-      await _setFlightModeAndValidate(autoMode, 'Auto');
-      await _armVehicleAndValidate();
-      return;
-    }
-
-    if (!vehicleArmed) {
-      await _setFlightModeAndValidate(guidedMode, 'Guided');
-      await _armVehicleAndValidate();
-    }
-    if (!qgcFixedWing) {
-      _requireCommandSuccess(flightCommandBackend.missionStart(), '启动任务');
-    }
+    _requireCommandSuccess(await flightCommandBackend.startMission(), '启动任务');
   }
 
   Future<void> _setFlightModeAndValidate(
@@ -2494,7 +2693,10 @@ final class ConnectionController extends ChangeNotifier {
 
     for (var attempt = 0; attempt < 3; attempt++) {
       _requireCommandSuccess(
-        flightCommandBackend.setMode(_mavModeFlagCustomModeEnabled, customMode),
+        await flightCommandBackend.setMode(
+          _mavModeFlagCustomModeEnabled,
+          customMode,
+        ),
         '切换飞行模式',
       );
       if (await _waitForVehicleState(
@@ -2521,7 +2723,7 @@ final class ConnectionController extends ChangeNotifier {
 
   Future<void> _armVehicleAndValidate() async {
     if (vehicleArmed) return;
-    _requireCommandSuccess(flightCommandBackend.arm(0), '解锁');
+    _requireCommandSuccess(await flightCommandBackend.arm(0), '解锁');
     if (await _waitForVehicleState(
       armed: true,
       timeout: _armValidationWindow,
@@ -2533,7 +2735,7 @@ final class ConnectionController extends ChangeNotifier {
 
   Future<void> _disarmVehicleAndValidate() async {
     if (!vehicleArmed) return;
-    _requireCommandSuccess(flightCommandBackend.disarm(0), '上锁');
+    _requireCommandSuccess(await flightCommandBackend.disarm(0), '上锁');
     if (await _waitForVehicleState(
       armed: false,
       timeout: _armValidationWindow,
@@ -2607,7 +2809,10 @@ final class ConnectionController extends ChangeNotifier {
     final delta = targetAltitudeAboveHome - current;
     if (delta.abs() < 0.01) return;
     await _setFlightModeAndValidate(_guidedCustomMode, 'Guided');
-    _requireCommandSuccess(flightCommandBackend.changeAltitude(delta), '改变高度');
+    _requireCommandSuccess(
+      await flightCommandBackend.changeAltitude(delta),
+      '改变高度',
+    );
   }
 
   Future<void> guidedPause() async {
@@ -2630,7 +2835,7 @@ final class ConnectionController extends ChangeNotifier {
         return;
       }
     }
-    _requireCommandSuccess(flightCommandBackend.guidedPause(), '暂停');
+    _requireCommandSuccess(await flightCommandBackend.guidedPause(), '暂停');
   }
 
   Future<void> guidedOrbit({
@@ -2642,7 +2847,7 @@ final class ConnectionController extends ChangeNotifier {
   }) async {
     _requireConnected('环绕飞行');
     _requireCommandSuccess(
-      flightCommandBackend.orbit(
+      await flightCommandBackend.orbit(
         latitude: latitude,
         longitude: longitude,
         radiusMeters: radiusMeters,
@@ -2663,7 +2868,7 @@ final class ConnectionController extends ChangeNotifier {
   ) async {
     _requireConnected('设置 Home');
     _requireCommandSuccess(
-      flightCommandBackend.setHome(latitude, longitude, altitudeMeters),
+      await flightCommandBackend.setHome(latitude, longitude, altitudeMeters),
       '设置 Home',
     );
   }
@@ -2679,7 +2884,7 @@ final class ConnectionController extends ChangeNotifier {
   ]) async {
     _requireConnected('设置兴趣点');
     _requireCommandSuccess(
-      flightCommandBackend.setRoi(latitude, longitude, altitudeMeters),
+      await flightCommandBackend.setRoi(latitude, longitude, altitudeMeters),
       '设置兴趣点',
     );
   }
@@ -2707,7 +2912,7 @@ final class ConnectionController extends ChangeNotifier {
       delta -= 360;
     }
     _requireCommandSuccess(
-      flightCommandBackend.changeHeading(
+      await flightCommandBackend.changeHeading(
         delta.abs(),
         _headingYawRateDegreesPerSecond,
         delta >= 0 ? 1 : -1,
@@ -2724,7 +2929,11 @@ final class ConnectionController extends ChangeNotifier {
   ) async {
     _requireConnected('设置估计原点');
     _requireCommandSuccess(
-      flightCommandBackend.setGlobalOrigin(latitude, longitude, altitudeMeters),
+      await flightCommandBackend.setGlobalOrigin(
+        latitude,
+        longitude,
+        altitudeMeters,
+      ),
       '设置估计原点',
     );
   }
@@ -2967,6 +3176,9 @@ final class ConnectionController extends ChangeNotifier {
           _clearTelemetry();
         }
       } else if (state['heartbeat_alive'] == true) {
+        if (capturedVehicleId != null) {
+          unawaited(_refreshAutoDetectedSigning(capturedVehicleId));
+        }
         if (capturedVehicleId == null) {
           final discoveredVehicleId = capturedLinkId == null
               ? null
@@ -2978,7 +3190,7 @@ final class ConnectionController extends ChangeNotifier {
         }
         phase = SerialConnectionPhase.connected;
         message = '飞控已连接';
-        unawaited(_applySigningPreferenceIfAny());
+        unawaited(_applySigningConfigurationIfNeeded());
         if (previousPhase != SerialConnectionPhase.connected &&
             _waveformActive) {
           _applyWaveformStreamRate();
@@ -3027,11 +3239,18 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
-  void _cancelActiveOperations() {
-    for (final operation in const ['params', 'mission', 'calibration', 'log']) {
+  void _cancelOperationsForVehicle(int vehicleId) {
+    for (final operation in const [
+      'params',
+      'mission',
+      'fence',
+      'rally',
+      'calibration',
+      'log',
+    ]) {
       final name = operation.toNativeUtf8();
       try {
-        final response = _cancelOperation(_core, name);
+        final response = _cancelOperationForVehicle(_core, vehicleId, name);
         if (response != nullptr) _freeString(response);
       } on Object {
         // Best effort: closing the link still tears down the transport.
@@ -3071,8 +3290,8 @@ final class ConnectionController extends ChangeNotifier {
       if (wasActiveVehicle) {
         _ensureActiveSession(linkedVehicleId);
       }
-      if (wasActive && sessionId != null) {
-        _cancelActiveOperations();
+      if (wasActive && linkedVehicleId != null) {
+        _cancelOperationsForVehicle(linkedVehicleId);
       }
       fleet.closeLink(linkId);
       if (linkedVehicleId != null &&
@@ -3161,7 +3380,7 @@ final class ConnectionController extends ChangeNotifier {
       }
       if (wasActive) {
         _ensureActiveSession(linkedVehicleId);
-        _cancelActiveOperations();
+        _cancelOperationsForVehicle(linkedVehicleId);
       }
       fleet.closeRoute(routeId);
       if (linkedVehicleId != null &&
@@ -4007,6 +4226,7 @@ final class ConnectionController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _flightCommandBackend?.dispose();
     _fleet?.removeListener(_handleFleetChanged);
     _fleetTimer?.cancel();
     _fleet?.dispose();

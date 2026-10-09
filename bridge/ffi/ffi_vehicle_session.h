@@ -22,11 +22,13 @@ struct VehicleSessionView {
 /// It does not change the global UI active vehicle.
 class VehicleTargetScope {
 public:
-    VehicleTargetScope(mg_core_t* core, mg::core::vehicle::Vehicle* vehicle);
+    VehicleTargetScope(mg_core_t* core, mg::core::vehicle::Vehicle* vehicle,
+        std::shared_ptr<mg::core::transport::ConnectionManager> connection = {});
     ~VehicleTargetScope();
     VehicleTargetScope(const VehicleTargetScope&) = delete;
     VehicleTargetScope& operator=(const VehicleTargetScope&) = delete;
 private:
+    std::shared_ptr<mg::core::transport::ConnectionManager> previous_connection_;
     mg_core_t* previous_core_ = nullptr;
     mg::core::vehicle::Vehicle* previous_ = nullptr;
 };

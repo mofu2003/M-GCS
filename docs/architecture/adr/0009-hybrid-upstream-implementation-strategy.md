@@ -59,6 +59,6 @@ M-GCS 采用三层组合策略：
 ## 关联文档
 
 - [上游实现选择策略](../../specs/upstream/SELECTION_STRATEGY.md)
-- [功能差距分析](../../planning/FEATURE_GAP_ANALYSIS.md)
+- [路线图与功能差距分析](../../planning/ROADMAP.md)
 - [AGENTS.md](../../../AGENTS.md)
 - [REFACTORING_PLAN.md](../../planning/audits/2026-10-03-refactoring-plan.md)

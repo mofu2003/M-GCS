@@ -1,29 +1,50 @@
-# 多机连接与焦点管理实施计划
+# 多机连接与焦点管理
 
-状态：MV1 多链路单机框架与 UI 已落地；MV2 的 UDP 共享链路已完成；MV3 的链路句柄、自动归并、route health、精确关闭、重发现抑制和 primary 命令源切换已落地；MV4 状态隔离部分完成；MV5 第一版多机地图已接入
-规划日期：2026-10-08
-适用范围：多链路、多飞控发现、活跃飞控切换、分机状态隔离和多机地图
-暂不包含：编队算法、蜂群任务分配和自动协同
+> 基线版本：`0.0.80`
+> 最后更新：2026-10-09
+> 适用范围：多链路、多飞控发现、活跃飞控切换、分机状态隔离、多机地图与批量动作
+> 非目标：编队算法、蜂群任务分配、自动协同
 
-> 当前实际实现和审核边界见 [多机框架当前状态审核](MULTI_VEHICLE_STATUS_REVIEW.md)。
->
-> 本文补充 [多机关联研究](../research/MULTIVEHICLE_CONNECTION_RESEARCH.md)。
-> 研究文档回答“QGC 和 MP 怎么做”，本文回答“M-GCS 按什么顺序做、取哪些优点、
-> 每一阶段如何验收”。
+本文是多机能力的**单一权威文档**，整合了原实施计划、状态审核和能力对标三份材料。
+上游调研（QGC/MP 源码对照）见
+[多机关联研究](../research/MULTIVEHICLE_CONNECTION_RESEARCH.md)。
+
+**一句话状态**：多端点、多 route、同机多链路归并、UDP/TCP loopback/POSIX PTY 多机闭环、
+signing 密钥库与候选密钥自动探测、按 Vehicle 的长操作取消与超时隔离、多选和批量动作
+第一版均已完成；后端剩余主要是产品取舍、真实总线验收和 ComplexItem 语义编辑。
 
 ---
 
-## 实施进度（2026-10-08）
+## 阶段状态总览
+
+| 阶段 | 状态 | 结论 |
+| --- | --- | --- |
+| MV0 契约与基线 | 已完成 | 研究文档、实施计划和验收矩阵齐备 |
+| MV1 多链路单机 | 已完成 | 多 endpoint、链路列表、active 切换、状态重绑定和基本 UI 已接通 |
+| MV2 共享链路解复用 | 已完成（本地验证） | 同一 endpoint 按 `sysid/compid` 发现多架飞机；UDP 有真实 socket 验证，TCP loopback 与 POSIX PTY 通道回归通过 |
+| MV3 生命周期与多链路 | 已完成（通用框架） | 独立 link handle、同 sysid 跨 endpoint 归并、per-route health/primary、route 精确关闭、30 秒重发现抑制、多 route 遥测汇聚 |
+| MV4 前端状态隔离 | 后端完成，前端/现场验收待用户 | 主要状态按 session 保存/恢复；参数、任务、围栏、Rally、校准、日志可按明确 Vehicle 取消；协议超时由适配器定时驱动 |
+| MV5 多机 UI 与地图 | 已完成基础交付 | Fleet 快照携带位置/Home/任务路径/模式/armed/电量/GPS/链路健康；地图支持非 active 弱化图层与点击 |
+| MV6 多选与批量动作 | 已完成第一版 | 独立 `selectedVehicles`；批量解锁/上锁/返航/开始任务复用长按确认；逐机结果区分成功/拒绝/超时/失败 |
+
+---
+
+## 实施进度（2026-10-09）
 
 本轮已完成 MV1 多链路单机闭环，并将 UI 入口开放；UDP 共享链路已接通，
-串口/TCP 本地共享链路验证已接通；多机地图和批量控制仍未交付：
+串口/TCP 本地共享链路验证已接通；多机地图和批量控制第一版已交付：
 
 - `flutter_shell/lib/fleet/fleet_models.dart`：独立连接配置、不可变车辆摘要/快照、
   带焦点 revision 的命令目标凭证。session ID 与 MAVLink system ID 明确区分。
 - `fleet_backend.dart`：连接、列表、精确关闭和选择的可测试接口。
 - `fleet_ffi_backend.dart`：复用现有 C ABI；新增链路/route 读取与精确关闭适配。
 - `fleet_controller.dart`：首链路选择、后续链路不抢焦点、重复端点拒绝、
-  精确关闭、焦点失效和异步确认的目标保护；测试用内存 backend 与 FFI 共用接口。
+  精确关闭、焦点失效和异步确认的目标保护；独立 `selectedVehicles` 集合、批量
+  目标冻结和批量执行期间焦点锁；测试用内存 backend 与 FFI 共用接口。
+- `mg_fleet_batch_panel.dart` / `mg_command_confirmation.dart`：多机控制面板支持
+  逐机勾选、全选/清空、active 切换与批量选择分离；批量动作复用 0.5 秒长按确认，
+  确认条显示目标飞机数量和系统 ID；返航、解锁/上锁、开始任务均通过显式 Vehicle 目标的异步 submit/poll 接口逐机下发并
+  保留逐机结果。
 - 现有单机 `ConnectionController` 的连接/选择/关闭接到同一 Fleet 适配层，
   轮询不再把 native focus 强制切回旧 session；支持连接面板中的链路列表、
   精确断开非活动链路和顶部状态栏车辆选择器，单机仍不显示选择器。
@@ -35,9 +56,10 @@
   焦点校验失败而拒绝写入当前飞机。
 - 地图悬浮确认记录 session 与焦点 revision；A → B → A 后旧确认仍然无效。
   指令执行期间拒绝通过 Fleet 切机/关闭，飞行命令每次 native 下发前检查目标。
-- 新增 `mg_command_execute_for_vehicle()` 显式目标分派；native 以线程局部覆盖
-  选择目标车辆，不调用 `mg_vehicle_select()`，所以命令执行期间 UI active focus
-  不会被临时改写。Flutter 飞行命令全部改走该接口，旧 `mg_command_*` 保留兼容。
+- 保留 `mg_command_execute_for_vehicle()` 作为同步兼容入口；新增
+  `mg_command_submit_for_vehicle()` / `mg_command_poll()` 作为 Flutter 飞行命令主路径。
+  native 以显式 Vehicle 目标和线程局部覆盖路由，不调用 `mg_vehicle_select()`，所以
+  命令执行期间 UI active focus 不会被临时改写。
 - 双模拟飞机测试验证 RTL 只进入目标飞机的命令队列，非目标飞机无命令，
   UI active focus 前后不变；不存在的 `vehicle_id` 明确拒绝。
 - Core 使用官方 `mavlink_frame_char_buffer` 和适配器自有 RX buffer/status，
@@ -61,7 +83,7 @@
 - 真实双 UDP 销毁测试发现并修正 Core 清理顺序：先停 GCS 心跳线程，解除事件
   回调，再关闭共享引用快照里的车辆，避免析构时访问已经释放的 core 事件对象。
 
-### 本轮验证与尚未开放的能力
+### 本轮验证与仍需后续验收的能力
 
 - Flutter 回归覆盖焦点不被新连接抢走、重复端点、串口不同波特率排他、
   A → B → A、异步操作锁定、外部断链与错误传播。
@@ -76,23 +98,24 @@
   多机时显示车辆选择器；不自动打开第二个端点，也不操作用户正在连接的飞控。
 - 已实现显式 vehicle ID 飞行命令 ABI、UDP 同一 socket 多 sysid、
   同机多链路合并、route 级精确关闭和冗余 primary 切换；串口/TCP 共享语义、
-  MAVLink signing 适配器核心、单机 FFI、命名密钥库本地持久化、设置页和 SETUP_SIGNING 下发已完成；取消旧飞控长操作、多机地图完整图层和批量控制仍未全部完成。每个 `MavlinkAdapter` 的 TX sequence（含 FTP 发送）及 signing 状态已实例隔离，自动探测待补；SETUP_SIGNING 已接通。
-  分机状态隔离的取消/超时边界继续按 MV4 验收。
-- legacy `mg_command_*` 仍依赖 active focus，但 Flutter 已统一使用
-  `mg_command_execute_for_vehicle()`；参数、任务和遥测读取继续通过当前 native
-  active focus，并在 UI 层用 session/焦点校验和长操作门控隔离。
+  MAVLink signing 适配器核心、单机 FFI、命名密钥库本地持久化、设置页和 SETUP_SIGNING 下发已完成；长操作可按明确 Vehicle 取消，切机会自动取消旧机可取消操作。多机地图的非 active 摘要、任务/Home/围栏/Rally 图层已完成；MV6 多选、批量确认和逐机结果已完成第一版。每个 `MavlinkAdapter` 的 TX sequence（含 FTP 发送）及 signing 状态已实例隔离；候选密钥 HMAC 自动探测、命中后全 route 同步和状态回传已接通。
+ 分机状态隔离的后端取消/超时边界已完成，前端交互和现场结果按 MV4 验收。
+- legacy `mg_command_*` 仍依赖 active focus，但 Flutter 飞行命令已统一使用
+  `mg_command_submit_for_vehicle()` / `mg_command_poll()`；
+  `mg_command_execute_for_vehicle()` 保留给同步兼容调用。参数、任务和遥测读取继续
+  通过当前 native active focus，并在 UI 层用 session/焦点校验和长操作门控隔离。
 
 ### 下一切片的进入条件
 
 MV1 已完成多链路独立 session、车辆选择器、链路列表、精确断开和按 session 的
 运行时/任务文档隔离；MV2 已完成 UDP 共享 endpoint 的单次解析、多 sysid
-Vehicle 发现和 peer-aware 回复；MV3 已补同机多链路合并、route 级精确关闭和链路句柄模型。下一步是完成 MAVLink 自动探测和异步操作隔离，再进行多机地图与批量动作。参数写入/任务传输/校准执行中仍阻止焦点切换；
-没有确认协议取消语义前，不自动取消飞行中的任务或正在执行的校准。批量动作严格后置。
+Vehicle 发现和 peer-aware 回复；MV3 已补同机多链路合并、route 级精确关闭和链路句柄模型；MV5/MV6 已完成多机地图基础层、围栏/Rally 图层、选择集合、批量确认和逐机结果；候选密钥自动探测和异步超时隔离已完成。下一步是产品取舍、真实总线验收和 Survey/Corridor 等复杂项语义编辑。参数写入/任务传输/校准执行中仍阻止焦点切换；
+没有确认协议取消语义前，不自动取消飞行中的任务或正在执行的校准。
 
 本轮构建/检查：`flutter analyze lib test`、UI token 扫描、macOS debug 构建通过；
-后端 offline/simulation 37/37 通过；111 个常规 Flutter 测试通过，实际 Fleet FFI 的
-三个 UDP 测试由 `MGCS_FLEET_LIBRARY` 单独启用后通过，覆盖两个独立端口和同一端口
-sysid 1/2。运行实际 FFI 测试：
+后端 offline/simulation 37/37 通过；123 个常规 Flutter 测试通过，实际 Fleet FFI 的
+四个 UDP 测试由 `MGCS_FLEET_LIBRARY` 单独启用后通过，覆盖两个独立端口、同一端口
+sysid 1/2、批量 `mission_start` 显式目标分派和候选密钥自动探测。运行实际 FFI 测试：
 
 ```bash
 cd flutter_shell
@@ -290,7 +313,8 @@ Endpoint / Serial / TCP / UDP
 
 ### 批量命令边界
 
-MV6 之前不增加批量命令入口。批量接口必须显式携带目标车辆 ID 列表，禁止前端调用一个隐式“发给所有飞机”的 API。
+MV6 已完成批量命令入口。批量接口必须显式携带冻结的目标车辆 ID 列表，禁止前端调用
+一个隐式“发给所有飞机”的 API；每架飞机的 ACK、拒绝、超时和状态确认结果必须单独保留。
 
 ---
 
@@ -313,8 +337,8 @@ MV6 之前不增加批量命令入口。批量接口必须显式携带目标车�
 
 ### 地图
 
-- 第一版仍只显示 active 车辆的主任务和 Home。
-- 多机地图阶段显示所有车辆位置和航向。
+- 多机地图第一版已显示所有车辆位置和航向。
+- active 车辆显示主任务和 Home，非 active 车辆使用弱化图层；复杂任务图层仍需后续补齐。
 - active 飞机使用现有强调色；其他飞机使用弱化色。
 - 点击非 active 飞机时先选择车辆，不直接执行动作。
 - 所有安全命令仍只作用于 active 或明确选中的车辆集合。
@@ -366,7 +390,7 @@ MV6 之前不增加批量命令入口。批量接口必须显式携带目标车�
 硬依赖：
 
 - UDP、TCP loopback 和 POSIX PTY 的多 sysid 共享链路均已通过聚焦回归；真实飞控总线仍需现场验收。
-- MV4 未完成前，不开放批量飞行命令。
+- MV4 后端取消/超时隔离已完成；前端交互和现场验收通过后再扩大批量操作范围。
 - MV5 多机地图不能先于 MV2 的车辆状态隔离。
 - MV6 不能复用 active vehicle 作为隐式批量目标。
 
@@ -401,8 +425,138 @@ MV6 之前不增加批量命令入口。批量接口必须显式携带目标车�
 ## 十二、关联文档
 
 - [多机关联研究](../research/MULTIVEHICLE_CONNECTION_RESEARCH.md)
-- [开发路线图](DEVELOPMENT_ROADMAP.md)
-- [功能差距分析](FEATURE_GAP_ANALYSIS.md)
+- [路线图与功能差距分析](ROADMAP.md)
+- [路线图与功能差距分析](ROADMAP.md)
 - [上游实现选择策略](../specs/upstream/SELECTION_STRATEGY.md)
 - [架构说明](../architecture/ARCHITECTURE.md)
 - [FFI API 清单](../../bridge/ffi/API_CATALOG.md)
+
+---
+
+## 十、与 QGC / MP 的架构对比
+
+参考实现：QGroundControl 4.x、Mission Planner 1.3.x、本地 checkout 见
+[关联研究](../research/MULTIVEHICLE_CONNECTION_RESEARCH.md)。
+
+### QGC：链路与车辆解耦（M-GCS 主要参考结构）
+
+- 链路先于车辆存在；心跳合格后才创建 Vehicle。
+- 同一 sysid 可由多条 Link 报告，合并到一个 Vehicle（`VehicleLinkManager`）。
+- primary/secondary 失效自动切换；通信丢失分“单链路丢失 / 全链路丢失”。
+- 忽略列表避免手动关闭后立即重发现。
+
+### MP：单链路单机 + ArduPilot 语义（M-GCS 主要参考行为）
+
+- 一个 `MAVLinkInterface` 对应一个 sysid/compid；多机靠多个实例。
+- 无共享链路，UDP 多机需多个 socket。
+- 命令 API 显式携带 sysid/compid，ArduPilot 现场语义成熟。
+
+### M-GCS：QGC 结构 + MP 单机稳定性
+
+```cpp
+LinkSession {                 // 传输 + 单次解析 + peer
+  MavlinkRouter               // 按 (sysid, compid) 路由
+}
+VehicleSession {              // 稳定 vehicle_id + 独立子系统
+  // 遥测/参数/任务/消息/校准/波形/signing 全部实例隔离
+}
+FleetManager {                // activeVehicle + selectedVehicles
+}
+```
+
+### 能力对标
+
+| 能力维度 | QGC 4.x | MP 1.3.x | M-GCS 0.0.80 |
+| --- | :---: | :---: | --- |
+| 共享 UDP 多机解复用 | ✓ | ✗ | ✓ |
+| 串口/TCP 共享链路 | ✓ | ✗ | ✓（本地回归，现场待补） |
+| 同机多链路合并 | ✓ | ✗ | ✓ route 归并 |
+| 心跳自动发现 | ✓ | ✓ | ✓ |
+| 链路质量跟踪 | ✓ | 基础 | ✓ route health/primary |
+| 通信丢失检测 | ✓ 分级 | ✓ | 部分（需细化分级） |
+| 忽略列表 | ✓ | ✗ | 短暂抑制（30 秒） |
+| 按车辆状态隔离 | ✓ | ✓ | ✓ |
+| 异步操作取消 | ✓ | 部分 | 部分（按 Vehicle 已支持） |
+| 任务文档隔离 | ✓ | ✓ | ✓ |
+| 地图显示多机 | ✓ | ✓ | ✓ 基础图层 |
+| 批量选择 | ✓ | ✗ | ✓ `selectedVehicles` |
+| 批量命令 | ✓ | ✗ | ✓ 解锁/上锁/返航/开始任务 |
+
+**总体：已对齐 QGC 的共享链路分发结构，并保留 MP 的单机稳定性。** 剩余差距集中在
+ComplexItem 语义编辑、系统 UID/固件产品取舍和真实飞控总线验收。
+
+---
+
+## 十一、验证证据
+
+最近一次本地验证结果：
+
+| 项目 | 结果 |
+| --- | --- |
+| 后端 `ctest offline|simulation` | 37/37 通过 |
+| Flutter analyze | 通过 |
+| Flutter 常规测试 | 123 个通过（另有 4 个真实 FFI 测试按环境变量跳过） |
+| 真实 Fleet FFI UDP 测试 | 4 个通过，默认无 `MGCS_FLEET_LIBRARY` 时跳过 |
+| Python 双 UDP smoke | 2 轮通过 |
+| macOS debug build | 通过 |
+| UI token scan | 通过 |
+| `git diff --check` | 通过 |
+
+真实 UDP 测试覆盖：
+
+- 两个独立 UDP endpoint，各自一架飞机。
+- 同一 UDP endpoint 上 sysid 1/2 各自形成独立 Vehicle。
+- 关闭共享 endpoint 中一架后，另一架继续接收和切换；最后一架关闭后才关闭共享 socket。
+- `MAG_CAL_PROGRESS` ArduPilot 兼容帧仍能到达目标适配器。
+- A → B → A 后旧命令确认凭证失效。
+- 批量 `mission_start` 显式目标分派；候选密钥自动探测已签名心跳。
+
+运行真实 FFI 测试：
+
+```bash
+cd flutter_shell
+MGCS_FLEET_LIBRARY="$PWD/../build/mgcore.dylib" \
+  flutter test --no-pub test/fleet_ffi_smoke_test.dart
+```
+
+---
+
+## 十二、尚未实现或仍不完整的部分
+
+### MV3 生命周期剩余
+
+- 永久忽略 / 显式重连的产品策略仍未定（当前只做 30 秒短暂抑制）。
+- 真实串口总线和多机现场验收未完成（UDP/TCP loopback/PTY 已有本地回归）。
+- 系统 UID 是否作为车辆身份主键、UID 冲突如何处理，待产品确认。
+
+### MV4 异步操作剩余
+
+- 后端取消/超时边界已完成；旧任务面板、对话框、地图交互的最终形态和真实飞控
+  总线验收保留给用户评估。
+
+### MV5 多机地图剩余
+
+- active 地图已接入围栏多边形、圆形围栏、越界返航点和 Rally 点；非 active 只保留
+  弱化任务路径。
+- Survey / Corridor 等 QGC 复杂项仍需要进一步的编辑与分层控制。
+
+### 产品取舍（阻塞，非技术）
+
+- `DEAD-001` 固件刷写：实现完整流程，或明确标为 out of scope。
+- `PARAM-002` 参数元数据：需先确定覆盖率阈值才能判定完成。
+
+---
+
+## 十三、需要审核确认的事项
+
+1. **UDP 行为变化**
+   - `mg_connection_open("udp://...")` 现在返回物理 link handle，心跳到达后才创建 Vehicle。
+   - 外部旧调用方需要改用 `mg_connection_list()` 读取链路与车辆映射。
+
+2. **一机多链路身份规则**
+   - 当前 managed endpoint 按 `sysid/compid` 合并到同一 Vehicle。
+   - 是否进一步使用系统 UID 作为身份主键，仍需产品确认。
+
+3. **手动关闭后的重发现策略**
+   - 用户主动关闭一架飞机后，同一 sysid 继续发心跳时是否应自动重新加入？
+   - QGC 用忽略列表避免立即复活；当前 M-GCS 只做关闭过程中的短暂抑制。

@@ -82,7 +82,7 @@ cmake --build build_check --config Release
   不允许出现顶对齐／底对齐造成的错位
 - 数字读数使用 `MgAnimatedNumber`，并保留等宽数字（`tabularFigures`）
 - **字体跨平台必须统一，并以 macOS 端的设计为基准**（依据见
-  `docs/adr/0007-unified-font-stack.md`）：
+  `docs/architecture/adr/0007-unified-font-stack.md`）：
   - 同一段文字在 macOS / Windows / Linux 上必须由同一款字体渲染，
     不允许按平台各挑一套系统字体
   - 字体族、字重、字号、行高的取值一律以 mac 端效果为准，其他平台向它对齐，

@@ -25,6 +25,7 @@ final class FleetFfiBackend implements FleetBackend {
     _closeRoute = _withId(library, 'mg_connection_close_route');
     _select = _withId(library, 'mg_vehicle_select');
     _sessionStatus = _withId(library, 'mg_vehicle_get_session_status');
+    _sessionMission = _withId(library, 'mg_vehicle_get_session_mission');
     _list = library
         .lookupFunction<
           Pointer<Utf8> Function(Pointer<Void>),
@@ -48,10 +49,12 @@ final class FleetFfiBackend implements FleetBackend {
   late final Pointer<Utf8> Function(Pointer<Void>, int) _close,
       _closeRoute,
       _select,
-      _sessionStatus;
+      _sessionStatus,
+      _sessionMission;
   late final Pointer<Utf8> Function(Pointer<Void>) _list;
   late final Pointer<Utf8> Function(Pointer<Void>) _connectionList;
   late final int Function(Pointer<Void>) _active;
+  final Map<int, _CachedFleetMission> _missionCache = {};
 
   Pointer<Utf8> Function(Pointer<Void>, int) _withId(
     DynamicLibrary library,
@@ -162,15 +165,48 @@ final class FleetFfiBackend implements FleetBackend {
           vehicleType: item['vehicle_type'] as String? ?? '',
           connected: connected,
           state: connected ? 'connected' : 'waiting_heartbeat',
+          armed: item['armed'] == true,
+          flightMode: item['flight_mode'] as String? ?? '',
+          batteryRemainingPercent:
+              (telemetry?['battery_remaining_pct'] as num?)?.toInt() ??
+              (item['battery_remaining_pct'] as num?)?.toInt(),
+          gpsFixType:
+              (telemetry?['gps_fix_type'] as num?)?.toInt() ??
+              (item['gps_fix_type'] as num?)?.toInt(),
+          satellitesVisible:
+              (telemetry?['gps_satellites'] as num?)?.toInt() ??
+              (item['gps_satellites'] as num?)?.toInt(),
           positionValid: telemetry?['position_valid'] == true,
           latitude: (telemetry?['lat_deg'] as num?)?.toDouble() ?? 0,
           longitude: (telemetry?['lon_deg'] as num?)?.toDouble() ?? 0,
           altitudeMeters: (telemetry?['alt_msl_m'] as num?)?.toDouble(),
           headingDegrees: (telemetry?['heading_deg'] as num?)?.toDouble(),
+          homePositionValid: telemetry?['home_valid'] == true,
+          homeLatitude: (telemetry?['home_lat_deg'] as num?)?.toDouble() ?? 0,
+          homeLongitude: (telemetry?['home_lon_deg'] as num?)?.toDouble() ?? 0,
+          homeAltitudeMeters: (telemetry?['home_alt_msl_m'] as num?)
+              ?.toDouble(),
+          missionValid: telemetry?['mission_valid'] == true,
+          missionTotal: (telemetry?['mission_total'] as num?)?.toInt() ?? 0,
+          missionCurrentIndex:
+              (telemetry?['mission_current_index'] as num?)?.toInt() ?? 0,
+          missionRevision:
+              (telemetry?['mission_revision'] as num?)?.toInt() ?? 0,
+          missionPoints: _missionPointsFor(
+            id,
+            (telemetry?['mission_revision'] as num?)?.toInt() ?? 0,
+          ),
+          linkCount: (item['link_count'] as num?)?.toInt() ?? 0,
+          healthyLinkCount: (item['healthy_link_count'] as num?)?.toInt() ?? 0,
+          communicationLost: item['communication_lost'] == true,
+          primaryHeartbeatAgeMs:
+              (item['primary_heartbeat_age_ms'] as num?)?.toInt() ?? 0,
         ),
       );
     }
     vehicles.sort((a, b) => a.id.compareTo(b.id));
+    final liveIds = vehicles.map((vehicle) => vehicle.id).toSet();
+    _missionCache.removeWhere((id, _) => !liveIds.contains(id));
     final active = _active(_core);
     return FleetSnapshot(
       vehicles: vehicles,
@@ -178,4 +214,40 @@ final class FleetFfiBackend implements FleetBackend {
       activeVehicleId: vehicles.any((v) => v.id == active) ? active : null,
     );
   }
+
+  List<FleetMissionPoint> _missionPointsFor(int vehicleId, int revision) {
+    final cached = _missionCache[vehicleId];
+    if (cached != null && cached.revision == revision) return cached.points;
+    final raw = _read(_sessionMission(_core, vehicleId));
+    final points = <FleetMissionPoint>[];
+    if (raw is Map && raw['success'] == true && raw['items'] is List) {
+      for (final item in raw['items'] as List) {
+        if (item is! Map) continue;
+        final latitude = (item['lat_deg'] as num?)?.toDouble();
+        final longitude = (item['lon_deg'] as num?)?.toDouble();
+        if (latitude == null || longitude == null) continue;
+        points.add(
+          FleetMissionPoint(
+            sequence: (item['seq'] as num?)?.toInt() ?? 0,
+            command: (item['command'] as num?)?.toInt() ?? 0,
+            frame: (item['frame'] as num?)?.toInt() ?? 0,
+            latitude: latitude,
+            longitude: longitude,
+            altitudeMeters: (item['alt_m'] as num?)?.toDouble() ?? 0,
+            current: item['current'] == true,
+          ),
+        );
+      }
+    }
+    final stable = List<FleetMissionPoint>.unmodifiable(points);
+    _missionCache[vehicleId] = _CachedFleetMission(revision, stable);
+    return stable;
+  }
+}
+
+final class _CachedFleetMission {
+  const _CachedFleetMission(this.revision, this.points);
+
+  final int revision;
+  final List<FleetMissionPoint> points;
 }

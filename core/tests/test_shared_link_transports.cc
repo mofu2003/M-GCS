@@ -212,9 +212,9 @@ void test_shared_tcp_transport() {
     CHECK(manager.managed_links().size() == 2,
           "TCP route map exposes both vehicles");
 
-    if (link_id > 0) manager.close_link(link_id);
     stop.store(true, std::memory_order_release);
     if (peer.joinable()) peer.join();
+    if (link_id > 0) manager.close_link(link_id);
     if (listener != MG_INVALID_SOCKET) {
         mg::core::platform::socket_close(listener);
     }

@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <future>
+#include <cstdint>
 
 inline char* to_cstr(const std::string& s) {
     char* c = static_cast<char*>(malloc(s.size() + 1));
@@ -74,6 +76,15 @@ struct EventDispatcher {
 struct mg_core_t {
     mg::core::vehicle::MultiVehicleManager vehicles;
     std::shared_ptr<mg::core::vehicle::Vehicle> fallback_vehicle;
+
+    struct CommandJob {
+        int vehicle_id;
+        std::future<std::string> result;
+    };
+    mg::core::platform::Mutex command_jobs_mtx;
+    std::map<uint64_t, CommandJob> command_jobs;
+    uint64_t next_command_job = 1;
+    bool command_jobs_stopping = false;
 
     EventDispatcher                        events;
     mg::core::platform::Mutex             core_mtx;

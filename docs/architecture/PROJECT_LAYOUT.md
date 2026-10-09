@@ -1,7 +1,7 @@
 # 项目结构
 
-当前版本基线：`0.0.79`。本文件只描述代码组织，具体接口和状态以
-[`ARCHITECTURE.md`](ARCHITECTURE.md) 与 [`../planning/STATUS_AUDIT.md`](../planning/STATUS_AUDIT.md) 为准。
+当前版本基线：`0.0.80`。本文件只描述代码组织，具体接口和状态以
+[`ARCHITECTURE.md`](ARCHITECTURE.md) 与 [`../planning/CURRENT_STATE.md`](../planning/CURRENT_STATE.md) 为准。
 
 ## 顶层目录
 

@@ -3,7 +3,7 @@
 M-GCS 是一款面向 ArduPilot / PX4 的跨平台地面站工程，当前由 C++ 后端、C FFI
 契约和 Flutter 外壳组成。
 
-当前版本：`0.0.79`
+当前版本：`0.0.80`
 
 ## 仓库范围
 
@@ -41,9 +41,8 @@ third_party/          MAVLink 定义、cJSON 等第三方源码
   HUD 刷新。
 - 统一 MiSans 字体、macOS 风格组件和设计 token 检查。
 
-维护状态和“什么算做完”见 [完成定义与后端维护收口](docs/planning/DEFINITION_OF_DONE.md)
-与 [当前状态审计](docs/planning/STATUS_AUDIT.md)。QGC/MP 能力差距、项目定位和
-后续优先级见 [功能差距分析](docs/planning/FEATURE_GAP_ANALYSIS.md)。
+维护状态和“什么算做完”见 [当前状态与完成定义](docs/planning/CURRENT_STATE.md)。QGC/MP 能力差距、项目定位和
+后续优先级见 [路线图与功能差距分析](docs/planning/ROADMAP.md)。
 
 ## 快速验证
 
@@ -106,7 +105,7 @@ bridge/ffi/ffi_api.h
 
 从 [`docs/README.md`](docs/README.md) 开始。任务规划的当前契约是
 [`docs/specs/MISSION_PLANNING.md`](docs/specs/MISSION_PLANNING.md)，当前审计是
-[`docs/planning/STATUS_AUDIT.md`](docs/planning/STATUS_AUDIT.md)。
+[`docs/planning/CURRENT_STATE.md`](docs/planning/CURRENT_STATE.md)。
 
 ## 发布
 

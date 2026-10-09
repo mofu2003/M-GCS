@@ -21,6 +21,12 @@ MGCORE_API char* mg_vehicle_get_session_status(mg_core_t* core, int vehicle_id) 
     const auto global_position = cache.snapshot_global_pos().data;
     const auto battery = cache.snapshot_battery().data;
     const auto sys_status = cache.snapshot_sys_status().data;
+    const auto home = cache.snapshot_home().data;
+    const auto* mav = vehicle->mavlink();
+    const auto mission_snapshot = mav
+        ? mav->mission_get_plan_snapshot()
+        : mg::core::mission::MissionPlanSnapshot{};
+    const auto& mission = mission_snapshot.plan;
 
     const bool gps_fresh = cache.is_fresh(mg::bridge::TelemetryType::kGps);
     const bool vfr_fresh = cache.is_fresh(mg::bridge::TelemetryType::kVfrHud);
@@ -28,6 +34,8 @@ MGCORE_API char* mg_vehicle_get_session_status(mg_core_t* core, int vehicle_id) 
         cache.is_fresh(mg::bridge::TelemetryType::kGlobalPosition);
     const bool battery_fresh = cache.is_fresh(mg::bridge::TelemetryType::kBattery);
     const bool sys_status_fresh = cache.is_fresh(mg::bridge::TelemetryType::kSysStatus);
+    const bool home_fresh =
+        cache.is_fresh(mg::bridge::TelemetryType::kHomePosition, 60000);
 
     const int satellite_count = gps.satellites_visible == UINT8_MAX
         ? -1
@@ -80,9 +88,70 @@ MGCORE_API char* mg_vehicle_get_session_status(mg_core_t* core, int vehicle_id) 
     else data.raw_field("battery_voltage_v", "null");
     if (battery_remaining >= 0) data.field("battery_remaining_pct", battery_remaining);
     else data.raw_field("battery_remaining_pct", "null");
+    data.field("home_valid", home_fresh);
+    data.field("home_lat_deg", home_fresh ? home.latitude / 1e7 : 0.0);
+    data.field("home_lon_deg", home_fresh ? home.longitude / 1e7 : 0.0);
+    data.field("home_alt_msl_m", home_fresh ? home.altitude / 1000.0 : 0.0);
+    data.field("mission_valid", mission.valid);
+    data.field("mission_total", static_cast<int>(mission.items.size()));
+    data.field("mission_current_index",
+               static_cast<int>(mission.current_index));
+    data.field("mission_revision",
+               static_cast<int64_t>(mission_snapshot.provenance.plan_revision));
     data.end_object();
 
     return mg::bridge::ffi::v2::ok(data.str());
+}
+
+MGCORE_API char* mg_vehicle_get_session_mission(mg_core_t* core,
+                                                   int vehicle_id) {
+    CHECK_CORE_RET(core, mg::bridge::ffi::v2::error("CORE_NULL", "null core"));
+    const auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
+    if (!vehicle) {
+        return mg::bridge::ffi::v2::error("SESSION_NOT_FOUND",
+                                          "vehicle session not found");
+    }
+    const auto* mav = vehicle->mavlink();
+    const auto snapshot = mav
+        ? mav->mission_get_plan_snapshot()
+        : mg::core::mission::MissionPlanSnapshot{};
+
+    JsonBuilder items;
+    items.begin_array();
+    for (const auto& item : snapshot.plan.items) {
+        if (item.mission_type != 0) continue;
+        // Only geographic mission frames belong on the map. Local frames
+        // (e.g. takeoff/landing offsets) cannot be interpreted as WGS-84.
+        if (item.frame != 0 && item.frame != 3 && item.frame != 5 &&
+            item.frame != 6) {
+            continue;
+        }
+        JsonBuilder entry;
+        entry.begin_object();
+        entry.field("seq", static_cast<int>(item.seq));
+        entry.field("command", static_cast<int>(item.command));
+        entry.field("frame", static_cast<int>(item.frame));
+        entry.field("lat_deg", item.x / 1e7);
+        entry.field("lon_deg", item.y / 1e7);
+        entry.field("alt_m", item.z);
+        entry.field("current", item.current != 0);
+        entry.end_object();
+        items.append_json(entry.str());
+    }
+    items.end_array();
+
+    JsonBuilder result;
+    result.begin_object();
+    result.field("success", true);
+    result.field("vehicle_id", vehicle_id);
+    result.field("valid", snapshot.plan.valid);
+    result.field("revision",
+                 static_cast<int64_t>(snapshot.provenance.plan_revision));
+    result.field("current_index",
+                 static_cast<int>(snapshot.plan.current_index));
+    result.raw_field("items", items.str());
+    result.end_object();
+    return mg::bridge::ffi::v2::ok(result.str());
 }
 
 MGCORE_API char* mg_vehicle_get_global_position(mg_core_t* core) {

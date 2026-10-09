@@ -27,15 +27,15 @@ and a migration note have been published.
 
 | Area | Preferred API |
 | --- | --- |
-| Lifecycle | `mg_create`, `mg_destroy`, `mg_free_string` |
+| Lifecycle | `mg_create`, `mg_destroy`, `mg_free_string`, `mg_get_version`。`mg_get_version` 返回 `MGCORE_VERSION_MAJOR.MINOR.PATCH`，与 `CMakeLists.txt` 的 `project(mgcore VERSION ...)` 保持同步，由 `tools/release.sh` 统一升级、`tools/preflight.sh` 校验一致 |
 | Connection | `mg_connection_open`, `mg_connection_list`, `mg_connection_get_session_state`, `mg_connection_close`, `mg_connection_close_route`, `mg_vehicle_select`, `mg_connection_get_diagnostics` |
-| MAVLink signing | `mg_vehicle_set_signing_key`, `mg_vehicle_clear_signing_key`, `mg_vehicle_get_signing_status`, `mg_vehicle_send_setup_signing`。密钥是由 64 个十六进制字符表示的 32 字节；时间戳单位为 2015-01-01 起的 10µs ticks。设置/下发会应用到该 Vehicle 的所有 route |
+| MAVLink signing | `mg_vehicle_set_signing_key`, `mg_vehicle_set_signing_candidates`, `mg_vehicle_clear_signing_candidates`, `mg_vehicle_clear_signing_key`, `mg_vehicle_get_signing_status`, `mg_vehicle_send_setup_signing`。密钥是由 64 个十六进制字符表示的 32 字节；时间戳单位为 2015-01-01 起的 10µs ticks。设置/下发会应用到该 Vehicle 的所有 route |
 | Session telemetry | `mg_vehicle_get_session_status` |
 | Dashboard | `mg_telemetry_get_dashboard_snapshot`, `mg_system_get_diagnostics`。后者还包含最近的 `parameter_history` 写入结果（requested/actual/state/error/timestamps） |
 | Flight messages | `mg_telemetry_get_messages(core, since_seq)`。返回飞控 STATUSTEXT 历史（后端保留最近 200 条）与 `total`；只返回 `seq` 大于 `since_seq` 的条目，供前端增量追加。每条含 `seq` / `timestamp_ms` / `severity` / `severity_name` / `text` |
 | Map position / flight HUD | `mg_vehicle_get_global_position`（WGS84 经纬度/海拔/相对高度/航向）、`mg_vehicle_get_vfr_hud`（空速/地速/海拔/航向）、`mg_vehicle_get_home_position`（Home 点）。地图用它画 Home、飞机标记和飞行读数悬浮窗 |
 | Sensor waveform | `mg_waveform_poll`, `mg_waveform_clear`, `mg_waveform_get_instances` |
-| Long operations | `mg_operations_get_snapshot`, `mg_operations_cancel`。快照统一包含 `params`、`mission`、`fence`、`rally`、`calibration`、`log`；`mission`/`fence`/`rally` 使用同一套 `state`/`progress_pct`/`received`/`sent`/`total`/`result`/`error` 字段。已接入的取消操作分别为参数流下载、任务上传/下载、校准和日志下载。空闲或已完成操作返回 `canceled:false` |
+| Long operations | `mg_operations_get_snapshot`, `mg_operations_cancel`, `mg_operations_get_snapshot_for_vehicle`, `mg_operations_cancel_for_vehicle`。快照统一包含 `params`、`mission`、`fence`、`rally`、`calibration`、`log`；`mission`/`fence`/`rally` 使用同一套 `state`/`progress_pct`/`received`/`sent`/`total`/`retry_count`/`result`/`error` 字段，参数同步额外返回 `missing_count`、`failed_count`。按 Vehicle 的接口使用线程局部目标覆盖，不改变 UI active focus；已接入的取消操作分别为参数流下载、任务/围栏/Rally 上传下载、校准和日志下载。空闲或已完成操作返回 `canceled:false` |
 | Parameters | `mg_params_request_all`, `mg_params_refresh`, `mg_params_get_refresh_status`, `mg_params_get_progress`, `mg_params_get_all`, `mg_params_get_by_name`, `mg_params_set`, `mg_params_prepare_change_set`, `mg_params_commit_change_set` |
 | Parameter write (UI) | `mg_config_write_param`, `mg_config_write_params`。带描述库校验的前端写入入口；read-only、枚举、范围或 bool 不合法会返回 `success:false`，批量写入还返回逐项 `errors`。相比 `mg_params_set` 的差别是不要求参数表已完整下载，缺失的类型回退到 REAL32 |
 | Parameter metadata/files | `mg_config_read_param`, `mg_config_get_groups`, `mg_config_get_group_descriptor`, `mg_config_get_metadata_coverage`, `mg_param_file_export`, `mg_param_file_import` |
@@ -215,7 +215,8 @@ requires a completed full download, so the safe sequence is upload -> poll ->
 download -> poll -> `mg_mission_doc_verify`. Treating the upload return value
 as completion is a bug.
 
-`mg_operations_cancel("mission")` aborts an active mission read/write. The
+`mg_operations_cancel("mission")`, `("fence")` and `("rally")` abort the
+active transfer of the corresponding mission type. The
 backend resets the transfer state, marks it with
 `MAV_MISSION_OPERATION_CANCELLED`, and sends a matching `MISSION_ACK` to the
 vehicle. It returns `canceled:false` when no mission transfer is active; a
@@ -298,7 +299,7 @@ inspect or close the physical link, and `mg_connection_close_route` to remove
 one vehicle route from a shared link. These operations do not depend on
 selection.
 
-`mg_vehicle_set_signing_key` 接受 64 个十六进制字符的 32 字节密钥。signing 状态、link ID、timestamp 和 stream 表都归属具体 `MavlinkAdapter`；设置/清除会遍历该 Vehicle 的全部 route。`mg_vehicle_get_signing_status` 返回 `enabled`、`status` 和 `status_code`，状态包括 `ok`、`bad_signature`、`old_timestamp`、`replay` 等。`mg_vehicle_send_setup_signing` 发送未签名的 SETUP_SIGNING 消息，用于把密钥和初始时间戳交给飞控。
+`mg_vehicle_set_signing_key` 接受 64 个十六进制字符的 32 字节密钥。signing 状态、link ID、timestamp 和 stream 表都归属具体 `MavlinkAdapter`；设置/清除会遍历该 Vehicle 的全部 route。`mg_vehicle_set_signing_candidates` 接受 `[{name,key_hex,timestamp_ticks}]`，收到已签名包时在核心层逐一验证 MAVLink2 HMAC，命中后自动启用并将密钥同步到全部 route。`mg_vehicle_get_signing_status` 返回 `enabled`、`status`、`status_code`、`key_name`、`auto_detected`、`candidate_count` 和 `timestamp_ticks`，状态包括 `ok`、`bad_signature`、`old_timestamp`、`replay` 等。`mg_vehicle_send_setup_signing` 发送未签名的 SETUP_SIGNING 消息，用于把密钥和初始时间戳交给飞控。
 
 `mg_vehicle_get_session_status` reads GPS fix/satellite count, WGS-84
 position/altitude, heading, battery voltage/remaining percentage, and link
@@ -323,7 +324,7 @@ changes. List/status reads do not select vehicles. `mg_vehicle_list` holds a
 shared lifetime snapshot while serializing entries to survive registry removal.
 This does not yet provide shared-link multi-system discovery, component-scoped
 telemetry or explicit vehicle-target flight commands. See
-[the implementation plan](../../docs/planning/MULTI_VEHICLE_PLAN.md).
+[the implementation plan](../../docs/planning/MULTI_VEHICLE.md).
 
 ### Targeted flight command routing
 
@@ -348,3 +349,5 @@ The JSON payload contains `command` and optional `args`; see
 3. Preserve JSON envelope and ownership rules.
 4. Mark replacements as compatibility before removal; do not delete symbols
    based only on current first-party usage.
+| Session mission | `mg_vehicle_get_session_mission(core, vehicle_id)`；读取该 Vehicle 缓存的普通任务条目，返回 `valid`、`revision`、`current_index` 和 `items[{seq,command,frame,lat_deg,lon_deg,alt_m,current}]`；仅包含 mission_type=0 且可解释为 WGS-84 的 frame（0/3/5/6），不等价于完整任务文档；返回字符串由 `mg_free_string()` 释放 |
+| Async flight command | `mg_command_submit_for_vehicle(core, vehicle_id, command_json)` 返回 ticket；`mg_command_poll(core, ticket)` 非阻塞查询终态。单 Vehicle 同时只允许一个 worker，结果中的 `result.success` 必须由 ACK/状态确认决定；ticket 完成后只能消费一次。 |

@@ -2,9 +2,13 @@
 // sessions. No flight command, user port, SITL or hardware is touched.
 // MGCS_FLEET_LIBRARY=/absolute/path/to/mgcore.dylib flutter test --no-pub test/fleet_ffi_smoke_test.dart
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mgcs_frontend/connection/connection_controller.dart';
@@ -13,9 +17,97 @@ import 'package:mgcs_frontend/fleet/fleet_ffi_backend.dart';
 import 'package:mgcs_frontend/fleet/fleet_models.dart';
 
 const _heartbeats = <List<int>>[
-  [253, 9, 0, 0, 0, 1, 1, 0, 0, 0, 4, 0, 0, 0, 2, 3, 1, 4, 3, 109, 123],
-  [253, 9, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 2, 3, 1, 4, 3, 143, 19],
+  [253, 9, 0, 0, 0, 1, 1, 0, 0, 0, 4, 0, 0, 0, 2, 3, 129, 4, 3, 3, 86],
+  [253, 9, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 2, 3, 129, 4, 3, 225, 62],
 ];
+
+List<int> _freshSignedAutoDetectHeartbeat() {
+  final packet = <int>[
+    253,
+    9,
+    1,
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    2,
+    3,
+    1,
+    4,
+    3,
+    22,
+    51,
+    42,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+  ];
+  final key = <int>[
+    0x00,
+    0x11,
+    0x22,
+    0x33,
+    0x44,
+    0x55,
+    0x66,
+    0x77,
+    0x88,
+    0x99,
+    0xaa,
+    0xbb,
+    0xcc,
+    0xdd,
+    0xee,
+    0xff,
+    0x10,
+    0x20,
+    0x30,
+    0x40,
+    0x50,
+    0x60,
+    0x70,
+    0x80,
+    0x90,
+    0xa0,
+    0xb0,
+    0xc0,
+    0xd0,
+    0xe0,
+    0xf0,
+    0x01,
+  ];
+  final ticks =
+      (DateTime.now().microsecondsSinceEpoch - 1420070400000000) ~/ 10;
+  for (var index = 0; index < 6; index++) {
+    packet[22 + index] = (ticks >> (8 * index)) & 0xff;
+  }
+  final digest = sha256.convert(
+    Uint8List.fromList(<int>[
+      ...key,
+      ...packet.sublist(0, 21),
+      ...packet.sublist(21, 28),
+    ]),
+  );
+  packet.setRange(28, 34, digest.bytes.take(6));
+  return packet;
+}
 
 void main() {
   final libraryPath = Platform.environment['MGCS_FLEET_LIBRARY'];
@@ -203,6 +295,9 @@ void main() {
         }
         expect(controller.sessionId, vehicleIds.first);
         expect(controller.vehicleFlightMode, 'Guided');
+        controller.waveformImuPointCount = 17;
+        controller.flightTimeSeconds = 42.5;
+        controller.flightDistanceMeters = 321.0;
         final missionA = controller.missionPlanning;
         await missionA.initialize();
         await missionA.create({
@@ -227,6 +322,12 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
         expect(controller.vehicleFlightMode, 'Stabilize');
+        expect(controller.waveformImuPointCount, 0);
+        expect(controller.flightTimeSeconds, 0);
+        expect(controller.flightDistanceMeters, 0);
+        controller.waveformImuPointCount = 23;
+        controller.flightTimeSeconds = 84.0;
+        controller.flightDistanceMeters = 654.0;
         final missionB = controller.missionPlanning;
         await missionB.initialize();
         expect(missionB.document?.metadata.name, isNot('Aircraft A draft'));
@@ -260,6 +361,14 @@ void main() {
         }
         expect(controller.sessionId, vehicleIds.first);
         expect(controller.vehicleFlightMode, 'Guided');
+        // Waveform samples are intentionally not cached across a switch;
+        // flight statistics are restored from the vehicle runtime snapshot.
+        expect(controller.waveformImuPointCount, 0);
+        // Flight time is derived from a running stopwatch, so it advances by a
+        // few milliseconds between arming and the assertion. Compare with a
+        // tolerance instead of exact equality.
+        expect(controller.flightTimeSeconds, closeTo(42.5, 0.5));
+        expect(controller.flightDistanceMeters, 321.0);
         expect(controller.guidedTargetValid, isFalse);
         expect(controller.guidedTargetPosition, isNull);
         expect(identical(controller.missionPlanning, missionA), isTrue);
@@ -267,6 +376,24 @@ void main() {
           (await missionA.backend.getMissionDocument()).metadata.name,
           'Aircraft A draft',
         );
+
+        // MV6: the production backend must dispatch an explicit batch action
+        // to both simulated vehicles without moving active focus.
+        final activeBeforeBatch = rawFleet.snapshot.activeVehicleId;
+        rawFleet.selectAllVehicles();
+        final batchTarget = rawFleet.captureBatchTarget(
+          FleetBatchAction.startMission,
+        );
+        final batchResult = await rawFleet.runBatch(batchTarget);
+        // The loopback smoke sender publishes a fixed Guided heartbeat and
+        // does not model the post-MISSION_START mode transition. The backend
+        // must report that state-confirmation failure rather than a false
+        // success; a real simulator/FC can complete this workflow.
+        expect(batchResult.allSucceeded, isFalse);
+        expect(batchResult.results.every((item) => !item.success), isTrue);
+        expect(batchResult.results.map((item) => item.vehicleId), vehicleIds);
+        expect(rawFleet.snapshot.activeVehicleId, activeBeforeBatch);
+        rawFleet.clearVehicleSelection();
 
         // Attempting to reopen an existing endpoint must not drop active A.
         final endpoint = Uri.parse(
@@ -319,6 +446,137 @@ void main() {
         ? 'Set MGCS_FLEET_LIBRARY for actual native smoke'
         : false,
   );
+  test(
+    'native signing candidates auto-detect a signed heartbeat',
+    () async {
+      await runSigningAutoDetectSmoke(libraryPath!);
+    },
+    skip: libraryPath == null
+        ? 'Set MGCS_FLEET_LIBRARY for actual native smoke'
+        : false,
+  );
+}
+
+Future<void> runSigningAutoDetectSmoke(String libraryPath) async {
+  final library = DynamicLibrary.open(libraryPath);
+  final create = library
+      .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
+        'mg_create',
+      );
+  final destroy = library
+      .lookupFunction<
+        Void Function(Pointer<Void>),
+        void Function(Pointer<Void>)
+      >('mg_destroy');
+  final freeString = library
+      .lookupFunction<
+        Void Function(Pointer<Utf8>),
+        void Function(Pointer<Utf8>)
+      >('mg_free_string');
+  final setCandidates = library
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Void>, Int32, Pointer<Utf8>),
+        Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>)
+      >('mg_vehicle_set_signing_candidates');
+  final getSigningStatus = library
+      .lookupFunction<
+        Pointer<Utf8> Function(Pointer<Void>, Int32),
+        Pointer<Utf8> Function(Pointer<Void>, int)
+      >('mg_vehicle_get_signing_status');
+  final core = create();
+  final fleet = FleetController(FleetFfiBackend(library, core));
+  RawDatagramSocket? sender;
+  Timer? heartbeatTimer;
+  int? linkId;
+  try {
+    final probe = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = probe.port;
+    probe.close();
+    linkId = fleet.openLink(FleetConnectionSpec('udp://127.0.0.1:$port'));
+    sender = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+    void heartbeat() =>
+        sender!.send(_heartbeats[0], InternetAddress.loopbackIPv4, port);
+    heartbeat();
+    heartbeatTimer = Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) => heartbeat(),
+    );
+
+    final discoveryDeadline = DateTime.now().add(const Duration(seconds: 4));
+    while (fleet.snapshot.vehicles.isEmpty &&
+        DateTime.now().isBefore(discoveryDeadline)) {
+      fleet.refresh();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    expect(fleet.snapshot.vehicles, isNotEmpty);
+    final id = fleet.snapshot.vehicles.first.id;
+
+    final candidatesJson = jsonEncode([
+      {
+        'name': 'AutoKey',
+        'key_hex':
+            '00112233445566778899aabbccddeeff'
+            '102030405060708090a0b0c0d0e0f001',
+        'timestamp_ticks': 0,
+      },
+    ]);
+    final nativeJson = candidatesJson.toNativeUtf8();
+    try {
+      final response = setCandidates(core, id, nativeJson);
+      if (response == nullptr) throw StateError('empty candidate response');
+      try {
+        final decoded = jsonDecode(response.toDartString());
+        expect(
+          decoded,
+          isA<Map>().having((m) => m['success'], 'success', true),
+        );
+      } finally {
+        freeString(response);
+      }
+    } finally {
+      malloc.free(nativeJson);
+    }
+
+    heartbeatTimer.cancel();
+    heartbeatTimer = null;
+    sender.send(
+      _freshSignedAutoDetectHeartbeat(),
+      InternetAddress.loopbackIPv4,
+      port,
+    );
+
+    Map<Object?, Object?>? status;
+    final detectDeadline = DateTime.now().add(const Duration(seconds: 3));
+    while (DateTime.now().isBefore(detectDeadline)) {
+      final raw = getSigningStatus(core, id);
+      if (raw == nullptr) break;
+      try {
+        final decoded = jsonDecode(raw.toDartString());
+        if (decoded is Map) {
+          status = decoded;
+          if (decoded['auto_detected'] == true) break;
+        }
+      } finally {
+        freeString(raw);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    expect(status?['auto_detected'], isTrue);
+    expect(status?['enabled'], isTrue);
+    expect(status?['key_name'], 'AutoKey');
+  } finally {
+    heartbeatTimer?.cancel();
+    sender?.close();
+    if (linkId != null) {
+      try {
+        fleet.closeLink(linkId);
+      } on Object {
+        // Best effort during teardown.
+      }
+    }
+    fleet.dispose();
+    destroy(core);
+  }
 }
 
 Future<void> runSmoke(String libraryPath) async {

@@ -97,6 +97,11 @@ struct MavlinkAdapter::Impl {
     mavlink_signing_t signing{};
     mavlink_signing_streams_t signing_streams{};
     std::atomic<bool> signing_enabled{false};
+    std::vector<SigningCandidate> signing_candidates;
+    SigningDetectedCallback signing_detected_cb;
+    std::string signing_key_name;
+    bool signing_auto_detected = false;
+    std::chrono::steady_clock::time_point signing_detect_cooldown{};
     uint64_t          msg_count = 0;
     LinkQualityWindow  link_quality;
 
@@ -324,6 +329,9 @@ struct MavlinkAdapter::Impl {
 
     // 处理参数超时（在 process() 中调用）
     void process_param_timeouts();
+
+    // 处理所有协议定时任务：命令 ACK、任务/Rally/围栏传输和参数读写。
+    void process_timeouts();
 
     // 处理完整解码的 MAVLink 消息（获取锁，处理后在锁外执行回调）
     void process(const mavlink_message_t& m);

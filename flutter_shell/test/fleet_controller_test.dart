@@ -329,6 +329,95 @@ void main() {
     },
   );
 
+  test('batch selection is independent from active vehicle and cleans up', () {
+    final a = open(14550);
+    final b = open(14551);
+    expect(fleet.snapshot.activeVehicleId, a);
+
+    fleet.toggleVehicleSelection(a);
+    fleet.toggleVehicleSelection(b);
+    expect(fleet.selectedVehicleIds, {a, b});
+    expect(fleet.snapshot.activeVehicleId, a);
+
+    fleet.toggleVehicleSelection(a);
+    expect(fleet.selectedVehicleIds, {b});
+    fleet.selectAllVehicles();
+    expect(fleet.selectedVehicleIds, {a, b});
+    fleet.clearVehicleSelection();
+    expect(fleet.selectedVehicleIds, isEmpty);
+
+    fleet.toggleVehicleSelection(b);
+    fleet.closeLink(b);
+    expect(fleet.selectedVehicleIds, isEmpty);
+  });
+
+  test('batch target freezes explicit vehicle IDs and active focus', () async {
+    final calls = <int>[];
+    final batchFleet = FleetController(
+      backend,
+      executeBatchCommand: (vehicle, action) async {
+        calls.add(vehicle.id);
+        return FleetBatchCommandResult.success(
+          vehicleId: vehicle.id,
+          systemId: vehicle.systemId,
+        );
+      },
+    );
+    addTearDown(batchFleet.dispose);
+    final a = batchFleet.openLink(FleetConnectionSpec('udp://0.0.0.0:14550'));
+    final b = batchFleet.openLink(FleetConnectionSpec('udp://0.0.0.0:14551'));
+    batchFleet.selectVehicle(b);
+    batchFleet.toggleVehicleSelection(a);
+    batchFleet.toggleVehicleSelection(b);
+    final target = batchFleet.captureBatchTarget(
+      FleetBatchAction.returnToLaunch,
+    );
+
+    // Change selection after confirmation; the captured target must still be
+    // the only vehicles commanded and active focus must stay untouched.
+    batchFleet.clearVehicleSelection();
+    final result = await batchFleet.runBatch(target);
+
+    expect(calls, [a, b]);
+    expect(batchFleet.snapshot.activeVehicleId, b);
+    expect(result.successCount, 2);
+    expect(result.failureCount, 0);
+    expect(result.results.map((item) => item.vehicleId), [a, b]);
+  });
+
+  test(
+    'batch result keeps per-vehicle rejection instead of global success',
+    () async {
+      final batchFleet = FleetController(
+        backend,
+        executeBatchCommand: (vehicle, action) async => vehicle.id == 1
+            ? FleetBatchCommandResult.success(
+                vehicleId: vehicle.id,
+                systemId: vehicle.systemId,
+              )
+            : FleetBatchCommandResult.failure(
+                vehicleId: vehicle.id,
+                systemId: vehicle.systemId,
+                status: FleetBatchCommandStatus.rejected,
+                message: '飞控拒绝了该指令',
+              ),
+      );
+      addTearDown(batchFleet.dispose);
+      batchFleet.openLink(FleetConnectionSpec('udp://0.0.0.0:14550'));
+      batchFleet.openLink(FleetConnectionSpec('udp://0.0.0.0:14551'));
+      batchFleet.selectAllVehicles();
+      final result = await batchFleet.runBatch(
+        batchFleet.captureBatchTarget(FleetBatchAction.arm),
+      );
+
+      expect(result.allSucceeded, isFalse);
+      expect(result.successCount, 1);
+      expect(result.failureCount, 1);
+      expect(result.results.last.status, FleetBatchCommandStatus.rejected);
+      expect(result.results.last.message, '飞控拒绝了该指令');
+    },
+  );
+
   test('invalid IDs and invalid connection addresses are rejected', () {
     expect(() => fleet.selectVehicle(99), throwsStateError);
     expect(

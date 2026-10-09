@@ -5,6 +5,7 @@
 #include "core/firmware/firmware_adapter.h"
 #include "core/log/logging.h"
 #include <chrono>
+#include <algorithm>
 
 namespace mg::core::vehicle {
 
@@ -190,6 +191,8 @@ bool Vehicle::attach_shared_primary_route(
         return false;
     }
     {
+        mg::core::platform::LockGuard policy_lock(signing_policy_mtx_);
+        if (auto mav = connection->shared_mavlink()) inherit_signing(*mav);
         mg::core::platform::LockGuard lk(connections_mtx_);
         connections_[route_id] = connection;
         primary_route_id_ = route_id;
@@ -219,6 +222,9 @@ bool Vehicle::attach_shared_route(
         return false;
     }
     {
+        // Serialize registration with policy changes; no transport I/O here.
+        mg::core::platform::LockGuard policy_lock(signing_policy_mtx_);
+        if (auto mav = connection->shared_mavlink()) inherit_signing(*mav);
         mg::core::platform::LockGuard lk(connections_mtx_);
         if (connections_.count(route_id) != 0) return false;
         connections_[route_id] = connection;
@@ -263,7 +269,7 @@ void Vehicle::install_connection_state_callback(
             case mg::core::transport::ConnectionState::Disconnected: {
                 mg::core::telemetry::JsonBuilder jb;
                 jb.begin_object();
-                jb.field("connected", false);
+                jb.field("connected", is_connected());
                 jb.field("reason", reason ? reason : "");
                 jb.end_object();
                 fire_event(MG_EVENT_CONNECTION, jb.str());
@@ -281,6 +287,8 @@ void Vehicle::refresh_primary_connection() {
         // Keep the current primary when no health result is available yet.
         return;
     }
+    for (const auto* id : {"params", "mission", "fence", "rally", "log"})
+        (void)operation_mavlink(id);
     {
         mg::core::platform::LockGuard lk(connections_mtx_);
         primary_route_id_ = route_id;
@@ -292,6 +300,8 @@ void Vehicle::refresh_primary_connection() {
 }
 
 bool Vehicle::remove_shared_route(int route_id) {
+    for (const auto* id : {"params", "mission", "fence", "rally", "log"})
+        (void)operation_mavlink(id);
     std::shared_ptr<mg::core::transport::ConnectionManager> connection;
     {
         mg::core::platform::LockGuard lk(connections_mtx_);
@@ -301,7 +311,13 @@ bool Vehicle::remove_shared_route(int route_id) {
         connections_.erase(it);
         if (primary_route_id_ == route_id) primary_route_id_ = -1;
     }
-    if (connection) connection->disconnect();
+    if (connection) {
+        if (const auto mav = connection->shared_mavlink()) {
+            mav->cancel_param_download(); mav->mission_cancel();
+            mav->fence_cancel(); mav->rally_cancel(); mav->log_download_cancel();
+        }
+        connection->disconnect();
+    }
     link_manager_.remove_link(route_id);
     refresh_primary_connection();
     if (!is_connected()) state_.store(VehicleState::Disconnected);
@@ -344,10 +360,105 @@ size_t Vehicle::connection_count() const {
     return connections_.size();
 }
 
+void Vehicle::inherit_signing(mg::core::mavlink::MavlinkAdapter& mav) {
+    // Called under signing_policy_mtx_, before a route is made visible.
+    mav.set_signing_candidates(signing_candidates_);
+    if (signing_policy_) {
+        const auto& policy = *signing_policy_;
+        mav.set_signing_key(policy.key.data(), policy.key.size(), signing_policy_outgoing_,
+                            policy.persisted_timestamp, policy.name, signing_policy_detected_);
+    }
+}
+
+std::shared_ptr<mg::core::transport::ConnectionManager> Vehicle::command_connection() const {
+    return primary_connection();
+}
+
+bool Vehicle::all_routes_disconnected() const {
+    mg::core::platform::LockGuard lk(connections_mtx_);
+    for (const auto& [id, connection] : connections_) {
+        (void)id;
+        if (connection && connection->state() !=
+                mg::core::transport::ConnectionState::Disconnected) return false;
+    }
+    return true;
+}
+
+namespace {
+bool operation_active(mg::core::mavlink::MavlinkAdapter& mav, const std::string& id) {
+    if (id == "params") return mav.param_download_active();
+    if (id == "log") return mav.log_download_status().active;
+    const auto progress = id == "mission" ? mav.mission_get_progress()
+        : id == "fence" ? mav.fence_get_progress() : mav.rally_get_progress();
+    return progress.state != mg::core::mission::MissionState::Idle;
+}
+bool cancel_adapter_operation(mg::core::mavlink::MavlinkAdapter& mav, const std::string& id) {
+    if (id == "params") return mav.cancel_param_download();
+    if (id == "mission") return mav.mission_cancel();
+    if (id == "fence") return mav.fence_cancel();
+    if (id == "rally") return mav.rally_cancel();
+    if (id == "log") return mav.log_download_cancel();
+    return false;
+}
+}
+
+std::shared_ptr<mg::core::mavlink::MavlinkAdapter> Vehicle::operation_mavlink(const std::string& id) {
+    std::vector<std::shared_ptr<mg::core::transport::ConnectionManager>> routes;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        for (const auto& [route_id, connection] : connections_) {
+            (void)route_id;
+            if (connection) routes.push_back(connection);
+        }
+    }
+    for (const auto& connection : routes) {
+        auto mav = connection->shared_mavlink();
+        if (mav && operation_active(*mav, id)) {
+            mg::core::platform::LockGuard lk(operation_mtx_);
+            operation_adapters_[id] = mav;
+            return mav;
+        }
+    }
+    mg::core::platform::LockGuard lk(operation_mtx_);
+    const auto it = operation_adapters_.find(id);
+    if (it != operation_adapters_.end()) return it->second;
+    const auto primary = primary_connection();
+    return primary ? primary->shared_mavlink() : nullptr;
+}
+
+bool Vehicle::cancel_operation(const std::string& id) {
+    const auto owner = operation_mavlink(id);
+    bool cancelled = owner && cancel_adapter_operation(*owner, id);
+    std::vector<std::shared_ptr<mg::core::transport::ConnectionManager>> routes;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        for (const auto& [route_id, connection] : connections_) {
+            (void)route_id;
+            if (connection) routes.push_back(connection);
+        }
+    }
+    // Defensive cleanup if legacy callers started transactions on two routes.
+    for (const auto& route : routes) {
+        const auto mav = route->shared_mavlink();
+        if (mav && mav != owner) cancelled = cancel_adapter_operation(*mav, id) || cancelled;
+    }
+    return cancelled;
+}
+
 bool Vehicle::set_signing_key(const uint8_t* key, size_t key_size,
                               bool sign_outgoing,
-                              uint64_t persisted_timestamp) {
+                              uint64_t persisted_timestamp,
+                              const std::string& key_name,
+                              bool auto_detected) {
     if (key == nullptr || key_size < 32) return false;
+    mg::core::platform::LockGuard policy_lock(signing_policy_mtx_);
+    mg::core::mavlink::SigningCandidate policy;
+    std::copy_n(key, policy.key.size(), policy.key.begin());
+    policy.name = key_name;
+    policy.persisted_timestamp = persisted_timestamp;
+    signing_policy_ = policy;
+    signing_policy_outgoing_ = sign_outgoing;
+    signing_policy_detected_ = auto_detected;
     std::vector<std::shared_ptr<mg::core::transport::ConnectionManager>>
         connections;
     {
@@ -363,13 +474,61 @@ bool Vehicle::set_signing_key(const uint8_t* key, size_t key_size,
         auto* mav = connection ? connection->get_mavlink() : nullptr;
         if (!mav) continue;
         any = true;
+        if (auto_detected && mav->signing_enabled() &&
+            mav->signing_auto_detected() && mav->signing_key_name() == key_name) continue;
         all = mav->set_signing_key(key, key_size, sign_outgoing,
-                                   persisted_timestamp) && all;
+                                   persisted_timestamp, key_name,
+                                   auto_detected) && all;
     }
     return any && all;
 }
 
+bool Vehicle::set_signing_candidates(
+    const std::vector<mg::core::mavlink::SigningCandidate>& candidates) {
+    mg::core::platform::LockGuard policy_lock(signing_policy_mtx_);
+    signing_candidates_ = candidates;
+    std::vector<std::shared_ptr<mg::core::transport::ConnectionManager>>
+        connections;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        for (const auto& [route_id, connection] : connections_) {
+            (void)route_id;
+            if (connection) connections.push_back(connection);
+        }
+    }
+    bool any = false;
+    bool all = true;
+    for (const auto& connection : connections) {
+        auto* mav = connection ? connection->get_mavlink() : nullptr;
+        if (!mav) continue;
+        any = true;
+        all = mav->set_signing_candidates(candidates) && all;
+    }
+    return any && all;
+}
+
+void Vehicle::clear_signing_candidates() {
+    mg::core::platform::LockGuard policy_lock(signing_policy_mtx_);
+    signing_candidates_.clear();
+    std::vector<std::shared_ptr<mg::core::transport::ConnectionManager>>
+        connections;
+    {
+        mg::core::platform::LockGuard lk(connections_mtx_);
+        for (const auto& [route_id, connection] : connections_) {
+            (void)route_id;
+            if (connection) connections.push_back(connection);
+        }
+    }
+    for (const auto& connection : connections) {
+        if (auto* mav = connection ? connection->get_mavlink() : nullptr) {
+            mav->clear_signing_candidates();
+        }
+    }
+}
+
 void Vehicle::clear_signing_key() {
+    mg::core::platform::LockGuard policy_lock(signing_policy_mtx_);
+    signing_policy_.reset();
     std::vector<std::shared_ptr<mg::core::transport::ConnectionManager>>
         connections;
     {
@@ -394,6 +553,32 @@ bool Vehicle::signing_enabled() const {
 int Vehicle::signing_status() const {
     const auto* mav = mavlink();
     return mav ? static_cast<int>(mav->signing_status()) : 0;
+}
+
+std::string Vehicle::signing_key_name() const {
+    const auto* mav = mavlink();
+    return mav ? mav->signing_key_name() : std::string();
+}
+
+bool Vehicle::signing_auto_detected() const {
+    const auto* mav = mavlink();
+    return mav != nullptr && mav->signing_auto_detected();
+}
+
+size_t Vehicle::signing_candidate_count() const {
+    const auto* mav = mavlink();
+    return mav ? mav->signing_candidate_count() : 0;
+}
+
+uint64_t Vehicle::signing_timestamp() const {
+    const auto* mav = mavlink();
+    return mav ? mav->signing_timestamp() : 0;
+}
+
+void Vehicle::apply_detected_signing_candidate(
+    const mg::core::mavlink::SigningCandidate& candidate) {
+    set_signing_key(candidate.key.data(), candidate.key.size(), true,
+                    candidate.persisted_timestamp, candidate.name, true);
 }
 
 bool Vehicle::send_setup_signing(uint8_t target_system,
@@ -515,6 +700,12 @@ void Vehicle::wire_telemetry_callbacks_for(
     if (!mav) return;
 
     std::weak_ptr<Vehicle> weak = shared_from_this();
+    mav->set_signing_detected_callback(
+        [weak](const mg::core::mavlink::SigningCandidate& candidate) {
+            if (auto self = weak.lock()) {
+                self->apply_detected_signing_candidate(candidate);
+            }
+        });
 
     mav->on_heartbeat([weak, source, route_id](const mg::core::mavlink::HeartbeatInfo& info) {
         auto self = weak.lock();

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>M-GCS 架构图（v0.0.79）</title>
+<title>M-GCS 架构图（v0.0.80）</title>
 <style>
   :root{
     --bg:#f6f7f9;
@@ -120,7 +120,7 @@
 
 <h1>M-GCS 架构图</h1>
 <div class="sub">
-  版本 v0.0.79 · 更新于 2026-10-08 ·
+  版本 v0.0.80 · 更新于 2026-10-09 ·
   结构说明以本文为准，精确行数和消费统计用 <code>tools/audit_status.sh</code> 复核
 </div>
 
@@ -204,8 +204,8 @@
       <h4>构建产物与门禁</h4>
       <ul>
         <li><code>mgcore.dylib</code> / <code>mgcore.dll</code> / <code>libmgcore.so</code></li>
-        <li>后端：<code>ctest</code> 35/35（offline 21 + simulation 14）</li>
-        <li>前端：<code>flutter analyze</code> 无告警；<code>flutter test</code> 21/20</li>
+        <li>后端：<code>ctest</code> 37/37（offline 22 + simulation 15）</li>
+        <li>前端：<code>flutter analyze</code> 无告警；<code>flutter test</code> 123/123</li>
       </ul>
     </div>
   </div>
@@ -553,15 +553,15 @@
   <div style="display:flex;flex-wrap:wrap;gap:4px 22px">
     <span>编写：<b style="font-weight:600">WorkBuddy（AI 助手）</b></span>
     <span>日期：<b style="font-weight:600">2026-09-30</b></span>
-    <span>依据版本：tag <code>v0.0.79</code></span>
+    <span>依据版本：tag <code>v0.0.80</code></span>
     <span>复核状态：<b style="font-weight:600;color:var(--ok)">本地门禁已通过</b></span>
   </div>
   <div style="margin-top:6px">
-    数据来源：本仓库 v0.0.79 实测统计，门禁状态为 2026-10-08 本机运行结果
-    （<code>ctest</code> 35/35、<code>flutter analyze</code> 无告警、<code>flutter test</code> 69/69）。
+    数据来源：本仓库 v0.0.80 实测统计，门禁状态为 2026-10-09 本机运行结果
+    （<code>ctest</code> 37/37、<code>flutter analyze</code> 无告警、<code>flutter test</code> 123/123）。
     本文件为人工可读的图，权威文字描述仍以
-    <code>docs/ARCHITECTURE.md</code> 与 <code>bridge/ffi/API_CATALOG.md</code> 为准；
-    审计发现与待办清单见 <code>docs/STATUS_AUDIT.md</code>。
+    <code>docs/architecture/ARCHITECTURE.md</code> 与 <code>bridge/ffi/API_CATALOG.md</code> 为准；
+    审计发现与待办清单见 <code>docs/CURRENT_STATE.md</code>。
   </div>
 </footer>
 

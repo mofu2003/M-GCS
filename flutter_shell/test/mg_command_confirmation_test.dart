@@ -93,6 +93,7 @@ void main() {
                 MgCommandConfirmationOverlay(
                   command: MgCommandConfirmation(
                     label: '返航',
+                    detail: '2 架飞机 · 系统 1、2',
                     execute: () async {},
                   ),
                   onConfirmed: () {},
@@ -107,6 +108,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('返航'), findsOneWidget);
+    expect(find.text('2 架飞机 · 系统 1、2'), findsOneWidget);
     expect(find.text('长按确认'), findsOneWidget);
 
     final panel = find.byKey(

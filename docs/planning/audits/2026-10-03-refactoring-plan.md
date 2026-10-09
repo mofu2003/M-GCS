@@ -1,8 +1,8 @@
 # M-GCS 分阶段重构计划
 
 > 状态：历史执行计划，保留用于追溯拆分过程和版本里程碑。版本号是当时的里程碑建议，
-> 不自动等同于发布承诺。当前规范以 [DEVELOPMENT_ROADMAP.md](../DEVELOPMENT_ROADMAP.md)
-> 和 [STATUS_AUDIT.md](../STATUS_AUDIT.md) 为准。
+> 不自动等同于发布承诺。当前规范以 [ROADMAP.md](../ROADMAP.md)
+> 和 [CURRENT_STATE.md](../CURRENT_STATE.md) 为准。
 
 ## 目标
 
@@ -157,7 +157,7 @@ breach-return 点及高度），区分于阻断上传的复杂项：围栏/Rally
 
 阶段 E 至此收口：后端维护循环的退出条件（复杂任务可编译、围栏/Rally 闭环）已达成，
 剩余项属于产品决策（参数阈值、固件刷写取舍）、环境阻塞（FFmpeg 并发）或前端/真机
-工作。判定口径见 [完成定义与后端维护收口](../DEFINITION_OF_DONE.md)。
+工作。判定口径见 [当前状态与完成定义](../CURRENT_STATE.md)。
 
 `0.0.54` 完成前后端对接：`mg_operations_get_snapshot` 新增 `fence`/`rally` 进度区段，
 Flutter 侧补齐围栏/Rally 的绑定、控制器流程和任务面板操作组（读取 / 下发 / 清除）。
@@ -224,5 +224,5 @@ Flutter 侧补齐围栏/Rally 的绑定、控制器流程和任务面板操作�
 
 - [MP / QGC 上游实现择优准则](../../specs/upstream/SELECTION_STRATEGY.md)
 - [QGC / MP 可借鉴项对照表](../../specs/upstream/SELECTION_STRATEGY.md)
-- [当前状态审计](../STATUS_AUDIT.md)
+- [当前状态与完成定义](../CURRENT_STATE.md)
 - [开发约束](../../../AGENTS.md)

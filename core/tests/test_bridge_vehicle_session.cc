@@ -5,6 +5,8 @@
 #include "ffi_mission_internal.h"
 
 #include <cstdio>
+#include "cJSON.h"
+#include "core/transport/link_session.h"
 
 
 static int g_pass = 0;
@@ -110,6 +112,16 @@ static void test_session_status_includes_position() {
     const uint16_t length = mavlink_msg_to_send_buffer(bytes, &message);
     vehicle->conn().get_mavlink()->feed_raw(bytes, length);
 
+    mavlink_home_position_t home_position{};
+    home_position.latitude = 399000000;
+    home_position.longitude = 1163900000;
+    home_position.altitude = 45000;
+    mavlink_message_t home_message{};
+    mavlink_msg_home_position_encode(1, 1, &home_message, &home_position);
+    const uint16_t home_length =
+        mavlink_msg_to_send_buffer(bytes, &home_message);
+    vehicle->conn().get_mavlink()->feed_raw(bytes, home_length);
+
     char* status = mg_vehicle_get_session_status(env.core, 91);
     CHECK(status && strstr(status, "\"position_valid\":true"),
           "session status reports valid position");
@@ -119,7 +131,34 @@ static void test_session_status_includes_position() {
           "session status reports longitude");
     CHECK(status && strstr(status, "\"heading_deg\":90"),
           "session status reports heading");
+    CHECK(status && strstr(status, "\"home_valid\":true"),
+          "session status reports home validity");
+    CHECK(status && strstr(status, "\"home_lat_deg\":39.9"),
+          "session status reports home latitude");
+    CHECK(status && strstr(status, "\"mission_total\""),
+          "session status reports mission summary fields");
     if (status) mg_free_string(status);
+
+    mg::core::mission::MissionPlan plan;
+    plan.valid = true;
+    for (uint16_t index = 0; index < 2; ++index) {
+        mg::core::mission::MissionItem item;
+        item.seq = index;
+        item.frame = 3;
+        item.command = 16;
+        item.x = 399000000 + static_cast<int32_t>(index) * 1000;
+        item.y = 1163900000 + static_cast<int32_t>(index) * 1000;
+        item.z = 50.0f + index;
+        plan.items.push_back(item);
+    }
+    CHECK(vehicle->conn().get_mavlink()->mission_upload(1, 1, plan),
+          "vehicle mission upload starts for fleet route query");
+    char* mission = mg_vehicle_get_session_mission(env.core, 91);
+    CHECK(mission && strstr(mission, "\"success\":true") &&
+              strstr(mission, "\"items\"") &&
+              strstr(mission, "\"lat_deg\":39.9"),
+          "per-vehicle mission route query returns geographic items");
+    mg_free_string(mission);
 }
 
 static void test_independent_vehicle_telemetry_and_registry_lease() {
@@ -248,6 +287,159 @@ struct TwoVehicleMockEnv {
     }
 };
 
+static uint64_t command_ticket(char* result) {
+    cJSON* json = result ? cJSON_Parse(result) : nullptr;
+    cJSON* ticket = json ? cJSON_GetObjectItemCaseSensitive(json, "ticket") : nullptr;
+    const uint64_t id = cJSON_IsNumber(ticket) ? static_cast<uint64_t>(ticket->valuedouble) : 0;
+    cJSON_Delete(json); mg_free_string(result); return id;
+}
+
+static std::string poll_command(mg_core_t* core, uint64_t ticket, int timeout_ms = 12000) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+        char* raw = mg_command_poll(core, ticket);
+        const std::string response = raw ? raw : "";
+        mg_free_string(raw);
+        if (response.find("\"state\":\"complete\"") != std::string::npos) return response;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return "poll timed out";
+}
+
+static void test_nonblocking_commands_and_mission_rejection() {
+    TwoVehicleMockEnv env;
+    env.add(41, 1); env.add(42, 2);
+    CHECK(env.wait_connected(), "async vehicles identified");
+    env.core->vehicles.set_active_vehicle(41);
+    const auto start = std::chrono::steady_clock::now();
+    const auto ticket = command_ticket(mg_command_submit_for_vehicle(env.core, 42, R"({"command":"rtl"})"));
+    CHECK(ticket > 0, "async submission returns ticket");
+    CHECK(std::chrono::steady_clock::now() - start < std::chrono::milliseconds(200),
+          "submission does not wait for ACK");
+    char* raw = mg_command_poll(env.core, ticket);
+    CHECK(raw && strstr(raw, "\"state\":\"pending\""), "unanswered job is pending, not success");
+    mg_free_string(raw);
+    raw = mg_command_submit_for_vehicle(env.core, 42, R"({"command":"arm"})");
+    CHECK(raw && strstr(raw, "\"success\":false"), "same vehicle overlapping command refused");
+    mg_free_string(raw);
+    env.start_pump();
+    auto done = poll_command(env.core, ticket);
+    env.stop_pump();
+    CHECK(done.find("\"result\":{\"success\":true") != std::string::npos, "accepted ACK completes async command");
+    CHECK(mg_vehicle_get_active(env.core) == 41, "async command never steals focus");
+    raw = mg_command_poll(env.core, ticket);
+    CHECK(raw && strstr(raw, "\"success\":false"), "complete ticket consumed once"); mg_free_string(raw);
+    env.ends[1].mock->set_next_cmd_result(MAV_RESULT_DENIED);
+    const auto denied = command_ticket(mg_command_submit_for_vehicle(env.core, 42, R"({"command":"mission_start"})"));
+    env.start_pump(); done = poll_command(env.core, denied); env.stop_pump();
+    CHECK(done.find("denied") != std::string::npos && done.find("\"result_str\":\"denied\"") != std::string::npos,
+          "MISSION_START rejection is propagated instead of send-success");
+    env.ends[1].mock->set_cmd_no_response(true);
+    const auto timeout = command_ticket(mg_command_submit_for_vehicle(env.core, 42, R"({"command":"mission_start"})"));
+    env.start_pump(); done = poll_command(env.core, timeout); env.stop_pump();
+    CHECK(done.find("timeout") != std::string::npos, "MISSION_START missing ACK times out");
+}
+
+static void test_mission_workflow_by_firmware_and_vehicle_type() {
+    for (const auto type : {MAV_TYPE_QUADROTOR, MAV_TYPE_FIXED_WING, MAV_TYPE_VTOL_FIXEDROTOR}) {
+        for (const auto autopilot : {MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_AUTOPILOT_PX4}) {
+            TwoVehicleMockEnv env;
+            env.add(41, 1);
+            CHECK(env.wait_connected(), "workflow vehicle identified");
+            auto& end = env.ends[0];
+            bool armed = false;
+            uint32_t mode = 0;
+            std::vector<uint16_t> commands;
+            std::vector<uint32_t> modes;
+            auto heartbeat = [&] {
+                mavlink_message_t msg{};
+                mavlink_msg_heartbeat_pack(1, 1, &msg, type, autopilot,
+                    MAV_MODE_FLAG_CUSTOM_MODE_ENABLED | (armed ? MAV_MODE_FLAG_SAFETY_ARMED : 0), mode, MAV_STATE_ACTIVE);
+                uint8_t bytes[MAVLINK_MAX_PACKET_LEN];
+                const auto n = mavlink_msg_to_send_buffer(bytes, &msg);
+                end.link->inject_incoming(bytes, n);
+            };
+            heartbeat();
+            const auto ticket = command_ticket(mg_command_submit_for_vehicle(env.core, 41,
+                R"({"command":"start_mission","args":{"arm_if_needed":1}})"));
+            std::atomic<bool> running{true};
+            std::thread responder([&] {
+                mavlink_message_t rx{}, msg{}; mavlink_status_t status{}, out{};
+                while (running) {
+                    const auto bytes = end.link->take_outgoing();
+                    for (const auto byte : bytes) {
+                        if (mavlink_frame_char_buffer(&rx, &status, byte, &msg, &out) != MAVLINK_FRAMING_OK ||
+                            msg.msgid != MAVLINK_MSG_ID_COMMAND_LONG) continue;
+                        mavlink_command_long_t command{}; mavlink_msg_command_long_decode(&msg, &command);
+                        commands.push_back(command.command);
+                        if (command.command == MAV_CMD_DO_SET_MODE) { mode = static_cast<uint32_t>(command.param2); modes.push_back(mode); }
+                        if (command.command == MAV_CMD_COMPONENT_ARM_DISARM) armed = command.param1 != 0;
+                        if (command.command == MAV_CMD_MISSION_START) mode = 3;
+                        mavlink_message_t ack{};
+                        mavlink_msg_command_ack_pack(1, 1, &ack, command.command, MAV_RESULT_ACCEPTED, 0, 0, 0, 0);
+                        uint8_t packet[MAVLINK_MAX_PACKET_LEN];
+                        const auto n = mavlink_msg_to_send_buffer(packet, &ack);
+                        end.link->inject_incoming(packet, n);
+                        heartbeat();
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            });
+            const auto done = poll_command(env.core, ticket);
+            running = false; responder.join();
+            CHECK(done.find("\"result\":{\"success\":true") != std::string::npos, "workflow completes with ACK and state");
+            const auto expected = autopilot == MAV_AUTOPILOT_PX4 ? 0x04040000U : type == MAV_TYPE_QUADROTOR ? 4U : 10U;
+            CHECK(!modes.empty() && modes.front() == expected, "firmware/type chooses correct mode before arm");
+            CHECK(commands.size() >= 2 && commands[0] == MAV_CMD_DO_SET_MODE && commands[1] == MAV_CMD_COMPONENT_ARM_DISARM,
+                  "mode is confirmed before arming");
+            const bool sent_start = std::find(commands.begin(), commands.end(), MAV_CMD_MISSION_START) != commands.end();
+            CHECK(sent_start == (autopilot == MAV_AUTOPILOT_ARDUPILOTMEGA && type == MAV_TYPE_QUADROTOR),
+                  "Plane/VTOL/PX4 do not take Copter MISSION_START path");
+        }
+    }
+}
+
+static void test_redundant_routes_inherit_signing_and_keep_operation_owner() {
+    auto* core = mg_create();
+    auto vehicle = std::make_shared<mg::core::vehicle::Vehicle>(91);
+    auto a = std::make_shared<mg::core::transport::InMemoryLink>();
+    auto b = std::make_shared<mg::core::transport::InMemoryLink>();
+    auto first = std::make_shared<mg::core::transport::LinkSession>(a, "memory://first");
+    auto second = std::make_shared<mg::core::transport::LinkSession>(b, "memory://second");
+    first->open(); second->open();
+    CHECK(vehicle->attach_shared_primary_route(first, 101, "memory://first", 1, 1), "attach first route");
+    core->vehicles.add_for_test(vehicle); core->vehicles.set_active_vehicle(91);
+    const auto old = vehicle->command_connection()->shared_mavlink();
+    CHECK(old->mission_download(1, 1), "start transaction on first route");
+    const auto owner = vehicle->operation_mavlink("mission");
+    std::array<uint8_t, 32> key{}; key.fill(0x45);
+    mg::core::mavlink::SigningCandidate candidate; candidate.name = "one"; candidate.key = key;
+    CHECK(vehicle->set_signing_candidates({candidate}), "set candidates before second route");
+    CHECK(vehicle->set_signing_key(key.data(), key.size(), true, 0, "one"), "set key before second route");
+    CHECK(vehicle->attach_shared_route(second, 102, 1, 1), "attach second route after signing");
+    vehicle->link_manager().remove_link(101); // deterministic primary switch, keep R1 registered
+    vehicle->refresh_primary_connection();
+    const auto current = vehicle->command_connection()->shared_mavlink();
+    CHECK(current && current != old, "primary switched to second adapter");
+    CHECK(current->signing_enabled() && current->signing_key_name() == "one" && current->signing_candidate_count() == 1,
+          "new route inherits key and candidate policy");
+    CHECK(vehicle->operation_mavlink("mission") == owner, "transaction remains on original adapter");
+    char* raw = mg_operations_cancel_for_vehicle(core, 91, "mission");
+    CHECK(raw && strstr(raw, "\"canceled\":true"), "cancel after failover reaches original owner"); mg_free_string(raw);
+    raw = mg_operations_get_snapshot_for_vehicle(core, 91);
+    CHECK(raw && strstr(raw, "\"cancelled\":true"), "terminal cancelled state visible after failover"); mg_free_string(raw);
+    const auto connection = vehicle->command_connection();
+    connection->record_heartbeat();
+    // Keep a disconnected old primary and connected backup without a new heartbeat.
+    old->clear_signing_key();
+    vehicle->link_manager().add_link(101); vehicle->link_manager().remove_link(102);
+    vehicle->refresh_primary_connection();
+    vehicle->command_connection()->reset();
+    CHECK(core->vehicles.remove_disconnected_vehicles() == 0,
+          "disconnected primary cannot reap healthy backup vehicle");
+    mg_destroy(core);
+}
+
 static bool has_command(const MockFlightController& mock, uint16_t command) {
     for (const auto& received : mock.received_cmds) {
         if (received.command == command) return true;
@@ -357,6 +549,178 @@ static void test_target_scope_is_core_local_and_nested() {
     }
 }
 
+static void test_targeted_operation_cancel_isolated() {
+    fprintf(stderr, "\n[Group] targeted operation cancellation\n");
+    TwoVehicleMockEnv env;
+    env.add(41, 1);
+    env.add(42, 2);
+    CHECK(env.wait_connected(), "two mock vehicles connect for cancellation");
+    char* fleet_summary = mg_vehicle_list(env.core);
+    CHECK(fleet_summary && strstr(fleet_summary, "\"flight_mode\"") &&
+              strstr(fleet_summary, "\"battery_remaining_pct\"") &&
+              strstr(fleet_summary, "\"gps_fix_type\"") &&
+              strstr(fleet_summary, "\"link_count\"") &&
+              strstr(fleet_summary, "\"healthy_link_count\"") &&
+              strstr(fleet_summary, "\"communication_lost\""),
+          "fleet summary exposes mode, battery, GPS and link health fields");
+    mg_free_string(fleet_summary);
+
+    auto* first_mav = env.ends[0].vehicle->mavlink();
+    auto* second_mav = env.ends[1].vehicle->mavlink();
+    CHECK(first_mav->request_param_list(1, 1),
+          "first vehicle starts parameter download");
+    CHECK(first_mav->param_download_active(),
+          "first vehicle parameter download is active");
+    char* result = mg_operations_get_snapshot_for_vehicle(env.core, 41);
+    CHECK(result && strstr(result, "\"retry_count\"") &&
+              strstr(result, "\"missing_count\"") &&
+              strstr(result, "\"failed_count\""),
+          "parameter operation exposes retry and recovery counters");
+    mg_free_string(result);
+    env.core->vehicles.set_active_vehicle(42);
+
+    result = mg_operations_cancel_for_vehicle(
+        env.core, 41, "params");
+    CHECK(result && strstr(result, "\"success\":true") &&
+              strstr(result, "\"canceled\":true"),
+          "targeted cancel reports success for the explicit vehicle");
+    mg_free_string(result);
+    CHECK(first_mav->param_download_cancelled(),
+          "target vehicle parameter download is cancelled");
+    CHECK(!second_mav->param_download_cancelled(),
+          "non-target vehicle operation is untouched");
+
+    result = mg_operations_get_snapshot_for_vehicle(env.core, 41);
+    CHECK(result && strstr(result, "\"params\"") &&
+              strstr(result, "\"cancelled\":true"),
+          "targeted snapshot reads the inactive vehicle operation");
+    mg_free_string(result);
+
+    CHECK(first_mav->mission_download(1, 1),
+          "first vehicle starts mission download");
+    CHECK(first_mav->mission_get_progress().state !=
+              mg::core::mission::MissionState::Idle,
+          "first vehicle mission transfer is active");
+    result = mg_operations_cancel_for_vehicle(env.core, 41, "mission");
+    CHECK(result && strstr(result, "\"success\":true") &&
+              strstr(result, "\"canceled\":true"),
+          "targeted mission cancel succeeds");
+    mg_free_string(result);
+    CHECK(first_mav->mission_get_progress().result ==
+              MAV_MISSION_OPERATION_CANCELLED,
+          "target mission transfer is cancelled");
+    CHECK(second_mav->mission_get_progress().state ==
+              mg::core::mission::MissionState::Idle,
+          "non-target mission transfer remains idle");
+
+    CHECK(first_mav->rally_download(1, 1),
+          "first vehicle starts rally download");
+    result = mg_operations_cancel_for_vehicle(env.core, 41, "rally");
+    CHECK(result && strstr(result, "\"success\":true") &&
+              strstr(result, "\"canceled\":true"),
+          "targeted rally cancel succeeds");
+    mg_free_string(result);
+    CHECK(first_mav->rally_get_progress().result ==
+              MAV_MISSION_OPERATION_CANCELLED,
+          "target rally transfer is cancelled");
+    CHECK(second_mav->rally_get_progress().state ==
+              mg::core::mission::MissionState::Idle,
+          "non-target rally transfer remains idle");
+
+    CHECK(first_mav->fence_download(1, 1),
+          "first vehicle starts fence download");
+    result = mg_operations_cancel_for_vehicle(env.core, 41, "fence");
+    CHECK(result && strstr(result, "\"success\":true") &&
+              strstr(result, "\"canceled\":true"),
+          "targeted fence cancel succeeds");
+    mg_free_string(result);
+    CHECK(first_mav->fence_get_progress().result ==
+              MAV_MISSION_OPERATION_CANCELLED,
+          "target fence transfer is cancelled");
+    CHECK(second_mav->fence_get_progress().state ==
+              mg::core::mission::MissionState::Idle,
+          "non-target fence transfer remains idle");
+
+    CHECK(env.ends[0].vehicle->calibration().start(
+              mg::core::calibration::CalibrationType::Gyroscope),
+          "first vehicle starts calibration");
+    CHECK(env.ends[0].vehicle->calibration().is_active(),
+          "first vehicle calibration is active");
+    result = mg_operations_cancel_for_vehicle(env.core, 41, "calibration");
+    CHECK(result && strstr(result, "\"success\":true") &&
+              strstr(result, "\"canceled\":true"),
+          "targeted calibration cancel succeeds");
+    mg_free_string(result);
+    CHECK(!env.ends[0].vehicle->calibration().is_active(),
+          "target calibration stops");
+    CHECK(!env.ends[1].vehicle->calibration().is_active(),
+          "non-target calibration remains idle");
+
+    CHECK(first_mav->log_download_start(1, 1, 0, ""),
+          "first vehicle starts log download");
+    CHECK(first_mav->log_download_active(),
+          "first vehicle log download is active");
+    result = mg_operations_cancel_for_vehicle(env.core, 41, "log");
+    CHECK(result && strstr(result, "\"success\":true") &&
+              strstr(result, "\"canceled\":true"),
+          "targeted log cancellation succeeds");
+    mg_free_string(result);
+    CHECK(!first_mav->log_download_active(),
+          "target log download stops");
+    CHECK(!second_mav->log_download_active(),
+          "non-target log download remains idle");
+
+    result = mg_operations_cancel_for_vehicle(env.core, 999, "params");
+    CHECK(result && strstr(result, "\"success\":false"),
+          "targeted cancel rejects a missing vehicle");
+    mg_free_string(result);
+}
+
+static void test_targeted_operation_timeout_isolated() {
+    fprintf(stderr, "\n[Group] targeted operation timeout isolation\n");
+    TwoVehicleMockEnv env;
+    env.add(51, 1);
+    env.add(52, 2);
+    CHECK(env.wait_connected(), "two mock vehicles connect for timeout isolation");
+
+    auto* first_mav = env.ends[0].vehicle->mavlink();
+    auto* second_mav = env.ends[1].vehicle->mavlink();
+    CHECK(first_mav->mission_download(1, 1),
+          "first vehicle starts mission download");
+    CHECK(first_mav->mission_get_progress().state !=
+              mg::core::mission::MissionState::Idle,
+          "first mission transfer is active");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1600));
+    first_mav->tick();
+    CHECK(first_mav->mission_transfer_retry_count() == 1,
+          "first mission transfer retries after its own timeout");
+
+    CHECK(second_mav->rally_download(2, 1),
+          "second vehicle starts rally download after first timeout");
+    second_mav->tick();
+    CHECK(second_mav->rally_transfer_retry_count() == 0,
+          "second rally transfer does not consume first vehicle's timeout");
+    CHECK(second_mav->rally_get_progress().state !=
+              mg::core::mission::MissionState::Idle,
+          "second rally transfer remains active");
+
+    char* result = mg_operations_cancel_for_vehicle(env.core, 51, "mission");
+    CHECK(result && strstr(result, "\"success\":true") &&
+              strstr(result, "\"canceled\":true"),
+          "timed-out first mission is cancelled explicitly");
+    mg_free_string(result);
+    CHECK(second_mav->rally_get_progress().state !=
+              mg::core::mission::MissionState::Idle,
+          "cancelling first vehicle leaves second rally active");
+
+    result = mg_operations_cancel_for_vehicle(env.core, 52, "rally");
+    CHECK(result && strstr(result, "\"success\":true") &&
+              strstr(result, "\"canceled\":true"),
+          "second rally is cancelled independently");
+    mg_free_string(result);
+}
+
 static void test_ffi_signing_control() {
     fprintf(stderr, "\n[Group] FFI MAVLink signing control\n");
     mg_core_t* core = mg_create();
@@ -376,7 +740,18 @@ static void test_ffi_signing_control() {
     const char* key_hex =
         "00112233445566778899aabbccddeeff"
         "102030405060708090a0b0c0d0e0f001";
-    char* result = mg_vehicle_set_signing_key(core, 91, key_hex, 1, 0);
+    char* result = mg_vehicle_set_signing_candidates(
+        core, 91,
+        R"([{"name":"KeyAlpha","key_hex":"00112233445566778899aabbccddeeff102030405060708090a0b0c0d0e0f001","timestamp_ticks":0}])");
+    CHECK(result && strstr(result, "\"success\":true"),
+          "FFI installs named signing candidates");
+    mg_free_string(result);
+    result = mg_vehicle_get_signing_status(core, 91);
+    CHECK(result && strstr(result, "\"candidate_count\":1"),
+          "signing status reports candidate count");
+    mg_free_string(result);
+
+    result = mg_vehicle_set_signing_key(core, 91, key_hex, 1, 0);
     CHECK(result && strstr(result, "\"success\":true"),
           "FFI enables signing on an explicit vehicle");
     mg_free_string(result);
@@ -441,6 +816,20 @@ static void test_ffi_signing_control() {
     mg_free_string(result);
     CHECK(!vehicle->signing_enabled(), "vehicle reports signing disabled");
 
+    result = mg_vehicle_clear_signing_candidates(core, 91);
+    CHECK(result && strstr(result, "\"success\":true"),
+          "FFI clears signing candidates");
+    mg_free_string(result);
+    result = mg_vehicle_get_signing_status(core, 91);
+    CHECK(result && strstr(result, "\"candidate_count\":0"),
+          "clearing candidates resets the detector");
+    mg_free_string(result);
+
+    result = mg_vehicle_set_signing_candidates(core, 91, R"({"bad":true})");
+    CHECK(result && strstr(result, "\"success\":false"),
+          "invalid signing candidate payload is rejected");
+    mg_free_string(result);
+
     result = mg_vehicle_set_signing_key(core, 91, "bad-key", 1, 0);
     CHECK(result && strstr(result, "\"success\":false"),
           "invalid signing key is rejected");
@@ -456,11 +845,16 @@ int main() {
     test_session_status_includes_position();
     test_independent_vehicle_telemetry_and_registry_lease();
     test_targeted_command_dispatch_isolated();
+    test_nonblocking_commands_and_mission_rejection();
+    test_mission_workflow_by_firmware_and_vehicle_type();
+    test_redundant_routes_inherit_signing_and_keep_operation_owner();
     test_fallback_session_is_available();
     test_live_vehicle_session_wins_when_selected();
     test_vehicle_registry_does_not_implicitly_change_focus();
     test_closing_focused_vehicle_selects_remaining_vehicle();
     test_ffi_signing_control();
+    test_targeted_operation_cancel_isolated();
+    test_targeted_operation_timeout_isolated();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

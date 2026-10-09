@@ -492,7 +492,7 @@ class _MissionPlanningFloatingPanelState
   String _transferLabel(MissionTransferProgress transfer) {
     if (transfer.cancelled) return '任务传输已取消';
     if (transfer.error.isNotEmpty) return transfer.error;
-    return switch (transfer.state) {
+    final base = switch (transfer.state) {
       MissionTransferState.downloading =>
         '正在读取 ${transfer.received}/${transfer.total}',
       MissionTransferState.uploading =>
@@ -500,6 +500,9 @@ class _MissionPlanningFloatingPanelState
       MissionTransferState.waitingAck => '正在等待飞控确认',
       MissionTransferState.idle => '传输完成 ${transfer.progressPercent}%',
     };
+    return transfer.retryCount > 0
+        ? '$base · 已重试 ${transfer.retryCount} 次'
+        : base;
   }
 
   bool _isRoutineStatus(String status) =>

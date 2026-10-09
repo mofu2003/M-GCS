@@ -7,7 +7,6 @@ import '../fleet/fleet_models.dart';
 import '../flight/flight_mode_labels.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
-import 'adaptive_popup_button.dart';
 import 'mg_animated_number.dart';
 import 'mg_command_confirmation.dart';
 import 'mg_floating_panel.dart';
@@ -292,6 +291,7 @@ class MgTopStatusData {
     required this.batteryVoltage,
     required this.transportLabel,
     required this.messageCount,
+    this.isVtolVehicle = false,
   });
 
   factory MgTopStatusData.fromController(ConnectionController controller) {
@@ -307,6 +307,9 @@ class MgTopStatusData {
       batteryVoltage: controller.batteryVoltage,
       transportLabel: controller.selectedTransportLabel,
       messageCount: controller.flightMessages.length,
+      isVtolVehicle:
+          controller.controlProfile == VehicleControlProfile.planeVtol ||
+          const {19, 20, 21, 22, 23, 24, 25}.contains(controller.vehicleType),
     );
   }
 
@@ -321,6 +324,7 @@ class MgTopStatusData {
   final double? batteryVoltage;
   final String transportLabel;
   final int messageCount;
+  final bool isVtolVehicle;
 
   String get statusLabel {
     if (!connected) return '未连接';
@@ -336,13 +340,18 @@ class MgTopStatusData {
   /// 0=UNDEFINED（非 VTOL 或还没上报）时不加后缀。
   String get modeLabel {
     if (flightMode.isEmpty) return '—';
-    return switch (vtolState) {
-      1 => '$flightMode · 转固定翼',
-      2 => '$flightMode · 转多旋翼',
-      3 => '$flightMode · 多旋翼',
-      4 => '$flightMode · 固定翼',
-      _ => flightMode,
+    final vtolSuffix = switch (vtolState) {
+      1 => '转固定翼',
+      2 => '转多旋翼',
+      3 => '多旋翼',
+      4 => '固定翼',
+      _ => null,
     };
+    if (vtolSuffix != null) return '$flightMode · $vtolSuffix';
+    if (flightMode.toLowerCase() == 'guided' && isVtolVehicle) {
+      return '$flightMode · VTOL';
+    }
+    return flightMode;
   }
 
   String get gpsFixLabel => switch (gpsFixType) {
@@ -365,7 +374,10 @@ class MgTopStatusBar extends StatelessWidget {
     required this.data,
     this.vehicles = const [],
     this.activeVehicleId,
+    this.selectedVehicleCount = 0,
+    this.selectedVehicleIds = const {},
     this.onSelectVehicle,
+    this.onOpenFleetBatch,
     this.onOpenFlightMessages,
     this.onToggleArm,
     this.onOpenFlightMode,
@@ -375,7 +387,10 @@ class MgTopStatusBar extends StatelessWidget {
   final MgTopStatusData data;
   final List<FleetVehicleSummary> vehicles;
   final int? activeVehicleId;
+  final int selectedVehicleCount;
+  final Set<int> selectedVehicleIds;
   final ValueChanged<int>? onSelectVehicle;
+  final VoidCallback? onOpenFleetBatch;
   final VoidCallback? onOpenFlightMessages;
   final VoidCallback? onToggleArm;
   final VoidCallback? onOpenFlightMode;
@@ -413,25 +428,31 @@ class MgTopStatusBar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   children: [
-                    _MainStatus(data: data, showText: showStatusText),
-                    const SizedBox(width: 18),
-                    if (multiple) ...[
-                      _FleetVehicleSelector(
-                        vehicles: vehicles,
-                        compact: compactFleet,
-                        activeVehicleId: activeVehicleId,
-                        onSelectVehicle: onSelectVehicle,
-                      ),
-                      const SizedBox(width: MgMetrics.fleetToolbarGap),
-                    ],
-                    Flexible(
-                      child: _FlightMode(
-                        data: data,
-                        onPressed: onOpenFlightMode,
+                    Expanded(
+                      child: Row(
+                        children: [
+                          _MainStatus(data: data, showText: showStatusText),
+                          const SizedBox(width: 18),
+                          if (multiple) ...[
+                            _FleetVehicleSelector(
+                              vehicles: vehicles,
+                              compact: compactFleet,
+                              activeVehicleId: activeVehicleId,
+                              selectedVehicleIds: selectedVehicleIds,
+                              onPressed: onOpenFleetBatch,
+                            ),
+                            const SizedBox(width: MgMetrics.fleetToolbarGap),
+                          ],
+                          Flexible(
+                            child: _FlightMode(
+                              data: data,
+                              onPressed: onOpenFlightMode,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     // 运行中必须持续可见的 GPS / 电池 / 链路 / 操作组统一贴右。
-                    const Spacer(),
                     const SizedBox(width: 12),
                     _GpsIndicator(data: data, showLabel: showMetricLabels),
                     const SizedBox(width: 10),
@@ -470,19 +491,35 @@ class _FleetVehicleSelector extends StatelessWidget {
   const _FleetVehicleSelector({
     required this.vehicles,
     required this.activeVehicleId,
-    required this.onSelectVehicle,
+    required this.selectedVehicleIds,
+    required this.onPressed,
     required this.compact,
   });
 
   final bool compact;
   final List<FleetVehicleSummary> vehicles;
   final int? activeVehicleId;
-  final ValueChanged<int>? onSelectVehicle;
+  final Set<int> selectedVehicleIds;
+  final VoidCallback? onPressed;
 
   String _label(FleetVehicleSummary vehicle) {
     final system = vehicle.systemId > 0 ? '系统 ${vehicle.systemId}' : '未识别';
     final link = vehicle.endpoint.split('://').first.toUpperCase();
-    return '飞机 ${vehicle.id} · $system · $link';
+    final details = <String>[];
+    if (vehicle.flightMode.isNotEmpty) details.add(vehicle.flightMode);
+    if (vehicle.armed) details.add('已解锁');
+    if (vehicle.missionValid && vehicle.missionTotal > 0) {
+      details.add('任务 ${vehicle.missionCurrentIndex}/${vehicle.missionTotal}');
+    }
+    if (vehicle.communicationLost && vehicle.linkCount > 0) {
+      details.add('链路丢失');
+    } else if (vehicle.linkCount > 1) {
+      details.add('链路 ${vehicle.healthyLinkCount}/${vehicle.linkCount}');
+    }
+    final battery = vehicle.batteryRemainingPercent;
+    if (battery != null && battery >= 0) details.add('$battery%');
+    final suffix = details.isEmpty ? '' : ' · ${details.join(' · ')}';
+    return '飞机 ${vehicle.id} · $system · $link$suffix';
   }
 
   @override
@@ -491,27 +528,49 @@ class _FleetVehicleSelector extends StatelessWidget {
     final selected = vehicles.any((vehicle) => vehicle.id == activeVehicleId)
         ? activeVehicleId
         : vehicles.first.id;
+    final active = vehicles.firstWhere((vehicle) => vehicle.id == selected);
+    final selectedCount = selectedVehicleIds.length;
+    final selectedSuffix = selectedCount > 1 ? ' · 已选 $selectedCount 架' : '';
     return Tooltip(
-      message: '切换当前飞机：${_label(vehicles.firstWhere((v) => v.id == selected))}',
+      message: selectedCount > 1
+          ? '多机选择：已选 $selectedCount 架，当前 ${_label(active)}'
+          : '选择飞机：${_label(active)}',
       child: SizedBox(
         key: const ValueKey('fleet-vehicle-selector'),
         width: compact
             ? MgMetrics.fleetSelectorCompactWidth
             : MgMetrics.fleetSelectorWidth,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: colors.surfaceMuted,
+        child: Material(
+          color: colors.surfaceMuted,
+          borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+          child: InkWell(
             borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
-          ),
-          child: AdaptivePopupButton<int>(
-            value: selected,
-            options: [for (final vehicle in vehicles) vehicle.id],
-            labelOf: (id) => compact
-                ? '飞机 $id'
-                : _label(vehicles.firstWhere((vehicle) => vehicle.id == id)),
-            onChanged: onSelectVehicle,
-            maxContentWidth:
-                MgMetrics.fleetSelectorWidth - AdaptivePopupButton.chromeWidth,
+            onTap: onPressed,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      compact
+                          ? '飞机 $selected$selectedSuffix'
+                          : '${_label(active)}$selectedSuffix',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: MgTypography.sans(
+                        MgTypography.body.copyWith(color: colors.textPrimary),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    CupertinoIcons.chevron_down,
+                    size: 11,
+                    color: colors.textTertiary,
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

@@ -36,8 +36,18 @@ MGCORE_API char* mg_vehicle_set_signing_key(mg_core_t* core,
                                             const char* key_hex,
                                             int sign_outgoing,
                                             uint64_t persisted_timestamp);
+/// Configures named signing-key candidates for automatic detection. JSON is
+/// an array of {name, key_hex, timestamp_ticks}; matching uses the MAVLink2
+/// HMAC before the key is enabled.
+MGCORE_API char* mg_vehicle_set_signing_candidates(mg_core_t* core,
+                                                   int vehicle_id,
+                                                   const char* candidates_json);
+MGCORE_API char* mg_vehicle_clear_signing_candidates(mg_core_t* core,
+                                                     int vehicle_id);
 MGCORE_API char* mg_vehicle_clear_signing_key(mg_core_t* core, int vehicle_id);
 MGCORE_API char* mg_vehicle_get_signing_status(mg_core_t* core, int vehicle_id);
+/// Returns the cached mission items for one Vehicle without changing focus.
+MGCORE_API char* mg_vehicle_get_session_mission(mg_core_t* core, int vehicle_id);
 /// Sends SETUP_SIGNING (unsigned) to establish the supplied key on the vehicle.
 MGCORE_API char* mg_vehicle_send_setup_signing(mg_core_t* core,
                                                int vehicle_id,

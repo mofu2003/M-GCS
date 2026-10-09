@@ -57,6 +57,6 @@ M-GCS 采用**独立实现、协议兼容、按模块借鉴**的路线。
 ## 关联文档
 
 - [上游实现选择策略](../../specs/upstream/SELECTION_STRATEGY.md)
-- [功能差距分析](../../planning/FEATURE_GAP_ANALYSIS.md)
+- [路线图与功能差距分析](../../planning/ROADMAP.md)
 - [任务规划契约](../../specs/MISSION_PLANNING.md)
 - [架构说明](../ARCHITECTURE.md)

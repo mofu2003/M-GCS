@@ -124,6 +124,16 @@ MGCORE_API char* mg_vehicle_list(mg_core_t* core) {
     jb.begin_array();
     for (const auto& v : all) {
         auto& info = v->info();
+        const auto heartbeat = v->cache().snapshot_heartbeat().data;
+        const auto battery = v->cache().snapshot_battery().data;
+        const auto gps = v->cache().snapshot_gps().data;
+        const auto link_statuses = v->link_manager().statuses();
+        size_t healthy_links = 0;
+        uint64_t primary_heartbeat_age_ms = 0;
+        for (const auto& status : link_statuses) {
+            if (!status.comm_lost) ++healthy_links;
+            if (status.primary) primary_heartbeat_age_ms = status.heartbeat_age_ms;
+        }
         mg::bridge::JsonBuilder obj;
         obj.begin_object();
         obj.field("vehicle_id", info.vehicle_id);
@@ -133,6 +143,17 @@ MGCORE_API char* mg_vehicle_list(mg_core_t* core) {
         obj.field("vehicle_type", info.vehicle_type);
         obj.field("endpoint", info.endpoint);
         obj.field("connected", v->is_connected());
+        obj.field("armed", heartbeat.armed);
+        obj.field("flight_mode", std::string(heartbeat.flight_mode));
+        obj.field("battery_remaining_pct",
+                  static_cast<int>(battery.battery_remaining));
+        obj.field("gps_fix_type", static_cast<int>(gps.fix_type));
+        obj.field("gps_satellites", static_cast<int>(gps.satellites_visible));
+        obj.field("link_count", static_cast<int>(link_statuses.size()));
+        obj.field("healthy_link_count", static_cast<int>(healthy_links));
+        obj.field("communication_lost", v->link_manager().communication_lost());
+        obj.field("primary_heartbeat_age_ms",
+                  static_cast<int64_t>(primary_heartbeat_age_ms));
         obj.end_object();
         jb.append_json(obj.str());
     }
@@ -172,10 +193,3 @@ MGCORE_API char* mg_firmware_flash_status(mg_core_t* core) {
 // ================================================================
 // ffi_api.h aliases
 // ================================================================
-
-MGCORE_API char* mg_mission_start(mg_core_t* core) {
-    return send_active_request(core, "mission start failed",
-        [](auto& mav, uint8_t sys, uint8_t comp) {
-            return mav.mission_start(sys, comp);
-        });
-}

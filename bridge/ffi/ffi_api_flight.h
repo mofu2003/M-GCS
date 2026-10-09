@@ -29,6 +29,14 @@ MGCORE_API char* mg_command_execute_for_vehicle(mg_core_t* core,
                                                 int vehicle_id,
                                                 const char* command_json);
 
+// Nonblocking explicit-target commands. Submit returns {success,ticket}; poll
+// returns {success,ticket,state:"pending"} or state:"complete",result:{...}.
+// A complete poll consumes the ticket. One in-flight job per Vehicle; bounded
+// queue. Core destruction drains all workers before releasing state.
+MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
+                                               const char* command_json);
+MGCORE_API char* mg_command_poll(mg_core_t* core, uint64_t ticket);
+
 MGCORE_API char* mg_command_arm(mg_core_t* core, int force);
 MGCORE_API char* mg_command_disarm(mg_core_t* core, int force);
 MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_mode);

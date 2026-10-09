@@ -6,9 +6,14 @@ import 'fleet_models.dart';
 /// MV1 基础：端点注册、稳定焦点、精确关闭与目标凭证生命周期。
 ///
 /// active 只表示 UI 焦点。这里只管连接/焦点，不负责飞行算法、参数或任务。
-/// 当前不提供 selectedVehicles/批量指令，避免混淆焦点与操作集合。
+/// MV6 增加独立 selectedVehicles 集合和显式批量目标；批量执行期间冻结焦点
+/// 变更，但绝不把 active vehicle 当成隐式批量目标。
 class FleetController extends ChangeNotifier {
-  FleetController(this._backend, {this.canChangeFocus});
+  FleetController(
+    this._backend, {
+    this.canChangeFocus,
+    this.executeBatchCommand,
+  });
 
   /// Host gate while per-vehicle UI rebinding is not yet implemented.
   /// Null is used by standalone fleet tests; the current single-session host
@@ -16,6 +21,11 @@ class FleetController extends ChangeNotifier {
   final bool Function()? canChangeFocus;
 
   final FleetBackend _backend;
+  final Future<FleetBatchCommandResult> Function(
+    FleetVehicleSummary vehicle,
+    FleetBatchAction action,
+  )?
+  executeBatchCommand;
   FleetSnapshot _snapshot = FleetSnapshot(
     vehicles: const [],
     links: const [],
@@ -23,12 +33,24 @@ class FleetController extends ChangeNotifier {
   );
   int _focusRevision = 0;
   int _targetOperations = 0;
+  int _batchOperations = 0;
   FleetTarget? _pinnedTarget;
+  final Set<int> _selectedVehicleIds = <int>{};
   bool _disposed = false;
 
   FleetSnapshot get snapshot => _snapshot;
+  Set<int> get selectedVehicleIds => Set.unmodifiable(_selectedVehicleIds);
   int get focusRevision => _focusRevision;
-  bool get targetOperationActive => _targetOperations > 0;
+  bool get targetOperationActive =>
+      _targetOperations > 0 || _batchOperations > 0;
+  bool get batchOperationActive => _batchOperations > 0;
+
+  List<FleetVehicleSummary> get selectedVehicles => [
+    for (final vehicle in _snapshot.vehicles)
+      if (_selectedVehicleIds.contains(vehicle.id)) vehicle,
+  ];
+
+  bool isVehicleSelected(int id) => _selectedVehicleIds.contains(id);
 
   void refresh() {
     _requireAlive();
@@ -41,10 +63,16 @@ class FleetController extends ChangeNotifier {
       _backend.select(next.vehicles.first.id);
       next = _backend.snapshot();
     }
+    final selectedBefore = Set<int>.of(_selectedVehicleIds);
+    _selectedVehicleIds.removeWhere((id) => next.vehicle(id) == null);
+    final selectionChanged =
+        selectedBefore.length != _selectedVehicleIds.length ||
+        !selectedBefore.containsAll(_selectedVehicleIds);
     final changed =
         next.activeVehicleId != _snapshot.activeVehicleId ||
         !listEquals(next.vehicles, _snapshot.vehicles) ||
-        !listEquals(next.links, _snapshot.links);
+        !listEquals(next.links, _snapshot.links) ||
+        selectionChanged;
     final previousActive = _snapshot.activeVehicle;
     final nextActive = next.activeVehicle;
     if (next.activeVehicleId != _snapshot.activeVehicleId ||
@@ -110,6 +138,35 @@ class FleetController extends ChangeNotifier {
     if (_snapshot.activeVehicleId != id) throw StateError('切换飞机失败');
   }
 
+  /// 选择集合只影响批量动作，不改变 active vehicle。重复点击同一架飞机即可
+  /// 取消选择；这样不会要求用户先切焦点再参与批量控制。
+  void toggleVehicleSelection(int id) {
+    _requireAlive();
+    refresh();
+    if (_snapshot.vehicle(id) == null) throw StateError('飞控会话不存在');
+    if (!_selectedVehicleIds.add(id)) _selectedVehicleIds.remove(id);
+    if (!_snapshot.vehicles.any((vehicle) => vehicle.id == id)) {
+      _selectedVehicleIds.remove(id);
+    }
+    notifyListeners();
+  }
+
+  void selectAllVehicles() {
+    _requireAlive();
+    refresh();
+    _selectedVehicleIds
+      ..clear()
+      ..addAll(_snapshot.vehicles.map((vehicle) => vehicle.id));
+    notifyListeners();
+  }
+
+  void clearVehicleSelection() {
+    _requireAlive();
+    if (_selectedVehicleIds.isEmpty) return;
+    _selectedVehicleIds.clear();
+    notifyListeners();
+  }
+
   void selectLink(int id) {
     _requireAlive();
     refresh();
@@ -158,6 +215,84 @@ class FleetController extends ChangeNotifier {
       throw StateError('当前飞控尚未完成焦点绑定，请重新选择飞机');
     }
     return FleetTarget(vehicleId: active.id, focusRevision: _focusRevision);
+  }
+
+  FleetBatchTarget captureBatchTarget(FleetBatchAction action) {
+    _requireAlive();
+    refresh();
+    final vehicles = selectedVehicles
+        .where((vehicle) => vehicle.connected && vehicle.identified)
+        .toList(growable: false);
+    if (vehicles.isEmpty) {
+      throw StateError('请先选择至少一架已连接并完成识别的飞机');
+    }
+    return FleetBatchTarget(
+      action: action,
+      vehicleIds: vehicles.map((vehicle) => vehicle.id),
+      systemIds: vehicles.map((vehicle) => vehicle.systemId),
+    );
+  }
+
+  /// 执行一批已冻结的显式目标。命令逐机下发，失败不会中断其他飞机；返回
+  /// 每架飞机的独立结果，不修改 active focus。
+  Future<FleetBatchResult> runBatch(FleetBatchTarget target) async {
+    _requireAlive();
+    if (target.vehicleIds.isEmpty) throw StateError('批量目标为空');
+    final executor = executeBatchCommand;
+    if (executor == null) throw StateError('当前后端不支持批量飞行指令');
+
+    _batchOperations++;
+    notifyListeners();
+    final results = <FleetBatchCommandResult>[];
+    try {
+      refresh();
+      for (var index = 0; index < target.vehicleIds.length; index++) {
+        final vehicleId = target.vehicleIds[index];
+        final systemId = index < target.systemIds.length
+            ? target.systemIds[index]
+            : 0;
+        final vehicle = _snapshot.vehicle(vehicleId);
+        if (vehicle == null || !vehicle.connected || !vehicle.identified) {
+          results.add(
+            FleetBatchCommandResult.failure(
+              vehicleId: vehicleId,
+              systemId: systemId,
+              status: FleetBatchCommandStatus.error,
+              message: '飞机已断开或尚未完成识别',
+            ),
+          );
+          continue;
+        }
+        try {
+          final result = await executor(vehicle, target.action);
+          if (result.vehicleId != vehicleId || result.systemId != systemId) {
+            results.add(
+              FleetBatchCommandResult.failure(
+                vehicleId: vehicleId,
+                systemId: systemId,
+                status: FleetBatchCommandStatus.error,
+                message: '批量执行器返回了错误的目标飞机',
+              ),
+            );
+          } else {
+            results.add(result);
+          }
+        } on Object catch (error) {
+          results.add(
+            FleetBatchCommandResult.failure(
+              vehicleId: vehicleId,
+              systemId: systemId,
+              status: FleetBatchCommandStatus.error,
+              message: error.toString().replaceFirst('Bad state: ', ''),
+            ),
+          );
+        }
+      }
+    } finally {
+      _batchOperations--;
+      if (!_disposed) notifyListeners();
+    }
+    return FleetBatchResult(action: target.action, results: results);
   }
 
   void validateTarget(FleetTarget target) {

@@ -17,6 +17,7 @@ cmake_file="$root_dir/CMakeLists.txt"
 pubspec_file="$root_dir/flutter_shell/pubspec.yaml"
 readme_file="$root_dir/README.md"
 changelog_file="$root_dir/CHANGELOG.md"
+ffi_header="$root_dir/bridge/ffi/ffi_api_core.h"
 
 current_version="$(
   sed -n 's/^project(mgcore VERSION \([0-9][0-9.]*\) LANGUAGES CXX.*/\1/p' \
@@ -52,6 +53,15 @@ NEXT_VERSION="$next_pubspec_version" perl -0pi -e \
   's/^version: \K[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+$/$ENV{NEXT_VERSION}/m' \
   "$pubspec_file"
 
+# Keep the FFI version macros (mg_get_version) in sync with the project version.
+major="${version%%.*}"
+rest="${version#*.}"
+minor="${rest%%.*}"
+patch="${rest#*.}"
+perl -0pi -e "s/#define MGCORE_VERSION_MAJOR \K[0-9]+/$major/" "$ffi_header"
+perl -0pi -e "s/#define MGCORE_VERSION_MINOR \K[0-9]+/$minor/" "$ffi_header"
+perl -0pi -e "s/#define MGCORE_VERSION_PATCH \K[0-9]+/$patch/" "$ffi_header"
+
 VERSION="$version" perl -0pi -e \
   's/当前版本：`\K[0-9]+\.[0-9]+\.[0-9]+(?=`)/$ENV{VERSION}/' \
   "$readme_file"
@@ -62,7 +72,10 @@ if ! grep -q "^## $version " "$changelog_file"; then
     "$changelog_file"
 fi
 
-if ! grep -q "project(mgcore VERSION $version LANGUAGES CXX" "$cmake_file" ||
+if ! grep -q "#define MGCORE_VERSION_MAJOR $major" "$ffi_header" ||
+  ! grep -q "#define MGCORE_VERSION_MINOR $minor" "$ffi_header" ||
+  ! grep -q "#define MGCORE_VERSION_PATCH $patch" "$ffi_header" ||
+  ! grep -q "project(mgcore VERSION $version LANGUAGES CXX" "$cmake_file" ||
   ! grep -q "^version: $next_pubspec_version$" "$pubspec_file" ||
   ! grep -q "当前版本：\`$version\`" "$readme_file" ||
   ! grep -q "^## $version " "$changelog_file"; then
@@ -77,5 +90,6 @@ git -C "$root_dir" diff --stat -- \
   CMakeLists.txt \
   flutter_shell/pubspec.yaml \
   README.md \
-  CHANGELOG.md
+  CHANGELOG.md \
+  bridge/ffi/ffi_api_core.h
 echo "[release] 请补全 CHANGELOG，运行 tools/preflight.sh 后本地提交和打标签。"

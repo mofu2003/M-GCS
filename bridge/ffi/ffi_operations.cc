@@ -13,7 +13,8 @@
 namespace mg::bridge::operations_detail {
 
 std::string params_operation_json(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
+    auto* vehicle = get_active_vehicle(core);
+    const auto mav = vehicle ? vehicle->operation_mavlink("params") : nullptr;
     const int received =
         mav ? static_cast<int>(mav->params_download_received()) : 0;
     const int total = mav ? static_cast<int>(mav->param_count()) : 0;
@@ -37,6 +38,12 @@ std::string params_operation_json(mg_core_t* core) {
     jb.field("total", total);
     jb.field("cancellable", active);
     jb.field("cancelled", cancelled);
+    jb.field("retry_count",
+             mav ? mav->param_download_retry_count() : 0);
+    jb.field("missing_count",
+             mav ? mav->param_download_missing_count() : 0);
+    jb.field("failed_count",
+             mav ? mav->param_download_failed_count() : 0);
     jb.field("error", error);
     jb.end_object();
     return jb.str();
@@ -45,7 +52,8 @@ std::string params_operation_json(mg_core_t* core) {
 std::string transfer_operation_json(
     const char* id,
     const char* type,
-    const mg::core::mission::MissionTransferProgress& progress) {
+    const mg::core::mission::MissionTransferProgress& progress,
+    int retry_count) {
     const bool active =
         progress.state == mg::core::mission::MissionState::Downloading ||
         progress.state == mg::core::mission::MissionState::Uploading ||
@@ -75,6 +83,7 @@ std::string transfer_operation_json(
     jb.field("sent", static_cast<int>(progress.sent));
     jb.field("total", static_cast<int>(progress.total));
     jb.field("cancellable", active);
+    jb.field("retry_count", retry_count);
     jb.field("result", static_cast<int>(progress.result));
     jb.field(
         "result_text",
@@ -88,25 +97,34 @@ std::string transfer_operation_json(
 }
 
 std::string mission_operation_json(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
+    auto* vehicle = get_active_vehicle(core);
+    const auto mav = vehicle ? vehicle->operation_mavlink("mission") : nullptr;
     const auto progress = mav
         ? mg::bridge::ffi::present_mission_progress(core, mav->mission_get_progress())
         : mg::core::mission::MissionTransferProgress{};
-    return transfer_operation_json("mission", "mission_transfer", progress);
+    return transfer_operation_json(
+        "mission", "mission_transfer", progress,
+        mav ? mav->mission_transfer_retry_count() : 0);
 }
 
 std::string fence_operation_json(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
+    auto* vehicle = get_active_vehicle(core);
+    const auto mav = vehicle ? vehicle->operation_mavlink("fence") : nullptr;
     const auto progress = mav ? mav->fence_get_progress()
                               : mg::core::mission::MissionTransferProgress{};
-    return transfer_operation_json("fence", "fence_transfer", progress);
+    return transfer_operation_json(
+        "fence", "fence_transfer", progress,
+        mav ? mav->fence_transfer_retry_count() : 0);
 }
 
 std::string rally_operation_json(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
+    auto* vehicle = get_active_vehicle(core);
+    const auto mav = vehicle ? vehicle->operation_mavlink("rally") : nullptr;
     const auto progress = mav ? mav->rally_get_progress()
                               : mg::core::mission::MissionTransferProgress{};
-    return transfer_operation_json("rally", "rally_transfer", progress);
+    return transfer_operation_json(
+        "rally", "rally_transfer", progress,
+        mav ? mav->rally_transfer_retry_count() : 0);
 }
 
 std::string calibration_operation_json(mg_core_t* core) {
@@ -152,7 +170,8 @@ std::string calibration_operation_json(mg_core_t* core) {
 }
 
 std::string log_operation_json(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
+    auto* vehicle = get_active_vehicle(core);
+    const auto mav = vehicle ? vehicle->operation_mavlink("log") : nullptr;
     const auto status = mav ? mav->log_download_status()
                             : mg::core::mavlink::MavlinkAdapter::LogDownloadStatus{};
     const char* state = "idle";
@@ -219,22 +238,44 @@ MGCORE_API char* mg_operations_get_snapshot(mg_core_t* core) {
         mg::bridge::operations_detail::operations_snapshot_json(core));
 }
 
+MGCORE_API char* mg_operations_get_snapshot_for_vehicle(
+    mg_core_t* core, int vehicle_id) {
+    CHECK_CORE(core);
+    if (vehicle_id <= 0) return fail(MG_ERROR_INVALID_PARAM, "invalid vehicle");
+    auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
+    if (!vehicle) return fail(MG_ERROR_NOT_FOUND, "vehicle not found");
+    mg::bridge::ffi::VehicleTargetScope scope(core, vehicle.get());
+    return to_cstr(
+        mg::bridge::operations_detail::operations_snapshot_json(core));
+}
+
 MGCORE_API char* mg_operations_cancel(mg_core_t* core, const char* operation_id) {
     CHECK_CORE(core);
     const std::string id = operation_id ? operation_id : "";
     const bool known =
-        id == "params" || id == "mission" || id == "calibration" || id == "log";
+        id == "params" || id == "mission" || id == "fence" ||
+        id == "rally" || id == "calibration" || id == "log";
 
     bool canceled = false;
     std::string reason = known ? "no active cancellable operation" : "unknown operation";
     if (id == "params") {
-        if (auto* mav = get_active_mavlink(core)) {
-            canceled = mav->cancel_param_download();
+        if (auto* vehicle = get_active_vehicle(core)) {
+            canceled = vehicle->cancel_operation("params");
             if (canceled) reason.clear();
         }
     } else if (id == "mission") {
-        if (auto* mav = get_active_mavlink(core)) {
-            canceled = mav->mission_cancel();
+        if (auto* vehicle = get_active_vehicle(core)) {
+            canceled = vehicle->cancel_operation("mission");
+            if (canceled) reason.clear();
+        }
+    } else if (id == "fence") {
+        if (auto* vehicle = get_active_vehicle(core)) {
+            canceled = vehicle->cancel_operation("fence");
+            if (canceled) reason.clear();
+        }
+    } else if (id == "rally") {
+        if (auto* vehicle = get_active_vehicle(core)) {
+            canceled = vehicle->cancel_operation("rally");
             if (canceled) reason.clear();
         }
     } else if (id == "calibration") {
@@ -251,12 +292,9 @@ MGCORE_API char* mg_operations_cancel(mg_core_t* core, const char* operation_id)
                               : "failed to cancel calibration");
         }
     } else if (id == "log") {
-        if (auto* mav = get_active_mavlink(core)) {
-            if (mav->log_download_active()) {
-                canceled = mav->log_download_cancel();
-                reason = canceled ? std::string()
-                                  : "failed to cancel log download";
-            }
+        if (auto* vehicle = get_active_vehicle(core)) {
+            canceled = vehicle->cancel_operation("log");
+            if (canceled) reason.clear();
         }
     }
 
@@ -268,4 +306,14 @@ MGCORE_API char* mg_operations_cancel(mg_core_t* core, const char* operation_id)
     jb.field("reason", reason);
     jb.end_object();
     return to_cstr(jb.str());
+}
+
+MGCORE_API char* mg_operations_cancel_for_vehicle(
+    mg_core_t* core, int vehicle_id, const char* operation_id) {
+    CHECK_CORE(core);
+    if (vehicle_id <= 0) return fail(MG_ERROR_INVALID_PARAM, "invalid vehicle");
+    auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
+    if (!vehicle) return fail(MG_ERROR_NOT_FOUND, "vehicle not found");
+    mg::bridge::ffi::VehicleTargetScope scope(core, vehicle.get());
+    return mg_operations_cancel(core, operation_id);
 }

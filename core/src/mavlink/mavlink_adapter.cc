@@ -120,8 +120,28 @@ bool MavlinkAdapter::feed_raw(const uint8_t* data, size_t size) {
             }
         }
     }
-    for (const auto& frame : frames) impl_->process(frame);
-    return !frames.empty();
+    bool accepted = false;
+    for (const auto& frame : frames) {
+        // Candidate selection is not authentication. Frames parsed before a
+        // key was installed must pass official stream/timestamp checks before
+        // delivery, including every other frame already collected in this chunk.
+        if (!compatibility_bypass_disabled) {
+            const bool signed_frame = (frame.incompat_flags & MAVLINK_IFLAG_SIGNED) != 0;
+            if (signed_frame && !signing_enabled()) {
+                if (signing_candidate_count() > 0 && !try_auto_detect_signing(frame)) continue;
+            }
+            if (signing_enabled()) {
+                mg::core::platform::LockGuard lk(impl_->mtx);
+                mg::core::platform::LockGuard send_lock(impl_->send_mtx);
+                mg::core::platform::LockGuard receive_lock(impl_->receive_mtx);
+                if (!signed_frame || !mavlink_signature_check(
+                        &impl_->signing, &impl_->signing_streams, &frame)) continue;
+            }
+        }
+        impl_->process(frame);
+        accepted = true;
+    }
+    return accepted;
 }
 
 namespace {
@@ -141,6 +161,27 @@ uint8_t next_signing_link_id() {
     return static_cast<uint8_t>((value % 255U) + 1U);
 }
 
+bool signing_key_matches(const std::array<uint8_t, 32>& key,
+                         const mavlink_message_t& message) {
+    if ((message.incompat_flags & MAVLINK_IFLAG_SIGNED) == 0) return false;
+    mavlink_sha256_ctx ctx;
+    mavlink_sha256_init(&ctx);
+    mavlink_sha256_update(&ctx, key.data(), key.size());
+    const auto* header = reinterpret_cast<const uint8_t*>(&message.magic);
+    mavlink_sha256_update(&ctx, header, MAVLINK_NUM_HEADER_BYTES);
+    mavlink_sha256_update(&ctx, _MAV_PAYLOAD(&message), message.len);
+    const uint8_t checksum[2] = {
+        static_cast<uint8_t>(message.checksum & 0xFF),
+        static_cast<uint8_t>(message.checksum >> 8),
+    };
+    mavlink_sha256_update(&ctx, checksum, sizeof(checksum));
+    mavlink_sha256_update(&ctx, message.signature, 7);
+    uint8_t signature[6]{};
+    mavlink_sha256_final_48(&ctx, signature);
+    return std::memcmp(signature, message.signature + 7,
+                       sizeof(signature)) == 0;
+}
+
 } // namespace
 
 // 设置底层发送回调，加锁保护
@@ -152,7 +193,9 @@ void MavlinkAdapter::set_send_callback(SendCallback cb) {
 bool MavlinkAdapter::set_signing_key(const uint8_t* key,
                                      size_t key_size,
                                      bool sign_outgoing,
-                                     uint64_t persisted_timestamp) {
+                                     uint64_t persisted_timestamp,
+                                     const std::string& key_name,
+                                     bool auto_detected) {
     if (key == nullptr || key_size < sizeof(impl_->signing.secret_key)) {
         return false;
     }
@@ -172,14 +215,36 @@ bool MavlinkAdapter::set_signing_key(const uint8_t* key,
     std::copy_n(key, sizeof(impl_->signing.secret_key),
                 impl_->signing.secret_key);
     impl_->signing.timestamp = std::max(
-        signing_now_ticks(), persisted_timestamp + 6000000ULL);
+        signing_now_ticks(), persisted_timestamp + 1ULL);
 
     impl_->tx_status.signing = &impl_->signing;
     impl_->tx_status.signing_streams = &impl_->signing_streams;
     impl_->rx_status.signing = &impl_->signing;
     impl_->rx_status.signing_streams = &impl_->signing_streams;
+    impl_->signing_key_name = key_name;
+    impl_->signing_auto_detected = auto_detected;
     impl_->signing_enabled.store(true, std::memory_order_release);
     return true;
+}
+
+bool MavlinkAdapter::set_signing_candidates(
+    const std::vector<SigningCandidate>& candidates) {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    impl_->signing_candidates = candidates;
+    impl_->signing_detect_cooldown = {};
+    return true;
+}
+
+void MavlinkAdapter::clear_signing_candidates() {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    impl_->signing_candidates.clear();
+    impl_->signing_detect_cooldown = {};
+}
+
+void MavlinkAdapter::set_signing_detected_callback(
+    SigningDetectedCallback callback) {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    impl_->signing_detected_cb = std::move(callback);
 }
 
 void MavlinkAdapter::clear_signing_key() {
@@ -195,6 +260,8 @@ void MavlinkAdapter::clear_signing_key() {
               std::end(impl_->signing.secret_key), 0);
     impl_->signing = {};
     impl_->signing_streams = {};
+    impl_->signing_key_name.clear();
+    impl_->signing_auto_detected = false;
     impl_->signing_enabled.store(false, std::memory_order_release);
 }
 
@@ -208,6 +275,70 @@ mavlink_signing_status_t MavlinkAdapter::signing_status() const {
     return impl_->signing_enabled.load(std::memory_order_acquire)
             ? impl_->signing.last_status
                                   : MAVLINK_SIGNING_STATUS_NONE;
+}
+
+std::string MavlinkAdapter::signing_key_name() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->signing_key_name;
+}
+
+bool MavlinkAdapter::signing_auto_detected() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->signing_auto_detected;
+}
+
+size_t MavlinkAdapter::signing_candidate_count() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->signing_candidates.size();
+}
+
+uint64_t MavlinkAdapter::signing_timestamp() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->signing.timestamp;
+}
+
+bool MavlinkAdapter::try_auto_detect_signing(
+    const mavlink_message_t& message) {
+    if ((message.incompat_flags & MAVLINK_IFLAG_SIGNED) == 0) return false;
+
+    std::vector<SigningCandidate> candidates;
+    const auto now = std::chrono::steady_clock::now();
+    {
+        mg::core::platform::LockGuard lk(impl_->mtx);
+        if (impl_->signing_enabled.load(std::memory_order_acquire) ||
+            impl_->signing_candidates.empty() ||
+            now < impl_->signing_detect_cooldown) {
+            return false;
+        }
+        candidates = impl_->signing_candidates;
+    }
+
+    for (const auto& candidate : candidates) {
+        if (!signing_key_matches(candidate.key, message)) continue;
+        // Candidate matching chooses a key; freshness is enforced before
+        // committing it so replayed first packets cannot authenticate a route.
+        uint64_t packet_ticks = 0;
+        for (int i = 0; i < 6; ++i) {
+            packet_ticks |= static_cast<uint64_t>(message.signature[1 + i]) << (8 * i);
+        }
+        const uint64_t floor = std::max(signing_now_ticks(), candidate.persisted_timestamp);
+        if (packet_ticks + 6000000ULL < floor) continue;
+        if (set_signing_key(candidate.key.data(), candidate.key.size(), true,
+                            candidate.persisted_timestamp, candidate.name,
+                            true)) {
+            SigningDetectedCallback callback;
+            {
+                mg::core::platform::LockGuard lk(impl_->mtx);
+                callback = impl_->signing_detected_cb;
+            }
+            if (callback) callback(candidate);
+            return true;
+        }
+    }
+
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    impl_->signing_detect_cooldown = now + std::chrono::seconds(2);
+    return false;
 }
 
 bool MavlinkAdapter::send_setup_signing(uint8_t target_system,
@@ -562,6 +693,26 @@ std::string MavlinkAdapter::param_download_error() const {
     return impl_->pc.download_error;
 }
 
+int MavlinkAdapter::param_download_retry_count() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    int retries = impl_->pc.list_retry_count;
+    for (const auto& [index, count] : impl_->pc.missing_indices) {
+        (void)index;
+        retries = std::max(retries, count);
+    }
+    return retries;
+}
+
+int MavlinkAdapter::param_download_missing_count() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return static_cast<int>(impl_->pc.missing_indices.size());
+}
+
+int MavlinkAdapter::param_download_failed_count() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return static_cast<int>(impl_->pc.failed_indices.size());
+}
+
 bool MavlinkAdapter::cancel_param_download() {
     mg::core::platform::LockGuard lk(impl_->mtx);
     return impl_->pc.cancel_download();
@@ -763,12 +914,14 @@ bool MavlinkAdapter::cancel_command(CommandTicket ticket) {
 
 // 周期性检查超时
 void MavlinkAdapter::tick() {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    impl_->cmd_queue.check_timeouts(
-        [this](const CommandQueueEntry& e) -> bool {
-            return impl_->send_command_queue_entry(e);
-        });
-    impl_->cmd_queue.purge();
+    std::vector<std::function<void()>> callbacks;
+    {
+        mg::core::platform::LockGuard lk(impl_->mtx);
+        impl_->process_timeouts();
+        callbacks = std::move(impl_->deferred_cbs);
+        impl_->deferred_cbs.clear();
+    }
+    for (auto& callback : callbacks) callback();
 }
 
 std::vector<VideoStreamInfo> MavlinkAdapter::latest_video_streams() const {

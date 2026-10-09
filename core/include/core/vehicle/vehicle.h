@@ -98,6 +98,12 @@ public:
 
     /// Synchronize the command/calibration source with VehicleLinkManager.
     void refresh_primary_connection();
+    /// Physical lifecycle, including waiting routes (not only the primary).
+    bool all_routes_disconnected() const;
+    std::shared_ptr<mg::core::transport::ConnectionManager> command_connection() const;
+    /// Retain transaction ownership across primary-link changes.
+    std::shared_ptr<mg::core::mavlink::MavlinkAdapter> operation_mavlink(const std::string& id);
+    bool cancel_operation(const std::string& id);
 
     void disconnect();
     bool is_connected() const;
@@ -128,10 +134,19 @@ public:
         return connection ? connection->get_mavlink() : nullptr;
     }
     bool set_signing_key(const uint8_t* key, size_t key_size,
-                         bool sign_outgoing, uint64_t persisted_timestamp);
+                         bool sign_outgoing, uint64_t persisted_timestamp,
+                         const std::string& key_name = {},
+                         bool auto_detected = false);
+    bool set_signing_candidates(
+        const std::vector<mg::core::mavlink::SigningCandidate>& candidates);
+    void clear_signing_candidates();
     void clear_signing_key();
     bool signing_enabled() const;
     int signing_status() const;
+    std::string signing_key_name() const;
+    bool signing_auto_detected() const;
+    size_t signing_candidate_count() const;
+    uint64_t signing_timestamp() const;
     bool send_setup_signing(uint8_t target_system,
                             uint8_t target_component,
                             const uint8_t* key,
@@ -202,6 +217,9 @@ private:
         mg::core::transport::ConnectionManager* source,
         mg::core::telemetry::TelemetryType type,
         int event_id);
+    void inherit_signing(mg::core::mavlink::MavlinkAdapter& mav);
+    void apply_detected_signing_candidate(
+        const mg::core::mavlink::SigningCandidate& candidate);
     /// 清空所有 IMU 实例的波形缓冲与活跃时间。
     void clear_waveforms();
 
@@ -215,6 +233,13 @@ private:
     std::map<int, std::shared_ptr<mg::core::transport::ConnectionManager>>
         connections_;
     int primary_route_id_ = -1;
+    mutable mg::core::platform::Mutex signing_policy_mtx_;
+    std::optional<mg::core::mavlink::SigningCandidate> signing_policy_;
+    bool signing_policy_outgoing_ = true;
+    bool signing_policy_detected_ = false;
+    std::vector<mg::core::mavlink::SigningCandidate> signing_candidates_;
+    mg::core::platform::Mutex operation_mtx_;
+    std::map<std::string, std::shared_ptr<mg::core::mavlink::MavlinkAdapter>> operation_adapters_;
     mg::core::vehicle::VehicleLinkManager link_manager_;
     mg::core::telemetry::TelemetryCache cache_;
 

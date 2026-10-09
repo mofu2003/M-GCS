@@ -8,7 +8,7 @@ import 'package:macos_ui/macos_ui.dart';
 /// 当前实验配置：MiSans 同时覆盖汉字与拉丁，因此全应用压到**一套字体**，
 /// 三个平台字形完全一致。Arimo 仍随包分发但未启用，改一行即可切回
 /// "Arimo 西文 + 系统中文" 的组合。决策与实测见
-/// `docs/adr/0007-unified-font-stack.md` 与 `docs/research/FONT_ALTERNATIVES_RESEARCH.md`。
+/// `docs/architecture/adr/0007-unified-font-stack.md` 与 `docs/research/FONT_ALTERNATIVES_RESEARCH.md`。
 class MgFonts {
   const MgFonts._();
 
@@ -228,6 +228,14 @@ class MgMetrics {
 
   /// 右下角复合仪表的玻璃外径。
   static const double attitudeCompassSize = 196;
+
+  /// 多机批量面板的统一布局尺寸。
+  static const double fleetPanelWidth = 360;
+  static const double fleetPanelInset = 14;
+  static const double fleetPanelHeaderInset = 12;
+  static const double fleetPanelActionWidth = 76;
+  static const double fleetPanelCloseSize = 24;
+  static const double fleetPanelAnchorInset = 12;
 
   /// 复合仪表内部绘制区域直径。
   static const double attitudeCompassContentSize = 188;

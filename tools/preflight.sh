@@ -61,6 +61,16 @@ echo "[preflight] 检查补丁格式"
 git diff --check HEAD
 git diff --cached --check
 
+echo "[preflight] 检查版本号一致性"
+cmake_version="$(sed -n 's/^project(mgcore VERSION \([0-9][0-9.]*\) LANGUAGES CXX.*/\1/p' CMakeLists.txt)"
+pubspec_version="$(sed -n 's/^version: \([0-9][0-9.]*\)+[0-9][0-9]*$/\1/p' flutter_shell/pubspec.yaml)"
+ffi_version="$(sed -n 's/^#define MGCORE_VERSION_MAJOR \([0-9]*\)$/\1/p' bridge/ffi/ffi_api_core.h).$(sed -n 's/^#define MGCORE_VERSION_MINOR \([0-9]*\)$/\1/p' bridge/ffi/ffi_api_core.h).$(sed -n 's/^#define MGCORE_VERSION_PATCH \([0-9]*\)$/\1/p' bridge/ffi/ffi_api_core.h)"
+if [[ -z "$cmake_version" || "$cmake_version" != "$pubspec_version" || "$cmake_version" != "$ffi_version" ]]; then
+  echo "[preflight] 版本号不一致：CMake=$cmake_version pubspec=$pubspec_version ffi=$ffi_version" >&2
+  exit 1
+fi
+echo "[preflight] 版本一致：$cmake_version"
+
 if [[ "$run_frontend" -eq 1 ]]; then
   command -v dart >/dev/null 2>&1 || {
     echo "[preflight] 未找到 dart；请先安装 Flutter SDK。" >&2

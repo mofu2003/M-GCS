@@ -1,6 +1,6 @@
 # M-GCS 开发指南
 
-当前版本：`0.0.79`
+当前版本：`0.0.80`
 
 > **完整规则请参阅** [`AGENTS.md`](../../AGENTS.md)（仓库根目录）
 > 
@@ -25,7 +25,7 @@ cd flutter_shell && flutter run -d macos
 ### 提交前门禁（必须）
 
 ```bash
-# 后端测试（35 个 offline/simulation 测试，约 35 秒）
+# 后端测试（37 个 offline/simulation 测试，约 40 秒）
 ctest --test-dir build_check --output-on-failure --no-tests=error -L "offline|simulation" -LE "hardware|manual"
 
 # 前端测试
@@ -104,7 +104,7 @@ cmake --build build --config Release --target mgcore
 
 ```bash
 # 使用发布脚本（自动更新版本号、CHANGELOG）
-./tools/release.sh 0.0.79
+./tools/release.sh 0.0.80
 
 # 发布流程：改版本号 → 更新 CHANGELOG → 提交 → 打标签 →（用户要求时）推送
 ```
@@ -154,9 +154,9 @@ release  # 版本发布
 - [ADR（架构决策记录）](../architecture/adr/)
 
 ### 规划
-- [路线图](../planning/DEVELOPMENT_ROADMAP.md)
-- [完成定义](../planning/DEFINITION_OF_DONE.md)
-- [当前审计](../planning/STATUS_AUDIT.md)
+- [路线图](../planning/ROADMAP.md)
+- [当前状态与完成定义](../planning/CURRENT_STATE.md)
+- [当前审计](../planning/CURRENT_STATE.md)
 
 ### 技术规范
 - [任务规划契约](../specs/MISSION_PLANNING.md)

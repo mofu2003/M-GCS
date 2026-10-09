@@ -13,6 +13,7 @@ import 'map/amap_map_view.dart';
 import 'theme/mg_typography.dart';
 import 'widgets/mg_command_confirmation.dart';
 import 'widgets/mg_dialog.dart';
+import 'widgets/mg_fleet_batch_panel.dart';
 import 'widgets/mg_settings_menu.dart';
 import 'widgets/mg_top_status_bar.dart';
 
@@ -118,17 +119,73 @@ class _MapPageState extends State<MapPage> {
     if (command == null) return;
     final target = _pendingTarget;
     _cancelCommandConfirmation();
-    if (target == null) return;
+    final execute = target == null
+        ? command.execute
+        : () =>
+              _connectionController.fleet.runForTarget(target, command.execute);
     unawaited(
       _executeCommandConfirmation(
-        MgCommandConfirmation(
-          label: command.label,
-          execute: () =>
-              _connectionController.fleet.runForTarget(target, command.execute),
+        MgCommandConfirmation(label: command.label, execute: execute),
+      ),
+    );
+  }
+
+  void _requestFleetBatchAction(FleetBatchTarget target) {
+    _cancelCommandConfirmation();
+    _pendingCommand.value = MgCommandConfirmation(
+      label: target.action.label,
+      detail: target.detail,
+      execute: () async {
+        final result = await _connectionController.fleet.runBatch(target);
+        if (!result.allSucceeded && mounted) {
+          await _showFleetBatchResult(result);
+        }
+      },
+    );
+  }
+
+  Future<void> _showFleetBatchResult(FleetBatchResult result) {
+    final failed = result.results.where((item) => !item.success).toList();
+    return showMgAlertDialog<void>(
+      context: context,
+      builder: (dialogContext) => MacosAlertDialog(
+        appIcon: const Icon(Icons.warning_amber_rounded, size: 48),
+        title: Text('${result.action.label}结果'),
+        message: SizedBox(
+          width: 360,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('成功 ${result.successCount} 架，失败 ${result.failureCount} 架'),
+                const SizedBox(height: 8),
+                for (final item in failed) ...[
+                  Text(
+                    '飞机 ${item.vehicleId} · 系统 ${item.systemId} · ${item.status.label}：${item.message}',
+                  ),
+                  const SizedBox(height: 4),
+                ],
+              ],
+            ),
+          ),
+        ),
+        primaryButton: PushButton(
+          controlSize: ControlSize.large,
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('知道了'),
         ),
       ),
     );
   }
+
+  Future<void> _openFleetBatch(BuildContext context) => showMgFleetBatchPanel(
+    context,
+    fleet: _connectionController.fleet,
+    onSelectVehicle: (vehicleId) async => _selectFleetVehicle(vehicleId),
+    onRequestAction: _requestFleetBatchAction,
+    alignToLeft: true,
+  );
 
   Future<void> _executeCommandConfirmation(
     MgCommandConfirmation command,
@@ -200,7 +257,7 @@ class _MapPageState extends State<MapPage> {
 
   void _selectFleetVehicle(int vehicleId) {
     try {
-      _connectionController.fleet.selectVehicle(vehicleId);
+      _connectionController.selectVehicle(vehicleId);
     } on Object catch (error) {
       unawaited(
         showMgAlertDialog<void>(
@@ -265,7 +322,12 @@ class _MapPageState extends State<MapPage> {
               vehicles: _connectionController.fleetSnapshot.vehicles,
               activeVehicleId:
                   _connectionController.fleetSnapshot.activeVehicleId,
+              selectedVehicleCount:
+                  _connectionController.fleet.selectedVehicleIds.length,
+              selectedVehicleIds:
+                  _connectionController.fleet.selectedVehicleIds,
               onSelectVehicle: _selectFleetVehicle,
+              onOpenFleetBatch: () => unawaited(_openFleetBatch(context)),
               onOpenFlightMessages: () => _flightMessagePanelRequest.value++,
               onToggleArm: _requestArmConfirmation,
               onOpenFlightMode: () => unawaited(_openFlightModeMenu(context)),

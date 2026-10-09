@@ -9,7 +9,7 @@ extern "C" {
 
 #define MGCORE_VERSION_MAJOR 0
 #define MGCORE_VERSION_MINOR 0
-#define MGCORE_VERSION_PATCH 5
+#define MGCORE_VERSION_PATCH 80
 
 #ifdef _WIN32
   #ifdef MGCORE_EXPORTS
@@ -96,6 +96,10 @@ MGCORE_API char* mg_get_version(void);
 MGCORE_API char* mg_system_get_diagnostics(mg_core_t* core);
 MGCORE_API char* mg_operations_get_snapshot(mg_core_t* core);
 MGCORE_API char* mg_operations_cancel(mg_core_t* core, const char* operation_id);
+MGCORE_API char* mg_operations_get_snapshot_for_vehicle(
+    mg_core_t* core, int vehicle_id);
+MGCORE_API char* mg_operations_cancel_for_vehicle(
+    mg_core_t* core, int vehicle_id, const char* operation_id);
 
 #ifdef __cplusplus
 }

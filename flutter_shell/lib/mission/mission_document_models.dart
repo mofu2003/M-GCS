@@ -65,6 +65,151 @@ final class MissionHome {
   };
 }
 
+final class MissionRallyPoint {
+  const MissionRallyPoint({
+    this.latitude,
+    this.longitude,
+    this.altitudeMeters = 0,
+  });
+
+  final double? latitude;
+  final double? longitude;
+  final double altitudeMeters;
+
+  factory MissionRallyPoint.fromJson(JsonMap json) => MissionRallyPoint(
+    latitude: (json['lat'] as num?)?.toDouble(),
+    longitude: (json['lon'] as num?)?.toDouble(),
+    altitudeMeters: (json['alt_m'] as num?)?.toDouble() ?? 0,
+  );
+
+  JsonMap toJson() => {
+    if (latitude != null) 'lat': latitude,
+    if (longitude != null) 'lon': longitude,
+    'alt_m': altitudeMeters,
+  };
+}
+
+final class MissionGeoPoint {
+  const MissionGeoPoint({this.latitude, this.longitude});
+
+  final double? latitude;
+  final double? longitude;
+
+  factory MissionGeoPoint.fromJson(JsonMap json) => MissionGeoPoint(
+    latitude: (json['lat'] as num?)?.toDouble(),
+    longitude: (json['lon'] as num?)?.toDouble(),
+  );
+
+  JsonMap toJson() => {
+    if (latitude != null) 'lat': latitude,
+    if (longitude != null) 'lon': longitude,
+  };
+}
+
+final class MissionFencePolygon {
+  const MissionFencePolygon({this.inclusion = true, this.vertices = const []});
+
+  final bool inclusion;
+  final List<MissionGeoPoint> vertices;
+
+  factory MissionFencePolygon.fromJson(JsonMap json) => MissionFencePolygon(
+    inclusion: json['inclusion'] != false,
+    vertices: (json['vertices'] as List<Object?>? ?? const [])
+        .map(_missionGeoPointFromJson)
+        .whereType<MissionGeoPoint>()
+        .toList(growable: false),
+  );
+
+  JsonMap toJson() => {
+    'inclusion': inclusion,
+    'vertices': [
+      for (final vertex in vertices) [vertex.latitude, vertex.longitude],
+    ],
+  };
+}
+
+MissionGeoPoint? _missionGeoPointFromJson(Object? raw) {
+  if (raw is List && raw.length >= 2) {
+    return MissionGeoPoint(
+      latitude: (raw[0] as num?)?.toDouble(),
+      longitude: (raw[1] as num?)?.toDouble(),
+    );
+  }
+  if (raw is JsonMap) return MissionGeoPoint.fromJson(raw);
+  return null;
+}
+
+final class MissionFenceCircle {
+  const MissionFenceCircle({
+    this.inclusion = true,
+    this.latitude,
+    this.longitude,
+    this.radiusMeters = 0,
+  });
+
+  final bool inclusion;
+  final double? latitude;
+  final double? longitude;
+  final double radiusMeters;
+
+  factory MissionFenceCircle.fromJson(JsonMap json) => MissionFenceCircle(
+    inclusion: json['inclusion'] != false,
+    latitude: (json['lat'] as num?)?.toDouble(),
+    longitude: (json['lon'] as num?)?.toDouble(),
+    radiusMeters: (json['radius_m'] as num?)?.toDouble() ?? 0,
+  );
+
+  JsonMap toJson() => {
+    'inclusion': inclusion,
+    if (latitude != null) 'lat': latitude,
+    if (longitude != null) 'lon': longitude,
+    'radius_m': radiusMeters,
+  };
+}
+
+final class MissionGeoFence {
+  const MissionGeoFence({
+    this.polygons = const [],
+    this.circles = const [],
+    this.breachReturn,
+    this.breachReturnAltitudeMeters = 0,
+  });
+
+  final List<MissionFencePolygon> polygons;
+  final List<MissionFenceCircle> circles;
+  final MissionGeoPoint? breachReturn;
+  final double breachReturnAltitudeMeters;
+
+  bool get isEmpty =>
+      polygons.isEmpty && circles.isEmpty && breachReturn == null;
+
+  factory MissionGeoFence.fromJson(JsonMap? json) {
+    final breach = _mapOrNull(json?['breach_return']);
+    return MissionGeoFence(
+      polygons: (json?['polygons'] as List<Object?>? ?? const [])
+          .whereType<JsonMap>()
+          .map(MissionFencePolygon.fromJson)
+          .toList(growable: false),
+      circles: (json?['circles'] as List<Object?>? ?? const [])
+          .whereType<JsonMap>()
+          .map(MissionFenceCircle.fromJson)
+          .toList(growable: false),
+      breachReturn: breach == null ? null : MissionGeoPoint.fromJson(breach),
+      breachReturnAltitudeMeters: (breach?['alt_m'] as num?)?.toDouble() ?? 0,
+    );
+  }
+
+  JsonMap toJson() => {
+    'polygons': [for (final polygon in polygons) polygon.toJson()],
+    'circles': [for (final circle in circles) circle.toJson()],
+    if (breachReturn != null)
+      'breach_return': {
+        ...breachReturn!.toJson(),
+        'alt_m': breachReturnAltitudeMeters,
+      },
+  };
+}
+
 final class MissionDefaults {
   const MissionDefaults({
     this.frame = 3,
@@ -192,6 +337,8 @@ final class MissionDocument {
     this.schemaVersion = 1,
     this.metadata = const MissionDocumentMetadata(),
     this.home = const MissionHome(),
+    this.rallyPoints = const [],
+    this.geoFence = const MissionGeoFence(),
     this.defaults = const MissionDefaults(),
     this.revision = 1,
     this.updatedAtMs = 0,
@@ -201,6 +348,8 @@ final class MissionDocument {
   final int schemaVersion;
   final MissionDocumentMetadata metadata;
   final MissionHome home;
+  final List<MissionRallyPoint> rallyPoints;
+  final MissionGeoFence geoFence;
   final MissionDefaults defaults;
   final int revision;
   final int updatedAtMs;
@@ -210,6 +359,11 @@ final class MissionDocument {
     schemaVersion: json['schema_version'] as int? ?? 1,
     metadata: MissionDocumentMetadata.fromJson(_map(json['metadata'])),
     home: MissionHome.fromJson(_mapOrNull(json['home'])),
+    rallyPoints: (json['rally_points'] as List<Object?>? ?? const [])
+        .whereType<JsonMap>()
+        .map(MissionRallyPoint.fromJson)
+        .toList(growable: false),
+    geoFence: MissionGeoFence.fromJson(_mapOrNull(json['geo_fence'])),
     defaults: MissionDefaults.fromJson(_mapOrNull(json['defaults'])),
     revision: json['revision'] as int? ?? 1,
     updatedAtMs: json['updated_at_ms'] as int? ?? 0,
@@ -223,6 +377,9 @@ final class MissionDocument {
     'schema_version': schemaVersion,
     'metadata': metadata.toJson(),
     'home': home.toJson(),
+    if (rallyPoints.isNotEmpty)
+      'rally_points': [for (final point in rallyPoints) point.toJson()],
+    if (!geoFence.isEmpty) 'geo_fence': geoFence.toJson(),
     'defaults': defaults.toJson(),
     'revision': revision,
     'updated_at_ms': updatedAtMs,
@@ -234,6 +391,8 @@ final class MissionDocument {
   MissionDocument copyWith({
     MissionDocumentMetadata? metadata,
     MissionHome? home,
+    List<MissionRallyPoint>? rallyPoints,
+    MissionGeoFence? geoFence,
     MissionDefaults? defaults,
     int? revision,
     int? updatedAtMs,
@@ -242,6 +401,8 @@ final class MissionDocument {
     schemaVersion: schemaVersion,
     metadata: metadata ?? this.metadata,
     home: home ?? this.home,
+    rallyPoints: rallyPoints ?? this.rallyPoints,
+    geoFence: geoFence ?? this.geoFence,
     defaults: defaults ?? this.defaults,
     revision: revision ?? this.revision,
     updatedAtMs: updatedAtMs ?? this.updatedAtMs,
@@ -430,6 +591,7 @@ final class MissionTransferProgress {
     this.sent = 0,
     this.total = 0,
     this.cancellable = false,
+    this.retryCount = 0,
     this.result = 0,
     this.cancelled = false,
     this.error = '',
@@ -441,6 +603,7 @@ final class MissionTransferProgress {
   final int sent;
   final int total;
   final bool cancellable;
+  final int retryCount;
   final int result;
   final bool cancelled;
   final String error;
@@ -465,6 +628,7 @@ final class MissionTransferProgress {
         sent: (json['sent'] as num?)?.toInt() ?? 0,
         total: (json['total'] as num?)?.toInt() ?? 0,
         cancellable: json['cancellable'] == true,
+        retryCount: (json['retry_count'] as num?)?.toInt() ?? 0,
         result: (json['result'] as num?)?.toInt() ?? 0,
         cancelled: json['cancelled'] == true,
         error: json['error'] as String? ?? '',

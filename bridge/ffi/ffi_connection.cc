@@ -32,6 +32,19 @@ MGCORE_API mg_core_t* mg_create(void) {
 MGCORE_API void mg_destroy(mg_core_t* core) {
     if (!core) return;
 
+    // Stop submissions and drain bounded workers before releasing core state.
+    // Never wait while holding command_jobs_mtx.
+    std::map<uint64_t, mg_core_t::CommandJob> jobs;
+    {
+        mg::core::platform::LockGuard lk(core->command_jobs_mtx);
+        core->command_jobs_stopping = true;
+        jobs.swap(core->command_jobs);
+    }
+    for (auto& [ticket, job] : jobs) {
+        (void)ticket;
+        if (job.result.valid()) job.result.wait();
+    }
+
     // Stop registry/heartbeat work while all core members are still alive.
     // QGC detaches vehicle consumers before destroying vehicle/link objects.
     core->vehicles.set_gcs_heartbeat_enabled(false);

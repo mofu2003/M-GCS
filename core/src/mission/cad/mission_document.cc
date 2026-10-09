@@ -626,8 +626,14 @@ std::string serialize_mission_document(const MissionDocument& document) {
             cJSON* vertices = cJSON_AddArrayToObject(item, "vertices");
             for (const auto& vertex : polygon.vertices) {
                 cJSON* point = cJSON_CreateArray();
-                add_optional_number(point, "lat", vertex.latitude);
-                add_optional_number(point, "lon", vertex.longitude);
+                cJSON_AddItemToArray(
+                    point, finite(vertex.latitude)
+                        ? cJSON_CreateNumber(vertex.latitude)
+                        : cJSON_CreateNull());
+                cJSON_AddItemToArray(
+                    point, finite(vertex.longitude)
+                        ? cJSON_CreateNumber(vertex.longitude)
+                        : cJSON_CreateNull());
                 cJSON_AddItemToArray(vertices, point);
             }
             cJSON_AddItemToArray(polygons, item);

@@ -32,35 +32,63 @@ class MgCommandConfirmationOverlay extends StatelessWidget {
       alignment: Alignment.topCenter,
       child: Padding(
         padding: const EdgeInsets.only(top: MgMetrics.commandConfirmTopInset),
-        child: Row(
-          key: const ValueKey('command-confirmation-overlay-row'),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            MgHoldToConfirmButton(
-              key: ValueKey(command.label),
-              label: command.label,
-              enabled: onConfirmed != null,
-              onConfirmed: onConfirmed ?? () {},
-            ),
-            if (onCancelled != null) ...[
-              const SizedBox(width: 3),
-              MacosTooltip(
-                message: '取消指令确认',
-                child: MacosIconButton(
-                  key: const ValueKey('cancel-command-confirmation'),
-                  icon: const MacosIcon(CupertinoIcons.xmark, size: 12),
-                  semanticLabel: '取消指令确认',
-                  boxConstraints: const BoxConstraints.tightFor(
-                    width: 26,
-                    height: 26,
+            Row(
+              key: const ValueKey('command-confirmation-overlay-row'),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                MgHoldToConfirmButton(
+                  key: ValueKey(command.label),
+                  label: command.label,
+                  enabled: onConfirmed != null,
+                  onConfirmed: onConfirmed ?? () {},
+                ),
+                if (onCancelled != null) ...[
+                  const SizedBox(width: 3),
+                  MacosTooltip(
+                    message: '取消指令确认',
+                    child: MacosIconButton(
+                      key: const ValueKey('cancel-command-confirmation'),
+                      icon: const MacosIcon(CupertinoIcons.xmark, size: 12),
+                      semanticLabel: '取消指令确认',
+                      boxConstraints: const BoxConstraints.tightFor(
+                        width: 26,
+                        height: 26,
+                      ),
+                      padding: EdgeInsets.zero,
+                      backgroundColor: context.mgColors.transparent,
+                      hoverColor: context.mgColors.mapControlHover,
+                      onPressed: onCancelled,
+                    ),
                   ),
-                  padding: EdgeInsets.zero,
-                  backgroundColor: context.mgColors.transparent,
-                  hoverColor: context.mgColors.mapControlHover,
-                  onPressed: onCancelled,
+                ],
+              ],
+            ),
+            if (command.detail != null && command.detail!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  command.detail!,
+                  key: const ValueKey('command-confirmation-detail'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: MgTypography.sans(
+                    MgTypography.caption.copyWith(
+                      color: context.mgColors.textPrimary,
+                      shadows: [
+                        Shadow(
+                          color: context.mgColors.shadow.withValues(
+                            alpha: 0.35,
+                          ),
+                          blurRadius: 3,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ],
           ],
         ),
       ),
@@ -74,10 +102,17 @@ class MgCommandConfirmationOverlay extends StatelessWidget {
 /// 等入口都通过这个对象把“待确认指令”交给地图悬浮确认层。
 @immutable
 class MgCommandConfirmation {
-  const MgCommandConfirmation({required this.label, required this.execute});
+  const MgCommandConfirmation({
+    required this.label,
+    required this.execute,
+    this.detail,
+  });
 
   /// 顶部确认按钮显示的命令文案，例如“移动到此处”“返航”“开始任务”。
   final String label;
+
+  /// 可选的第二行目标摘要，用于批量指令显示飞机数量与系统 ID。
+  final String? detail;
 
   /// 长按确认后执行的实际命令。
   final Future<void> Function() execute;

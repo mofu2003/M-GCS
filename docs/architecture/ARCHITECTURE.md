@@ -97,15 +97,17 @@ FleetFfiBackend 复用现有连接 ABI。MV1 的独立 endpoint、连接面板�
 核心层可挂接多条 shared route、汇聚遥测，并在 health 变化后切换 primary
 命令源；每个 `MavlinkAdapter` 使用实例私有的 TX sequence 和 signing state，
 FTP 也走同一发送器；FFI 已支持单机设置、清除和查询 signing 状态，Flutter
-地面站配置页可管理命名密钥库、选择活动密钥、连接后自动应用，并下发 SETUP_SIGNING。管理器已通过独立
+地面站配置页可管理命名密钥库、选择活动密钥、连接后自动应用，并下发 SETUP_SIGNING；候选密钥会在核心层对入站 MAVLink2 签名做 HMAC 匹配并自动启用。管理器已通过独立
 link handle 自动跨 endpoint 归并同一 `sysid/compid`，并提供 link/route 级列表、
 精确关闭；UDP、TCP loopback 和 POSIX PTY 已有本地多 sysid 回归。手动关闭后的重发现抑制已接入；
-MV5 第一版已通过 Fleet 快照和非 active 飞机地图标记提供多机位置展示，但任务
-图层和批量动作仍未开放。命令确认包含
+MV5 第一版已通过 Fleet 快照和非 active 飞机地图标记提供多机位置展示，MV6 已接入
+独立的 `selectedVehicles`、多机控制面板、批量解锁/上锁/返航/开始任务和逐机结果；
+完整复杂任务图层仍待补齐。命令确认包含
 session/焦点 revision，焦点改变后作废，执行期间不通过 Fleet 切机。
-`mg_command_execute_for_vehicle()` 已为飞行命令提供显式 vehicle target，并由
+`mg_command_execute_for_vehicle()` 保留为同步兼容入口；Flutter 主路径使用
+`mg_command_submit_for_vehicle()` / `mg_command_poll()`，通过显式 vehicle target 和
 线程局部目标覆盖路由到对应 Vehicle，不临时改写 UI active focus。实施状态见
-[多机计划](../planning/MULTI_VEHICLE_PLAN.md)。
+[多机计划](../planning/MULTI_VEHICLE.md)。
 
 Flutter 通过 `ConnectionController` 作为状态门面绑定 FFI。任务文档、遥测、参数、
 校准和飞行命令已经分别由 `MissionDocumentFfiBackend`、`TelemetryFfiBackend`、

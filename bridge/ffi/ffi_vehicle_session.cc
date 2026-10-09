@@ -6,6 +6,7 @@ namespace mg::bridge::ffi {
 
 namespace {
 
+thread_local std::shared_ptr<mg::core::transport::ConnectionManager> t_connection;
 thread_local mg_core_t* t_target_core = nullptr;
 thread_local mg::core::vehicle::Vehicle* t_vehicle_target_override = nullptr;
 
@@ -18,14 +19,21 @@ mg::core::vehicle::Vehicle* resolve_vehicle(mg_core_t* core) {
 
 } // namespace
 
-VehicleTargetScope::VehicleTargetScope(mg_core_t* core, mg::core::vehicle::Vehicle* vehicle)
-    : previous_core_(t_target_core), previous_(t_vehicle_target_override) {
+VehicleTargetScope::VehicleTargetScope(mg_core_t* core, mg::core::vehicle::Vehicle* vehicle,
+        std::shared_ptr<mg::core::transport::ConnectionManager> connection)
+    : previous_connection_(t_connection), previous_core_(t_target_core),
+      previous_(t_vehicle_target_override) {
+    // Nested command scopes keep an existing route lease for the same target.
+    if (!connection && t_target_core == core && t_vehicle_target_override == vehicle)
+        connection = t_connection;
     t_target_core = core;
     t_vehicle_target_override = vehicle;
+    t_connection = std::move(connection);
 }
 
 VehicleTargetScope::~VehicleTargetScope() {
     t_vehicle_target_override = previous_;
+    t_connection = std::move(previous_connection_);
     t_target_core = previous_core_;
 }
 
@@ -36,8 +44,11 @@ VehicleSessionView resolve_vehicle_session(mg_core_t* core) {
         return view;
     }
 
-    view.mavlink = view.vehicle->mavlink();
-    view.connected = view.vehicle->conn().is_connected();
+    const auto connection = t_target_core == core && t_connection
+        ? t_connection : view.vehicle->command_connection();
+    // The calling worker holds both the connection and adapter lifetime.
+    view.mavlink = connection ? connection->get_mavlink() : nullptr;
+    view.connected = connection && connection->is_connected();
 
     if (view.mavlink) {
         const auto hb = view.mavlink->latest_heartbeat();

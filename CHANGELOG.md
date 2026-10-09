@@ -1,28 +1,55 @@
 # Changelog
 
-## Unreleased
+## 0.0.80 - 2026-10-09
 
 ### Added
 
 - 多机共享链路：UDP、TCP loopback 和 POSIX PTY 均完成多 `sysid/compid` 解复用验证。
 - 显式 link handle、link → route → vehicle 映射、同机多 route 归并、per-route heartbeat/
   primary health 和 route 级精确关闭。
-- 多机地图第一版：Fleet 位置快照、非 active 车辆标记和点击切换。
+- 多机地图摘要：Fleet 位置、Home、任务进度、模式、armed、电量、GPS 和链路健康
+  快照，非 active 车辆 Home/位置标记、完整任务路径与详情提示，顶部车辆选择器状态摘要。
+- active 地图新增围栏多边形、圆形围栏、越界返航点和 Rally 点图层；修复任务文档
+  中围栏顶点按坐标数组往返时坐标丢失的问题。
 - MAVLink signing：每 `MavlinkAdapter` 独立 TX sequence、密钥、时间戳和 stream；
-  入站签名校验、出站签名、命名密钥库、连接后自动应用和 SETUP_SIGNING 下发。
+  入站签名校验、出站签名、命名密钥库、连接后自动应用、候选密钥 HMAC 自动探测和
+  SETUP_SIGNING 下发。
+- 长操作可按明确 Vehicle 取消；切换或关闭某机时取消旧机可取消操作，不会误取消
+  另一架飞机的参数、任务、围栏、Rally、校准或日志操作；六类操作均有 A/B 双机
+  隔离回归。
+- 多机批量动作第一版：独立 `selectedVehicles` 集合、全选/清空、多机控制面板，
+  以及批量解锁、上锁、返航、开始任务。批量确认显示飞机数量和系统 ID，执行时
+  冻结目标集合并逐机使用异步 submit/poll 命令接口；active focus 不变，
+  每架飞机分别报告成功、拒绝、超时或失败，部分失败不会显示成整体成功。
 
 ### Changed
 
 - 连接会话拆分为物理 link 与 Vehicle 焦点，命令始终绑定明确 Vehicle。
+- 协议超时改由 `MavlinkAdapter::tick()` 统一定时驱动；连接看门狗在链路静默时也会
+  调用它，任务/Rally/围栏/参数重试不再依赖下一条 MAVLink 报文到达。
 - Flutter 连接面板和地面站配置页纳入多机链路与 signing 管理。
+- 地图上方长按确认条支持第二行目标摘要，批量指令复用同一 0.5 秒确认交互。
+- 长操作快照补充 `retry_count`、参数缺失/失败计数，前端任务传输状态可显示重试次数。
 - 更新多机状态审核、实施计划、架构、功能差距和 FFI Catalog。
+
+### Docs
+
+- 文档大重构：多机三份材料（实施计划 / 状态审核 / 能力评估）合并为单一权威文档
+  `docs/planning/MULTI_VEHICLE.md`；规划四份（现状审计 / 完成定义 / 路线图 / 差距分析）
+  合并为 `docs/planning/CURRENT_STATE.md` 与 `docs/planning/ROADMAP.md`。
+- 恢复历史 ADR 0004（前端接入契约），补齐 `docs/architecture/adr/` 的 0003→0005 编号缺口；
+  修正 `AGENTS.md`、`mg_typography.dart` 等处的失效文档路径。
+- `docs/README.md` 重写为按“入门 / 架构 / 规划 / 规范 / 研究”分组的索引。
+- 修正 `mg_get_version()` 长期返回 `0.0.5` 的版本宏漂移（`MGCORE_VERSION_PATCH`
+  未随版本升级），现与 `CMakeLists.txt` 同步为 `0.0.80`。
 
 ### Verification
 
 - 后端 offline/simulation：37/37 通过。
-- Flutter 常规测试：111 通过。
-- `test_mavlink_protocol`：133/133 通过。
-- 真实 Fleet FFI UDP 测试：3/3 通过。
+- Flutter 常规测试：123 通过，4 个真实 FFI 场景可通过 `MGCS_FLEET_LIBRARY` 单独运行。
+- `test_mavlink_protocol`：147/147 通过。
+- 真实 Fleet FFI UDP 测试：4/4 通过，包含双临时端口的批量 `mission_start`
+  显式目标分派、active focus 不变，以及已签名心跳的候选密钥自动探测。
 - `flutter analyze`、UI token 检查、macOS debug 构建：通过。
 
 ## 0.0.79 - 2026-10-08

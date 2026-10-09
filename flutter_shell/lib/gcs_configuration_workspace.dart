@@ -323,9 +323,13 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
 
   String get _statusLabel {
     if (widget.controller.sessionId == null) return '未连接';
-    if (_status['enabled'] != true) return '未启用';
+    if (_status['enabled'] != true) {
+      final candidates = _status['candidate_count'];
+      return candidates is int && candidates > 0 ? '等待已签名数据 · 自动探测中' : '未启用';
+    }
+    final autoDetected = _status['auto_detected'] == true;
     return switch (_status['status']) {
-      'ok' => '已启用 · 签名校验通过',
+      'ok' => autoDetected ? '已启用 · 自动识别并校验通过' : '已启用 · 签名校验通过',
       'bad_signature' => '已启用 · 签名错误',
       'old_timestamp' => '已启用 · 时间戳过旧',
       'replay' => '已启用 · 检测到重放',

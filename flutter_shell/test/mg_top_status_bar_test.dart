@@ -5,6 +5,75 @@ import 'package:mgcs_frontend/widgets/mg_top_status_bar.dart';
 import 'package:mgcs_frontend/fleet/fleet_models.dart';
 
 void main() {
+  test('guided mode only adds a class suffix for VTOL vehicles', () {
+    const fixedWing = MgTopStatusData(
+      connected: true,
+      armed: false,
+      flying: false,
+      flightMode: 'Guided',
+      vtolState: 0,
+      isVtolVehicle: false,
+      gpsFixType: 3,
+      satellitesVisible: 12,
+      batteryRemainingPercent: 80,
+      batteryVoltage: 12.4,
+      transportLabel: 'UDP',
+      messageCount: 0,
+    );
+    const multirotor = MgTopStatusData(
+      connected: true,
+      armed: false,
+      flying: false,
+      flightMode: 'Guided',
+      vtolState: 0,
+      isVtolVehicle: false,
+      gpsFixType: 3,
+      satellitesVisible: 12,
+      batteryRemainingPercent: 80,
+      batteryVoltage: 12.4,
+      transportLabel: 'UDP',
+      messageCount: 0,
+    );
+
+    const vtol = MgTopStatusData(
+      connected: true,
+      armed: false,
+      flying: false,
+      flightMode: 'Guided',
+      vtolState: 0,
+      isVtolVehicle: true,
+      gpsFixType: 3,
+      satellitesVisible: 12,
+      batteryRemainingPercent: 80,
+      batteryVoltage: 12.4,
+      transportLabel: 'UDP',
+      messageCount: 0,
+    );
+
+    expect(fixedWing.modeLabel, 'Guided');
+    expect(multirotor.modeLabel, 'Guided');
+    expect(vtol.modeLabel, 'Guided · VTOL');
+  });
+
+  test('VTOL transition labels take precedence in guided mode', () {
+    const transitioning = MgTopStatusData(
+      connected: true,
+      armed: false,
+      flying: true,
+      flightMode: 'Guided',
+      vtolState: 1,
+      isVtolVehicle: true,
+      gpsFixType: 3,
+      satellitesVisible: 12,
+      batteryRemainingPercent: 80,
+      batteryVoltage: 12.4,
+      transportLabel: 'UDP',
+      messageCount: 0,
+    );
+
+    expect(transitioning.modeLabel, 'Guided · 转固定翼');
+  });
+
   Future<void> show(
     WidgetTester tester,
     MgTopStatusData data, {
@@ -161,7 +230,7 @@ void main() {
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
-        final selected = <int>[];
+        var opened = 0;
         await tester.pumpWidget(
           MacosTheme(
             data: MacosThemeData.light(),
@@ -196,7 +265,8 @@ void main() {
                     ),
                   ],
                   activeVehicleId: 1,
-                  onSelectVehicle: selected.add,
+                  onSelectVehicle: (_) {},
+                  onOpenFleetBatch: () => opened++,
                   onOpenSettings: () {},
                 ),
               ),
@@ -209,15 +279,69 @@ void main() {
           findsOneWidget,
         );
         expect(tester.takeException(), isNull);
-        if (width < 1180) {
-          await tester.tap(find.text('飞机 1').first);
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('飞机 2').last);
-          await tester.pumpAndSettle();
-          expect(selected, [2]);
-          expect(tester.takeException(), isNull);
-        }
+        await tester.tap(find.byKey(const ValueKey('fleet-vehicle-selector')));
+        expect(opened, 1);
+        expect(tester.takeException(), isNull);
       },
     );
   }
+
+  testWidgets('multi-vehicle batch button exposes selection count', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var opened = 0;
+    await tester.pumpWidget(
+      MacosTheme(
+        data: MacosThemeData.light(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: MgTopStatusBar(
+              data: const MgTopStatusData(
+                connected: true,
+                armed: false,
+                flying: false,
+                flightMode: 'Guided',
+                vtolState: 0,
+                gpsFixType: 3,
+                satellitesVisible: 12,
+                batteryRemainingPercent: 80,
+                batteryVoltage: 12.4,
+                transportLabel: 'UDP',
+                messageCount: 0,
+              ),
+              vehicles: const [
+                FleetVehicleSummary(
+                  id: 1,
+                  systemId: 1,
+                  endpoint: 'udp://127.0.0.1:14550',
+                  connected: true,
+                ),
+                FleetVehicleSummary(
+                  id: 2,
+                  systemId: 2,
+                  endpoint: 'udp://127.0.0.1:14551',
+                  connected: true,
+                ),
+              ],
+              activeVehicleId: 1,
+              selectedVehicleCount: 2,
+              selectedVehicleIds: const {1, 2},
+              onSelectVehicle: (_) {},
+              onOpenFleetBatch: () => opened++,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('已选 2 架'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('fleet-vehicle-selector')));
+    expect(opened, 1);
+    expect(tester.takeException(), isNull);
+  });
 }

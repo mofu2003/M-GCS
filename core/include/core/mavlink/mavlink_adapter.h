@@ -7,6 +7,7 @@
 #include "core/mission/mission_types.h"
 #include "core/firmware/firmware_adapter.h"
 #include "core/ftp/mavlink_ftp.h"
+#include <array>
 #include <functional>
 #include <memory>
 #include <cstdint>
@@ -34,6 +35,15 @@ struct HeartbeatInfo {
     bool armed = false;
     char flight_mode[24] = {0};   // Decoded flight mode name
 };
+
+/// MAVLink signing 自动探测候选项。name 只用于 UI/持久化归属，不参与 HMAC。
+struct SigningCandidate {
+    std::string name;
+    std::array<uint8_t, 32> key{};
+    uint64_t persisted_timestamp = 0;
+};
+
+using SigningDetectedCallback = std::function<void(const SigningCandidate&)>;
 
 /// 活动飞控 MAVLink 接收链路的短窗口质量统计。
 struct LinkQualityInfo {
@@ -429,10 +439,21 @@ public:
     // 不写入生成库的全局 MAVLINK_COMM_0。
     bool set_signing_key(const uint8_t* key, size_t key_size,
                          bool sign_outgoing = true,
-                         uint64_t persisted_timestamp = 0);
+                         uint64_t persisted_timestamp = 0,
+                         const std::string& key_name = {},
+                         bool auto_detected = false);
+    /// 设置自动探测候选密钥。收到已签名但当前未启用签名的包时，按 HMAC
+    /// 逐个匹配；命中后自动启用并保留命中的名称。
+    bool set_signing_candidates(const std::vector<SigningCandidate>& candidates);
+    void clear_signing_candidates();
+    void set_signing_detected_callback(SigningDetectedCallback callback);
     void clear_signing_key();
     bool signing_enabled() const;
     mavlink_signing_status_t signing_status() const;
+    std::string signing_key_name() const;
+    bool signing_auto_detected() const;
+    size_t signing_candidate_count() const;
+    uint64_t signing_timestamp() const;
     // 发送 SETUP_SIGNING；该配置消息始终以未签名方式发送。
     bool send_setup_signing(uint8_t target_system,
                             uint8_t target_component,
@@ -581,6 +602,7 @@ public:
     
     /// Get current transfer progress
     mg::core::mission::MissionTransferProgress mission_get_progress() const;
+    int mission_transfer_retry_count() const;
 
     /// Get provenance for the cached mission plan.
     mg::core::mission::MissionPlanProvenance mission_get_plan_provenance() const;
@@ -615,6 +637,9 @@ public:
     bool rally_upload(uint8_t target_system, uint8_t target_component,
                       const mg::core::mission::MissionPlan& plan);
 
+    /// Cancel an active rally transfer.
+    bool rally_cancel();
+
     /// Clear all rally points on FC
     bool rally_clear(uint8_t target_system, uint8_t target_component);
 
@@ -626,6 +651,7 @@ public:
 
     /// Get rally point transfer progress
     mg::core::mission::MissionTransferProgress rally_get_progress() const;
+    int rally_transfer_retry_count() const;
 
     // ================================================================
     // Geofence (MAV_MISSION_TYPE_FENCE = 1)
@@ -638,6 +664,9 @@ public:
     bool fence_upload(uint8_t target_system, uint8_t target_component,
                       const mg::core::mission::MissionPlan& plan);
 
+    /// Cancel an active geofence transfer.
+    bool fence_cancel();
+
     /// Clear all geofence items on FC
     bool fence_clear(uint8_t target_system, uint8_t target_component);
 
@@ -649,6 +678,7 @@ public:
 
     /// Get geofence transfer progress
     mg::core::mission::MissionTransferProgress fence_get_progress() const;
+    int fence_transfer_retry_count() const;
 
     // ================================================================
     // Log List (LOG_REQUEST_LIST protocol)
@@ -831,6 +861,12 @@ public:
     bool param_download_failed() const;
     /// 最近一次参数下载的终态错误文本。
     std::string param_download_error() const;
+    /// 参数列表请求或补包阶段的重试次数。
+    int param_download_retry_count() const;
+    /// 当前仍缺失的参数数量。
+    int param_download_missing_count() const;
+    /// 补包耗尽后仍失败的参数数量。
+    int param_download_failed_count() const;
     /// 取消当前参数下载；没有活动下载时返回 false。
     bool cancel_param_download();
     /// 最近一批参数写入的结果，按请求顺序从旧到新返回。
@@ -979,6 +1015,8 @@ private:
                              uint8_t mission_type);
     bool mission_type_clear(uint8_t sys, uint8_t comp,
                             MissionTransferState& state, uint8_t mission_type);
+    bool mission_type_cancel(MissionTransferState& state, uint8_t mission_type);
+    bool try_auto_detect_signing(const mavlink_message_t& message);
 };
 
 } // namespace mg::core::mavlink

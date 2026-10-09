@@ -45,6 +45,142 @@ class FleetConnectionSpec {
   }
 }
 
+/// MV6 批量飞行动作。目标车辆由 [FleetBatchTarget] 显式携带，不能回退到
+/// 当前 active vehicle，避免确认后切换焦点导致指令误发。
+enum FleetBatchAction { arm, disarm, returnToLaunch, startMission }
+
+extension FleetBatchActionMetadata on FleetBatchAction {
+  String get label => switch (this) {
+    FleetBatchAction.arm => '批量解锁',
+    FleetBatchAction.disarm => '批量上锁',
+    FleetBatchAction.returnToLaunch => '批量返航',
+    FleetBatchAction.startMission => '批量开始任务',
+  };
+}
+
+enum FleetBatchCommandStatus { success, rejected, timeout, error }
+
+extension FleetBatchCommandStatusMetadata on FleetBatchCommandStatus {
+  String get label => switch (this) {
+    FleetBatchCommandStatus.success => '成功',
+    FleetBatchCommandStatus.rejected => '被拒绝',
+    FleetBatchCommandStatus.timeout => '超时',
+    FleetBatchCommandStatus.error => '失败',
+  };
+}
+
+/// 一架飞机在一次批量指令中的结果。执行器必须保留每架飞机的独立结果，
+/// 不能把部分成功折叠成整体成功。
+@immutable
+class FleetBatchCommandResult {
+  const FleetBatchCommandResult({
+    required this.vehicleId,
+    required this.systemId,
+    required this.status,
+    required this.message,
+  });
+
+  const FleetBatchCommandResult.success({
+    required this.vehicleId,
+    required this.systemId,
+    this.message = '指令已接受',
+  }) : status = FleetBatchCommandStatus.success;
+
+  const FleetBatchCommandResult.failure({
+    required this.vehicleId,
+    required this.systemId,
+    required this.status,
+    required this.message,
+  });
+
+  final int vehicleId;
+  final int systemId;
+  final FleetBatchCommandStatus status;
+  final String message;
+
+  bool get success => status == FleetBatchCommandStatus.success;
+}
+
+/// 批量确认时冻结的目标集合。确认条显示的系统 ID 与真正执行的目标来自同一
+/// 快照，执行期间即使 selection 改变也不会把指令发给另一架飞机。
+@immutable
+class FleetBatchTarget {
+  FleetBatchTarget({
+    required this.action,
+    required Iterable<int> vehicleIds,
+    required Iterable<int> systemIds,
+  }) : vehicleIds = List.unmodifiable(vehicleIds),
+       systemIds = List.unmodifiable(systemIds);
+
+  final FleetBatchAction action;
+  final List<int> vehicleIds;
+  final List<int> systemIds;
+
+  String get detail {
+    final systems = systemIds.where((id) => id > 0).toList(growable: false);
+    final systemText = systems.isEmpty ? '系统 ID 未知' : '系统 ${systems.join('、')}';
+    return '${vehicleIds.length} 架飞机 · $systemText';
+  }
+}
+
+@immutable
+class FleetBatchResult {
+  FleetBatchResult({
+    required this.action,
+    required Iterable<FleetBatchCommandResult> results,
+  }) : results = List.unmodifiable(results);
+
+  final FleetBatchAction action;
+  final List<FleetBatchCommandResult> results;
+
+  int get successCount => results.where((result) => result.success).length;
+  int get failureCount => results.length - successCount;
+  bool get allSucceeded => results.isNotEmpty && failureCount == 0;
+}
+
+@immutable
+class FleetMissionPoint {
+  const FleetMissionPoint({
+    required this.sequence,
+    required this.command,
+    required this.frame,
+    required this.latitude,
+    required this.longitude,
+    required this.altitudeMeters,
+    this.current = false,
+  });
+
+  final int sequence;
+  final int command;
+  final int frame;
+  final double latitude;
+  final double longitude;
+  final double altitudeMeters;
+  final bool current;
+
+  @override
+  bool operator ==(Object other) =>
+      other is FleetMissionPoint &&
+      sequence == other.sequence &&
+      command == other.command &&
+      frame == other.frame &&
+      latitude == other.latitude &&
+      longitude == other.longitude &&
+      altitudeMeters == other.altitudeMeters &&
+      current == other.current;
+
+  @override
+  int get hashCode => Object.hash(
+    sequence,
+    command,
+    frame,
+    latitude,
+    longitude,
+    altitudeMeters,
+    current,
+  );
+}
+
 @immutable
 class FleetVehicleSummary {
   const FleetVehicleSummary({
@@ -56,11 +192,29 @@ class FleetVehicleSummary {
     this.firmwareType = '',
     this.vehicleType = '',
     this.state = 'waiting_heartbeat',
+    this.armed = false,
+    this.flightMode = '',
+    this.batteryRemainingPercent,
+    this.gpsFixType,
+    this.satellitesVisible,
     this.positionValid = false,
     this.latitude = 0,
     this.longitude = 0,
     this.altitudeMeters,
     this.headingDegrees,
+    this.homePositionValid = false,
+    this.homeLatitude = 0,
+    this.homeLongitude = 0,
+    this.homeAltitudeMeters,
+    this.missionValid = false,
+    this.missionTotal = 0,
+    this.missionCurrentIndex = 0,
+    this.linkCount = 0,
+    this.healthyLinkCount = 0,
+    this.communicationLost = false,
+    this.primaryHeartbeatAgeMs = 0,
+    this.missionRevision = 0,
+    this.missionPoints = const [],
   });
 
   final int id;
@@ -71,11 +225,29 @@ class FleetVehicleSummary {
   final String vehicleType;
   final bool connected;
   final String state;
+  final bool armed;
+  final String flightMode;
+  final int? batteryRemainingPercent;
+  final int? gpsFixType;
+  final int? satellitesVisible;
   final bool positionValid;
   final double latitude;
   final double longitude;
   final double? altitudeMeters;
   final double? headingDegrees;
+  final bool homePositionValid;
+  final double homeLatitude;
+  final double homeLongitude;
+  final double? homeAltitudeMeters;
+  final bool missionValid;
+  final int missionTotal;
+  final int missionCurrentIndex;
+  final int linkCount;
+  final int healthyLinkCount;
+  final bool communicationLost;
+  final int primaryHeartbeatAgeMs;
+  final int missionRevision;
+  final List<FleetMissionPoint> missionPoints;
 
   bool get identified => systemId > 0;
 
@@ -90,14 +262,32 @@ class FleetVehicleSummary {
       vehicleType == other.vehicleType &&
       connected == other.connected &&
       state == other.state &&
+      armed == other.armed &&
+      flightMode == other.flightMode &&
+      batteryRemainingPercent == other.batteryRemainingPercent &&
+      gpsFixType == other.gpsFixType &&
+      satellitesVisible == other.satellitesVisible &&
       positionValid == other.positionValid &&
       latitude == other.latitude &&
       longitude == other.longitude &&
       altitudeMeters == other.altitudeMeters &&
-      headingDegrees == other.headingDegrees;
+      headingDegrees == other.headingDegrees &&
+      homePositionValid == other.homePositionValid &&
+      homeLatitude == other.homeLatitude &&
+      homeLongitude == other.homeLongitude &&
+      homeAltitudeMeters == other.homeAltitudeMeters &&
+      missionValid == other.missionValid &&
+      missionTotal == other.missionTotal &&
+      missionCurrentIndex == other.missionCurrentIndex &&
+      linkCount == other.linkCount &&
+      healthyLinkCount == other.healthyLinkCount &&
+      communicationLost == other.communicationLost &&
+      primaryHeartbeatAgeMs == other.primaryHeartbeatAgeMs &&
+      missionRevision == other.missionRevision &&
+      listEquals(missionPoints, other.missionPoints);
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
     systemId,
     endpoint,
@@ -106,12 +296,30 @@ class FleetVehicleSummary {
     vehicleType,
     connected,
     state,
+    armed,
+    flightMode,
+    batteryRemainingPercent,
+    gpsFixType,
+    satellitesVisible,
     positionValid,
     latitude,
     longitude,
     altitudeMeters,
     headingDegrees,
-  );
+    homePositionValid,
+    homeLatitude,
+    homeLongitude,
+    homeAltitudeMeters,
+    missionValid,
+    missionTotal,
+    missionCurrentIndex,
+    linkCount,
+    healthyLinkCount,
+    communicationLost,
+    primaryHeartbeatAgeMs,
+    missionRevision,
+    Object.hashAll(missionPoints),
+  ]);
 }
 
 /// 不可变 fleet 快照；UI 焦点与链路列表不是同一个概念。

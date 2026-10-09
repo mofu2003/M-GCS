@@ -895,8 +895,7 @@ size_t MultiVehicleManager::remove_disconnected_vehicles() {
     {
         mg::core::platform::LockGuard lk(mtx_);
         for (const auto& vehicle : vehicles_) {
-            if (vehicle && vehicle->conn().state() ==
-                    mg::core::transport::ConnectionState::Disconnected) {
+            if (vehicle && vehicle->all_routes_disconnected()) {
                 disconnected_ids.push_back(vehicle->vehicle_id());
             }
         }
@@ -1051,6 +1050,7 @@ void MultiVehicleManager::gcs_heartbeat_loop() {
         for (auto& v : snapshot) {
             if (!v) continue;
             v->link_manager().tick();
+            v->refresh_primary_connection();
             const auto state = v->conn().state();
             if (state == mg::core::transport::ConnectionState::WaitingHeartbeat ||
                 state == mg::core::transport::ConnectionState::Connected) {

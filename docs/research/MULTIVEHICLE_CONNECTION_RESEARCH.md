@@ -3,7 +3,7 @@
 研究日期：2026-09-23
 
 > 后续状态：2026-10-08 已启动多机实施规划。混合架构、阶段、FFI 和验收标准见
-> [多机连接与焦点管理实施计划](../planning/MULTI_VEHICLE_PLAN.md)。
+> [多机连接与焦点管理实施计划](../planning/MULTI_VEHICLE.md)。
 
 > 本文是连接模型的研究快照，源码行号和上游 commit 只对应当时的本地源码；当前产品
 > 边界以 [架构说明](../architecture/ARCHITECTURE.md)、[开发约束](../../AGENTS.md) 和状态审计为准。

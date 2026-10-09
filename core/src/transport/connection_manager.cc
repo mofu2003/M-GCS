@@ -119,6 +119,13 @@ void ConnectionManager::start_watchdog() {
                 break;
             }
 
+            // Run protocol-level timers even when the link is silent. Mission,
+            // Rally, fence and parameter retries must not depend on receiving
+            // another MAVLink message before they can time out.
+            if (auto mavlink = shared_mavlink()) {
+                mavlink->tick();
+            }
+
             if (current_state == ConnectionState::Connected) {
                 const uint64_t activity = last_activity_ms_.load();
                 const uint64_t now = static_cast<uint64_t>(

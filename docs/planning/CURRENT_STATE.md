@@ -1,7 +1,10 @@
-# 当前状态审计
+# 当前状态与完成定义
 
-> 本文只记录当前代码的可复现事实。历史冻结审计在 `docs/planning/audits/`；发布变化在
-> `CHANGELOG.md`。当前代码基线版本：`0.0.79`。本文件只记录当前 checkout 已复核的事实。
+> 本文件合并原《当前状态审计》和《完成定义与后端维护收口》。上半部分是**当前代码的可复现事实**；下半部分是**维护循环的退出条件**（什么时候可以停）。
+>
+> 历史冻结审计在 `docs/planning/audits/`；发布变化在 `CHANGELOG.md`。当前代码基线版本：`0.0.80`。
+
+---
 
 ## 门禁基线
 
@@ -10,7 +13,7 @@
 | `git diff --check` | 通过 |
 | `dart tools/check_ui_tokens.dart` | 通过 |
 | Flutter analyze | 通过 |
-| Flutter test | 107 个常规测试通过、3 个真实 Fleet FFI UDP 测试默认跳过；设置 `MGCS_FLEET_LIBRARY` 后这三个测试单独通过 |
+| Flutter test | 123 个常规测试通过、4 个真实 Fleet FFI UDP 测试默认跳过；设置 `MGCS_FLEET_LIBRARY` 后这四个测试单独通过 |
 | 后端 offline/simulation | 37/37 |
 | macOS debug 构建 | 通过 |
 | Windows build/preflight | workflow 统一调用预检脚本；脚本会先生成 MAVLink 头，再构建 bundle 并校验关键 FFI 导出。未在本机 Windows 复核 |
@@ -46,12 +49,13 @@ bash tools/audit_status.sh
   连接切换到新 route；每个 `MavlinkAdapter` 独立维护 TX sequence，连接、命令和
   FTP 发送不会互相推进序号或产生错误校验和。适配器还支持实例级 MAVLink
   signing 密钥、时间戳和 stream 校验，未签名包在 signing 开启时会被拒绝；
-  `mg_vehicle_set_signing_key`、`clear`、`get_signing_status` 已接通；
-  地面站配置页已有命名密钥库、活动密钥选择、持久化、连接后自动应用和 SETUP_SIGNING 下发。`MultiVehicleManager` 已通过独立 link handle 自动归并同一
+  `mg_vehicle_set_signing_key`、候选密钥、`clear`、`get_signing_status` 已接通；
+  入站已签名包可对候选密钥做 HMAC 自动探测，命中后同步到该 Vehicle 的所有 route。
+  地面站配置页已有命名密钥库、活动密钥选择、持久化、连接后自动应用和 SETUP_SIGNING 下发；参数、任务、围栏、Rally、校准和日志可按明确 Vehicle 取消，切机会取消旧机可取消操作，并有 A/B 双机隔离测试。`MultiVehicleManager` 已通过独立 link handle 自动归并同一
   `sysid/compid` 的跨 endpoint 链路，FFI 提供 `mg_connection_list()` 和
   `mg_connection_close_route()`，Flutter 连接面板按 link/route/vehicle 分层显示。
-- MV5 第一版接入多机地图：`mg_vehicle_get_session_status` 增加位置字段，Fleet
-  快照携带每架飞机位置，地图绘制非 active 弱化标记并支持点击切换。
+- MV5 多机地图继续完善：Fleet 快照携带位置、飞行模式、armed、电量和 GPS 摘要，
+  地图非 active 标记支持 Home、完整任务路径、详情提示和点击切换；Fleet 摘要还提供链路健康，顶部车辆选择器显示状态摘要。
 - 修复实际双 UDP 清理时的销毁顺序：停止 GCS 心跳、解除事件回调，再关闭车辆。
 - `tools/tests/multivehicle_udp_smoke.py` 对真实动态库的双临时 UDP 端口完成 3 轮
   身份、焦点、查询、关闭与销毁验证；Flutter 的 `fleet_ffi_smoke_test.dart`
@@ -59,9 +63,9 @@ bash tools/audit_status.sh
 - 显式车辆目标飞行命令、UDP/TCP/PTY 多 sysid、同机多链路合并、route 级精确关闭、
   per-route health、MAVLink TX sequence、signing 密钥库/校验/SETUP_SIGNING、按 session
   的运行时快照、独立 native 任务文档和 Go To 失效处理已完成；真实飞控总线验收、
-  自动密钥探测、异步操作隔离、多机地图完整图层和批量控制仍未完成。
+  异步操作隔离、多机地图基础交付、多选和批量动作已完成第一版；自动密钥探测已完成。
 
-下一切片与验收边界见 [多机实施计划](MULTI_VEHICLE_PLAN.md)。
+下一切片与验收边界见 [多机连接与焦点管理](MULTI_VEHICLE.md)。
 
 ## FFI 消费统计
 
@@ -69,9 +73,9 @@ bash tools/audit_status.sh
 
 | 项目 | 数量 |
 | --- | ---: |
-| FFI exports | 307 |
-| Flutter 使用 | 75 |
-| 测试触达 | 221 |
+| FFI exports | 318 |
+| Flutter 使用 | 84 |
+| 测试触达 | 232 |
 | 前端和测试都未触达 | 84 |
 
 这些数字必须由 `tools/audit_status.sh` 生成，不手工维护。无人区不等于可删除，公开
@@ -211,12 +215,12 @@ bash tools/audit_status.sh
 
 UDP 共享链路的 `sysid/compid` 解复用、多 peer、占位 Vehicle 绑定、同机多链路
 归并、冗余 primary 切换和 route 精确关闭已落地，TX sequence 也已按适配器隔离。
-下一阶段仍需完成真实飞控总线验收、MAVLink 自动探测、异步操作隔离、多机地图完整图层和批量控制；这些能力按 [多机实施计划](MULTI_VEHICLE_PLAN.md) 后续阶段验收。
+下一阶段仍需完成真实飞控总线验收、系统 UID/固件刷写产品取舍和 ComplexItem 语义编辑；这些能力按 [多机连接与焦点管理](MULTI_VEHICLE.md) 后续阶段验收。
 
 
-本节的判定口径与“能不能停”见 [完成定义与后端维护收口](DEFINITION_OF_DONE.md)。
+本节的判定口径与“能不能停”见 [当前状态与完成定义](CURRENT_STATE.md)。
 与 QGC/MP 的完整能力差距、项目定位和建议优先级见
-[功能差距分析](FEATURE_GAP_ANALYSIS.md)。
+[路线图与功能差距分析](ROADMAP.md)。
 概览：
 
 | 条目 | 性质 | 说明 |
@@ -224,22 +228,13 @@ UDP 共享链路的 `sysid/compid` 解复用、多 peer、占位 Vehicle 绑定�
 | `PARAM-002` | 产品决策 | 未确定覆盖率阈值，无阈值则无终止点 |
 | `DEAD-001` | 产品决策 | 固件刷写需确认做或标为 out of scope |
 | `VIDEO-001` | 环境阻塞 | 本机无 FFmpeg 开发环境，改动无法编译验证 |
-| `UI-001` / `UI-002` | 前端 | 后端接口已就绪，属 `flutter_shell` 工作 |
 | `JOY-001` 摇杆输入 | 暂不做 | 已调研（见下），用户决定先不实现 |
 
-### `UI-001`：聚合诊断尚未接入 Flutter
+### 已完成的前端诊断与异步命令接入
 
-后端已有 `mg_connection_get_diagnostics`、`mg_telemetry_get_dashboard_snapshot`、
-`mg_system_get_diagnostics`。当前 Flutter 仍以多个快照拼接状态，后续可统一接入。
-
-### `UI-002`：参数同步的长任务取消尚未接入 Flutter
-
-任务上传、下载已经通过 `mg_operations_get_snapshot` 显示进度并支持真实取消；参数同步
-后端也已支持 `mg_operations_cancel("params")` 和 cancelled/failed 终态，但 Flutter
-页面仍由各页等待。operations 快照现在还包含 `calibration` 和 `log`，对应的校准与日志
-下载取消也已接入，并新增围栏/Rally 的 `fence`/`rally` 区段（与 `mission` 字段同构，
-供前端轮询进度）；`mg_system_get_diagnostics` 还包含最近参数写入的 requested/actual/
-state/error 历史。前端后续可统一消费同一套 operation 状态。
+Fleet 入口、明确 Vehicle 目标、批量动作、异步飞行命令 submit/poll、长任务取消和
+多链路 signing 状态已经接入当前 Flutter 连接控制器。剩余工作是现场验收和后续统一
+诊断信息层级，不再作为当前后端未完成项。
 
 ### `PARAM-002`：参数元数据和覆盖仍可继续增强
 
@@ -326,3 +321,98 @@ tools/preflight.sh
    通用状态机参考 QGC。
 4. 新的“支持”必须同时有代码、聚焦测试、文档和实际平台验收记录；只有构建路径
    不能宣称平台已支持。
+
+---
+
+# 完成定义（什么时候可以停）
+
+> 当前基线：`0.0.80`。本文件定义“什么时候可以停”，用来判断维护循环是否还有
+> 必须做的后端工作，避免把“还能再改一点”当成“还没做完”。
+
+## 为什么需要这份文件
+
+M-GCS 对标 Mission Planner（MP）和 QGroundControl（QGC），功能面几乎不可能“穷尽”。
+如果没有明确的收口条件，“继续优化”会变成没有终点的循环：每个版本都能再找到一件
+可以做的事。
+
+因此把“完成”拆成三层：**后端维护循环的退出条件**、**产品级 0.1.0 门禁**、
+**上游对标评分**。三层各自独立判定，不互相代替。
+
+## 第一层：后端维护循环的退出条件
+
+满足以下全部条件，后端维护循环即可停止，转入产品验收阶段。这些条件是判断口径，
+不是发布日期承诺。
+
+| 条件 | 判定标准 | 当前状态 |
+| --- | --- | --- |
+| C1 复杂任务可编译 | QGC ComplexItem 不再被一刀切阻断，能展开为任务项参与编译/上传 | 已达成（`0.0.53`，复用 QGC 存入的 `TransectStyleComplexItem.Items`） |
+| C2 围栏/Rally 往返闭环 | 围栏与 Rally 可编译、上传、下载、回读文档并 verify | 已达成（`0.0.48`–`0.0.52`） |
+| C3 参数元数据达到约定阈值 | 需要先确定覆盖率阈值；达标即关闭，否则该条目永不“完成” | 待用户决定阈值（见 `PARAM-002`） |
+| C4 明确放弃或不做的条目 | 未实现项必须显式标注为 out of scope，而不是长期挂在待办里 | 待用户决定（见 `DEAD-001`） |
+
+判定要点：
+
+- C1/C2 属于“行为正确性”，已通过离线与模拟测试复核，不依赖真机。
+- C3/C4 不是技术阻塞，而是**产品决策**。在用户给出阈值或取舍前，后端维护循环
+  不应继续为这两项做无边界加深。
+
+## 第二层：产品级 0.1.0 门禁
+
+产品是否“可以发 0.1.0”由 [路线图与功能差距分析](ROADMAP.md) 的阶段 E 判定，
+本文不重复其内容。核心要求是：
+
+- A–D 以及本轮承诺的多机阶段 MV 切片验收通过，或明确列出已知限制。
+- 每个平台的支持声明必须等于实际验收结果；只有构建路径不等于“已验证”。
+- FFI 稳定契约、弃用入口、配置迁移与发布回滚策略有测试或明确说明。
+- 关键错误可诊断，数据与任务文件升级策略有覆盖。
+
+注意：当前只有 macOS 是本机实机验证路径；Windows/Linux/Android 只完成构建与 CI
+产物检查，真机验收未完成。这一层不因文档更新而改变。
+
+## 第三层：上游对标评分
+
+“MP/QGC 打 100 分，M-GCS 至少做到 85 分”只能按模块判定，不能整体打分，否则同样
+没有止境。做法是：
+
+1. 选定模块（如任务互操作、参数写入语义、校准状态机、平台覆盖、链路生命周期）。
+2. 对照 MP/QGC 的对应实现，列出差距条目和判定依据。
+3. 逐条判定“已达到 / 明确不作为目标 / 受资源阻塞”。
+4. 只有在所有适用模块都落到上述三类之一时，该层才算完成。
+
+当前参考记录：[QGC 代码质量审计](audits/2026-10-01-qgc-quality-audit.md)、
+[QGC/MP 可借鉴项对照](../specs/upstream/SELECTION_STRATEGY.md)、
+[MP / QGC 上游实现择优准则](../specs/upstream/SELECTION_STRATEGY.md)。
+
+## 剩余项与阻塞原因
+
+以下条目来自 [现状审计](CURRENT_STATE.md) 的“当前剩余项”，此处只记录阻塞性质。多机入口、明确目标命令、异步命令轮询和 signing route 隔离已不再列为未完成项。
+
+| 条目 | 性质 | 阻塞原因 |
+| --- | --- | --- |
+| `PARAM-002` 参数元数据加深 | 产品决策 | 未确定覆盖率阈值；无阈值则无终止点 |
+| `DEAD-001` 固件刷写 | 产品决策 | 完整下载 + bootloader 流程是大工程；需确认做或标为 out of scope |
+| `VIDEO-001` FFmpeg 回调并发 | 环境阻塞 | 本机无 FFmpeg 开发环境，改动无法编译验证 |
+| Windows/Linux/Android 真机验收 | 资源阻塞 | 需要对应平台设备与飞控，飞控串口为排他资源 |
+
+不属于“未完成”的条目：
+
+- `CI-001` 远端 CI：按用户要求标记为 WONTFIX，不再跟踪。
+
+## 标注要求
+
+本文档与相关审计中判断“参考了谁”时，保持已确立的择优准则：
+
+- ArduPilot 专用语义（参数、校准、模式、任务字段、现场兼容）优先参考 MP。
+- 框架、生命周期、状态机、任务模型、跨平台结构与测试治理优先参考 QGC。
+- 协议事实（MAVLink 消息、枚举、单位、任务协议）以官方定义为准。
+
+引用具体上游实现时写明模块与理由，例如围栏 mission 编码指
+QGC `GeoFenceManager`、ComplexItem 展开指 QGC `TransectStyleComplexItem::_save`、
+Rally 编码指 QGC `RallyPointManager`。详细规则见
+[../specs/upstream/SELECTION_STRATEGY.md](../specs/upstream/SELECTION_STRATEGY.md)。
+
+## 使用方式
+
+- 评估“还能不能继续优化”时，先对照第一层的 C1–C4，再看第二、三层。
+- 第一层未达成项若属于产品决策或环境阻塞，应先向用户确认，而不是自行选择方向。
+- 新增的未完成项必须同时写进本文件和 [现状审计](CURRENT_STATE.md) 的“当前剩余项”。

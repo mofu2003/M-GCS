@@ -132,6 +132,17 @@ int main() {
         char* v = mg_get_version();
         CHECK(v != nullptr, "version string non-null");
         CHECK(strlen(v) > 0, "version string non-empty");
+        // Format guard: MAJOR.MINOR.PATCH, three numeric components.
+        {
+            int dots = 0;
+            bool numeric = v != nullptr;
+            for (const char* c = v; c && *c; ++c) {
+                if (*c == '.') ++dots;
+                else if (*c < '0' || *c > '9') numeric = false;
+            }
+            CHECK(dots == 2, "version has MAJOR.MINOR.PATCH shape");
+            CHECK(numeric, "version components are numeric");
+        }
         fprintf(stderr, "    version: %s\n", v);
         mg_free_string(v);
     }

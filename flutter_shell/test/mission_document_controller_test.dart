@@ -8,7 +8,8 @@ void main() {
     'mission document controller edits and validates through backend',
     () async {
       final backend = _FakeMissionBackend();
-      final controller = MissionDocumentController(backend: backend)..bindSession(1);
+      final controller = MissionDocumentController(backend: backend)
+        ..bindSession(1);
 
       await controller.initialize();
       expect(controller.initialized, isTrue);
@@ -60,6 +61,61 @@ void main() {
     expect(restored.params, [15, 0, 0, 0]);
   });
 
+  test('transfer progress exposes retry and failure state', () {
+    final progress = MissionTransferProgress.fromJson({
+      'state': 'downloading',
+      'progress_pct': 40,
+      'received': 4,
+      'total': 10,
+      'retry_count': 2,
+      'error': 'mission transfer timeout',
+    });
+
+    expect(progress.state, MissionTransferState.downloading);
+    expect(progress.retryCount, 2);
+    expect(progress.error, 'mission transfer timeout');
+  });
+
+  test('mission document preserves fence and rally layers', () {
+    final document = MissionDocument.fromJson({
+      'schema_version': 1,
+      'metadata': {'name': 'Fence mission'},
+      'rally_points': [
+        {'lat': 39.9, 'lon': 116.4, 'alt_m': 30.0},
+      ],
+      'geo_fence': {
+        'polygons': [
+          {
+            'inclusion': false,
+            'vertices': [
+              [39.9, 116.4],
+              [39.91, 116.41],
+              [39.92, 116.4],
+            ],
+          },
+        ],
+        'circles': [
+          {'inclusion': true, 'lat': 39.91, 'lon': 116.4, 'radius_m': 120.0},
+        ],
+        'breach_return': {'lat': 39.89, 'lon': 116.39, 'alt_m': 25.0},
+      },
+    });
+
+    expect(document.rallyPoints, hasLength(1));
+    expect(document.rallyPoints.single.altitudeMeters, 30.0);
+    expect(document.geoFence.polygons.single.vertices, hasLength(3));
+    expect(document.geoFence.polygons.single.inclusion, isFalse);
+    expect(document.geoFence.circles.single.radiusMeters, 120.0);
+    expect(document.geoFence.breachReturn?.latitude, 39.89);
+    expect(document.geoFence.breachReturnAltitudeMeters, 25.0);
+
+    final restored = MissionDocument.fromJson(document.toJson());
+    expect(restored.rallyPoints, hasLength(1));
+    expect(restored.geoFence.polygons, hasLength(1));
+    expect(restored.geoFence.circles, hasLength(1));
+    expect(restored.geoFence.breachReturn, isNotNull);
+  });
+
   test('mission entities identify VTOL takeoff and landing commands', () {
     const takeoff = MissionEntity(command: kMavCmdNavVtolTakeoff);
     const landing = MissionEntity(command: kMavCmdNavVtolLand);
@@ -75,7 +131,8 @@ void main() {
     'upload performs readback verification and clears dirty state',
     () async {
       final backend = _FakeMissionBackend();
-      final controller = MissionDocumentController(backend: backend)..bindSession(1);
+      final controller = MissionDocumentController(backend: backend)
+        ..bindSession(1);
 
       await controller.initialize();
       await controller.addEntity(
@@ -97,35 +154,39 @@ void main() {
     },
   );
 
-  test('changing vehicle session blocks upload until task reconciliation', () async {
-    final backend = _FakeMissionBackend();
-    final controller = MissionDocumentController(backend: backend)
-      ..bindSession(1);
+  test(
+    'changing vehicle session blocks upload until task reconciliation',
+    () async {
+      final backend = _FakeMissionBackend();
+      final controller = MissionDocumentController(backend: backend)
+        ..bindSession(1);
 
-    await controller.initialize();
-    await controller.addEntity(
-      const MissionEntity(
-        id: 'entity-1',
-        latitude: 31.2,
-        longitude: 121.4,
-        altitudeMeters: 50,
-      ),
-    );
+      await controller.initialize();
+      await controller.addEntity(
+        const MissionEntity(
+          id: 'entity-1',
+          latitude: 31.2,
+          longitude: 121.4,
+          altitudeMeters: 50,
+        ),
+      );
 
-    controller.bindSession(2);
-    expect(controller.requiresVehicleReconciliation, isTrue);
-    await expectLater(controller.upload(), throwsA(isA<StateError>()));
+      controller.bindSession(2);
+      expect(controller.requiresVehicleReconciliation, isTrue);
+      await expectLater(controller.upload(), throwsA(isA<StateError>()));
 
-    await controller.downloadFromVehicle();
-    expect(controller.requiresVehicleReconciliation, isFalse);
-    expect(controller.dirty, isFalse);
-  });
+      await controller.downloadFromVehicle();
+      expect(controller.requiresVehicleReconciliation, isFalse);
+      expect(controller.dirty, isFalse);
+    },
+  );
 
   test(
     'download from vehicle replaces the draft and clears dirty state',
     () async {
       final backend = _FakeMissionBackend();
-      final controller = MissionDocumentController(backend: backend)..bindSession(1);
+      final controller = MissionDocumentController(backend: backend)
+        ..bindSession(1);
 
       await controller.initialize();
       await controller.addEntity(
@@ -150,7 +211,8 @@ void main() {
     'cancel aborts an active upload without clearing local changes',
     () async {
       final backend = _FakeMissionBackend()..transferCompletionPolls = 100;
-      final controller = MissionDocumentController(backend: backend)..bindSession(1);
+      final controller = MissionDocumentController(backend: backend)
+        ..bindSession(1);
 
       await controller.initialize();
       await controller.addEntity(
@@ -183,7 +245,8 @@ void main() {
         expectedCount: 1,
         vehicleCount: 1,
       );
-    final controller = MissionDocumentController(backend: backend)..bindSession(1);
+    final controller = MissionDocumentController(backend: backend)
+      ..bindSession(1);
 
     await controller.initialize();
     await controller.addEntity(
@@ -211,7 +274,8 @@ void main() {
           expectedCount: 1,
           vehicleCount: 1,
         );
-      final controller = MissionDocumentController(backend: backend)..bindSession(1);
+      final controller = MissionDocumentController(backend: backend)
+        ..bindSession(1);
 
       await controller.initialize();
       await controller.addEntity(
@@ -235,7 +299,8 @@ void main() {
 
   test('fence and rally flows upload, read back and verify', () async {
     final backend = _FakeMissionBackend();
-    final controller = MissionDocumentController(backend: backend)..bindSession(1);
+    final controller = MissionDocumentController(backend: backend)
+      ..bindSession(1);
 
     await controller.initialize();
     await controller.addEntity(
@@ -271,7 +336,8 @@ void main() {
 
   test('mission execution progress polls vehicle feedback', () async {
     final backend = _FakeMissionBackend();
-    final controller = MissionDocumentController(backend: backend)..bindSession(1);
+    final controller = MissionDocumentController(backend: backend)
+      ..bindSession(1);
 
     await controller.initialize();
     await controller.refreshExecutionProgress();
@@ -292,26 +358,30 @@ void main() {
     expect(controller.executionProgress?.reachedCount, 3);
   });
 
-  test('clearing the vehicle mission leaves the local document alone', () async {
-    final backend = _FakeMissionBackend();
-    final controller = MissionDocumentController(backend: backend)..bindSession(1);
+  test(
+    'clearing the vehicle mission leaves the local document alone',
+    () async {
+      final backend = _FakeMissionBackend();
+      final controller = MissionDocumentController(backend: backend)
+        ..bindSession(1);
 
-    await controller.initialize();
-    await controller.addEntity(
-      const MissionEntity(
-        id: 'entity-1',
-        latitude: 31.2,
-        longitude: 121.4,
-        altitudeMeters: 50,
-      ),
-    );
+      await controller.initialize();
+      await controller.addEntity(
+        const MissionEntity(
+          id: 'entity-1',
+          latitude: 31.2,
+          longitude: 121.4,
+          altitudeMeters: 50,
+        ),
+      );
 
-    await controller.clearVehicleMission();
+      await controller.clearVehicleMission();
 
-    expect(backend.vehicleMissionClears, 1);
-    expect(controller.status, contains('已清除飞控任务'));
-    expect(controller.document?.entities, hasLength(1));
-  });
+      expect(backend.vehicleMissionClears, 1);
+      expect(controller.status, contains('已清除飞控任务'));
+      expect(controller.document?.entities, hasLength(1));
+    },
+  );
 }
 
 final class _FakeMissionBackend implements MissionDocumentBackend {
@@ -331,8 +401,10 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
       const MissionVerificationResult(matches: true);
   MissionVerificationResult rallyVerificationResult =
       const MissionVerificationResult(matches: true);
-  final MissionTransferProgress _fenceTransfer = const MissionTransferProgress();
-  final MissionTransferProgress _rallyTransfer = const MissionTransferProgress();
+  final MissionTransferProgress _fenceTransfer =
+      const MissionTransferProgress();
+  final MissionTransferProgress _rallyTransfer =
+      const MissionTransferProgress();
   MissionVerificationResult verificationResult =
       const MissionVerificationResult(
         matches: true,
@@ -470,7 +542,10 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
   }
 
   @override
-  Future<JsonMap> compileFencePlan() async => const {'success': true, 'item_count': 0};
+  Future<JsonMap> compileFencePlan() async => const {
+    'success': true,
+    'item_count': 0,
+  };
 
   @override
   Future<JsonMap> uploadFence(int expectedRevision) async => {
@@ -502,7 +577,10 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
   }
 
   @override
-  Future<JsonMap> compileRallyPlan() async => const {'success': true, 'item_count': 0};
+  Future<JsonMap> compileRallyPlan() async => const {
+    'success': true,
+    'item_count': 0,
+  };
 
   @override
   Future<JsonMap> uploadRally(int expectedRevision) async => {
@@ -544,8 +622,10 @@ final class _FakeMissionBackend implements MissionDocumentBackend {
 
   int vehicleMissionClears = 0;
 
-  MissionExecutionProgress executionProgress =
-      const MissionExecutionProgress(valid: true, total: 3);
+  MissionExecutionProgress executionProgress = const MissionExecutionProgress(
+    valid: true,
+    total: 3,
+  );
 
   @override
   Future<MissionTransferProgress> getMissionTransferProgress() async {

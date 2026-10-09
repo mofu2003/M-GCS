@@ -176,6 +176,8 @@ class _AMapMapViewState extends State<AMapMapView> {
 
   /// 地图标记要同时跟着遥测和任务文档变化重画。
   int? _markerSessionId;
+  Timer? _fleetFitDebounce;
+  Set<int> _lastFittedFleetVehicleIds = const {};
   late Listenable _markerSources = Listenable.merge([
     widget.connectionController.telemetryChanges,
     widget.connectionController.connectionChanges,
@@ -254,6 +256,7 @@ class _AMapMapViewState extends State<AMapMapView> {
         _dragPreviewWgs84 = null;
       });
     }
+    _scheduleFleetFit(connection);
     if (!connection.vehiclePositionValid) return;
     final fix = connection.vehiclePosition;
     if (fix == null) return;
@@ -277,6 +280,39 @@ class _AMapMapViewState extends State<AMapMapView> {
     );
     if (distance < 20000) return;
     _controller.move(tilePosition, _zoom < 13 ? 15 : _zoom);
+  }
+
+  void _scheduleFleetFit(ConnectionController connection) {
+    final positionedIds = connection.fleetSnapshot.vehicles
+        .where((vehicle) => vehicle.positionValid)
+        .map((vehicle) => vehicle.id)
+        .toSet();
+    if (positionedIds.length < 2 ||
+        setEquals(positionedIds, _lastFittedFleetVehicleIds)) {
+      return;
+    }
+    _fleetFitDebounce?.cancel();
+    _fleetFitDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      final points = <LatLng>[];
+      for (final vehicle in connection.fleetSnapshot.vehicles) {
+        if (!vehicle.positionValid || !positionedIds.contains(vehicle.id)) {
+          continue;
+        }
+        points.add(_toTileFrame(vehicle.latitude, vehicle.longitude));
+      }
+      if (points.length < 2) return;
+      _lastFittedFleetVehicleIds = positionedIds;
+      setState(() => _followVehicle = false);
+      _centeredOnVehicle = true;
+      _controller.fitCamera(
+        CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints(points),
+          padding: const EdgeInsets.fromLTRB(80, 100, 80, 130),
+          maxZoom: 15,
+        ),
+      );
+    });
   }
 
   void _toggleFollowVehicle() {
@@ -360,6 +396,7 @@ class _AMapMapViewState extends State<AMapMapView> {
       _handleMissionPlanningRequest,
     );
     _saveTimer?.cancel();
+    _fleetFitDebounce?.cancel();
     _transientMessage?.remove();
     _transientMessage = null;
     super.dispose();
@@ -835,22 +872,56 @@ class _AMapMapViewState extends State<AMapMapView> {
     // 非 active 飞机：使用 Fleet 快照中的低频位置绘制弱化标记。
     // active 飞机继续使用上面的 20Hz 遥测位置，避免整队刷新时抖动。
     for (final vehicle in connection.fleetSnapshot.vehicles) {
-      if (vehicle.id == connection.sessionId || !vehicle.positionValid) {
-        continue;
+      if (vehicle.id == connection.sessionId) continue;
+      final details = <String>[];
+      if (vehicle.flightMode.isNotEmpty) details.add(vehicle.flightMode);
+      if (vehicle.armed) details.add('已解锁');
+      final battery = vehicle.batteryRemainingPercent;
+      if (battery != null && battery >= 0) details.add('$battery%');
+      if (vehicle.missionValid && vehicle.missionTotal > 0) {
+        details.add(
+          '任务 ${vehicle.missionCurrentIndex}/${vehicle.missionTotal}',
+        );
       }
+      final label = [
+        '飞机 ${vehicle.id}',
+        if (details.isNotEmpty) details.join(' · '),
+      ].join(' · ');
+      if (vehicle.homePositionValid) {
+        markers.add(
+          Marker(
+            point: _toTileFrame(vehicle.homeLatitude, vehicle.homeLongitude),
+            width: 24,
+            height: 24,
+            child: Tooltip(
+              message: '$label · Home',
+              child: _MapMarker(
+                icon: CupertinoIcons.house_fill,
+                fill: colors.surface,
+                border: colors.success,
+                iconColor: colors.success,
+              ),
+            ),
+          ),
+        );
+      }
+      if (!vehicle.positionValid) continue;
       markers.add(
         Marker(
           point: _toTileFrame(vehicle.latitude, vehicle.longitude),
           width: 36,
           height: 36,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => connection.selectLink(vehicle.id),
-            child: VehicleMarkerIcon(
-              kind: _fleetVehicleMarkerKind(vehicle.vehicleType),
-              fill: colors.textSecondary,
-              outline: colors.surface,
-              headingDegrees: vehicle.headingDegrees,
+          child: Tooltip(
+            message: label,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => connection.selectVehicle(vehicle.id),
+              child: VehicleMarkerIcon(
+                kind: _fleetVehicleMarkerKind(vehicle.vehicleType),
+                fill: colors.textSecondary,
+                outline: colors.surface,
+                headingDegrees: vehicle.headingDegrees,
+              ),
             ),
           ),
         ),
@@ -858,6 +929,52 @@ class _AMapMapViewState extends State<AMapMapView> {
     }
     // 任务文档里的航点：画成编号标记，点击打开编辑框。
     final mission = connection.missionPlanning;
+    final geoFence = mission.document?.geoFence;
+    final breachReturn = geoFence?.breachReturn;
+    if (breachReturn?.latitude != null && breachReturn?.longitude != null) {
+      markers.add(
+        Marker(
+          point: _toTileFrame(breachReturn!.latitude!, breachReturn.longitude!),
+          width: 28,
+          height: 28,
+          child: Tooltip(
+            message: '围栏越界返航点',
+            child: _MapMarker(
+              icon: CupertinoIcons.scope,
+              fill: colors.surface,
+              border: colors.danger,
+              iconColor: colors.danger,
+            ),
+          ),
+        ),
+      );
+    }
+    for (
+      var index = 0;
+      index < (mission.document?.rallyPoints.length ?? 0);
+      index++
+    ) {
+      final rally = mission.document!.rallyPoints[index];
+      final latitude = rally.latitude;
+      final longitude = rally.longitude;
+      if (latitude == null || longitude == null) continue;
+      markers.add(
+        Marker(
+          point: _toTileFrame(latitude, longitude),
+          width: 26,
+          height: 26,
+          child: Tooltip(
+            message: 'Rally 点 ${index + 1}',
+            child: _MapMarker(
+              icon: CupertinoIcons.flag,
+              fill: colors.surface,
+              border: colors.warning,
+              iconColor: colors.warning,
+            ),
+          ),
+        ),
+      );
+    }
     final entities = mission.document?.entities ?? const <MissionEntity>[];
     final dragEnabled = !mission.busy && !mission.transferActive;
     for (var index = 0; index < entities.length; index++) {
@@ -1020,6 +1137,88 @@ class _AMapMapViewState extends State<AMapMapView> {
     ];
   }
 
+  List<Polygon> _buildMissionFencePolygons(BuildContext context) {
+    final document = widget.connectionController.missionPlanning.document;
+    final fence = document?.geoFence;
+    if (fence == null || fence.polygons.isEmpty) return const [];
+    final colors = context.mgColors;
+    final polygons = <Polygon>[];
+    for (final polygon in fence.polygons) {
+      final points = <LatLng>[];
+      for (final vertex in polygon.vertices) {
+        final latitude = vertex.latitude;
+        final longitude = vertex.longitude;
+        if (latitude == null || longitude == null) continue;
+        points.add(_toTileFrame(latitude, longitude));
+      }
+      if (points.length < 3) continue;
+      final color = polygon.inclusion ? colors.accent : colors.danger;
+      polygons.add(
+        Polygon(
+          points: points,
+          color: color.withValues(alpha: 0.08),
+          borderColor: color.withValues(alpha: 0.68),
+          borderStrokeWidth: 1.8,
+        ),
+      );
+    }
+    return polygons;
+  }
+
+  List<CircleMarker<Object>> _buildMissionFenceCircles(BuildContext context) {
+    final document = widget.connectionController.missionPlanning.document;
+    final fence = document?.geoFence;
+    if (fence == null || fence.circles.isEmpty) return const [];
+    final colors = context.mgColors;
+    final circles = <CircleMarker<Object>>[];
+    for (final circle in fence.circles) {
+      final latitude = circle.latitude;
+      final longitude = circle.longitude;
+      if (latitude == null || longitude == null || circle.radiusMeters <= 0) {
+        continue;
+      }
+      final color = circle.inclusion ? colors.accent : colors.danger;
+      circles.add(
+        CircleMarker<Object>(
+          point: _toTileFrame(latitude, longitude),
+          radius: circle.radiusMeters,
+          useRadiusInMeter: true,
+          color: color.withValues(alpha: 0.08),
+          borderColor: color.withValues(alpha: 0.68),
+          borderStrokeWidth: 1.8,
+        ),
+      );
+    }
+    return circles;
+  }
+
+  /// 非 active 飞机的任务路径使用 Fleet 低频快照绘制，颜色弱化，
+  /// 不参与 active 飞机的地图编辑和拖拽。
+  List<Polyline> _buildFleetMissionRouteLines(BuildContext context) {
+    final connection = widget.connectionController;
+    final colors = context.mgColors;
+    final lines = <Polyline>[];
+    for (final vehicle in connection.fleetSnapshot.vehicles) {
+      if (vehicle.id == connection.sessionId ||
+          !vehicle.missionValid ||
+          vehicle.missionPoints.length < 2) {
+        continue;
+      }
+      lines.add(
+        Polyline(
+          points: [
+            for (final point in vehicle.missionPoints)
+              _toTileFrame(point.latitude, point.longitude),
+          ],
+          color: colors.textSecondary.withValues(alpha: 0.42),
+          strokeWidth: 1.5,
+          pattern: StrokePattern.dashed(segments: const [6, 6]),
+        ),
+      );
+    }
+    return lines;
+  }
+
   List<Marker> _buildMissionDistanceLabels(BuildContext context) {
     final vertices = _missionRouteVertices();
     if (vertices.length < 2) return const [];
@@ -1180,15 +1379,25 @@ class _AMapMapViewState extends State<AMapMapView> {
                 polylines: [
                   ..._buildHomeLine(context),
                   ..._buildMissionRouteLines(context),
+                  ..._buildFleetMissionRouteLines(context),
                 ],
               ),
+            ),
+            AnimatedBuilder(
+              animation: _markerSources,
+              builder: (context, _) =>
+                  PolygonLayer(polygons: _buildMissionFencePolygons(context)),
             ),
             // 固定翼的 go to location 是"飞到点上然后绕圈"；圆圈半径和方向直接
             // 取飞控参数 WP_LOITER_RAD（负值=逆时针），和飞机实际飞的圈一致。
             AnimatedBuilder(
               animation: _markerSources,
-              builder: (context, _) =>
-                  CircleLayer(circles: _buildLoiterCircles(context)),
+              builder: (context, _) => CircleLayer(
+                circles: [
+                  ..._buildLoiterCircles(context),
+                  ..._buildMissionFenceCircles(context),
+                ],
+              ),
             ),
             AnimatedBuilder(
               animation: _markerSources,

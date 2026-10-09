@@ -20,13 +20,12 @@ function Require-Command {
 Require-Command "flutter"
 Require-Command "dart"
 
-Write-Host "[windows-preflight] 生成 MAVLink C 头"
-& (Join-Path $PSScriptRoot "generate-mavlink.ps1")
+$RequiredHeader = Join-Path $Root "third_party\mavlink\include\mavlink\v2.0\ardupilotmega\mavlink.h"
+if (-not (Test-Path $RequiredHeader)) { throw "MAVLink headers missing. Run generate-mavlink.ps1 explicitly before preflight." }
 
 Push-Location $FlutterDir
 try {
-    Write-Host "[windows-preflight] flutter pub get"
-    flutter pub get
+    if (-not (Test-Path (Join-Path $FlutterDir "pubspec.lock"))) { throw "pubspec.lock missing; run flutter pub get explicitly before preflight." }
 
     Write-Host "[windows-preflight] UI token check"
     dart ../tools/check_ui_tokens.dart

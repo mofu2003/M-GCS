@@ -309,7 +309,11 @@ bool MavlinkAdapter::mission_upload(uint8_t target_system, uint8_t target_compon
 
 bool MavlinkAdapter::mission_cancel() {
     mg::core::platform::LockGuard lk(impl_->mtx);
-    auto& state = impl_->mission;
+    return mission_type_cancel(impl_->mission, MAV_MISSION_TYPE_MISSION);
+}
+
+bool MavlinkAdapter::mission_type_cancel(MissionTransferState& state,
+                                          uint8_t mission_type) {
     using State = mg::core::mission::MissionState;
     if (state.progress.state == State::Idle) return false;
 
@@ -323,7 +327,11 @@ bool MavlinkAdapter::mission_cancel() {
     state.upload_seq = 0;
     state.progress.state = State::Idle;
     state.progress.result = MAV_MISSION_OPERATION_CANCELLED;
-    state.progress.error = "mission transfer cancelled";
+    state.progress.error = mission_type == MAV_MISSION_TYPE_RALLY
+        ? "rally transfer cancelled"
+        : mission_type == MAV_MISSION_TYPE_FENCE
+            ? "geofence transfer cancelled"
+            : "mission transfer cancelled";
 
     // A partial download must never be treated as a valid vehicle mission.
     if (was_downloading) {
@@ -338,7 +346,7 @@ bool MavlinkAdapter::mission_cancel() {
             target_system,
             target_component,
             MAV_MISSION_OPERATION_CANCELLED,
-            MAV_MISSION_TYPE_MISSION,
+            mission_type,
             0);
         impl_->send_msg();
     }
@@ -381,6 +389,11 @@ mg::core::mission::MissionPlan MavlinkAdapter::mission_get_plan() const {
 mg::core::mission::MissionTransferProgress MavlinkAdapter::mission_get_progress() const {
     mg::core::platform::LockGuard lk(impl_->mtx);
     return impl_->mission.progress;
+}
+
+int MavlinkAdapter::mission_transfer_retry_count() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->mission.retry_count;
 }
 
 mg::core::mission::MissionPlanProvenance
@@ -511,6 +524,11 @@ bool MavlinkAdapter::rally_upload(uint8_t target_system, uint8_t target_componen
     return mission_type_upload(target_system, target_component, impl_->rally, plan, MAV_MISSION_TYPE_RALLY);
 }
 
+bool MavlinkAdapter::rally_cancel() {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return mission_type_cancel(impl_->rally, MAV_MISSION_TYPE_RALLY);
+}
+
 bool MavlinkAdapter::rally_clear(uint8_t target_system, uint8_t target_component) {
     mg::core::platform::LockGuard lk(impl_->mtx);
     return mission_type_clear(target_system, target_component, impl_->rally, MAV_MISSION_TYPE_RALLY);
@@ -541,6 +559,11 @@ mg::core::mission::MissionTransferProgress MavlinkAdapter::rally_get_progress() 
     return impl_->rally.progress;
 }
 
+int MavlinkAdapter::rally_transfer_retry_count() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->rally.retry_count;
+}
+
 // ================================================================
 // 地理围栏（MAV_MISSION_TYPE_FENCE = 1）
 // ================================================================
@@ -556,6 +579,11 @@ bool MavlinkAdapter::fence_upload(uint8_t target_system, uint8_t target_componen
     mg::core::platform::LockGuard lk(impl_->mtx);
     if (has_active_transfer(impl_->mission, impl_->rally, impl_->fence)) return false;
     return mission_type_upload(target_system, target_component, impl_->fence, plan, MAV_MISSION_TYPE_FENCE);
+}
+
+bool MavlinkAdapter::fence_cancel() {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return mission_type_cancel(impl_->fence, MAV_MISSION_TYPE_FENCE);
 }
 
 bool MavlinkAdapter::fence_clear(uint8_t target_system, uint8_t target_component) {
@@ -586,6 +614,11 @@ MavlinkAdapter::fence_get_plan_snapshot() const {
 mg::core::mission::MissionTransferProgress MavlinkAdapter::fence_get_progress() const {
     mg::core::platform::LockGuard lk(impl_->mtx);
     return impl_->fence.progress;
+}
+
+int MavlinkAdapter::fence_transfer_retry_count() const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    return impl_->fence.retry_count;
 }
 
 // ================================================================

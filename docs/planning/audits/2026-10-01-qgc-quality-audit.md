@@ -44,7 +44,7 @@ canonical 覆盖率报告和多机型 profile 标识；QGC ComplexItem、GeoFenc
 正式建模并接入编译/上传/回读/verify（ComplexItem 复用 QGC 存入的
 `TransectStyleComplexItem.Items` 展开，内部字段仍只读）。任务真实编辑模型、
 参数页深度、链路和平台覆盖仍是主要差距。收口判定见
-[完成定义与后端维护收口](../DEFINITION_OF_DONE.md)。
+[当前状态与完成定义](../CURRENT_STATE.md)。
 
 ## 评分
 
@@ -169,6 +169,6 @@ QGC 和 MP 都是 GPL 系项目，M-GCS 当前是 MIT。因此“参考和替换
 5. 用同一套审计方法检查 Windows/Linux 串口链路（需要设备）。
 
 后端侧剩余项（参数阈值、固件刷写取舍、FFmpeg 并发）与阻塞原因见
-[完成定义与后端维护收口](../DEFINITION_OF_DONE.md)。
+[当前状态与完成定义](../CURRENT_STATE.md)。
 
-关联文档：[QGC / MP 可借鉴项对照表](../../specs/upstream/SELECTION_STRATEGY.md)、[后续发展计划](../DEVELOPMENT_ROADMAP.md)。
+关联文档：[QGC / MP 可借鉴项对照表](../../specs/upstream/SELECTION_STRATEGY.md)、[路线图与功能差距分析](../ROADMAP.md)。

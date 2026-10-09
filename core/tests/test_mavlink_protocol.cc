@@ -609,6 +609,77 @@ static void test_signing_is_per_adapter() {
     (void)unsigned_heartbeat;
 }
 
+static void test_signing_candidate_auto_detect() {
+    fprintf(stderr, "\n[Group] Receive path - signing candidate auto-detect\n");
+    const std::array<uint8_t, 32> key = {
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+        0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
+        0x0f, 0x1e, 0x2d, 0x3c, 0x4b, 0x5a, 0x69, 0x78,
+        0x87, 0x96, 0xa5, 0xb4, 0xc3, 0xd2, 0xe1, 0xf0,
+    };
+    constexpr uint64_t kSigningEpochMicros = 1420070400000000ULL;
+    const uint64_t now_micros = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+    const uint64_t timestamp_ticks = (now_micros - kSigningEpochMicros) / 10ULL;
+
+    TestFixture fixture;
+    mg::core::mavlink::SigningCandidate candidate;
+    candidate.name = "KeyAlpha";
+    candidate.key = key;
+    fixture.adapter.set_signing_candidates({candidate});
+    CHECK("candidate count is retained",
+          fixture.adapter.signing_candidate_count() == 1);
+    const auto first = pack_signed_heartbeat(21, key, 7, timestamp_ticks);
+    CHECK("signed packet triggers candidate matching",
+          fixture.adapter.feed_raw(first.data(), first.size()));
+    CHECK("matching key is automatically enabled",
+          fixture.adapter.signing_enabled());
+    CHECK("auto-detected key name is retained",
+          fixture.adapter.signing_key_name() == "KeyAlpha");
+    CHECK("auto-detection is marked in status",
+          fixture.adapter.signing_auto_detected());
+
+    // The next matching packet goes through normal timestamp/stream checks.
+    const auto second =
+        pack_signed_heartbeat(21, key, 7, timestamp_ticks + 1);
+    CHECK("auto-detected key validates later signed traffic",
+          fixture.adapter.feed_raw(second.data(), second.size()));
+    CHECK("auto-detected key reports OK after validation",
+          fixture.adapter.signing_status() == MAVLINK_SIGNING_STATUS_OK);
+}
+
+static void test_signing_detection_rejects_replay_and_mixed_chunk() {
+    std::array<uint8_t, 32> key{};
+    key.fill(0x37);
+    const auto now = static_cast<uint64_t>(std::chrono::duration_cast<
+        std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+    const auto ticks = (now - 1420070400000000ULL) / 10ULL;
+    mg::core::mavlink::SigningCandidate candidate;
+    candidate.name = "replay-test";
+    candidate.key = key;
+    TestFixture old;
+    old.adapter.set_signing_candidates({candidate});
+    const auto stale = pack_signed_heartbeat(21, key, 7, ticks - 12000000ULL);
+    CHECK("old first signed heartbeat is rejected",
+          !old.adapter.feed_raw(stale.data(), stale.size()));
+    CHECK("stale packet does not update heartbeat", !old.adapter.latest_heartbeat());
+    CHECK("stale packet does not select a key", !old.adapter.signing_enabled());
+
+    TestFixture mixed;
+    mixed.adapter.set_signing_candidates({candidate});
+    int count = 0;
+    mixed.adapter.on_heartbeat([&](const auto&) { ++count; });
+    const auto valid = pack_signed_heartbeat(21, key, 7, ticks);
+    auto chunk = valid;
+    chunk.insert(chunk.end(), valid.begin(), valid.end());
+    CHECK("valid first packet accepted", mixed.adapter.feed_raw(chunk.data(), chunk.size()));
+    CHECK("duplicate first packet in same chunk is rejected", count == 1);
+    CHECK("later replay is rejected", !mixed.adapter.feed_raw(valid.data(), valid.size()));
+    CHECK("later replay does not update heartbeat", count == 1);
+}
+
 static void test_tx_sequence_is_isolated_per_adapter() {
     fprintf(stderr, "\n[Group] Send path - per-adapter sequence isolation\n");
     TestFixture first;
@@ -729,6 +800,8 @@ int main() {
     test_send_heartbeat();
     test_tx_sequence_is_isolated_per_adapter();
     test_signing_is_per_adapter();
+    test_signing_candidate_auto_detect();
+    test_signing_detection_rejects_replay_and_mixed_chunk();
     test_feed_raw_reports_valid_frames();
 
     fprintf(stderr, "\n=== Results: %d/%d passed ===\n", g_passed, g_passed + g_failed);

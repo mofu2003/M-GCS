@@ -61,6 +61,38 @@ void MavlinkAdapter::Impl::feed_mag_progress_compat(const uint8_t* data, size_t 
     }
 }
 
+void MavlinkAdapter::Impl::process_timeouts()
+{
+    // 超时检查节流：每 100ms 检查一次，避免每条消息都扫描队列
+    auto now = std::chrono::steady_clock::now();
+    auto since_check = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_timeout_check_).count();
+    if (since_check < 100) return;
+    last_timeout_check_ = now;
+
+    // 命令队列超时检查
+    auto timed_out = cmd_queue.check_timeouts(
+        [this](const CommandQueueEntry& e) -> bool { return send_command_queue_entry(e); });
+    for (auto& entry : timed_out) {
+        if (entry.result_cb) {
+            CommandAckInfo fail_info{};
+            fail_info.command = entry.command;
+            fail_info.result = 4; // MAV_RESULT_FAILED
+            fail_info.result_text = "command ack timeout - no response";
+            deferred_cbs.push_back(
+                [cb = entry.result_cb, fail_info = std::move(fail_info)]() { cb(fail_info); });
+        }
+    }
+    cmd_queue.purge();
+
+    // 任务传输超时检查
+    mission.check_timeout();
+    rally.check_timeout();
+    fence.check_timeout();
+
+    // 参数下载/写入超时
+    process_param_timeouts();
+}
+
 void MavlinkAdapter::Impl::process(const mavlink_message_t& m)
 {
     std::vector<std::function<void()>> callbacks;
@@ -212,35 +244,7 @@ void MavlinkAdapter::Impl::process(const mavlink_message_t& m)
             break;
         }
 
-        // 超时检查节流：每 100ms 检查一次，避免每条消息都扫描队列
-        auto now = std::chrono::steady_clock::now();
-        auto since_check = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_timeout_check_).count();
-        if (since_check >= 100) {
-            last_timeout_check_ = now;
-
-            // 命令队列超时检查
-            auto timed_out = cmd_queue.check_timeouts(
-                [this](const CommandQueueEntry& e) -> bool { return send_command_queue_entry(e); });
-            for (auto& entry : timed_out) {
-                if (entry.result_cb) {
-                    CommandAckInfo fail_info{};
-                    fail_info.command = entry.command;
-                    fail_info.result = 4; // MAV_RESULT_FAILED
-                    fail_info.result_text = "command ack timeout - no response";
-                    deferred_cbs.push_back(
-                        [cb = entry.result_cb, fail_info = std::move(fail_info)]() { cb(fail_info); });
-                }
-            }
-            cmd_queue.purge();
-
-            // 任务传输超时检查
-            mission.check_timeout();
-            rally.check_timeout();
-            fence.check_timeout();
-
-            // 参数下载/写入超时
-            process_param_timeouts();
-        }
+        process_timeouts();
 
         // 将延迟回调移出，以便在锁释放后执行
         callbacks = std::move(deferred_cbs);

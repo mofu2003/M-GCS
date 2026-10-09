@@ -14,6 +14,8 @@
 #include <cmath>
 #include <limits>
 #include <cstring>
+#include <chrono>
+#include <thread>
 
 // Cross-platform case-insensitive string compare
 #ifdef _WIN32
@@ -45,6 +47,7 @@ static char* cmd_result_queued(mg_core_t* core, mg::core::mavlink::MavlinkAdapte
         mg_set_last_error(MG_ERROR_SEND_FAILED);
         return to_cstr(mg::bridge::command_ack_json(ack.value()));
     }
+    mav->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
     return fail(MG_ERROR_TIMEOUT, "command ack timeout");
 }
 
@@ -66,6 +69,7 @@ static char* cmd_int_result_queued(
         mg_set_last_error(MG_ERROR_SEND_FAILED);
         return to_cstr(mg::bridge::command_ack_json(ack.value()));
     }
+    mav->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
     return fail(MG_ERROR_TIMEOUT, "command ack timeout");
 }
 
@@ -343,6 +347,93 @@ MGCORE_API char* mg_command_landing_gear(mg_core_t* core, bool deploy) {
     return fail(MG_ERROR_SEND_FAILED, "landing gear command send failed");
 }
 
+MGCORE_API char* mg_mission_start(mg_core_t* core) {
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
+    return cmd_result_queued(core, get_active_mavlink(core), MAV_CMD_MISSION_START,
+        active_target_sys(core), active_target_comp(core), 0, 0, 0, 0, 0, 0, 0);
+}
+
+namespace {
+bool response_succeeded(const char* result) {
+    if (!result) return false;
+    cJSON* object = cJSON_Parse(result);
+    const bool success = object && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(object, "success"));
+    cJSON_Delete(object);
+    return success;
+}
+
+bool wait_for_vehicle_state(mg_core_t* core, std::optional<uint32_t> mode,
+                            std::optional<bool> armed, int timeout_ms = 3500) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    do {
+        const auto session = mg::bridge::ffi::resolve_vehicle_session(core);
+        if (!session.connected || !session.mavlink) return false;
+        const auto hb = session.mavlink->latest_heartbeat();
+        if (hb && (!mode || hb->custom_mode == *mode) && (!armed || hb->armed == *armed)) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    } while (std::chrono::steady_clock::now() < deadline);
+    return false;
+}
+
+char* set_mode_and_validate(mg_core_t* core, uint32_t mode) {
+    if (wait_for_vehicle_state(core, mode, {}, 0)) return ok();
+    char* result = mg_command_set_mode(core, MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, mode);
+    if (!response_succeeded(result)) return result;
+    mg_free_string(result);
+    return wait_for_vehicle_state(core, mode, {}) ? ok()
+        : fail(MG_ERROR_TIMEOUT, "flight mode was not confirmed by heartbeat");
+}
+
+char* arm_and_validate(mg_core_t* core) {
+    if (wait_for_vehicle_state(core, {}, true, 0)) return ok();
+    char* result = mg_command_arm(core, 0);
+    if (!response_succeeded(result)) return result;
+    mg_free_string(result);
+    return wait_for_vehicle_state(core, {}, true) ? ok()
+        : fail(MG_ERROR_TIMEOUT, "arming was not confirmed by heartbeat");
+}
+
+// Shared workflow for single/batch starts. QGC APMFirmwarePlugin::startMission
+// uses AUTO before arming both Plane and VTOL (tilt-rotor safety); MP retains
+// GUIDED before arming Copter. PX4FirmwarePlugin selects AUTO_MISSION.
+char* start_mission_and_validate(mg_core_t* core, bool arm_if_needed) {
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
+    auto* mav = get_active_mavlink(core);
+    const auto hb = mav->latest_heartbeat();
+    if (!hb) return fail(MG_ERROR_INVALID_STATE, "vehicle identity is not available");
+    if (!arm_if_needed && !hb->armed)
+        return fail(MG_ERROR_INVALID_STATE, "vehicle must already be armed for batch mission start");
+    if (hb->autopilot_type != MAV_AUTOPILOT_ARDUPILOTMEGA && hb->autopilot_type != MAV_AUTOPILOT_PX4)
+        return fail(MG_ERROR_NOT_SUPPORTED, "mission start workflow unsupported for this autopilot");
+    const bool plane = hb->vehicle_type == MAV_TYPE_FIXED_WING ||
+        (hb->vehicle_type >= MAV_TYPE_VTOL_TAILSITTER_DUOROTOR && hb->vehicle_type <= MAV_TYPE_VTOL_RESERVED5);
+    const auto landed = mav->latest_extended_sys_state();
+    const auto position = mav->latest_global_position();
+    const bool flying = hb->armed && ((landed && landed->landed_state == MAV_LANDED_STATE_IN_AIR) ||
+        (position && position->relative_alt > 2000));
+    const uint32_t auto_mode = hb->autopilot_type == MAV_AUTOPILOT_PX4 ? 0x04040000U : plane ? 10U : 3U;
+    if (hb->autopilot_type == MAV_AUTOPILOT_PX4 || plane || flying) {
+        char* result = set_mode_and_validate(core, auto_mode);
+        if (!response_succeeded(result)) return result;
+        mg_free_string(result);
+        return arm_and_validate(core);
+    }
+    if (!hb->armed) {
+        char* result = set_mode_and_validate(core, 4U);
+        if (!response_succeeded(result)) return result;
+        mg_free_string(result);
+        result = arm_and_validate(core);
+        if (!response_succeeded(result)) return result;
+        mg_free_string(result);
+    }
+    char* result = mg_mission_start(core);
+    if (!response_succeeded(result)) return result;
+    mg_free_string(result);
+    return wait_for_vehicle_state(core, auto_mode, true) ? ok()
+        : fail(MG_ERROR_TIMEOUT, "mission mode was not confirmed by heartbeat");
+}
+} // namespace
+
 // ================================================================
 // Explicit target command dispatch
 // ================================================================
@@ -426,6 +517,11 @@ MGCORE_API char* mg_command_execute_for_vehicle(mg_core_t* core,
         } else {
             result = mg_command_set_mode(core, base_mode, custom_mode);
         }
+    } else if (command == "start_mission") {
+        int arm_if_needed = 1;
+        if (!json_int(args, "arm_if_needed", arm_if_needed, false, 1) ||
+            (arm_if_needed != 0 && arm_if_needed != 1)) result = invalid_args("invalid mission arming policy");
+        else result = start_mission_and_validate(core, arm_if_needed != 0);
     } else if (command == "mission_start") {
         result = mg_mission_start(core);
     } else if (command == "guided_pause") {
@@ -482,4 +578,70 @@ MGCORE_API char* mg_command_execute_for_vehicle(mg_core_t* core,
     cJSON_Delete(root);
     if (owns_empty_args) cJSON_Delete(args);
     return result;
+}
+
+MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
+                                               const char* command_json) {
+    CHECK_CORE(core);
+    if (vehicle_id <= 0 || !command_json || !*command_json || std::strlen(command_json) > 16384)
+        return invalid_args("invalid command submission");
+    auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
+    if (!vehicle) return fail(MG_ERROR_NOT_FOUND, "target vehicle not found");
+    const auto connection = vehicle->command_connection();
+    const auto adapter = connection ? connection->shared_mavlink() : nullptr;
+    if (!connection || !adapter || !connection->is_connected())
+        return fail(MG_ERROR_NOT_CONNECTED, "target vehicle disconnected");
+    const std::string json(command_json);
+    uint64_t ticket = 0;
+    {
+        mg::core::platform::LockGuard lk(core->command_jobs_mtx);
+        if (core->command_jobs_stopping) return fail(MG_ERROR_INVALID_STATE, "core is stopping");
+        if (core->command_jobs.size() >= 32) return fail(MG_ERROR_BUSY, "command job queue full");
+        for (auto& [id, job] : core->command_jobs) {
+            (void)id;
+            if (job.vehicle_id == vehicle_id && job.result.wait_for(std::chrono::milliseconds(0)) !=
+                    std::future_status::ready) return fail(MG_ERROR_BUSY, "vehicle command already running");
+        }
+        ticket = core->next_command_job++;
+        try {
+            core->command_jobs.emplace(ticket, mg_core_t::CommandJob{vehicle_id,
+                std::async(std::launch::async, [core, vehicle, connection, adapter, json]() {
+                    try {
+                        mg::bridge::ffi::VehicleTargetScope scope(core, vehicle.get(), connection);
+                        char* raw = mg_command_execute_for_vehicle(core, vehicle->vehicle_id(), json.c_str());
+                        std::string result = raw ? raw : "{\"success\":false,\"error\":\"empty native response\"}";
+                        mg_free_string(raw);
+                        return result;
+                    } catch (...) {
+                        return std::string("{\"success\":false,\"error\":\"native command worker failed\"}");
+                    }
+                })});
+        } catch (...) {
+            return fail(MG_ERROR_INTERNAL, "unable to start command worker");
+        }
+    }
+    mg::bridge::JsonBuilder response;
+    response.begin_object(); response.field("success", true);
+    response.field("ticket", static_cast<int64_t>(ticket)); response.end_object();
+    return to_cstr(response.str());
+}
+
+MGCORE_API char* mg_command_poll(mg_core_t* core, uint64_t ticket) {
+    CHECK_CORE(core);
+    mg::bridge::JsonBuilder response;
+    response.begin_object(); response.field("success", true);
+    response.field("ticket", static_cast<int64_t>(ticket));
+    {
+        mg::core::platform::LockGuard lk(core->command_jobs_mtx);
+        const auto it = core->command_jobs.find(ticket);
+        if (it == core->command_jobs.end()) return fail(MG_ERROR_NOT_FOUND, "command ticket not found");
+        if (it->second.result.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+            response.field("state", "complete");
+            response.raw_field("result", it->second.result.get());
+            core->command_jobs.erase(it);
+        } else {
+            response.field("state", "pending");
+        }
+    }
+    response.end_object(); return to_cstr(response.str());
 }

@@ -1,6 +1,6 @@
 # QGC `.plan` 任务文件互操作
 
-当前版本基线：`0.0.79`。
+当前版本基线：`0.0.80`。
 
 > 格式优先级见 [ADR 0008](../../architecture/adr/0008-mission-file-format-priority.md)。
 > `.plan` 不删除：它用于 PX4/QGC 工作流和不能由 `.waypoints` 无损表达的复杂规划数据。

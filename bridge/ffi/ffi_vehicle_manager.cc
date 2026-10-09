@@ -5,6 +5,8 @@
 #include "core/transport/link_factory.h"
 #include "core/transport/link_config.h"
 
+#include "cJSON.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstring>
@@ -163,6 +165,70 @@ MGCORE_API char* mg_vehicle_set_signing_key(mg_core_t* core,
     return ok();
 }
 
+MGCORE_API char* mg_vehicle_set_signing_candidates(
+    mg_core_t* core, int vehicle_id, const char* candidates_json) {
+    CHECK_CORE(core);
+    if (vehicle_id <= 0 || !candidates_json || !candidates_json[0]) {
+        return fail(MG_ERROR_INVALID_PARAM, "invalid signing candidates");
+    }
+    cJSON* root = cJSON_Parse(candidates_json);
+    if (!root || !cJSON_IsArray(root)) {
+        if (root) cJSON_Delete(root);
+        return fail(MG_ERROR_INVALID_PARAM,
+                    "signing candidates must be a JSON array");
+    }
+    std::vector<mg::core::mavlink::SigningCandidate> candidates;
+    cJSON* item = nullptr;
+    cJSON_ArrayForEach(item, root) {
+        if (!cJSON_IsObject(item)) {
+            cJSON_Delete(root);
+            return fail(MG_ERROR_INVALID_PARAM,
+                        "signing candidate must be an object");
+        }
+        const cJSON* name = cJSON_GetObjectItemCaseSensitive(item, "name");
+        const cJSON* key_hex = cJSON_GetObjectItemCaseSensitive(item, "key_hex");
+        const cJSON* timestamp =
+            cJSON_GetObjectItemCaseSensitive(item, "timestamp_ticks");
+        if (!cJSON_IsString(name) || !name->valuestring ||
+            name->valuestring[0] == '\0' ||
+            !cJSON_IsString(key_hex) || !key_hex->valuestring) {
+            cJSON_Delete(root);
+            return fail(MG_ERROR_INVALID_PARAM,
+                        "signing candidate requires name and key_hex");
+        }
+        mg::core::mavlink::SigningCandidate candidate;
+        candidate.name = name->valuestring;
+        if (!decode_signing_key_hex(key_hex->valuestring, candidate.key.data())) {
+            cJSON_Delete(root);
+            return fail(MG_ERROR_INVALID_PARAM,
+                        "signing candidate key must be 64 hexadecimal characters");
+        }
+        if (cJSON_IsNumber(timestamp) && timestamp->valuedouble >= 0) {
+            candidate.persisted_timestamp =
+                static_cast<uint64_t>(timestamp->valuedouble);
+        }
+        candidates.push_back(std::move(candidate));
+    }
+    cJSON_Delete(root);
+    auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
+    if (!vehicle) return fail(MG_ERROR_NOT_FOUND, "vehicle not found");
+    if (!vehicle->set_signing_candidates(candidates)) {
+        return fail(MG_ERROR_NOT_CONNECTED,
+                    "vehicle has no MAVLink route for signing candidates");
+    }
+    return ok();
+}
+
+MGCORE_API char* mg_vehicle_clear_signing_candidates(mg_core_t* core,
+                                                     int vehicle_id) {
+    CHECK_CORE(core);
+    if (vehicle_id <= 0) return fail(MG_ERROR_INVALID_PARAM, "invalid vehicle");
+    auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
+    if (!vehicle) return fail(MG_ERROR_NOT_FOUND, "vehicle not found");
+    vehicle->clear_signing_candidates();
+    return ok();
+}
+
 MGCORE_API char* mg_vehicle_clear_signing_key(mg_core_t* core,
                                               int vehicle_id) {
     CHECK_CORE(core);
@@ -187,6 +253,11 @@ MGCORE_API char* mg_vehicle_get_signing_status(mg_core_t* core,
     json.field("enabled", vehicle->signing_enabled());
     json.field("status", signing_status_name(status));
     json.field("status_code", status);
+    json.field("key_name", vehicle->signing_key_name());
+    json.field("auto_detected", vehicle->signing_auto_detected());
+    json.field("candidate_count",
+               static_cast<int>(vehicle->signing_candidate_count()));
+    json.field("timestamp_ticks", vehicle->signing_timestamp());
     json.end_object();
     return to_cstr(json.str());
 }

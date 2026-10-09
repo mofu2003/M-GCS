@@ -1147,6 +1147,9 @@ static void test_qgc_plan_interchange() {
               fence_export.find("\"radius\"") != std::string::npos,
           "formal GeoFence is restored on QGC export");
     const std::string fence_document_json = serialize_mission_document(fenced);
+    CHECK(fence_document_json.find("\"vertices\":[[39.9,116.4]") !=
+              std::string::npos,
+          "fence polygon vertices serialize as coordinate arrays");
     MissionDocument fence_restored;
     CHECK(deserialize_mission_document(fence_document_json, fence_restored, error),
           "formal GeoFence round-trips through mission document JSON");
