@@ -5,6 +5,12 @@ root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 run_backend=1
 run_frontend=1
 run_macos_build=1
+changed_mode=0
+changed_ref="HEAD"
+# 后端范围：full（37 套）| targets（只跑列出的套件）| none
+backend_scope="full"
+backend_targets=""
+plan_reason=""
 
 usage() {
   cat <<'EOF'
@@ -18,10 +24,20 @@ usage() {
   5. macOS 上执行 flutter build macos --debug
 
 选项：
-  --frontend-only   只跑 token 扫描、Flutter analyze/test 和 macOS 构建
-  --backend-only    只编译并运行后端口禁
-  --no-macos-build  跳过 macOS debug 构建
-  -h, --help        显示本帮助
+  --frontend-only        只跑 token 扫描、Flutter analyze/test 和 macOS 构建
+  --backend-only         只编译并运行后端口禁
+  --no-macos-build       跳过 macOS debug 构建
+  --changed              按改动挑最小范围（默认对比 HEAD，含未提交与未跟踪文件）
+  --changed=<ref>        同上，但对比指定 ref（如 --changed=HEAD~3、--changed=main）
+  -h, --help             显示本帮助
+
+--changed 的规则：
+  * 改到共享层（core/ 的 mavlink、bridge/ffi、共享测试夹具、CMake、未分类路径）
+    一律**升级为后端全量**并打印原因——37 套后端测试都驱动同一个 adapter，
+    定向跑会漏掉跨模块回归。
+  * 改到某个后端测试文件只跑那一套；改到校准/任务模块只跑相关几套。
+  * 只改 docs 时不编译后端、不跑 Flutter。
+  * 提交前仍建议跑一次不带 --changed 的全量。
 EOF
 }
 
@@ -36,6 +52,13 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-macos-build)
       run_macos_build=0
+      ;;
+    --changed)
+      changed_mode=1
+      ;;
+    --changed=*)
+      changed_mode=1
+      changed_ref="${1#--changed=}"
       ;;
     -h|--help)
       usage
@@ -56,6 +79,130 @@ if [[ "$run_backend" -eq 0 && "$run_frontend" -eq 0 ]]; then
 fi
 
 cd "$root_dir"
+
+if [[ "$changed_mode" -eq 1 ]]; then
+  if ! git rev-parse --verify --quiet "${changed_ref}^{commit}" >/dev/null; then
+    echo "[preflight] --changed 的对比基准不存在：$changed_ref" >&2
+    exit 2
+  fi
+
+  changed_list="$(
+    {
+      git diff --name-only "$changed_ref" --
+      git ls-files --others --exclude-standard
+    } | sort -u
+  )"
+
+  if [[ -z "$changed_list" ]]; then
+    echo "[preflight] --changed：相对 $changed_ref 没有任何改动，无需检查。"
+    exit 0
+  fi
+
+  backend_full=0
+  backend_full_reason=""
+  want_frontend=0
+  want_macos=0
+
+  add_target() {
+    case " $backend_targets " in
+      *" $1 "*) ;;
+      *) backend_targets="$backend_targets $1" ;;
+    esac
+  }
+
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      # 纯文档：只跑轻量检查
+      docs/*|*.md|LICENSE|.gitignore)
+        ;;
+      # 前端
+      flutter_shell/pubspec.yaml|flutter_shell/pubspec.lock|flutter_shell/macos/*)
+        want_frontend=1
+        want_macos=1
+        ;;
+      flutter_shell/*)
+        want_frontend=1
+        ;;
+      tools/check_ui_tokens.dart)
+        want_frontend=1
+        ;;
+      # 共享测试夹具：所有 sim 测试都用
+      core/tests/mock_flight_controller.h|core/tests/*.h)
+        backend_full=1
+        backend_full_reason="共享测试夹具 $file"
+        ;;
+      # 单个后端测试文件：只跑它自己
+      core/tests/*.cc)
+        add_target "$(basename "$file" .cc)"
+        ;;
+      core/tests/*)
+        backend_full=1
+        backend_full_reason="未分类测试文件 $file"
+        ;;
+      # 共享层：37 套测试全部驱动同一个 adapter，定向跑会漏
+      core/src/mavlink/*|core/include/core/mavlink/*)
+        backend_full=1
+        backend_full_reason="共享层 ${file}（后端测试全部经过同一个 MAVLink adapter）"
+        ;;
+      bridge/ffi/*|bridge/*)
+        backend_full=1
+        backend_full_reason="FFI 契约层 $file"
+        ;;
+      # 模块级：只跑相关套件
+      core/src/calibration/*|core/include/core/calibration/*)
+        add_target test_sim_calibration
+        add_target test_state_machines
+        ;;
+      core/src/mission/*|core/include/core/mission/*)
+        add_target test_mission_document
+        add_target test_sim_mission
+        add_target test_sim_mission_document
+        add_target test_sim_fence_rally
+        ;;
+      third_party/*)
+        echo "[preflight] 禁区：不允许修改 third_party/（见 AGENTS.md）：$file" >&2
+        exit 2
+        ;;
+      # 其余（CMake、tools、core 其他模块、未分类）保守跑全量
+      *)
+        backend_full=1
+        backend_full_reason="未分类路径 ${file}（保守起见跑全量）"
+        ;;
+    esac
+  done <<< "$changed_list"
+
+  file_count="$(printf '%s\n' "$changed_list" | grep -c . || true)"
+  echo "[preflight] --changed：相对 $changed_ref 共 $file_count 个文件改动"
+
+  if [[ "$run_frontend" -eq 0 ]]; then
+    want_frontend=0
+  fi
+  if [[ "$want_frontend" -eq 0 ]]; then
+    run_frontend=0
+  fi
+  if [[ "$want_macos" -eq 0 ]]; then
+    run_macos_build=0
+  fi
+
+  if [[ "$run_backend" -eq 0 ]]; then
+    backend_scope="none"
+  elif [[ "$backend_full" -eq 1 ]]; then
+    backend_scope="full"
+    plan_reason="$backend_full_reason"
+    echo "[preflight] 后端升级为全量：$backend_full_reason"
+  elif [[ -n "$backend_targets" ]]; then
+    backend_scope="targets"
+    echo "[preflight] 后端定向：$(echo "$backend_targets" | xargs)"
+  else
+    backend_scope="none"
+    echo "[preflight] 本次改动不涉及后端，跳过后端门禁"
+  fi
+
+  if [[ "$run_frontend" -eq 0 ]]; then
+    echo "[preflight] 本次改动不涉及 flutter_shell，跳过 Flutter 检查"
+  fi
+fi
 
 echo "[preflight] 检查补丁格式"
 git diff --check HEAD
@@ -97,7 +244,7 @@ if [[ "$run_frontend" -eq 1 ]]; then
   )
 fi
 
-if [[ "$run_backend" -eq 1 ]]; then
+if [[ "$run_backend" -eq 1 && "$backend_scope" != "none" ]]; then
   if [[ ! -d build_check ]]; then
     cat >&2 <<'EOF'
 [preflight] 缺少 build_check。
@@ -123,14 +270,50 @@ EOF
     exit 1
   }
 
-  echo "[preflight] 编译后端测试"
-  cmake --build build_check --config Release --parallel
+  if [[ "$backend_scope" == "targets" ]]; then
+    # 只保留 ctest 真正注册过的套件，避免拼错目标名导致构建失败。
+    known_suites=" $(ctest --test-dir build_check -N -L "offline|simulation" -LE "hardware|manual" 2>/dev/null |
+      sed -n 's/^ *Test *#[0-9]*: *//p' | tr '\n' ' ') "
+    resolved=""
+    for candidate in $backend_targets; do
+      case "$known_suites" in
+        *" $candidate "*) resolved="$resolved $candidate" ;;
+        *) echo "[preflight] 未注册的测试套件 ${candidate}，升级为后端全量" >&2; backend_scope="full" ;;
+      esac
+    done
+    if [[ "$backend_scope" == "targets" ]]; then
+      if [[ -z "${resolved// }" ]]; then
+        echo "[preflight] 定向集合为空，跳过后端门禁"
+        backend_scope="none"
+      else
+        backend_targets="$resolved"
+      fi
+    fi
+  fi
 
-  echo "[preflight] 后端 offline/simulation 门禁"
-  ctest --test-dir build_check --output-on-failure \
-    --no-tests=error \
-    -L "offline|simulation" \
-    -LE "hardware|manual"
+  if [[ "$backend_scope" == "none" ]]; then
+    echo "[preflight] 跳过后端门禁"
+  elif [[ "$backend_scope" == "targets" ]]; then
+    echo "[preflight] 编译后端测试（定向）"
+    cmake --build build_check --config Release --parallel --target $backend_targets
+
+    filter="^($(echo "$backend_targets" | xargs | tr ' ' '|'))$"
+    echo "[preflight] 后端 offline/simulation 门禁（定向：$(echo "$backend_targets" | xargs)）"
+    ctest --test-dir build_check --output-on-failure \
+      --no-tests=error \
+      -R "$filter" \
+      -L "offline|simulation" \
+      -LE "hardware|manual"
+  else
+    echo "[preflight] 编译后端测试"
+    cmake --build build_check --config Release --parallel
+
+    echo "[preflight] 后端 offline/simulation 门禁"
+    ctest --test-dir build_check --output-on-failure \
+      --no-tests=error \
+      -L "offline|simulation" \
+      -LE "hardware|manual"
+  fi
 fi
 
 if [[ "$run_macos_build" -eq 1 ]]; then
