@@ -44,15 +44,34 @@ static void test_command_queue() {
 
     CHECK(q.entries.size() == 1, "entry added to queue");
     CHECK(q.find_by_id(e1.id) == 0, "find_by_id works");
-    CHECK(q.find_by_command(0, 400) == 0, "find_by_command works");
-    CHECK(q.find_by_command(1, 400) == 0, "broadcast target component accepts autopilot ACK");
-    CHECK(q.find_by_command(0, 999) == -1, "find_by_command returns -1 for unknown");
+    CHECK(q.find_by_command(1, 0, 400) == 0, "find_by_command works");
+    CHECK(q.find_by_command(1, 1, 400) == 0, "broadcast target component accepts autopilot ACK");
+    CHECK(q.find_by_command(2, 0, 400) == -1, "ACK from another system does not match");
+    CHECK(q.find_by_command(0, 0, 400) == -1, "ACK from system 0 does not match a targeted entry");
+    CHECK(q.find_by_command(1, 0, 999) == -1, "find_by_command returns -1 for unknown");
+
+    // 跨机 ACK 不得结束本机命令
+    CHECK(q.handle_ack(3, 0, 400, 0, 0) == 0, "handle_ack ignores ACK from another system");
+    CHECK(q.entries[0].state == CommandQueueEntry::State::Pending,
+          "entry stays Pending after a foreign ACK");
 
     // ACK 处理
-    uint64_t matched = q.handle_ack(1, 400, 0, 0);  // ACCEPTED
+    uint64_t matched = q.handle_ack(1, 1, 400, 0, 0);  // ACCEPTED
     CHECK(matched == e1.id, "handle_ack returns matched id");
     CHECK(q.entries[0].state == CommandQueueEntry::State::Acked, "entry state is Acked");
     CHECK(q.entries[0].ack_result == 0, "ack result is ACCEPTED");
+
+    // 通配条目（未指定目标系统）仍接受任意来源的 ACK
+    CommandQueueEntry e_broadcast{};
+    e_broadcast.id = q.allocate_id();
+    e_broadcast.command = 400;
+    e_broadcast.target_sys = 0;
+    e_broadcast.target_comp = 0;
+    e_broadcast.send_time = std::chrono::steady_clock::now();
+    q.entries.push_back(e_broadcast);
+    CHECK(q.handle_ack(7, 1, 400, 0, 0) == e_broadcast.id,
+          "wildcard entry accepts ACK from any system");
+    q.entries.pop_back();
 
     // IN_PROGRESS 处理
     CommandQueueEntry e2{};
@@ -65,7 +84,7 @@ static void test_command_queue() {
     e2.send_time = std::chrono::steady_clock::now();
     q.entries.push_back(e2);
 
-    uint64_t matched2 = q.handle_ack(0, 22, 5, 50);  // IN_PROGRESS, progress=50
+    uint64_t matched2 = q.handle_ack(1, 0, 22, 5, 50);  // IN_PROGRESS, progress=50
     CHECK(matched2 == e2.id, "IN_PROGRESS matched");
     CHECK(q.entries[1].state == CommandQueueEntry::State::InProgress, "state is InProgress");
     CHECK(q.entries[1].ack_progress == 50, "progress is 50");
@@ -376,6 +395,54 @@ static void test_param_cache() {
 }
 
 // ================================================================
+
+// ================================================================
+// 任务传输超时：必须给出"可区分的明确错误"，且不能冒充用户取消（S4）
+// ================================================================
+static void test_mission_transfer_timeout_reports_distinct_error() {
+    fprintf(stderr, "\n[Group] Mission transfer timeout reporting\n");
+
+    MissionTransferState state;
+    // 模拟一次上传：备份上传前的计划，然后被客户端计划覆盖。
+    state.plan.items.resize(1);
+    state.plan.valid = true;
+    state.begin_upload_backup();
+    state.plan.items.resize(5);
+    state.plan.valid = true;
+
+    state.progress.total = 5;
+    state.progress.state = mg::core::mission::MissionState::Uploading;
+    state.record_send(1, 1, []{});
+    state.retry_count = MISSION_MAX_RETRIES;  // 重试已用尽
+    state.last_send_time = std::chrono::steady_clock::now() -
+                           std::chrono::milliseconds(MISSION_ACK_TIMEOUT_MS + 50);
+
+    CHECK(state.check_timeout(), "exhausted retries report a timeout");
+
+    CHECK(state.progress.state == mg::core::mission::MissionState::Idle,
+          "timeout returns the transfer to Idle");
+    CHECK(!state.progress.error.empty(),
+          "timeout exposes a non-empty error to the caller");
+    CHECK(state.progress.error.find("timeout") != std::string::npos,
+          "timeout error text names the timeout");
+    CHECK(state.progress.result != MAV_MISSION_OPERATION_CANCELLED,
+          "timeout is not reported as a user cancellation");
+    CHECK(state.progress.result != MAV_MISSION_ACCEPTED,
+          "timeout is not reported as success");
+    CHECK(state.plan.items.size() == 1,
+          "timed out upload rolls the vehicle plan back to the previous one");
+
+    // 用户主动取消仍必须是"取消"，界面才能区分两者。
+    MissionTransferState cancelled;
+    cancelled.progress.state = mg::core::mission::MissionState::Uploading;
+    cancelled.record_send(1, 1, []{});
+    cancelled.resend_fn = nullptr;
+    cancelled.progress.state = mg::core::mission::MissionState::Idle;
+    cancelled.progress.result = MAV_MISSION_OPERATION_CANCELLED;
+    CHECK(cancelled.progress.result == MAV_MISSION_OPERATION_CANCELLED,
+          "user cancellation keeps its own result code");
+}
+
 int main() {
     fprintf(stderr, "=== State Machine Unit Tests ===\n");
 
@@ -383,6 +450,7 @@ int main() {
     test_mission_transfer();
     test_param_cache();
 
+    test_mission_transfer_timeout_reports_distinct_error();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail;
 }

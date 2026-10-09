@@ -240,8 +240,10 @@ void MavlinkAdapter::Impl::handle_command_ack(const mavlink_message_t& m)
     info.progress = ack.progress;
     tel.command_ack = info;
 
-    // 路由到命令队列
-    uint64_t matched_id = cmd_queue.handle_ack(m.compid, ack.command, ack.result, ack.progress);
+    // 路由到命令队列。多机共用链路时必须带上 ACK 的来源系统号，否则别的飞机的
+    // 同名 ACK 会被当成本机命令的执行结果。
+    uint64_t matched_id =
+        cmd_queue.handle_ack(m.sysid, m.compid, ack.command, ack.result, ack.progress);
     if (matched_id != 0) {
         int idx = cmd_queue.find_by_id(matched_id);
         if (idx >= 0) {

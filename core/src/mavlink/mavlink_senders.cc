@@ -182,14 +182,6 @@ bool MavlinkAdapter::cmd_land(uint8_t target_system, uint8_t target_component) {
                              0, 0, 0, 0, 0, 0, 0);
 }
 
-// 紧急停机命令
-bool MavlinkAdapter::cmd_emergency_stop(uint8_t target_system, uint8_t target_component) {
-    return send_command_long(target_system, target_component,
-                             MAV_CMD_DO_FLIGHTTERMINATION, 0,
-                             1.0f,
-                             0, 0, 0, 0, 0, 0);
-}
-
 // ================================================================
 // GUIDED 模式指令
 // ================================================================
@@ -459,7 +451,8 @@ bool MavlinkAdapter::mission_type_download(uint8_t sys, uint8_t comp,
     } else {
         state.resend_fn = nullptr;
         state.progress.state = mg::core::mission::MissionState::Idle;
-        state.progress.result = MAV_MISSION_OPERATION_CANCELLED;
+        // 发送失败不是"用户取消"。
+        state.progress.result = MAV_MISSION_ERROR;
         state.progress.error = "failed to send mission request list";
     }
     return ok;
@@ -472,6 +465,8 @@ bool MavlinkAdapter::mission_type_upload(uint8_t sys, uint8_t comp,
                                           uint8_t mission_type) {
     if (plan.items.empty()) return false;
 
+    // 先备份：ACK 之前飞控并没有这份任务，失败要能退回去。
+    state.begin_upload_backup();
     state.plan = plan;
     state.clear_execution_progress();
     state.reached_flags.assign(plan.items.size(), 0);
@@ -493,8 +488,10 @@ bool MavlinkAdapter::mission_type_upload(uint8_t sys, uint8_t comp,
     } else {
         state.resend_fn = nullptr;
         state.progress.state = mg::core::mission::MissionState::Idle;
-        state.progress.result = MAV_MISSION_OPERATION_CANCELLED;
+        // 发送失败不是"用户取消"。
+        state.progress.result = MAV_MISSION_ERROR;
         state.progress.error = "failed to send mission count";
+        state.rollback_upload();
     }
     return ok;
 }
@@ -502,11 +499,21 @@ bool MavlinkAdapter::mission_type_upload(uint8_t sys, uint8_t comp,
 // 内部通用清除
 bool MavlinkAdapter::mission_type_clear(uint8_t sys, uint8_t comp,
                                          MissionTransferState& state, uint8_t mission_type) {
+    // 清除同样是"飞控尚未确认"的事务：先备份，发送失败就退回去，
+    // 否则本地任务会凭空消失而飞控里还在。
+    state.begin_upload_backup();
     state.plan.clear();
     state.progress = mg::core::mission::MissionTransferProgress{};
 
     mavlink_msg_mission_clear_all_pack(255, 0, &impl_->msg, sys, comp, mission_type);
-    return impl_->send_msg();
+    const bool ok = impl_->send_msg();
+    if (!ok) {
+        state.rollback_upload();
+        return false;
+    }
+    // 记录目标飞控，MISSION_ACK 来源校验要用（不设 resend：清除命令不自动重试）。
+    state.record_send(sys, comp, nullptr);
+    return true;
 }
 
 // 公开 API：delegate to generic helpers

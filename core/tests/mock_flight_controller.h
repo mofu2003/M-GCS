@@ -113,6 +113,13 @@ public:
     // Failure injection
     void set_heartbeat_enabled(bool e) { heartbeat_enabled_=e; }
     void set_cmd_no_response(bool e) { cmd_no_response_=e; }
+    /// 上传完成后回给 GCS 的 MISSION_ACK 类型（默认 ACCEPTED）。
+    void set_mission_ack_type(uint8_t type) { mission_ack_type_=type; }
+    /// 让飞控不再自动回 MISSION_ACK（用于只保留测试注入的那一条 ACK）。
+    void set_mission_ack_suppressed(bool suppress) { mission_ack_suppressed_=suppress; }
+    /// 回 MISSION_ACK 时伪造来源（用于验证"别的飞机的 ACK 不能结束本机上传"）。
+    void set_mission_ack_source(uint8_t sys, uint8_t comp) {
+        mission_ack_sys_=sys; mission_ack_comp_=comp; mission_ack_source_override_=true; }
     void set_param_drop(int n) { param_drop_=n; }
 
     // 新增故障注入（移植自 QGC MockLink）
@@ -184,6 +191,17 @@ public:
     bool mission_use_compat_request_=false;
     bool mission_download_use_compat_item_=false;
 
+    /// 按当前旋钮回一个 MISSION_ACK（类型/来源可注入）。
+    void send_mission_ack(uint8_t mission_type) {
+        if (mission_ack_suppressed_) return;
+        const uint8_t sys = mission_ack_source_override_ ? mission_ack_sys_ : config_.system_id;
+        const uint8_t comp = mission_ack_source_override_ ? mission_ack_comp_ : config_.component_id;
+        mavlink_message_t a;
+        mavlink_msg_mission_ack_pack(sys, comp, &a,
+            0, MAV_COMP_ID_AUTOPILOT1, mission_ack_type_, mission_type, 0);
+        send(a);
+    }
+
     void set_mission_use_compat_request(bool e) { mission_use_compat_request_=e; }
     void set_mission_download_use_compat_item(bool e) { mission_download_use_compat_item_=e; }
 
@@ -192,6 +210,10 @@ private:
     Config config_;
     int tick_ms_=0, last_hb_ms_=0, last_tel_ms_=0, last_bat_ms_=0;
     bool heartbeat_enabled_=true, cmd_no_response_=false;
+    uint8_t mission_ack_type_=MAV_MISSION_ACCEPTED;
+    uint8_t mission_ack_sys_=0, mission_ack_comp_=0;
+    bool mission_ack_source_override_=false;
+    bool mission_ack_suppressed_=false;
     std::map<std::string,ParamDef> params_;
     bool param_streaming_=false; int param_idx_=0;
     std::vector<std::pair<std::string,ParamDef>> param_cache_;
@@ -353,9 +375,7 @@ private:
             store[it.seq]=it;
             if(mission_recv_>=mission_total_){
                 // mission_ack: target_sys,target_comp,msg, target_sys,target_comp,type,mission_type,opaque_id
-                mavlink_message_t a; mavlink_msg_mission_ack_pack(config_.system_id,config_.component_id,&a,
-                    0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, it.mission_type, 0);
-                send(a);
+                send_mission_ack(it.mission_type);
             } else {
                 // mission_request_int: target_sys,target_comp,msg, target_sys,target_comp,seq,mission_type
                 mavlink_message_t r; mavlink_msg_mission_request_int_pack(config_.system_id,config_.component_id,&r,
@@ -384,9 +404,7 @@ private:
             stored.z = it.z;
             stored.mission_type = it.mission_type;
             if(mission_recv_>=mission_total_){
-                mavlink_message_t a; mavlink_msg_mission_ack_pack(config_.system_id,config_.component_id,&a,
-                    0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, it.mission_type, 0);
-                send(a);
+                send_mission_ack(it.mission_type);
             } else {
                 mavlink_message_t r;
                 if (mission_use_compat_request_) {
@@ -416,9 +434,7 @@ private:
         case MAVLINK_MSG_ID_MISSION_CLEAR_ALL: {
             mavlink_mission_clear_all_t ca; mavlink_msg_mission_clear_all_decode(&msg,&ca);
             mission_clear_received=true; mission_store(ca.mission_type).clear();
-            mavlink_message_t a; mavlink_msg_mission_ack_pack(config_.system_id,config_.component_id,&a,
-                0, MAV_COMP_ID_AUTOPILOT1, MAV_MISSION_ACCEPTED, ca.mission_type, 0);
-            send(a); break; }
+            send_mission_ack(ca.mission_type); break; }
         case MAVLINK_MSG_ID_MISSION_SET_CURRENT: {
             mission_set_current_received=true; mavlink_mission_set_current_t sc; mavlink_msg_mission_set_current_decode(&msg,&sc); mission_set_current_seq=sc.seq;
             break; }

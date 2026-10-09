@@ -24,6 +24,7 @@ void MissionTransferState::reset() {
     last_reached_seq = 0;
     has_reached = false;
     reached_flags.clear();
+    upload_backup = UploadBackup{};
 }
 
 void MissionTransferState::record_send(uint8_t sys, uint8_t comp,
@@ -58,8 +59,11 @@ bool MissionTransferState::check_timeout() {
         progress.state = State::Idle;
         progress.error = "mission transfer timeout - no response after "
                          + std::to_string(MISSION_MAX_RETRIES) + " retries";
-        progress.result = MAV_MISSION_OPERATION_CANCELLED;
+        // 超时不是"用户取消"：界面据此区分"我没取消，是飞控没回应"（S4）。
+        progress.result = MAV_MISSION_ERROR;
         resend_fn = nullptr;
+        // 飞控从未确认，本地不能继续把它当成"飞控里的任务"。
+        rollback_upload();
         return true;
     }
 }

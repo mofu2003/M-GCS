@@ -268,7 +268,21 @@ void MavlinkAdapter::Impl::handle_mission_ack(const mavlink_message_t& m)
     mavlink_mission_ack_t ack;
     mavlink_msg_mission_ack_decode(&m, &ack);
 
+    // 只接受本机发起、且来自该事务目标飞控/组件的 ACK。
+    // 多机共用一条链路时，别的飞机（或别的组件）的同类型 ACK 不能结束本机事务；
+    // target 仍为 0 说明本机没有发起过带目标的传输，同样不接受。
+    // 事务空闲时收到 ACK 一律忽略（QGC 的做法：State machine is idle. Vehicle is
+    // confused.），否则一条游离 ACK 会把正在进行的下载打回空闲。
+    if (!mg::core::mavlink::is_valid_mission_type(ack.mission_type)) return;
     auto& state = select_transfer(ack.mission_type);
+    const bool expecting_ack = state.progress.state == mg::core::mission::MissionState::Uploading ||
+                               state.upload_backup.armed;  // 清除任务没有 Uploading 状态
+    if (!expecting_ack) return;
+    if (state.target_sys == 0 ||
+        !mg::core::mavlink::transfer_matches_target(state, m.sysid, m.compid)) {
+        return;
+    }
+
     state.record_recv();
     state.resend_fn = nullptr;
     state.progress.result = ack.type;
@@ -278,11 +292,15 @@ void MavlinkAdapter::Impl::handle_mission_ack(const mavlink_message_t& m)
         if (state.progress.received > 0 || state.progress.sent >= state.progress.total) {
             state.plan.valid = true;
         }
+        state.commit_upload();
     } else {
         const char* label = (ack.mission_type == MAV_MISSION_TYPE_RALLY)   ? "Rally"
                             : (ack.mission_type == MAV_MISSION_TYPE_FENCE) ? "Fence"
                                                                            : "Task";
         state.progress.error = std::string(label) + " rejected: " + mg::core::mission::mission_result_message(ack.type);
+        // 飞控拒绝：把"飞控里的任务"退回上传前的状态。上传一开始就覆盖了 plan，
+        // 不回滚会让界面显示一份飞控从未接受的任务。
+        state.rollback_upload();
     }
 }
 

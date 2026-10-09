@@ -5,11 +5,15 @@
 
 namespace mg::core::mavlink {
 
-int CommandQueue::find_by_command(uint8_t compid, uint16_t command) const {
+int CommandQueue::find_by_command(uint8_t sysid, uint8_t compid, uint16_t command) const {
     for (int i = 0; i < static_cast<int>(entries.size()); i++) {
-        bool component_matches = entries[i].target_comp == compid ||
-                                 entries[i].target_comp == 0;
-        if (component_matches &&
+        // 0 表示调用方未指定目标，按通配处理；否则必须与登记的目标一致。
+        const bool system_matches = entries[i].target_sys == sysid ||
+                                    entries[i].target_sys == 0;
+        const bool component_matches = entries[i].target_comp == compid ||
+                                       entries[i].target_comp == 0;
+        if (system_matches &&
+            component_matches &&
             entries[i].command == command &&
             (entries[i].state == CommandQueueEntry::State::Pending ||
              entries[i].state == CommandQueueEntry::State::InProgress)) {
@@ -26,9 +30,9 @@ int CommandQueue::find_by_id(uint64_t id) const {
     return -1;
 }
 
-uint64_t CommandQueue::handle_ack(uint8_t compid, uint16_t command,
+uint64_t CommandQueue::handle_ack(uint8_t sysid, uint8_t compid, uint16_t command,
                                   uint8_t result, uint8_t progress) {
-    int idx = find_by_command(compid, command);
+    int idx = find_by_command(sysid, compid, command);
     if (idx < 0) return 0;
 
     auto& e = entries[idx];

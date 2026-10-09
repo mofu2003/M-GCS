@@ -128,18 +128,23 @@ struct CommandQueue {
     /// 分配下一个唯一 ID
     uint64_t allocate_id() { return next_id++; }
 
-    /// 按 (compId, command) 查找 Pending/InProgress 条目
-    /// MAVLink ACK 只携带 (command, result)，不携带确认字段
-    int find_by_command(uint8_t compid, uint16_t command) const;
+    /// 按 (sysId, compId, command) 查找 Pending/InProgress 条目。
+    ///
+    /// COMMAND_ACK 本身只携带 (command, result)，不含目标字段，所以必须用报文头
+    /// 的 sysid/compid 与条目登记的目标比对。只比 compid 时，多机共用一条链路
+    /// 会把别的飞机的同名 ACK 当成本机的执行结果。
+    /// 条目登记为 0 的 sysid/compid 视为通配（调用方未指定目标）。
+    int find_by_command(uint8_t sysid, uint8_t compid, uint16_t command) const;
 
     /// 按 ticket ID 查找
     int find_by_id(uint64_t id) const;
 
-    /// 处理 ACK — 匹配 (compid, command)，更新状态
+    /// 处理 ACK — 匹配 (sysid, compid, command)，更新状态
     /// IN_PROGRESS: 重置超时到 30 秒，停止重试
     /// 最终结果: 标记 Acked，通知 wait_for_command
     /// 返回匹配的条目 ID，0 表示无匹配
-    uint64_t handle_ack(uint8_t compid, uint16_t command, uint8_t result, uint8_t progress);
+    uint64_t handle_ack(uint8_t sysid, uint8_t compid, uint16_t command, uint8_t result,
+                        uint8_t progress);
 
     /// 扫描超时条目，重发或标记失败
     /// 返回已完成（TimedOut）的条目列表，由调用者通过 deferred_cbs 触发回调

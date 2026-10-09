@@ -575,6 +575,98 @@ static void test_mission_completion_follows_qgc_rules() {
     if (progress) mg_free_string(progress);
 }
 
+
+// ================================================================
+// 上传 ACK 的来源校验与失败回滚（S1 / S2 / S7）
+// ================================================================
+
+/// 只有来自本事务目标飞控/组件的 MISSION_ACK 才算数。
+///
+/// 多机共用一条链路时，若只按 mission_type 匹配，别的飞机的 ACK 会让本机
+/// 把"上传成功/失败"记在自己账上。
+static void test_mission_ack_source_validation() {
+    fprintf(stderr, "\n[Group] Mission ACK source validation\n");
+    TestEnv env;
+    CHECK(env.wait_connected(), "vehicle connected for ACK source test");
+
+    // 抑制飞控自带的 ACK，让结论只取决于测试注入的那一条。
+    env.mock->set_mission_ack_suppressed(true);
+
+    const auto plan = make_test_mission_plan(2);
+    CHECK(env.mav->mission_upload(1, 1, plan), "upload starts");
+
+    mavlink_message_t foreign_ack;
+    mavlink_msg_mission_ack_pack(9, MAV_COMP_ID_AUTOPILOT1, &foreign_ack,
+                                 0, MAV_COMP_ID_AUTOPILOT1,
+                                 MAV_MISSION_ACCEPTED, MAV_MISSION_TYPE_MISSION, 0);
+    inject_mavlink_message(env, foreign_ack);
+
+    CHECK(env.mav->mission_get_progress().state ==
+              mg::core::mission::MissionState::Uploading,
+          "ACK from another system does not end the upload");
+    CHECK(env.mav->mission_get_plan().valid == false,
+          "foreign ACK does not mark the local mission as accepted");
+
+    // 正对照：同一时刻来自目标飞控的 ACK 必须生效。
+    mavlink_message_t own_ack;
+    mavlink_msg_mission_ack_pack(1, 1, &own_ack,
+                                 0, MAV_COMP_ID_AUTOPILOT1,
+                                 MAV_MISSION_ACCEPTED, MAV_MISSION_TYPE_MISSION, 0);
+    inject_mavlink_message(env, own_ack);
+
+    CHECK(env.mav->mission_get_progress().state ==
+              mg::core::mission::MissionState::Idle,
+          "ACK from the transfer target ends the upload");
+}
+
+/// 飞控拒绝上传后，本地"飞控任务"必须退回上一份被接受的任务。
+///
+/// 上传一开始就把客户端计划写进了本地缓存；不回滚的话 mission_get_plan 会返回
+/// 一份飞控从未接受的任务，界面与飞控就此不一致。
+static void test_rejected_upload_rolls_back_vehicle_plan() {
+    fprintf(stderr, "\n[Group] Rejected upload rolls back\n");
+    TestEnv env;
+    CHECK(env.wait_connected(), "vehicle connected for rollback test");
+
+    // 1) 先走一次真实上传，让飞控接受，作为"飞控里的任务"。
+    const auto accepted_plan = make_test_mission_plan(2);
+    CHECK(env.mav->mission_upload(1, 1, accepted_plan), "first upload starts");
+    for (int i = 0; i < 60 && env.mav->mission_get_progress().state !=
+                                  mg::core::mission::MissionState::Idle; ++i) {
+        env.tick(20);
+    }
+    CHECK(env.mav->mission_get_progress().state ==
+              mg::core::mission::MissionState::Idle,
+          "first upload completes");
+
+    const size_t accepted_items = env.mav->mission_get_plan().items.size();
+    const uint64_t accepted_revision =
+        env.mav->mission_get_plan_provenance().plan_revision;
+    CHECK(accepted_items == 2, "accepted plan is cached locally");
+    CHECK(env.mav->mission_get_plan().valid, "accepted plan is marked valid");
+
+    // 2) 第二次上传：飞控拒绝，本地缓存必须退回第 1 份。
+    env.mock->set_mission_ack_suppressed(true);
+    const auto rejected_plan = make_test_mission_plan(5);
+    CHECK(env.mav->mission_upload(1, 1, rejected_plan), "second upload starts");
+    CHECK(env.mav->mission_get_plan().items.size() == 5,
+          "upload optimistically publishes the client plan");
+
+    mavlink_message_t rejection;
+    mavlink_msg_mission_ack_pack(1, 1, &rejection,
+                                 0, MAV_COMP_ID_AUTOPILOT1,
+                                 MAV_MISSION_ERROR, MAV_MISSION_TYPE_MISSION, 0);
+    inject_mavlink_message(env, rejection);
+
+    const auto cached = env.mav->mission_get_plan();
+    CHECK(cached.items.size() == accepted_items,
+          "rejected upload leaves the previously accepted plan in place");
+    CHECK(env.mav->mission_get_plan_provenance().plan_revision == accepted_revision,
+          "rejected upload restores the previous plan revision");
+    CHECK(env.mav->mission_get_progress().error.find("rejected") != std::string::npos,
+          "rejection reason is reported to the caller");
+}
+
 int main() {
     fprintf(stderr, "=== Mission Simulation Tests ===\n");
     test_mission_upload();
@@ -583,6 +675,8 @@ int main() {
     test_mission_download_compat_item();
     test_mission_clear();
     test_mission_transfer_guards();
+    test_mission_ack_source_validation();
+    test_rejected_upload_rolls_back_vehicle_plan();
     test_mission_request_routing();
     test_mission_download_protocol_validation();
     test_command_queue_timeout_notifies_waiters();

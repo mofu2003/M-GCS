@@ -51,6 +51,42 @@ struct MissionTransferState {
     uint8_t     target_comp = 0;
     std::function<void()> resend_fn;  // 重发回调
 
+    /// 上传开始时 plan 就被覆盖成客户端计划，但飞控在回 ACK 之前并没有这份任务。
+    /// 这里备份覆盖前的状态；被拒绝、发送失败或超时后回滚，避免
+    /// `mission_get_plan` 把飞控从未接受的任务当成"飞控里的任务"。
+    struct UploadBackup {
+        mg::core::mission::MissionPlan plan;
+        uint64_t plan_revision = 0;
+        uint64_t last_upload_revision = 0;
+        bool armed = false;
+    };
+    UploadBackup upload_backup;
+
+    /// 覆盖本地计划前调用：记录可回滚的快照。
+    void begin_upload_backup() {
+        upload_backup.plan = plan;
+        upload_backup.plan_revision = plan_revision;
+        upload_backup.last_upload_revision = last_upload_revision;
+        upload_backup.armed = true;
+    }
+
+    /// 飞控接受后调用：丢弃快照。
+    void commit_upload() {
+        upload_backup.armed = false;
+        upload_backup.plan = mg::core::mission::MissionPlan{};
+    }
+
+    /// 事务失败后调用：恢复上传前的计划与版本号。返回是否真的回滚了。
+    bool rollback_upload() {
+        if (!upload_backup.armed) return false;
+        plan = upload_backup.plan;
+        plan_revision = upload_backup.plan_revision;
+        last_upload_revision = upload_backup.last_upload_revision;
+        upload_backup.armed = false;
+        upload_backup.plan = mg::core::mission::MissionPlan{};
+        return true;
+    }
+
     /// 重置所有状态
     void reset();
 

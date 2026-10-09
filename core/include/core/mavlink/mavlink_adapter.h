@@ -514,7 +514,6 @@ public:
     bool cmd_land(uint8_t target_system, uint8_t target_component);
 
     /// 紧急停机 — 立即切断电机
-    bool cmd_emergency_stop(uint8_t target_system, uint8_t target_component);
 
     // ================================================================
     // GUIDED 模式指令
