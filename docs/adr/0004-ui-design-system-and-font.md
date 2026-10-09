@@ -1,0 +1,26 @@
+# ADR-0004：UI 设计系统与字体
+
+状态：已接受（字体许可待核对）
+日期：2026-10-09
+
+## 背景
+
+前端需要在 Windows、macOS、Android 上呈现一致的界面，并支持后续更换视觉风格而不大面积重写。字体与颜色如果分散在各页面，就会出现页面之间风格不一致的问题。
+
+## 决定
+
+- 字体族统一为 MiSans，只在 `MgFonts` 中定义。不使用平台专属字体名。
+- 字号、颜色、尺寸分别只取自 `MgTypography`、`MgColors`、`MgMetrics`。
+- 组件采用 macOS 风格，优先复用已有组件，非必要不手绘。
+- 只有标题加粗，其余文字使用 `w400`。
+- 打包字体的许可必须允许商用与随软件分发，优先 OFL 或 Apache-2.0。**MiSans 的具体许可条款尚未在本 ADR 中登记，需要补充核对。**
+
+## 后果
+
+- 设计 token 的修改影响全局，需要统一评审。
+- CJK 回退链是否允许包含平台字体名，尚待决定（见 `docs/constraints/known-deviations.md` 的 KD-35）。
+
+## 相关
+
+- `docs/constraints/ui.md`
+- `docs/constraints/ui-pages.md`
