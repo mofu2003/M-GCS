@@ -12,7 +12,7 @@ M-GCS 是无人机地面站，对标 Mission Planner 与 QGroundControl，优先
 | 新增或修改功能 | `docs/constraints/upstream.md`（P1 开发前阅读参考源码）、`parity.md` |
 | 编写或修改测试 | `docs/constraints/testing.md` |
 | 发布或修改版本号 | `docs/constraints/release-and-hardware.md` |
-| 以 Codex、Claude、DeepSeek 或 WorkBuddy 身份认领任务 | `docs/workflow.md`，看板为 `/Users/fansicheng/Projects/M-GCS/tasks/BOARD.md` |
+| 多 agent 协作（Codex、Claude、DeepSeek、WorkBuddy） | `docs/workflow/COLLABORATION.md` |
 
 ## 规则分级
 
