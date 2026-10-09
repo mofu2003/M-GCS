@@ -61,6 +61,31 @@ tools/preflight.sh
 - `--frontend-only`：只跑前端相关检查
 - `--backend-only`：只跑后端相关检查
 - `--no-macos-build`：跳过 macOS 构建
+- `--changed`（或 `--changed=<ref>`）：按改动挑最小范围，默认对比 `HEAD`（含未提交与未跟踪文件）
+
+### 开发时用 `--changed`，提交前跑全量
+
+测试本身不慢：后端 37 套约 20 s，Flutter 125 个测试约 4 s。慢的是**编译**——改一个被广泛 include 的 core 头文件要重编 80 s 左右。所以真正该省的是"跑哪些"。
+
+```bash
+tools/preflight.sh --changed              # 内环：只跑改动相关的部分
+tools/preflight.sh --no-macos-build       # 提交前：全量
+```
+
+`--changed` 的取舍规则：
+
+| 改动位置 | 跑什么 |
+|---|---|
+| `docs/**`、`*.md` | 只跑补丁格式与版本检查（约 0.1 s） |
+| `flutter_shell/**` | token 扫描 + analyze + 全部 Flutter 测试（约 11 s），跳过后端 |
+| 单个 `core/tests/test_X.cc` | 只编、只跑 `test_X` |
+| `core/**/calibration/**` | `test_sim_calibration`、`test_state_machines` |
+| `core/**/mission/**` | 任务相关几套 |
+| **`core/**/mavlink/**`、`bridge/ffi/**`、共享测试夹具、CMake、未分类路径** | **升级为后端全量并打印原因** |
+
+最后一行的存在理由：37 套后端测试全部驱动同一个 MAVLink adapter，改 ACK 匹配、FFI 上下文或共享夹具会跨模块影响，定向跑会漏。工具会明确打印升级原因，不会静默降级。拼错的套件名同样回退到全量，而不是让构建失败。
+
+`--changed` 是内环工具。**提交前请仍跑一次不带 `--changed` 的全量**，它是唯一能覆盖全部组合的检查。
 
 启用提交钩子：
 
