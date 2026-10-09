@@ -602,7 +602,7 @@ final class ConnectionController extends ChangeNotifier {
   ///
   /// 必须跟后端的 10Hz 采样对齐：这里曾经是 1 秒一次，结果飞控在持续采集，
   /// 界面却每秒才读一次缓冲，读数会在动作结束后成批跳出，表现为"摇完才变"。
-  /// 与 `AGENTS.md` 的性能约束“波形/曲线 10Hz”一致。
+  /// 波形与曲线统一按 10Hz 刷新，不要降到秒级。
   static const Duration _waveformPollInterval = Duration(milliseconds: 100);
 
   /// 波形页面可见时请求的采样间隔（10Hz）。SCALED_IMU/2/3 各请求一次，

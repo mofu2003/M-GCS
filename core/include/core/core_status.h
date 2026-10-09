@@ -1,4 +1,4 @@
-﻿/**
+/**
  * core_status.h - 核心层错误传播类型
  *
  * Replaces bare `bool` returns in core modules with a Status type that
@@ -23,7 +23,7 @@
  *
  * MP precedent:
  *   MP uses MAVLink.MAV_MISSION_RESULT enum returns + try/catch for errors.
- *   We avoid exceptions per ADR 0003 and docs/DEVELOPMENT.md.
+ *   We avoid exceptions: no try/catch and no RTTI in core paths.
  */
 
 #ifndef MGCORE_CORE_STATUS_H

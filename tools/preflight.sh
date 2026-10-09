@@ -110,7 +110,7 @@ EOF
   fi
 
   if ! grep -Eq '^MGCORE_BUILD_TESTS(:BOOL)?=ON$' build_check/CMakeCache.txt; then
-    echo "[preflight] build_check 未启用 MGCORE_BUILD_TESTS=ON，请删除后按 AGENTS.md 重新配置。" >&2
+    echo "[preflight] build_check 未启用 MGCORE_BUILD_TESTS=ON，请删除该目录后用 -DMGCORE_BUILD_TESTS=ON 重新配置。" >&2
     exit 1
   fi
 

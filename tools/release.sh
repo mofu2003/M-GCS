@@ -62,14 +62,25 @@ perl -0pi -e "s/#define MGCORE_VERSION_MAJOR \K[0-9]+/$major/" "$ffi_header"
 perl -0pi -e "s/#define MGCORE_VERSION_MINOR \K[0-9]+/$minor/" "$ffi_header"
 perl -0pi -e "s/#define MGCORE_VERSION_PATCH \K[0-9]+/$patch/" "$ffi_header"
 
-VERSION="$version" perl -0pi -e \
-  's/当前版本：`\K[0-9]+\.[0-9]+\.[0-9]+(?=`)/$ENV{VERSION}/' \
-  "$readme_file"
+# README / CHANGELOG 属可选文档：存在才同步，缺失不阻塞发布。
+if [[ -f "$readme_file" ]]; then
+  VERSION="$version" perl -0pi -e \
+    's/当前版本：`\K[0-9]+\.[0-9]+\.[0-9]+(?=`)/$ENV{VERSION}/' \
+    "$readme_file"
+fi
 
-if ! grep -q "^## $version " "$changelog_file"; then
+if [[ -f "$changelog_file" ]] && ! grep -q "^## $version " "$changelog_file"; then
   VERSION="$version" RELEASE_DATE="$today" perl -0pi -e \
     's/\A(# Changelog\n\n)/$1## $ENV{VERSION} - $ENV{RELEASE_DATE}\n\n### Changed\n\n- 待补充。\n\n### Verification\n\n- 待补充。\n\n/' \
     "$changelog_file"
+fi
+
+docs_ok=1
+if [[ -f "$readme_file" ]] && ! grep -q "当前版本：\`$version\`" "$readme_file"; then
+  docs_ok=0
+fi
+if [[ -f "$changelog_file" ]] && ! grep -q "^## $version " "$changelog_file"; then
+  docs_ok=0
 fi
 
 if ! grep -q "#define MGCORE_VERSION_MAJOR $major" "$ffi_header" ||
@@ -77,9 +88,8 @@ if ! grep -q "#define MGCORE_VERSION_MAJOR $major" "$ffi_header" ||
   ! grep -q "#define MGCORE_VERSION_PATCH $patch" "$ffi_header" ||
   ! grep -q "project(mgcore VERSION $version LANGUAGES CXX" "$cmake_file" ||
   ! grep -q "^version: $next_pubspec_version$" "$pubspec_file" ||
-  ! grep -q "当前版本：\`$version\`" "$readme_file" ||
-  ! grep -q "^## $version " "$changelog_file"; then
-  echo "[release] 版本文件校验失败，请检查四处版本号。" >&2
+  [[ "$docs_ok" -eq 0 ]]; then
+  echo "[release] 版本文件校验失败，请检查版本号。" >&2
   exit 1
 fi
 
@@ -89,7 +99,8 @@ echo "[release] 已更新版本号：${current_version} -> ${version}（build ${
 git -C "$root_dir" diff --stat -- \
   CMakeLists.txt \
   flutter_shell/pubspec.yaml \
-  README.md \
-  CHANGELOG.md \
   bridge/ffi/ffi_api_core.h
-echo "[release] 请补全 CHANGELOG，运行 tools/preflight.sh 后本地提交和打标签。"
+if [[ -f "$changelog_file" ]]; then
+  git -C "$root_dir" diff --stat -- CHANGELOG.md
+fi
+echo "[release] 请运行 tools/preflight.sh 后本地提交和打标签。"

@@ -7,8 +7,7 @@ import 'package:macos_ui/macos_ui.dart';
 ///
 /// 当前实验配置：MiSans 同时覆盖汉字与拉丁，因此全应用压到**一套字体**，
 /// 三个平台字形完全一致。Arimo 仍随包分发但未启用，改一行即可切回
-/// "Arimo 西文 + 系统中文" 的组合。决策与实测见
-/// `docs/architecture/adr/0007-unified-font-stack.md` 与 `docs/research/FONT_ALTERNATIVES_RESEARCH.md`。
+/// "Arimo 西文 + 系统中文" 的组合。切换前必须在三个平台实测字形一致性。
 class MgFonts {
   const MgFonts._();
 
