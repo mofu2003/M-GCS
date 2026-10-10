@@ -9,10 +9,10 @@
 
 | ID | 规则 | 位置 | 现状 | 状态 |
 |---|---|---|---|---|
-| KD-01 | S2 | `core/src/mavlink/mavlink_senders.cc:676-690`；`core/src/flight/flight_mode_manager.cc` | 布尔命令的"已发出"被当成成功 | 待修复 |
-| KD-02 | S2（建议：目标系统匹配） | `core/src/mavlink/mavlink_adapter_handlers.cc:238-265` | ACK 只按 compid 与命令号匹配，不按目标系统和 ticket；legacy `wait_for_ack` 槽位会被覆盖 | 待修复 |
-| KD-03 | S1 | `core/src/mavlink/mavlink_senders.cc` 约 1150 行 | 排队发送失败只标记 TimedOut，不回调 `result_cb` | 待修复 |
-| KD-04 | S1 | `core/src/flight/flight_mode_manager.cc:196-212` | arm/disarm 已处于目标状态时静默返回 false | 待修复 |
+| KD-01 | S2 | `core/src/mavlink/mavlink_senders.cc:682-700`（`send_command_long_status`）；`core/include/core/mavlink/mavlink_adapter.h:508`（`cmd_return_to_launch`） | 核心层的布尔命令仍返回**「已发出」**：`set_mode`/`arm_disarm`/`cmd_*` 最终都是 `send_command_long` 的发送结果，飞控是否接受要等 ACK。FFI 侧不受影响（走 `cmd_result_queued`，按 ACK 判结果）。另：`FlightModeManager::return_to_launch/land/loiter` 全仓无调用方，属未接线的死代码 | 待修复 |
+| KD-02 | S2（建议：目标系统匹配） | `core/src/mavlink/mavlink_adapter_handlers.cc:255-260`；`core/src/mavlink/command_queue.h:137,146` | **部分修复**：ACK 匹配已带来源系统（`find_by_command(sysid, compid, command)`、`handle_ack(m.sysid, ...)`，`handlers.cc:246` 传入 `m.sysid`），所以「别的飞机的 ACK 不会结束本机命令」已成立。仍缺：命令按 (sysid, compid, command) 匹配而非 ticket（同命令并发时无法分辨，靠 FFI 层拒绝重复命令规避）；legacy `ack_waiter` 仍是**单槽**，每条 ACK 都覆盖 `ack_waiter.pending`（`handlers.cc:257`），`wait_for_ack` 的旧调用方可能读到别人的 ACK | 待修复 |
+| KD-03 | S1 | `core/src/mavlink/mavlink_senders.cc:1152-1162` | 排队发送失败时只把 `queued_entry->state` 置为 `TimedOut`（`ack_result = 4`）并 `cv.notify_all()`，**不调用该条目的 `result_cb`**；依赖回调的调用方只能靠轮询或自己超时 | 待修复 |
+| KD-04 | S1 | `core/src/flight/flight_mode_manager.cc:196-212` | `arm()` 在已解锁时、`disarm()` 在未解锁时都**静默 `return false`**（无日志、无说明）；目标状态已达成却报失败，调用方无法区分「已经是这个状态」和「命令被拒」 | 待修复 |
 | KD-05 | S1 | `core/src/transport/tcp_link.cc:160`；`udp_link.cc:165,187` | 吞掉线程启动错误，链路显示已打开但没有读线程 | 待修复 |
 | KD-06 | S1 | `core/src/transport/link_session.cc:106`；`core/src/mavlink/mavlink_router.cc:194`；`core/src/vehicle/multi_vehicle_manager.cc:248` | 忽略路由、添加目标、添加飞行器的返回值 | 待修复 |
 | KD-08 | S3 调整为建议（写入类操作） | `flutter_shell/lib/mission/mission_planning_panel.dart:595-599`（任务上传，调用点 `:350`、`:456`）；`:850-870`（围栏/集结点下发卡片）；`:908-912`（下发按钮） | 任务上传、围栏与集结点上传点击即下发，路径上无确认；同文件清除与读取都用了 `confirmMissionAction`，说明组件可用而未用在写入口 | 建议偏差，待决定 |
@@ -20,8 +20,8 @@
 | KD-10 | S3 调整为建议（非飞行状态命令） | `flutter_shell/lib/configuration/calibration/rc_calibration_view.dart:95` | RC 校准启动无确认 | 建议偏差，待决定 |
 | KD-11 | S3 调整为建议（写入类操作） | `flutter_shell/lib/gcs_configuration_workspace.dart:231`（保存并应用 → `upsertSigningKey`）、`:263`（下发到飞控 → `sendSetupSigning`）；按钮 `:488`、`:495` | 签名密钥下发（SETUP_SIGNING）与「保存并应用」无确认，先执行后提示。注意 SETUP_SIGNING 会改变链路信任状态，密钥不匹配可使 GCS 与飞控失联，而它不是「已记录的决定」第 1 条枚举的写入类操作 | 建议偏差，待决定 |
 | KD-13 | S3 | `flutter_shell/lib/flight/flight_mode_panel.dart:22` | `FlightModeFloatingPanel` 为死代码，其解锁对话框不可达；需删除或接入 | 待决定 |
-| KD-15 | S5 | `core/src/vehicle/vehicle.cc` | 链路断开后 `Vehicle::state_` 不更新，界面可能仍显示已连接 | 待修复 |
-| KD-16 | S5 | `core/src/flight/flight_mode_manager.cc:54` | 断链后 `armed_` 不清零，界面可能显示过期的解锁状态 | 待修复 |
+| KD-15 | S5 | `core/src/vehicle/vehicle.cc:254-281` | 链路断开时 `install_connection_state_callback` 只写飞行日志并发 `MG_EVENT_CONNECTION` 事件，**没有更新 `Vehicle::state_`**；`state_` 只在显式连接/移除路径（`:122`、`:190`、`:323`）被置为 `Disconnected`。因此心跳丢失后读 `state_` 的一方仍看到 `Connected`（界面若走事件或遥测新鲜度则不受影响） | 待修复 |
+| KD-16 | S5 | `core/src/flight/flight_mode_manager.cc:54` | `armed_` 只在心跳更新路径被赋值，类内没有任何链路断开入口（头文件中无 link/disconnect 相关接口），断链后 `armed_` 保持旧值。Dart 侧的 `telemetryStale` 只覆盖界面显示（顶栏显示「—」），核心状态仍会给出过期的解锁结论 | 待修复 |
 | KD-20 | A1 | `CMakeLists.txt:251-254`；`core/tests/test_bridge_architecture_guards.cc:220` | `bridge/ffi` 位于 core 的公共 include 路径上；守卫测试只匹配 `bridge/` 前缀 | 待修复 |
 | KD-21 | A2 | `core/include/core/transport/connection_manager.h:28`；`core/include/core/mavlink/mavlink_adapter.h:8`；`core/include/core/firmware/firmware_flasher.h:17` | `transport → mavlink → firmware → transport` 存在依赖环 | 待修复 |
 | KD-22 | A3、A4 | `core/src/mavlink/mavlink_senders.cc:676-681`；`core/include/core/platform/platform_mutex.h:135-142` | 发送回调在 adapter 锁内执行；Windows（递归临界区）与 POSIX（`std::mutex`）语义不同 | 待修复 |
