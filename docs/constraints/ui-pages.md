@@ -20,9 +20,9 @@
 | 组件 | 代码位置 | 用途 | token 映射 | 备注 |
 |---|---|---|---|---|
 | 长按确认 | `widgets/mg_command_confirmation.dart` | 飞行命令确认（S3） | 待登记 | 500 ms |
-| 顶栏状态条 | `widgets/mg_top_status_bar.dart` | 模式、解锁、连接状态 | 待登记 | 模式切换未确认（KD-07） |
+| 顶栏状态条 | `widgets/mg_top_status_bar.dart` | 模式、解锁、连接状态 | 待登记 | 模式切换为 500 ms 长按确认；急停入口仅解锁时出现 |
 | 遥测仪表 | `widgets/mg_telemetry_dashboard.dart` | 遥测读数 | 待登记 | |
 | 实时波形 | `components/realtime_waveform.dart` | 波形显示 | 待登记 | |
-| 地图操作菜单 | `widgets/mg_map_action_menu.dart` | 地图上的命令入口 | 待登记 | Orbit、ROI 无确认（KD-12） |
+| 地图操作菜单 | `widgets/mg_map_action_menu.dart` | 地图上的命令入口 | 待登记 | 六条命令均经 500 ms 长按确认 |
 
 以上为代码盘点结果。布局规划、token 映射和组件归并，需要在后续逐页补全。

@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RTL / land / loiter now resolve through the firmware plugin by semantic role instead of hardcoded
   ArduCopter numbers (KD-18, safety.md S6). Modes a firmware/vehicle does not have (Land on Rover or
   Plane, RTL on Sub) are refused with a warning instead of sending another vehicle's value.
+- Stale deviation entries: KD-07 (flight mode switch confirmation) and KD-12 (map menu commands)
+  were already fixed in code but still registered as open, and five other documents still pointed at
+  deviations that had been closed (KD-14, KD-17, KD-19 in parity.md, KD-07/KD-12 in ui-pages.md).
+- parity.md claimed QGC confirms guided map actions after 3000 ms. That value is the help-text hide
+  timer in `QGCDelayButton.qml:42`; the actual confirmation delay is `defaultDelay: 500` (`:24`).
+  M-GCS's 500 ms hold was already aligned, and the recorded decision was corrected instead of
+  changing code.
+- A5 (`dart:ffi` only in backend files) is now enforced by
+  `flutter_shell/test/architecture_ffi_boundary_test.dart` instead of relying on a manual check of a
+  `backend/` directory that does not exist.
 ### Changed
 - Different commands may now run concurrently for the same vehicle; only a duplicate of a command
   that is still awaiting its ACK is refused (QGC `MavCommandQueue` rule). This unblocks e.g. RTL

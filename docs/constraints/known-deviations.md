@@ -15,12 +15,10 @@
 | KD-04 | S1 | `core/src/flight/flight_mode_manager.cc:196-212` | arm/disarm 已处于目标状态时静默返回 false | 待修复 |
 | KD-05 | S1 | `core/src/transport/tcp_link.cc:160`；`udp_link.cc:165,187` | 吞掉线程启动错误，链路显示已打开但没有读线程 | 待修复 |
 | KD-06 | S1 | `core/src/transport/link_session.cc:106`；`core/src/mavlink/mavlink_router.cc:194`；`core/src/vehicle/multi_vehicle_manager.cc:248` | 忽略路由、添加目标、添加飞行器的返回值 | 待修复 |
-| KD-07 | S3 | `flutter_shell/lib/widgets/mg_top_status_bar.dart:59-125` | 顶栏切换飞行模式无确认，直接调用 `setFlightMode`（参考 QGC 为 500 ms 长按） | 待修复 |
 | KD-08 | S3 调整为建议（写入类操作） | `flutter_shell/lib/mission/mission_planning_panel.dart:595-598, 848, 859` | 任务上传、围栏与集结点上传无确认 | 建议偏差，待决定 |
 | KD-09 | S3 调整为建议（写入类操作） | `flutter_shell/lib/configuration/widgets/parameter_value_control.dart:55-62` | 参数写入无确认；安全相关参数建议优先加确认 | 建议偏差，待决定 |
 | KD-10 | S3 调整为建议（非飞行状态命令） | `flutter_shell/lib/configuration/calibration/rc_calibration_view.dart:95` | RC 校准启动无确认 | 建议偏差，待决定 |
 | KD-11 | S3 调整为建议（写入类操作） | `flutter_shell/lib/gcs_configuration_workspace.dart` 约 240、495 行 | 签名密钥下发（SETUP_SIGNING）与"保存并应用"无确认 | 建议偏差，待决定 |
-| KD-12 | S3 | `flutter_shell/lib/map/amap_map_view.dart:555-565` | 地图菜单的 Orbit、ROI、估计器原点直接执行 | 待修复 |
 | KD-13 | S3 | `flutter_shell/lib/flight/flight_mode_panel.dart:22` | `FlightModeFloatingPanel` 为死代码，其解锁对话框不可达；需删除或接入 | 待决定 |
 | KD-15 | S5 | `core/src/vehicle/vehicle.cc` | 链路断开后 `Vehicle::state_` 不更新，界面可能仍显示已连接 | 待修复 |
 | KD-16 | S5 | `core/src/flight/flight_mode_manager.cc:54` | 断链后 `armed_` 不清零，界面可能显示过期的解锁状态 | 待修复 |

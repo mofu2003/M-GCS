@@ -29,8 +29,14 @@
 
 **A5 dart:ffi 只在 backend 层**
 `dart:ffi` 符号只能出现在 backend 层。页面与控制器通过接口访问，不直接持有原生句柄。
+
+仓库里没有字面的 `backend/` 目录，实际约定是「功能目录下的 `*_ffi_backend.dart`」
+加上共享原语 `connection/native_core.dart`（唯一持有 `DynamicLibrary` 与 `mg_core_t`
+句柄的地方）。除此之外的文件不得导入 `dart:ffi`，也不得出现 `DynamicLibrary`、
+`Pointer<`、`toNativeUtf8`。
 - 违反后果：无法替换界面或后端。
-- 验证：检查 `lib/` 中 `dart:ffi` 的导入位置，限定在 backend 目录。
+- 验证：`flutter_shell/test/architecture_ffi_boundary_test.dart` 自动扫描 `lib/`，
+  越界即门禁失败；新增 backend 文件时需同步该测试的白名单。
 
 **A6 架构变更写 ADR**
 新增线程、新增依赖边、改变线程模型，必须先写 ADR（见 `docs/adr/`）。

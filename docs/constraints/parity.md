@@ -28,8 +28,8 @@
 
 - **QGC**：长按确认。默认要求确认，延迟 500 ms（`Toolbar/FlightModeIndicator.qml:156-172`，设置 `Settings/FlightMode.SettingsGroup.json:100`）。对话框分支被注释掉，实际执行的是长按之后的赋值。
 - **MP**：无确认。只有处于 failsafe 时才弹 YesNo（`FlightData.cs:1644-1656`）。快捷按钮 AUTO、LOITER、RTL 直接执行（`FlightData.cs:1415, 1430, 1449`）。
-- **M-GCS**：顶栏点击直接执行（`lib/widgets/mg_top_status_bar.dart:59-125`），违反 `safety.md` 的 S3。
-- **结论**：有差距。改为 500 ms 长按，与 QGC 一致（KD-07）。
+- **M-GCS**：顶栏模式菜单已改为长按确认，时长 500 ms（`widgets/mg_command_confirmation.dart:11` 的 `kMgHoldToConfirmDuration`，`widgets/mg_top_status_bar.dart:163-181` 使用；测试 `test/mg_flight_mode_hold_test.dart:49` 断言长按到底只触发一次）。
+- **结论**：已对齐（KD-07 已闭环）。500 ms 与 QGC 的 `defaultDelay` 一致。
 
 ### ACK 判定与超时
 
@@ -42,8 +42,8 @@
 
 - **QGC**：上传无确认（`PlanView/PlanView.qml:112-127`）。解锁状态下禁止在任务模式上传（`MissionController.cc:2423-2433`）。超时 1.5 s，重试间隔 250 ms，最多 5 次（`MissionManager/PlanManager.h:59-62`）。收到 MISSION_ACK 错误时立即失败，不重试（`PlanManager.cc:560-641`）。失败只弹出提示（`Vehicle/Vehicle.cc:1611-1615`）。**写入采用双槽**：待写列表 `_writeMissionItems` 与当前任务 `_missionItems` 分开，只有 ACK 成功后才用待写列表覆盖当前任务，失败则丢弃待写列表、当前任务保持原样（`PlanManager.cc:833-847`）。`_handleMissionAck` 会先校验 `mission_type`，不匹配直接忽略（`PlanManager.cc:568`）。QGC 不在此处校验 sysid，因为它为每架飞机建立独立 MAVLink 通道，来源过滤发生在上游。
 - **MP**：上传无确认，只在绝对高度时询问（`FlightPlanner.cs:650-656`）。单个条目超时 450 ms，重试 10 次（`MAVLinkInterface.cs:4061-4093`）。失败在进度框中显示。取消后留下部分写入的任务（`FlightPlanner.cs:6264-6271`）。接收 MISSION_ACK 时校验来源 `buffer.sysid == req.target_system`（`MAVLinkInterface.cs:4098`，另见 `:3863`、`:4273`），不匹配的 ACK 不参与本次事务判定。
-- **M-GCS**：上传无确认（KD-08）。超时无回调（KD-14，违反 S4 约束）。上传 ACK 的来源校验与失败回滚已在 `mavlink_adapter_mission.cc:266-296` 补齐：校验 `mission_type`（取 QGC）+ 校验来源 sysid/compid（取 MP，多机共用链路时必需）+ 上传前备份、被拒绝/发送失败/超时后回滚（取 QGC 的双槽语义，但用单槽 + 备份实现，改动面更小）。清除任务的发送失败与 NACK 也走同一套回滚。
-- **结论**：建议偏差（上传确认）。已决定为建议级别，见下文"已记录的决定"第 1 条。超时无回调属于约束偏差（KD-14），须修复。失败处理按 QGC 的做法，要求显示明确的错误。来源校验与失败回滚三项已对齐两者较优做法：QGC 有双槽与 `mission_type` 校验但依赖上游 sysid 过滤，MP 有 sysid 校验但无回滚，M-GCS 三者兼有。
+- **M-GCS**：上传无确认（KD-08）。上传 ACK 的来源校验与失败回滚已在 `mavlink_adapter_mission.cc:266-296` 补齐：校验 `mission_type`（取 QGC）+ 校验来源 sysid/compid（取 MP，多机共用链路时必需）+ 上传前备份、被拒绝/发送失败/超时后回滚（取 QGC 的双槽语义，但用单槽 + 备份实现，改动面更小）。清除任务的发送失败与 NACK 也走同一套回滚。
+- **结论**：建议偏差（上传确认）。已决定为建议级别，见下文"已记录的决定"第 1 条。超时已返回明确错误（KD-14 已闭环：超时不再被误报成「用户取消」，见上）。失败处理按 QGC 的做法，要求显示明确的错误。来源校验与失败回滚三项已对齐两者较优做法：QGC 有双槽与 `mission_type` 校验但依赖上游 sysid 过滤，MP 有 sysid 校验但无回滚，M-GCS 三者兼有。
 
 ### 校准取消
 
@@ -79,15 +79,15 @@
 
 - **QGC**：上传、清除、围栏与集结点都有对应入口。清除任务时有 Yes/Cancel 确认（`PlanView/PlanToolBarIndicators.qml:92-101`）。清除时先清空本地计划，再发送清除命令（`MissionManager/PlanMasterController.cc:521-538`）。失败无回滚。
 - **MP**：本地清除无确认，且不影响飞控（`FlightPlanner.cs:2064-2081`）。没有 MISSION_CLEAR_ALL，上传时总是包含 Home 点（`FlightPlanner.cs:6226`），因此无法通过上传把飞控任务清为零项。
-- **M-GCS**：上传、清除、围栏与集结点已实现。清除任务使用长按确认（`lib/mission/mission_planning_panel.dart:588`）。清除时先清本地计划，失败无回滚（KD-19）。上传无确认（KD-08）。
-- **结论**：清除的确认方式（长按）满足 S3。上传确认是建议偏差。回滚两者都没有，M-GCS 可以超出参考，做到回滚。
+- **M-GCS**：上传、清除、围栏与集结点已实现。清除任务使用长按确认（`lib/mission/mission_planning_panel.dart:588`）。清除与上传失败都会回滚本地计划（KD-19 已闭环）。上传无确认（KD-08）。
+- **结论**：清除的确认方式（长按）满足 S3。上传确认是建议偏差。回滚两者都没有，M-GCS 已超出参考做到回滚。
 
 ### 地图操作
 
-- **QGC**：Goto、Orbit、ROI、设置 Home、设置航向、设置当前航点都经过长按确认，延迟 3000 ms（`QmlControls/QGCDelayButton.qml`，`GuidedActionsController.qml:573-704`）。Orbit 与 ROI 有高度滑块（`GuidedActionsController.qml:230-240`）。
+- **QGC**：Goto、Orbit、ROI、设置 Home、设置航向、设置当前航点都经过长按确认（`FlyView/GuidedActionConfirm.qml:91` 的 `QGCDelayButton`）。**确认延迟是 500 ms**：`QmlControls/QGCDelayButton.qml:24` 的 `defaultDelay: 500`，全仓只有 `Toolbar/FlightModeIndicator.qml:159` 覆盖它（设置开关决定 500 或 0）。注意同文件 `:42` 的 `interval: 3000` 是帮助文案的隐藏计时器，**不是**确认延迟——本表此前把它误记为确认延迟。Orbit 与 ROI 另有高度滑块（`GuidedActionsController.qml:230-240`）。
 - **MP**：设置 Home 有 OK/Cancel 确认（`FlightData.cs:4869-4871`）。ROI 只输入高度，无确认（`FlightData.cs:4513-4519`）。Goto 直接执行（`FlightData.cs:3084-3120`）。Orbit 与设置航向在代码中未找到。
-- **M-GCS**：Goto、设置 Home、设置航向、起飞等操作有长按确认。Orbit、ROI、估计器原点直接执行（KD-12）。瓦片源固定（KD-37）。
-- **结论**：有差距。Orbit 和 ROI 必须补充确认（`safety.md` 的 S3 约束）。确认时长是建议，见下文"已记录的决定"第 3 条。
+- **M-GCS**：地图菜单里的六条命令——移动到此处、环绕飞行、设置兴趣点、设置 Home、设置估计原点、设置航向——**全部**经过长按确认（`map/amap_map_view.dart:545-585`）。瓦片源仍固定（KD-37）。
+- **结论**：已对齐（KD-12 已闭环），确认延迟 500 ms 与 QGC 一致，无需改代码。`safety.md` 的 S3 在此满足。
 
 ### 遥测与波形
 
@@ -99,7 +99,7 @@
 - 与"安全行为"中的"校准取消"合并核对。
 - **QGC**：启动使用 `PREFLIGHT_CALIBRATION`，不经过 ACK 队列，不重试，也不显示错误（`Vehicle/Vehicle.cc:2405-2484`）。
 - **MP**：加速度、电调、遥控器的校准分别在对应配置页面中实现（见上文）。
-- **M-GCS**：无超时，取消不下发（KD-17）。
+- **M-GCS**：已按类型下发取消命令，并有 30 s 停摆超时（KD-17 已闭环）。PX4 上不存在的取消命令会明确返回「不支持」而非假装成功，详见上文「校准取消」。
 
 ### 固件与飞机配置
 
@@ -135,8 +135,8 @@
    - 理由：断链后看到的解锁状态可能已经过时，显示为当前值会误导操作者。模式等其他状态的处理方式可以由具体功能决定。
 
 3. **地图操作的确认时长**。
-   - 决定：地图指令需要确认，属于约束（S3）。时长不写入约束，作为建议：默认 3 s，与 QGC 一致。解锁保持 500 ms。
-   - 理由：时长是交互参数，不是安全不变量。Goto 与 Orbit 的影响范围比解锁大，较长的确认时长能减少误触。
+   - 决定：地图指令需要确认，属于约束（S3）。时长不写入约束，作为建议：采用 QGC 的 500 ms（`QGCDelayButton.qml:24` 的 `defaultDelay`），解锁同样 500 ms。
+   - 理由：时长是交互参数，不是安全不变量。此前本表把 QGC 的 3000 ms 帮助文案计时器误当成确认延迟，据此建议过 3 s；核对上游源码后更正为 500 ms，代码无需改动。若将来要更长的延迟，属于产品选择而非 parity 要求。
 
 4. **QGC 的疑似缺陷**。
    - 决定：不采纳，不写入任何规则。在本表中保留"待运行验证"的标记。
