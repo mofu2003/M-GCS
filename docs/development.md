@@ -93,7 +93,7 @@ tools/sitl-mission-scenario.sh --vehicle arduplane --model plane \
 tools/preflight.sh
 ```
 
-它依次检查补丁格式、版本一致性、FFI 目录、UI token、Flutter 分析与测试、后端测试，以及 macOS debug 构建。全量检查最后核对新编译库的符号和版本，并运行 Flutter 与原生后端的 FFI smoke。
+它依次检查补丁格式、版本一致性、FFI 目录、UI token、前端固件参数字面量（S6，`tools/check_firmware_literals.py`）、Flutter 分析与测试、后端测试，以及 macOS debug 构建。全量检查最后核对新编译库的符号和版本，并运行 Flutter 与原生后端的 FFI smoke。
 
 可用选项：
 

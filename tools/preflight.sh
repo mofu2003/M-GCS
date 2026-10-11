@@ -11,6 +11,8 @@ changed_ref="HEAD"
 backend_scope="full"
 backend_targets=""
 plan_reason=""
+# 参数描述符改动即使不重跑整套 Flutter，也要重跑 S6 字面量守卫。
+want_firmware_literals=0
 
 usage() {
   cat <<'EOF'
@@ -19,9 +21,10 @@ usage() {
 默认执行：
   1. git diff --check HEAD
   2. UI 设计 token 扫描
-  3. Flutter analyze + test
-  4. 编译 build_check 并运行后端口禁
-  5. macOS 上执行 flutter build macos --debug
+  3. 前端固件参数字面量守卫（S6 / KD-42）
+  4. Flutter analyze + test
+  5. 编译 build_check 并运行后端口禁
+  6. macOS 上执行 flutter build macos --debug
 
 选项：
   --frontend-only        只跑 token 扫描、Flutter analyze/test 和 macOS 构建
@@ -126,6 +129,15 @@ if [[ "$changed_mode" -eq 1 ]]; then
         ;;
       tools/check_ui_tokens.dart)
         want_frontend=1
+        ;;
+      tools/check_firmware_literals.py|tools/firmware_literals_baseline.json)
+        want_frontend=1
+        ;;
+      # 参数描述符是 S6 字面量守卫的事实来源，改了要重跑守卫。
+      core/src/config/*.json)
+        backend_full=1
+        backend_full_reason="参数描述符 $file（S6 字面量守卫的事实来源）"
+        want_firmware_literals=1
         ;;
       # 共享测试夹具：所有 sim 测试都用
       core/tests/mock_flight_controller.h|core/tests/*.h)
@@ -264,6 +276,11 @@ if [[ -z "$build_jobs" ]]; then
   fi
 fi
 echo "[preflight] 编译并发：${build_jobs}（可用 MGCORE_BUILD_JOBS 覆盖）"
+
+if [[ "$run_frontend" -eq 1 || "$want_firmware_literals" -eq 1 ]]; then
+  echo "[preflight] 检查前端固件参数字面量（S6 / KD-42）"
+  "${PYTHON_BIN:-python3}" tools/check_firmware_literals.py
+fi
 
 if [[ "$run_frontend" -eq 1 ]]; then
   command -v dart >/dev/null 2>&1 || {
