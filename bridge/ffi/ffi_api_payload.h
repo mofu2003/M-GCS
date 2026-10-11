@@ -23,6 +23,8 @@ MGCORE_API char* mg_gimbal_request_info(mg_core_t* core);
 MGCORE_API char* mg_command_gimbal_configure(mg_core_t* core, int gimbal_device_id,
                                               int primary_sys, int primary_comp,
                                               int secondary_sys, int secondary_comp);
+MGCORE_API char* mg_gimbal_get_status(mg_core_t* core, int gimbal_id);
+MGCORE_API char* mg_gimbal_get_attitude(mg_core_t* core, int gimbal_id);
 
 MGCORE_API char* mg_video_start(mg_core_t* core, const char* uri);
 MGCORE_API char* mg_video_stop(mg_core_t* core);

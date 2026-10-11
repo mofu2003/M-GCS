@@ -255,21 +255,43 @@ void MavlinkAdapter::Impl::process(const mavlink_message_t& m)
             ftp.handle_ftp_message(ftp_message);
             break;
         }
-        // 相机/云台消息
-        case 261: /* CAMERA_INFORMATION */
+        // 相机消息。此前把 259/262 误写成 261/254（261 实际是 STORAGE_INFORMATION，
+        // 254 实际是 DEBUG），导致相机信息与拍摄状态永远收不到、DEBUG 反被当成拍照状态。
+        // ID 一律以 MAVLINK_MSG_ID_* 宏为准，避免再出现写错数字的分发缺口。
+        case MAVLINK_MSG_ID_CAMERA_INFORMATION:
             handle_camera_information(m);
             break;
-        case 254: /* CAMERA_CAPTURE_STATUS */
+        case MAVLINK_MSG_ID_CAMERA_SETTINGS:
+            handle_camera_settings(m);
+            break;
+        case MAVLINK_MSG_ID_STORAGE_INFORMATION:
+            handle_storage_information(m);
+            break;
+        case MAVLINK_MSG_ID_CAMERA_CAPTURE_STATUS:
             handle_camera_capture_status(m);
             break;
-        case 269: /* VIDEO_STREAM_INFORMATION */
+        case MAVLINK_MSG_ID_CAMERA_IMAGE_CAPTURED:
+            handle_camera_image_captured(m);
+            break;
+        // 视频流消息
+        case MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION:
             handle_video_stream_information(m);
             break;
-        case 280: /* GIMBAL_MANAGER_INFORMATION */
-            handle_gimbal_manager_info(m);
+        case MAVLINK_MSG_ID_VIDEO_STREAM_STATUS:
+            handle_video_stream_status(m);
             break;
-        case 281: /* GIMBAL_MANAGER_STATUS */
+        // 云台消息（V2 协议）
+        case MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION:
+            handle_gimbal_manager_information(m);
+            break;
+        case MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS:
             handle_gimbal_manager_status(m);
+            break;
+        case MAVLINK_MSG_ID_GIMBAL_DEVICE_INFORMATION:
+            handle_gimbal_device_information(m);
+            break;
+        case MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS:
+            handle_gimbal_device_attitude_status(m);
             break;
         default:
             break;

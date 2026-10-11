@@ -831,6 +831,300 @@ static void test_independent_link_parsers() {
     CHECK("other link still parses", second.feed_raw(bytes_b.data(), bytes_b.size()));
 }
 
+
+// ================================================================
+// 相机 / 云台 / 视频流 设备状态缓存
+//
+// 这些消息此前只落日志、且 dispatcher 把 case 261/254 写成
+// CAMERA_INFORMATION/CAMERA_CAPTURE_STATUS（实际分别是 STORAGE_INFORMATION/DEBUG），
+// 导致相机状态永远收不到。这里同时钉住「正确的 ID 会被分发」与
+// 「错误的 ID 不会被误当成相机消息」。
+// ================================================================
+static void test_camera_state_cache() {
+    fprintf(stderr, "\n[Group] CAMERA_* state cache\n");
+    TestFixture f;
+    const uint8_t kSys = 1, kComp = MAV_COMP_ID_CAMERA;  // 100
+
+    // CAMERA_INFORMATION (259)
+    {
+        mavlink_camera_information_t ci = {};
+        ci.time_boot_ms = 1234;
+        ci.firmware_version = 0x01020304;
+        ci.focal_length = 3.5f;
+        ci.sensor_size_h = 6.17f;
+        ci.sensor_size_v = 4.55f;
+        ci.flags = 0x00000003;  // CAPTURE_IMAGE | CAPTURE_VIDEO
+        ci.resolution_h = 4000;
+        ci.resolution_v = 3000;
+        ci.lens_id = 2;
+        ci.cam_definition_version = 7;
+        ci.camera_device_id = 0;
+        memcpy(ci.vendor_name, "ACME", 4);
+        memcpy(ci.model_name, "CamX", 4);
+        mavlink_message_t msg;
+        mavlink_msg_camera_information_encode(kSys, kComp, &msg, &ci);
+        f.inject(msg);
+    }
+    auto cameras = f.adapter.latest_cameras();
+    CHECK("CAMERA_INFORMATION cached", cameras.size() == 1);
+    if (!cameras.empty()) {
+        CHECK("camera sysid/compid", cameras[0].system_id == kSys && cameras[0].component_id == kComp);
+        CHECK("camera flags", cameras[0].flags == 0x3);
+        CHECK("camera resolution_h", cameras[0].resolution_h == 4000);
+        CHECK("camera focal_length", cameras[0].focal_length == 3.5f);
+        CHECK("camera vendor_name", std::string(cameras[0].vendor_name) == "ACME");
+        CHECK("camera model_name", std::string(cameras[0].model_name) == "CamX");
+    }
+
+    // CAMERA_SETTINGS (260)
+    {
+        mavlink_camera_settings_t cs = {};
+        cs.time_boot_ms = 2000;
+        cs.mode_id = 1;       // CAMERA_MODE_IMAGE
+        cs.zoomLevel = 2.5f;
+        cs.focusLevel = 0.25f;
+        mavlink_message_t msg;
+        mavlink_msg_camera_settings_encode(kSys, kComp, &msg, &cs);
+        f.inject(msg);
+    }
+    auto settings = f.adapter.camera_settings(kSys, kComp);
+    CHECK("CAMERA_SETTINGS cached", settings.has_value());
+    if (settings) {
+        CHECK("settings mode_id", settings->mode_id == 1);
+        CHECK("settings zoom_level", settings->zoom_level == 2.5f);
+    }
+
+    // CAMERA_CAPTURE_STATUS (262)
+    {
+        mavlink_camera_capture_status_t st = {};
+        st.time_boot_ms = 3000;
+        st.image_status = 1;
+        st.video_status = 1;
+        st.image_count = 7;
+        st.available_capacity = 1024.0f;
+        mavlink_message_t msg;
+        mavlink_msg_camera_capture_status_encode(kSys, kComp, &msg, &st);
+        f.inject(msg);
+    }
+    auto capture = f.adapter.camera_capture_status(kSys, kComp);
+    CHECK("CAMERA_CAPTURE_STATUS cached", capture.has_value());
+    if (capture) {
+        CHECK("capture recording", capture->video_status == 1);
+        CHECK("capture image_status", capture->image_status == 1);
+        CHECK("capture image_count", capture->image_count == 7);
+        CHECK("capture available_capacity", capture->available_capacity == 1024.0f);
+    }
+
+    // STORAGE_INFORMATION (261)
+    {
+        mavlink_storage_information_t si = {};
+        si.time_boot_ms = 4000;
+        si.total_capacity = 32000.0f;
+        si.used_capacity = 8000.0f;
+        si.available_capacity = 24000.0f;
+        si.storage_id = 0;
+        si.storage_count = 1;
+        si.status = 2;  // STORAGE_STATUS_READY
+        strncpy(si.name, "SD", sizeof(si.name) - 1);
+        mavlink_message_t msg;
+        mavlink_msg_storage_information_encode(kSys, kComp, &msg, &si);
+        f.inject(msg);
+    }
+    auto storage = f.adapter.camera_storage(kSys, kComp);
+    CHECK("STORAGE_INFORMATION cached", storage.size() == 1);
+    if (!storage.empty()) {
+        CHECK("storage total", storage[0].total_capacity == 32000.0f);
+        CHECK("storage name", std::string(storage[0].name) == "SD");
+    }
+
+    // CAMERA_IMAGE_CAPTURED (263) 用 image_index+1 抬高 photo 下限
+    {
+        mavlink_camera_image_captured_t ic = {};
+        ic.time_boot_ms = 5000;
+        ic.image_index = 9;
+        mavlink_message_t msg;
+        mavlink_msg_camera_image_captured_encode(kSys, kComp, &msg, &ic);
+        f.inject(msg);
+    }
+    auto after = f.adapter.camera_capture_status(kSys, kComp);
+    CHECK("CAMERA_IMAGE_CAPTURED raises photo count", after && after->image_count == 10);
+}
+
+// dispatcher 曾把 261/254 写错：261 应是 STORAGE_INFORMATION（不是 CAMERA_INFORMATION），
+// 254 是 DEBUG（不是 CAMERA_CAPTURE_STATUS）。这里钉住两类 ID 不再互相串台。
+static void test_camera_dispatcher_id_regression() {
+    fprintf(stderr, "\n[Group] camera dispatcher ID regression (254/259/261/262)\n");
+    TestFixture f;
+    const uint8_t kSys = 1, kComp = 100;
+
+    // 259 必须进 cameras；若 dispatcher 仍按旧代码把 259 当别的消息，这里会空。
+    {
+        mavlink_camera_information_t ci = {};
+        ci.resolution_h = 1920;
+        ci.resolution_v = 1080;
+        mavlink_message_t msg;
+        mavlink_msg_camera_information_encode(kSys, kComp, &msg, &ci);
+        f.inject(msg);
+    }
+    CHECK("259 reaches camera cache", f.adapter.latest_cameras().size() == 1);
+
+    // 261 是 STORAGE_INFORMATION：必须落在存储缓存，不能污染 cameras。
+    {
+        mavlink_storage_information_t si = {};
+        si.storage_id = 0;
+        si.total_capacity = 1000.0f;
+        mavlink_message_t msg;
+        mavlink_msg_storage_information_encode(kSys, kComp, &msg, &si);
+        f.inject(msg);
+    }
+    CHECK("261 lands in storage, not cameras",
+          f.adapter.camera_storage(kSys, kComp).size() == 1 &&
+              f.adapter.latest_cameras().size() == 1);
+
+    // 254 是 DEBUG：绝不能被当成 CAMERA_CAPTURE_STATUS。
+    {
+        mavlink_debug_t dbg = {};
+        dbg.time_boot_ms = 10;
+        dbg.ind = 3;
+        dbg.value = 42.0f;
+        mavlink_message_t msg;
+        mavlink_msg_debug_encode(kSys, kComp, &msg, &dbg);
+        f.inject(msg);
+    }
+    CHECK("254 DEBUG does not create capture status",
+          !f.adapter.camera_capture_status(kSys, kComp).has_value());
+}
+
+static void test_gimbal_state_cache() {
+    fprintf(stderr, "\n[Group] GIMBAL_* state cache\n");
+    TestFixture f;
+    const uint8_t kSys = 1, kComp = MAV_COMP_ID_GIMBAL;  // 154
+
+    // GIMBAL_MANAGER_INFORMATION (280)
+    {
+        mavlink_gimbal_manager_information_t gi = {};
+        gi.time_boot_ms = 1000;
+        gi.cap_flags = 0x00000005;  // HAS_PITCH_AXIS | HAS_YAW_AXIS
+        gi.pitch_min = -90.0f;
+        gi.pitch_max = 30.0f;
+        gi.yaw_min = -180.0f;
+        gi.yaw_max = 180.0f;
+        gi.gimbal_device_id = 0;
+        mavlink_message_t msg;
+        mavlink_msg_gimbal_manager_information_encode(kSys, kComp, &msg, &gi);
+        f.inject(msg);
+    }
+    auto gimbals = f.adapter.latest_gimbals();
+    CHECK("GIMBAL_MANAGER_INFORMATION cached", gimbals.size() == 1);
+    if (!gimbals.empty()) {
+        CHECK("gimbal cap_flags", gimbals[0].cap_flags == 0x5);
+        CHECK("gimbal pitch range", gimbals[0].pitch_min == -90.0f && gimbals[0].pitch_max == 30.0f);
+    }
+
+    // GIMBAL_MANAGER_STATUS (281)
+    {
+        mavlink_gimbal_manager_status_t gs = {};
+        gs.time_boot_ms = 1100;
+        gs.flags = 0x2;
+        gs.primary_control_sysid = 1;
+        gs.primary_control_compid = 190;
+        mavlink_message_t msg;
+        mavlink_msg_gimbal_manager_status_encode(kSys, kComp, &msg, &gs);
+        f.inject(msg);
+    }
+    auto gstatus = f.adapter.gimbal_manager_status(kSys, kComp);
+    CHECK("GIMBAL_MANAGER_STATUS cached", gstatus.has_value());
+    if (gstatus) {
+        CHECK("gimbal manager flags", gstatus->flags == 0x2);
+        CHECK("gimbal primary control", gstatus->primary_control_sysid == 1 && gstatus->primary_control_compid == 190);
+    }
+
+    // GIMBAL_DEVICE_INFORMATION (283)
+    {
+        mavlink_gimbal_device_information_t gi = {};
+        gi.time_boot_ms = 1200;
+        gi.cap_flags = 0x0001;
+        strncpy(gi.vendor_name, "GMB", sizeof(gi.vendor_name) - 1);
+        strncpy(gi.model_name, "G1", sizeof(gi.model_name) - 1);
+        mavlink_message_t msg;
+        mavlink_msg_gimbal_device_information_encode(kSys, kComp, &msg, &gi);
+        f.inject(msg);
+    }
+    auto ginfo = f.adapter.gimbal_device_information(kSys, kComp);
+    CHECK("GIMBAL_DEVICE_INFORMATION cached", ginfo.has_value());
+    if (ginfo) {
+        CHECK("gimbal device vendor", std::string(ginfo->vendor_name) == "GMB");
+        CHECK("gimbal device model", std::string(ginfo->model_name) == "G1");
+    }
+
+    // GIMBAL_DEVICE_ATTITUDE_STATUS (285)，单位四元数 = 无旋转
+    {
+        mavlink_gimbal_device_attitude_status_t ga = {};
+        ga.time_boot_ms = 1300;
+        ga.q[0] = 1.0f; ga.q[1] = 0.0f; ga.q[2] = 0.0f; ga.q[3] = 0.0f;
+        ga.flags = 0x00000004;
+        ga.gimbal_device_id = 0;
+        mavlink_message_t msg;
+        mavlink_msg_gimbal_device_attitude_status_encode(kSys, kComp, &msg, &ga);
+        f.inject(msg);
+    }
+    auto att = f.adapter.gimbal_device_attitude_status(kSys, kComp);
+    CHECK("GIMBAL_DEVICE_ATTITUDE_STATUS cached", att.has_value());
+    if (att) {
+        CHECK("attitude quaternion identity", att->q[0] == 1.0f && att->q[1] == 0.0f);
+        CHECK("attitude flags", att->flags == 0x4);
+    }
+}
+
+static void test_video_stream_state() {
+    fprintf(stderr, "\n[Group] VIDEO_STREAM_* state cache\n");
+    TestFixture f;
+    const uint8_t kSys = 1, kComp = MAV_COMP_ID_CAMERA;
+
+    // VIDEO_STREAM_INFORMATION (269)
+    {
+        mavlink_video_stream_information_t vsi = {};
+        vsi.stream_id = 0;
+        vsi.type = 1;  // VIDEO_STREAM_TYPE_RTSP
+        vsi.flags = 0x1;
+        vsi.framerate = 30.0f;
+        vsi.resolution_h = 1280;
+        vsi.resolution_v = 720;
+        vsi.bitrate = 4000000;
+        strncpy(vsi.name, "front", sizeof(vsi.name) - 1);
+        strncpy(vsi.uri, "rtsp://192.168.1.10:8554/main", sizeof(vsi.uri) - 1);
+        mavlink_message_t msg;
+        mavlink_msg_video_stream_information_encode(kSys, kComp, &msg, &vsi);
+        f.inject(msg);
+    }
+    auto streams = f.adapter.latest_video_streams();
+    CHECK("VIDEO_STREAM_INFORMATION cached", streams.size() == 1);
+    if (!streams.empty()) {
+        CHECK("stream uri", std::string(streams[0].uri) == "rtsp://192.168.1.10:8554/main");
+        CHECK("stream resolution", streams[0].width == 1280 && streams[0].height == 720);
+        CHECK("stream flags/running", (streams[0].flags & 0x1) != 0);
+    }
+
+    // VIDEO_STREAM_STATUS (270)
+    {
+        mavlink_video_stream_status_t vs = {};
+        vs.stream_id = 0;
+        vs.framerate = 30;
+        vs.bitrate = 4000000;
+        vs.resolution_h = 1280;
+        vs.resolution_v = 720;
+        mavlink_message_t msg;
+        mavlink_msg_video_stream_status_encode(kSys, kComp, &msg, &vs);
+        f.inject(msg);
+    }
+    auto statuses = f.adapter.latest_video_stream_status();
+    CHECK("VIDEO_STREAM_STATUS cached", statuses.size() == 1);
+    if (!statuses.empty()) {
+        CHECK("stream status framerate", statuses[0].framerate == 30);
+        CHECK("stream status bitrate", statuses[0].bitrate == 4000000);
+    }
+}
+
 int main() {
     test_independent_link_parsers();
     fprintf(stderr, "=== MAVLink Protocol Layer Tests ===\n");
@@ -865,6 +1159,10 @@ int main() {
     test_signing_candidate_auto_detect();
     test_signing_detection_rejects_replay_and_mixed_chunk();
     test_feed_raw_reports_valid_frames();
+    test_camera_state_cache();
+    test_camera_dispatcher_id_regression();
+    test_gimbal_state_cache();
+    test_video_stream_state();
 
     fprintf(stderr, "\n=== Results: %d/%d passed ===\n", g_passed, g_passed + g_failed);
     return (g_failed > 0) ? 1 : 0;

@@ -163,10 +163,7 @@ set(MGCORE_SOURCES
     core/src/geofence/geofence_manager.cc
     # Terrain
     core/src/terrain/terrain_store.cc
-    # Camera
-    core/src/camera/camera_manager.cc
     # Video
-    core/src/video/video_receiver.cc
     core/src/video/ffmpeg_decoder.cc
     # Vehicle (multi-vehicle)
     core/src/vehicle/multi_vehicle_manager.cc

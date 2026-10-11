@@ -11,7 +11,7 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 任务上传的即时响应表示传输启动，最终结果需读取 operation 状态。
 符号检查不等于完整的参数类型或行为验证；真实交互另由 FFI smoke 和合约测试覆盖。
 
-公开函数：305；Flutter 绑定：112。
+公开函数：307；Flutter 绑定：112。
 
 ## ffi_api_configuration.h
 
@@ -320,6 +320,8 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `char* mg_command_gimbal_configure(mg_core_t* core, int gimbal_device_id, int primary_sys, int primary_comp, int secondary_sys, int secondary_comp);` | — |
 | `char* mg_command_gimbal_control(mg_core_t* core, float pitch_deg, float yaw_deg);` | — |
 | `char* mg_command_gimbal_recenter(mg_core_t* core);` | — |
+| `char* mg_gimbal_get_attitude(mg_core_t* core, int gimbal_id);` | — |
+| `char* mg_gimbal_get_status(mg_core_t* core, int gimbal_id);` | — |
 | `char* mg_gimbal_request_info(mg_core_t* core);` | — |
 | `char* mg_video_get_streams(mg_core_t* core);` | — |
 | `char* mg_video_start(mg_core_t* core, const char* uri);` | — |

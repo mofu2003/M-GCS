@@ -1,7 +1,6 @@
 #pragma once
 
 #include "core/calibration/calibration_service.h"
-#include "core/camera/camera_manager.h"
 #include "core/flight/flight_mode_manager.h"
 #include "core/telemetry/flight_message_log.h"
 #include "core/geofence/geofence_manager.h"
@@ -15,7 +14,6 @@
 #include "core/transport/connection_manager.h"
 #include "core/transport/link_config.h"
 #include "core/vehicle/vehicle_link_manager.h"
-#include "core/video/video_receiver.h"
 #include "core/telemetry/telemetry_cache.h"
 
 #include <array>
@@ -162,8 +160,6 @@ public:
     mg::core::calibration::CalibrationService& calibration() { return calibration_; }
     mg::core::flight::FlightModeManager& flight_modes() { return flight_modes_; }
     mg::core::geofence::GeofenceManager& geofence() { return geofence_; }
-    mg::core::camera::CameraManager& camera() { return camera_; }
-    mg::core::video::VideoReceiver& video() { return video_; }
     mg::core::settings::MavlinkLogWriter& mavlink_log() { return mavlink_log_; }
     mg::core::settings::FlightLoggingService& flight_log() { return flight_log_; }
     /// 飞控消息历史（消息框用）。缓存只留最新一条，历史单独放这里。
@@ -246,8 +242,6 @@ private:
     mg::core::calibration::CalibrationService calibration_;
     mg::core::flight::FlightModeManager flight_modes_;
     mg::core::geofence::GeofenceManager geofence_;
-    mg::core::camera::CameraManager camera_;
-    mg::core::video::VideoReceiver video_;
     mg::core::settings::MavlinkLogWriter mavlink_log_;
     mg::core::settings::FlightLoggingService flight_log_;
     mg::core::telemetry::FlightMessageLog message_log_;

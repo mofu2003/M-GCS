@@ -1,7 +1,7 @@
 /**
  * test_new_modules.cc - Tests for recently added modules
  *
- * Covers: CameraManager, FlightLogReplayer, MavlinkFtpClient
+ * Covers: camera/gimbal/video FFI, FlightLogReplayer, MavlinkFtpClient
  */
 #define MGCORE_EXPORTS
 #include "ffi_api.h"
@@ -304,10 +304,12 @@ static void test_camera_ffi() {
     CHECK(r != nullptr, "camera_request_info returns non-null");
     if (r) mg_free_string(r);
 
-    // Get status - should return stub JSON
+    // Get status - 无设备时是合法状态：success:true + available:false（D5），不是 error
     r = mg_camera_get_status(core, 0);
     CHECK(r != nullptr, "camera_get_status returns non-null");
-    CHECK(json_has(r, "available"), "camera_get_status has 'available' field");
+    CHECK(json_has(r, "\"available\":false"), "camera_get_status reports available:false with no camera");
+    CHECK(json_has(r, "\"success\":true"), "camera_get_status success:true (query ok, no device)");
+    CHECK(!json_has(r, "\"error\""), "camera_get_status is not an error when no device");
     if (r) mg_free_string(r);
 
     mg_destroy(core);
@@ -341,6 +343,63 @@ static void test_gimbal_ffi() {
     // Gimbal configure
     r = mg_command_gimbal_configure(core, 0, 1, 1, 0, 0);
     CHECK(r != nullptr, "gimbal_configure returns non-null");
+    if (r) mg_free_string(r);
+
+    // 读接口：无设备时同样是 success:true + available:false
+    r = mg_gimbal_get_status(core, 0);
+    CHECK(r != nullptr, "gimbal_get_status returns non-null");
+    CHECK(json_has(r, "\"available\":false"), "gimbal_get_status available:false with no gimbal");
+    CHECK(json_has(r, "\"success\":true"), "gimbal_get_status success:true (query ok, no device)");
+    if (r) mg_free_string(r);
+
+    r = mg_gimbal_get_attitude(core, 0);
+    CHECK(r != nullptr, "gimbal_get_attitude returns non-null");
+    CHECK(json_has(r, "\"available\":false"), "gimbal_get_attitude available:false with no gimbal");
+    if (r) mg_free_string(r);
+
+    mg_destroy(core);
+}
+
+// ================================================================
+// Video FFI Tests
+// ================================================================
+static void test_video_ffi() {
+    fprintf(stderr, "\n[Group] Video FFI\n");
+
+    mg_core_t* core = mg_create();
+    CHECK(core != nullptr, "mg_create");
+
+    // mg_video_start 需要 uri；空 uri 是参数错误，非空 uri 因为 S3 本地解码未实现而 NOT_SUPPORTED。
+    // 关键回归点：它绝不能再退化成「让相机开始录像」。
+    char* r = mg_video_start(core, "");
+    CHECK(r != nullptr, "video_start(empty) returns non-null");
+    CHECK(json_has(r, "\"error\""), "video_start(empty) returns error");
+    CHECK(json_has(r, "INVALID_PARAM"), "video_start(empty) is INVALID_PARAM");
+    if (r) mg_free_string(r);
+
+    r = mg_video_start(core, "rtsp://192.168.1.10:8554/main");
+    CHECK(r != nullptr, "video_start(uri) returns non-null");
+    CHECK(json_has(r, "\"error\""), "video_start(uri) returns error (S3 not implemented)");
+    CHECK(json_has(r, "NOT_SUPPORTED"), "video_start(uri) is NOT_SUPPORTED, not camera recording");
+    if (r) mg_free_string(r);
+
+    // video_stop 同理
+    r = mg_video_stop(core);
+    CHECK(r != nullptr, "video_stop returns non-null");
+    CHECK(json_has(r, "NOT_SUPPORTED"), "video_stop is NOT_SUPPORTED");
+    if (r) mg_free_string(r);
+
+    // video_status：无设备时 available:false，且绝不谎报 playing:true
+    r = mg_video_status(core);
+    CHECK(r != nullptr, "video_status returns non-null");
+    CHECK(json_has(r, "\"available\":false"), "video_status available:false with no streams");
+    CHECK(json_has(r, "\"playing\":false"), "video_status playing:false (no local decode)");
+    if (r) mg_free_string(r);
+
+    // video_get_streams：无活动载具时是连接错误
+    r = mg_video_get_streams(core);
+    CHECK(r != nullptr, "video_get_streams returns non-null");
+    CHECK(json_has(r, "\"error\""), "video_get_streams returns error when disconnected");
     if (r) mg_free_string(r);
 
     mg_destroy(core);
@@ -1062,6 +1121,7 @@ int main() {
 
     test_camera_ffi();
     test_gimbal_ffi();
+    test_video_ffi();
     test_failsafe_ffi();
     test_replayer();
     test_tlog_recording_wiring();

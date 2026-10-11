@@ -27,7 +27,7 @@ CAPABILITY_METADATA = {
     "ffi_api_logging.h": ("部分接入", "机载 DataFlash 日志列表/下载/擦除（「机载日志」页）、链路 `.tlog` 录制/离线回放（「飞行记录」页）与 `mg_fs_*` 通用 MAVLink FTP 文件浏览/收发（「机载文件」页）均已接入；仍未接入的是事件日志服务与会话文件日志（`mg_event_*`/`mg_session_log_*`），见 docs/features/flight-logging-and-replay.md。"),
     "ffi_api_mission.h": ("已交付", "任务规划、上传、围栏/Rally 下发与航点编辑走任务面板与地图；survey/corridor 生成（`mg_survey_generate*`）接入配置工作区「测绘规划」页，见 docs/features/survey-and-terrain.md。"),
     "ffi_api_params.h": ("部分接入", "参数读写、文件导入导出接入配置页；批量下载进度与描述符映射部分留在 FFI 内部。"),
-    "ffi_api_payload.h": ("待接入", "相机、云台与视频流控制尚无 UI 入口，登记为待接入能力。"),
+    "ffi_api_payload.h": ("待接入", "仍无 UI 入口（S2）；S1 已把读契约从硬编码假值改为真实适配器缓存：`mg_camera_get_status`/`mg_gimbal_get_status`/`mg_gimbal_get_attitude`/`mg_video_status` 返回真实状态，无设备时 `success:true`+`available:false`，见 docs/features/video-camera-gimbal.md。"),
     "ffi_api_telemetry.h": ("部分接入", "遥测快照、姿态、GPS、电池进入顶栏/仪表盘；波形与部分导航量仍为 FFI 内部能力。"),
 }
 

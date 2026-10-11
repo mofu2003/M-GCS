@@ -46,6 +46,17 @@ struct TelemetryLatest {
     std::optional<WindEstimateInfo>     wind_estimate;
     std::optional<CommandAckInfo>       command_ack;
     std::vector<VideoStreamInfo>        video_streams;
+    // 相机/视频/云台以 MAVLink 上报的 (sysid, compid) 为键做最小缓存
+    // （A2：适配器只翻译协议，是设备状态的唯一事实来源）。
+    std::vector<VideoStreamStatusInfo>          video_stream_status;
+    std::vector<CameraInformationInfo>          cameras;
+    std::vector<CameraSettingsInfo>             camera_settings;
+    std::vector<CameraCaptureStatusInfo>        camera_capture_status;
+    std::vector<StorageInformationInfo>         storage_information;
+    std::vector<GimbalManagerInformationInfo>   gimbal_manager_info;
+    std::vector<GimbalManagerStatusInfo>        gimbal_manager_status;
+    std::vector<GimbalDeviceInformationInfo>    gimbal_device_info;
+    std::vector<GimbalDeviceAttitudeStatusInfo> gimbal_device_attitude;
     HeartbeatCallback       heartbeat_cb;
     SysStatusCallback       sys_status_cb;
     GpsCallback             gps_cb;

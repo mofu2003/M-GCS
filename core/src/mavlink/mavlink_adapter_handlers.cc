@@ -8,6 +8,9 @@
 
 #include "mavlink_adapter_internal.h"
 
+#include <cstring>
+#include <utility>
+
 namespace mg::core::mavlink {
 
 namespace {
@@ -621,31 +624,259 @@ void MavlinkAdapter::Impl::handle_video_stream_information(const mavlink_message
         deferred_cbs.push_back([cb = tel.video_stream_cb, info]() { cb(info); });
 }
 
+namespace {
+
+// 按键更新或插入一条缓存：设备状态以最新一帧为准，历史帧不保留（用最新的为准，
+// 避免按消息频率无限增长）。
+template <typename T, typename Match>
+void upsert_by(std::vector<T>& items, Match&& match, T value) {
+    for (auto& item : items) {
+        if (match(item)) {
+            item = std::move(value);
+            return;
+        }
+    }
+    items.push_back(std::move(value));
+}
+
+template <typename T, typename Match>
+T* find_by(std::vector<T>& items, Match&& match) {
+    for (auto& item : items) {
+        if (match(item)) return &item;
+    }
+    return nullptr;
+}
+
+template <typename T>
+bool same_component(const T& item, uint8_t sysid, uint8_t compid) {
+    return item.system_id == sysid && item.component_id == compid;
+}
+
+void copy_str(char* dst, size_t dst_size, const void* src, size_t src_size) {
+    const char* text = static_cast<const char*>(src);
+    const size_t n = strnlen(text, src_size);
+    const size_t copy = n < dst_size - 1 ? n : dst_size - 1;
+    memcpy(dst, text, copy);
+    dst[copy] = '\0';
+}
+
+} // namespace
+
 void MavlinkAdapter::Impl::handle_camera_information(const mavlink_message_t& m)
 {
     mavlink_camera_information_t ci;
     mavlink_msg_camera_information_decode(&m, &ci);
-    // CameraManager 在 Vehicle 层，此处只记录日志
-    // 实际解析由 wire_post_connect_callbacks 中的相机回调处理
+    CameraInformationInfo info{};
+    info.system_id = m.sysid;
+    info.component_id = m.compid;
+    info.time_boot_ms = ci.time_boot_ms;
+    info.firmware_version = ci.firmware_version;
+    info.focal_length = ci.focal_length;
+    info.sensor_size_h = ci.sensor_size_h;
+    info.sensor_size_v = ci.sensor_size_v;
+    info.flags = ci.flags;
+    info.resolution_h = ci.resolution_h;
+    info.resolution_v = ci.resolution_v;
+    info.cam_definition_version = ci.cam_definition_version;
+    copy_str(info.vendor_name, sizeof(info.vendor_name), ci.vendor_name, sizeof(ci.vendor_name));
+    copy_str(info.model_name, sizeof(info.model_name), ci.model_name, sizeof(ci.model_name));
+    info.lens_id = ci.lens_id;
+    info.gimbal_device_id = ci.gimbal_device_id;
+    info.camera_device_id = ci.camera_device_id;
+    upsert_by(tel.cameras, [&](const CameraInformationInfo& c) { return same_component(c, m.sysid, m.compid); }, info);
     MGC_LOG_INFO("[MavlinkAdapter] CAMERA_INFORMATION: model=%s vendor=%s", ci.model_name, ci.vendor_name);
+}
+
+void MavlinkAdapter::Impl::handle_camera_settings(const mavlink_message_t& m)
+{
+    mavlink_camera_settings_t cs;
+    mavlink_msg_camera_settings_decode(&m, &cs);
+    CameraSettingsInfo info{};
+    info.system_id = m.sysid;
+    info.component_id = m.compid;
+    info.time_boot_ms = cs.time_boot_ms;
+    info.mode_id = cs.mode_id;
+    info.zoom_level = cs.zoomLevel;
+    info.focus_level = cs.focusLevel;
+    info.camera_device_id = cs.camera_device_id;
+    upsert_by(tel.camera_settings, [&](const CameraSettingsInfo& c) { return same_component(c, m.sysid, m.compid); }, info);
 }
 
 void MavlinkAdapter::Impl::handle_camera_capture_status(const mavlink_message_t& m)
 {
     mavlink_camera_capture_status_t cs;
     mavlink_msg_camera_capture_status_decode(&m, &cs);
+    CameraCaptureStatusInfo info{};
+    info.system_id = m.sysid;
+    info.component_id = m.compid;
+    info.time_boot_ms = cs.time_boot_ms;
+    info.image_interval = cs.image_interval;
+    info.recording_time_ms = cs.recording_time_ms;
+    info.available_capacity = cs.available_capacity;
+    info.image_status = cs.image_status;
+    info.video_status = cs.video_status;
+    info.image_count = cs.image_count;
+    info.camera_device_id = cs.camera_device_id;
+    upsert_by(tel.camera_capture_status,
+              [&](const CameraCaptureStatusInfo& c) { return same_component(c, m.sysid, m.compid); }, info);
     MGC_LOG_INFO("[MavlinkAdapter] CAMERA_CAPTURE_STATUS: image_status=%d video_status=%d count=%d", cs.image_status,
                  cs.video_status, cs.image_count);
 }
 
-void MavlinkAdapter::Impl::handle_gimbal_manager_info(const mavlink_message_t& m)
+void MavlinkAdapter::Impl::handle_camera_image_captured(const mavlink_message_t& m)
 {
-    MGC_LOG_INFO("[MavlinkAdapter] GIMBAL_MANAGER_INFORMATION from sys=%d comp=%d", m.sysid, m.compid);
+    mavlink_camera_image_captured_t ic;
+    mavlink_msg_camera_image_captured_decode(&m, &ic);
+    // image_index 从 0 计数；用它维护「已拍张数」的下限，等待更权威的 CAMERA_CAPTURE_STATUS 覆盖。
+    const uint32_t captured = static_cast<uint32_t>(ic.image_index) + 1u;
+    CameraCaptureStatusInfo* existing =
+        find_by(tel.camera_capture_status, [&](const CameraCaptureStatusInfo& c) {
+            return same_component(c, m.sysid, m.compid);
+        });
+    if (existing) {
+        if (captured > existing->image_count) existing->image_count = captured;
+    } else {
+        CameraCaptureStatusInfo info{};
+        info.system_id = m.sysid;
+        info.component_id = m.compid;
+        info.image_count = captured;
+        info.camera_device_id = ic.camera_id;
+        tel.camera_capture_status.push_back(info);
+    }
+}
+
+void MavlinkAdapter::Impl::handle_storage_information(const mavlink_message_t& m)
+{
+    mavlink_storage_information_t si;
+    mavlink_msg_storage_information_decode(&m, &si);
+    StorageInformationInfo info{};
+    info.system_id = m.sysid;
+    info.component_id = m.compid;
+    info.time_boot_ms = si.time_boot_ms;
+    info.total_capacity = si.total_capacity;
+    info.used_capacity = si.used_capacity;
+    info.available_capacity = si.available_capacity;
+    info.read_speed = si.read_speed;
+    info.write_speed = si.write_speed;
+    info.storage_id = si.storage_id;
+    info.storage_count = si.storage_count;
+    info.status = si.status;
+    info.type = si.type;
+    copy_str(info.name, sizeof(info.name), si.name, sizeof(si.name));
+    info.storage_usage = si.storage_usage;
+    upsert_by(tel.storage_information, [&](const StorageInformationInfo& s) {
+        return s.system_id == m.sysid && s.component_id == m.compid && s.storage_id == si.storage_id;
+    }, info);
+}
+
+void MavlinkAdapter::Impl::handle_video_stream_status(const mavlink_message_t& m)
+{
+    mavlink_video_stream_status_t vs;
+    mavlink_msg_video_stream_status_decode(&m, &vs);
+    VideoStreamStatusInfo info{};
+    info.system_id = m.sysid;
+    info.component_id = m.compid;
+    info.stream_id = vs.stream_id;
+    info.framerate = vs.framerate;
+    info.bitrate = vs.bitrate;
+    info.flags = vs.flags;
+    info.resolution_h = vs.resolution_h;
+    info.resolution_v = vs.resolution_v;
+    info.rotation = vs.rotation;
+    info.hfov = vs.hfov;
+    info.camera_device_id = vs.camera_device_id;
+    upsert_by(tel.video_stream_status, [&](const VideoStreamStatusInfo& s) {
+        return s.system_id == m.sysid && s.component_id == m.compid && s.stream_id == vs.stream_id;
+    }, info);
+}
+
+void MavlinkAdapter::Impl::handle_gimbal_manager_information(const mavlink_message_t& m)
+{
+    mavlink_gimbal_manager_information_t gi;
+    mavlink_msg_gimbal_manager_information_decode(&m, &gi);
+    GimbalManagerInformationInfo info{};
+    info.system_id = m.sysid;
+    info.component_id = m.compid;
+    info.time_boot_ms = gi.time_boot_ms;
+    info.cap_flags = gi.cap_flags;
+    info.roll_min = gi.roll_min;
+    info.roll_max = gi.roll_max;
+    info.pitch_min = gi.pitch_min;
+    info.pitch_max = gi.pitch_max;
+    info.yaw_min = gi.yaw_min;
+    info.yaw_max = gi.yaw_max;
+    info.gimbal_device_id = gi.gimbal_device_id;
+    upsert_by(tel.gimbal_manager_info,
+              [&](const GimbalManagerInformationInfo& g) { return same_component(g, m.sysid, m.compid); }, info);
 }
 
 void MavlinkAdapter::Impl::handle_gimbal_manager_status(const mavlink_message_t& m)
 {
-    MGC_LOG_INFO("[MavlinkAdapter] GIMBAL_MANAGER_STATUS from sys=%d comp=%d", m.sysid, m.compid);
+    mavlink_gimbal_manager_status_t gs;
+    mavlink_msg_gimbal_manager_status_decode(&m, &gs);
+    GimbalManagerStatusInfo info{};
+    info.system_id = m.sysid;
+    info.component_id = m.compid;
+    info.time_boot_ms = gs.time_boot_ms;
+    info.flags = gs.flags;
+    info.gimbal_device_id = gs.gimbal_device_id;
+    info.primary_control_sysid = gs.primary_control_sysid;
+    info.primary_control_compid = gs.primary_control_compid;
+    info.secondary_control_sysid = gs.secondary_control_sysid;
+    info.secondary_control_compid = gs.secondary_control_compid;
+    upsert_by(tel.gimbal_manager_status,
+              [&](const GimbalManagerStatusInfo& g) { return same_component(g, m.sysid, m.compid); }, info);
+}
+
+void MavlinkAdapter::Impl::handle_gimbal_device_information(const mavlink_message_t& m)
+{
+    mavlink_gimbal_device_information_t gi;
+    mavlink_msg_gimbal_device_information_decode(&m, &gi);
+    GimbalDeviceInformationInfo info{};
+    info.system_id = m.sysid;
+    info.component_id = m.compid;
+    info.uid = gi.uid;
+    info.time_boot_ms = gi.time_boot_ms;
+    info.firmware_version = gi.firmware_version;
+    info.hardware_version = gi.hardware_version;
+    info.roll_min = gi.roll_min;
+    info.roll_max = gi.roll_max;
+    info.pitch_min = gi.pitch_min;
+    info.pitch_max = gi.pitch_max;
+    info.yaw_min = gi.yaw_min;
+    info.yaw_max = gi.yaw_max;
+    info.cap_flags = gi.cap_flags;
+    info.custom_cap_flags = gi.custom_cap_flags;
+    copy_str(info.vendor_name, sizeof(info.vendor_name), gi.vendor_name, sizeof(gi.vendor_name));
+    copy_str(info.model_name, sizeof(info.model_name), gi.model_name, sizeof(gi.model_name));
+    copy_str(info.custom_name, sizeof(info.custom_name), gi.custom_name, sizeof(gi.custom_name));
+    info.gimbal_device_id = gi.gimbal_device_id;
+    info.cap_flags2 = gi.cap_flags2;
+    upsert_by(tel.gimbal_device_info,
+              [&](const GimbalDeviceInformationInfo& g) { return same_component(g, m.sysid, m.compid); }, info);
+}
+
+void MavlinkAdapter::Impl::handle_gimbal_device_attitude_status(const mavlink_message_t& m)
+{
+    mavlink_gimbal_device_attitude_status_t ga;
+    mavlink_msg_gimbal_device_attitude_status_decode(&m, &ga);
+    GimbalDeviceAttitudeStatusInfo info{};
+    info.system_id = m.sysid;
+    info.component_id = m.compid;
+    info.time_boot_ms = ga.time_boot_ms;
+    memcpy(info.q, ga.q, sizeof(info.q));
+    info.angular_velocity_x = ga.angular_velocity_x;
+    info.angular_velocity_y = ga.angular_velocity_y;
+    info.angular_velocity_z = ga.angular_velocity_z;
+    info.failure_flags = ga.failure_flags;
+    info.flags = ga.flags;
+    info.target_system = ga.target_system;
+    info.target_component = ga.target_component;
+    info.delta_yaw = ga.delta_yaw;
+    info.delta_yaw_velocity = ga.delta_yaw_velocity;
+    info.gimbal_device_id = ga.gimbal_device_id;
+    upsert_by(tel.gimbal_device_attitude,
+              [&](const GimbalDeviceAttitudeStatusInfo& g) { return same_component(g, m.sysid, m.compid); }, info);
 }
 
 } // namespace mg::core::mavlink

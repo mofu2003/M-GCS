@@ -368,17 +368,35 @@ struct MavlinkAdapter::Impl {
     // 相机/云台消息处理器
     // ================================================================
 
-    // 相机信息（msg 261）— 转发给 CameraManager 解析
+    // 相机信息（CAMERA_INFORMATION, msg 259）
     void handle_camera_information(const mavlink_message_t& m);
 
-    // 相机拍照状态（msg 254）
+    // 相机设置（CAMERA_SETTINGS, msg 260）
+    void handle_camera_settings(const mavlink_message_t& m);
+
+    // 存储信息（STORAGE_INFORMATION, msg 261）
+    void handle_storage_information(const mavlink_message_t& m);
+
+    // 相机拍摄状态（CAMERA_CAPTURE_STATUS, msg 262）
     void handle_camera_capture_status(const mavlink_message_t& m);
 
-    // 云台管理器信息（msg 280）
-    void handle_gimbal_manager_info(const mavlink_message_t& m);
+    // 单张照片拍摄完成（CAMERA_IMAGE_CAPTURED, msg 263）
+    void handle_camera_image_captured(const mavlink_message_t& m);
 
-    // 云台管理器状态（msg 281）
+    // 视频流状态（VIDEO_STREAM_STATUS, msg 270）
+    void handle_video_stream_status(const mavlink_message_t& m);
+
+    // 云台管理器信息（GIMBAL_MANAGER_INFORMATION, msg 280）
+    void handle_gimbal_manager_information(const mavlink_message_t& m);
+
+    // 云台管理器状态（GIMBAL_MANAGER_STATUS, msg 281）
     void handle_gimbal_manager_status(const mavlink_message_t& m);
+
+    // 云台设备信息（GIMBAL_DEVICE_INFORMATION, msg 283）
+    void handle_gimbal_device_information(const mavlink_message_t& m);
+
+    // 云台设备姿态状态（GIMBAL_DEVICE_ATTITUDE_STATUS, msg 285）
+    void handle_gimbal_device_attitude_status(const mavlink_message_t& m);
 
     // ================================================================
     // 任务协议处理器

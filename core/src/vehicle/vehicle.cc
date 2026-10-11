@@ -953,24 +953,6 @@ void Vehicle::wire_telemetry_callbacks_for(
         self->cache_.update(mg::core::telemetry::TelemetryType::kHighresImu, source->get_mavlink());
     });
 
-    // 把视频流元数据继续转发给视频接收器。
-    mav->on_video_stream_info([weak](const mg::core::mavlink::VideoStreamInfo& info) {
-        auto self = weak.lock(); if (!self) return;
-        mavlink_video_stream_information_t vsi{};
-        vsi.stream_id = info.stream_id;
-        vsi.type = info.type;
-        vsi.resolution_h = info.width;
-        vsi.resolution_v = info.height;
-        vsi.framerate = info.framerate;
-        vsi.bitrate = info.bitrate;
-        vsi.rotation = info.rotation;
-        vsi.hfov = info.hfov;
-        vsi.flags = info.flags;
-        memcpy(vsi.name, info.name, sizeof(info.name));
-        memcpy(vsi.uri, info.uri, sizeof(info.uri));
-        self->video().process_stream_info(0, 0, &vsi);
-    });
-
     MGC_LOG_INFO("[Vehicle %d] Telemetry callbacks wired", id_);
 }
 

@@ -419,6 +419,146 @@ struct VideoStreamInfo {
     char     uri[160] = {};
 };
 
+/// 视频流状态（msg id 270）— VIDEO_STREAM_STATUS
+/// 与 VIDEO_STREAM_INFORMATION 按 (system_id, component_id, stream_id) 配对。
+struct VideoStreamStatusInfo {
+    uint8_t  system_id = 0;
+    uint8_t  component_id = 0;
+    uint8_t  stream_id = 0;
+    uint16_t framerate = 0;
+    uint32_t bitrate = 0;
+    uint16_t flags = 0;           // bit 0: running
+    uint16_t resolution_h = 0;
+    uint16_t resolution_v = 0;
+    uint16_t rotation = 0;
+    uint16_t hfov = 0;
+    uint8_t  camera_device_id = 0;
+};
+
+/// 相机信息（msg id 259）— CAMERA_INFORMATION
+struct CameraInformationInfo {
+    uint8_t  system_id = 0;
+    uint8_t  component_id = 0;
+    uint32_t time_boot_ms = 0;
+    uint32_t firmware_version = 0;
+    float    focal_length = 0;
+    float    sensor_size_h = 0;
+    float    sensor_size_v = 0;
+    uint32_t flags = 0;           // CAMERA_CAP_FLAGS
+    uint16_t resolution_h = 0;
+    uint16_t resolution_v = 0;
+    uint16_t cam_definition_version = 0;
+    char     vendor_name[32] = {};
+    char     model_name[32] = {};
+    uint8_t  lens_id = 0;
+    uint8_t  gimbal_device_id = 0;
+    uint8_t  camera_device_id = 0;
+};
+
+/// 相机设置（msg id 260）— CAMERA_SETTINGS
+struct CameraSettingsInfo {
+    uint8_t  system_id = 0;
+    uint8_t  component_id = 0;
+    uint32_t time_boot_ms = 0;
+    uint8_t  mode_id = 0;         // CAMERA_MODE
+    float    zoom_level = 1.0f;
+    float    focus_level = 0;
+    uint8_t  camera_device_id = 0;
+};
+
+/// 相机拍摄状态（msg id 262）— CAMERA_CAPTURE_STATUS
+struct CameraCaptureStatusInfo {
+    uint8_t  system_id = 0;
+    uint8_t  component_id = 0;
+    uint32_t time_boot_ms = 0;
+    float    image_interval = 0;
+    uint32_t recording_time_ms = 0;
+    float    available_capacity = 0;  // MiB
+    uint8_t  image_status = 0;        // CAMERA_CAPTURE_STATUS image_status
+    uint8_t  video_status = 0;        // CAMERA_CAPTURE_STATUS video_status
+    uint32_t image_count = 0;
+    uint8_t  camera_device_id = 0;
+};
+
+/// 存储信息（msg id 261）— STORAGE_INFORMATION
+struct StorageInformationInfo {
+    uint8_t  system_id = 0;
+    uint8_t  component_id = 0;
+    uint32_t time_boot_ms = 0;
+    float    total_capacity = 0;      // MiB
+    float    used_capacity = 0;
+    float    available_capacity = 0;
+    float    read_speed = 0;          // MiB/s
+    float    write_speed = 0;
+    uint8_t  storage_id = 0;
+    uint8_t  storage_count = 0;
+    uint8_t  status = 0;              // STORAGE_STATUS
+    uint8_t  type = 0;                // STORAGE_TYPE
+    char     name[32] = {};
+    uint8_t  storage_usage = 0;       // STORAGE_USAGE_FLAG
+};
+
+/// 云台管理器信息（msg id 280）— GIMBAL_MANAGER_INFORMATION
+struct GimbalManagerInformationInfo {
+    uint8_t  system_id = 0;
+    uint8_t  component_id = 0;
+    uint32_t time_boot_ms = 0;
+    uint32_t cap_flags = 0;           // GIMBAL_MANAGER_CAP_FLAGS
+    float    roll_min = 0, roll_max = 0;
+    float    pitch_min = 0, pitch_max = 0;
+    float    yaw_min = 0, yaw_max = 0;
+    uint8_t  gimbal_device_id = 0;
+};
+
+/// 云台管理器状态（msg id 281）— GIMBAL_MANAGER_STATUS
+struct GimbalManagerStatusInfo {
+    uint8_t  system_id = 0;
+    uint8_t  component_id = 0;
+    uint32_t time_boot_ms = 0;
+    uint32_t flags = 0;
+    uint8_t  gimbal_device_id = 0;
+    uint8_t  primary_control_sysid = 0;
+    uint8_t  primary_control_compid = 0;
+    uint8_t  secondary_control_sysid = 0;
+    uint8_t  secondary_control_compid = 0;
+};
+
+/// 云台设备信息（msg id 283）— GIMBAL_DEVICE_INFORMATION
+struct GimbalDeviceInformationInfo {
+    uint8_t  system_id = 0;
+    uint8_t  component_id = 0;
+    uint64_t uid = 0;                 // 官方定义为 uint64_t（曾误写成 uint8_t，会截断）
+    uint32_t time_boot_ms = 0;
+    uint32_t firmware_version = 0;
+    uint32_t hardware_version = 0;
+    float    roll_min = 0, roll_max = 0;
+    float    pitch_min = 0, pitch_max = 0;
+    float    yaw_min = 0, yaw_max = 0;
+    uint16_t cap_flags = 0;
+    uint16_t custom_cap_flags = 0;
+    char     vendor_name[32] = {};
+    char     model_name[32] = {};
+    char     custom_name[32] = {};
+    uint8_t  gimbal_device_id = 0;
+    uint32_t cap_flags2 = 0;          // 官方定义为 uint32_t（曾误写成 uint16_t，会截断）
+};
+
+/// 云台设备姿态状态（msg id 285）— GIMBAL_DEVICE_ATTITUDE_STATUS
+struct GimbalDeviceAttitudeStatusInfo {
+    uint8_t  system_id = 0;
+    uint8_t  component_id = 0;
+    uint32_t time_boot_ms = 0;
+    float    q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  // 姿态四元数 (w,x,y,z)
+    float    angular_velocity_x = 0, angular_velocity_y = 0, angular_velocity_z = 0;
+    uint16_t failure_flags = 0;
+    uint32_t flags = 0;               // GIMBAL_DEVICE_FLAGS
+    uint8_t  target_system = 0;
+    uint8_t  target_component = 0;
+    float    delta_yaw = 0;
+    float    delta_yaw_velocity = 0;
+    uint8_t  gimbal_device_id = 0;
+};
+
 // 各消息类型的回调函数类型定义
 using HeartbeatCallback       = std::function<void(const HeartbeatInfo&)>;
 using SysStatusCallback       = std::function<void(const SysStatusInfo&)>;
@@ -878,6 +1018,24 @@ public:
 
     /// 获取已发现的视频流列表
     std::vector<VideoStreamInfo>      latest_video_streams() const;
+    /// 获取已上报的视频流状态（VIDEO_STREAM_STATUS）快照
+    std::vector<VideoStreamStatusInfo> latest_video_stream_status() const;
+
+    /// 获取已发现的相机（CAMERA_INFORMATION）列表
+    std::vector<CameraInformationInfo> latest_cameras() const;
+    /// 按 (系统, 组件) 取单个相机的信息/设置/拍摄状态；未收到返回 nullopt
+    std::optional<CameraInformationInfo>   camera_information(uint8_t sysid, uint8_t compid) const;
+    std::optional<CameraSettingsInfo>      camera_settings(uint8_t sysid, uint8_t compid) const;
+    std::optional<CameraCaptureStatusInfo> camera_capture_status(uint8_t sysid, uint8_t compid) const;
+    /// 某个相机组件上报的全部存储卷
+    std::vector<StorageInformationInfo>    camera_storage(uint8_t sysid, uint8_t compid) const;
+
+    /// 获取已发现的云台管理器（GIMBAL_MANAGER_INFORMATION）列表
+    std::vector<GimbalManagerInformationInfo> latest_gimbals() const;
+    std::optional<GimbalManagerInformationInfo>   gimbal_manager_information(uint8_t sysid, uint8_t compid) const;
+    std::optional<GimbalManagerStatusInfo>        gimbal_manager_status(uint8_t sysid, uint8_t compid) const;
+    std::optional<GimbalDeviceInformationInfo>    gimbal_device_information(uint8_t sysid, uint8_t compid) const;
+    std::optional<GimbalDeviceAttitudeStatusInfo> gimbal_device_attitude_status(uint8_t sysid, uint8_t compid) const;
     std::string last_statustext() const;
     uint8_t last_statustext_severity() const;
     std::vector<ParamInfo> all_params() const;
