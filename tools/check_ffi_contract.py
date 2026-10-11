@@ -2,12 +2,17 @@
 """Check the public API, Dart bindings, catalog and optional compiled library."""
 import argparse
 import ctypes
+import json
 from pathlib import Path
 import re
 import sys
 
 
 ROOT = Path(__file__).resolve().parent.parent
+UNBOUND_BASELINE = ROOT / "tools/ffi_unbound_baseline.json"
+# 目录里的文件只要提到符号名就算"有测试引用"。这是粗粒度代理：它证明存在
+# 一个会加载/调用该导出的测试或手工脚本，不代表行为已被完整覆盖。
+TEST_ROOTS = ("core/tests", "tests", "flutter_shell/test")
 CATALOG = ROOT / "bridge/ffi/API_CATALOG.md"
 CAPABILITIES = ROOT / "docs/capabilities.md"
 CAPABILITY_START = "<!-- capabilities:start -->"
@@ -119,6 +124,64 @@ def public_api():
     return entries
 
 
+def test_referenced_symbols():
+    """Symbols named anywhere under the test roots (coarse "has a caller" proxy)."""
+    names = set()
+    for rel in TEST_ROOTS:
+        base = ROOT / rel
+        if not base.exists():
+            continue
+        for file in base.rglob("*"):
+            if not file.is_file():
+                continue
+            try:
+                text = file.read_text(errors="ignore")
+            except OSError:
+                continue
+            names |= set(re.findall(r"\b(mg_\w+)\b", text))
+    return names
+
+
+def unbound_debt(api, bindings, tested):
+    """Public exports with no frontend binding, no internal-only note and no test caller.
+
+    这些符号是 A7 意义上的存量债务：既没进 UI，也没定性为内部能力，还没有任何
+    测试引用。基线只允许缩小，不能让新导出悄悄加入。
+    """
+    debt = set(api) - set(bindings) - set(INTERNAL_SYMBOL_NOTES) - set(tested)
+    return sorted(debt)
+
+
+def sync_unbound_baseline(debt, write):
+    payload = {
+        "_comment": (
+            "公开导出中「无前端绑定、无内部能力定性、无测试引用」的存量清单。"
+            "基线只允许缩小：新增未定性导出会失败；已覆盖的符号必须从基线删除。"
+            "语义与跟踪方式见 docs/constraints/known-deviations.md 的 KD-45。"
+        ),
+        "symbols": debt,
+    }
+    if write:
+        UNBOUND_BASELINE.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        return
+    if not UNBOUND_BASELINE.exists():
+        raise ValueError("tools/ffi_unbound_baseline.json is missing; run with --write-baseline")
+    current = json.loads(UNBOUND_BASELINE.read_text()).get("symbols", [])
+    added = sorted(set(debt) - set(current))
+    removed = sorted(set(current) - set(debt))
+    if added or removed:
+        lines = []
+        if added:
+            lines.append(
+                "new public exports with no UI binding, no internal-only note and no test caller "
+                "(bind, test or register them, then rerun --write-baseline): " + ", ".join(added))
+        if removed:
+            lines.append(
+                "baseline symbols are now bound or test-referenced; drop them from the baseline "
+                "(rerun --write-baseline): " + ", ".join(removed))
+        raise ValueError("; ".join(lines))
+
+
 def frontend_bindings():
     bindings = {}
     for file in sorted((ROOT / "flutter_shell/lib").rglob("*.dart")):
@@ -166,6 +229,11 @@ def catalog_text(api, bindings):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write-catalog", action="store_true")
+    parser.add_argument(
+        "--write-baseline",
+        action="store_true",
+        help="freeze the current unbound/untested export set into tools/ffi_unbound_baseline.json",
+    )
     parser.add_argument("--library", type=Path)
     args = parser.parse_args()
     api = public_api()
@@ -194,6 +262,8 @@ def main():
     elif not CATALOG.exists() or CATALOG.read_text() != expected:
         raise ValueError("API_CATALOG.md is stale; run with --write-catalog")
     sync_capability_doc(api, bindings, args.write_catalog)
+    debt = unbound_debt(api, bindings, test_referenced_symbols())
+    sync_unbound_baseline(debt, args.write_baseline)
     if args.library:
         library = ctypes.CDLL(str(args.library.resolve()))
         absent = []
@@ -232,6 +302,7 @@ def main():
         if actual_version != expected_version:
             raise ValueError(f"stale library version: {actual_version}, expected {expected_version}")
         print(f"[ffi-contract] library version: {actual_version}")
+    print(f"[ffi-contract] unbound/untested export debt: {len(debt)} (baseline tracked)")
     print(f"[ffi-contract] {len(api)} declarations and {len(bindings)} Dart bindings agree"
           + (" with the compiled library" if args.library else ""))
 

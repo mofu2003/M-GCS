@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- 下一轮开发的变更记录从这里开始；发布时整体迁入带版本号的段落。 -->
 
+### Added
+
+- FFI export-debt gate (`tools/check_ffi_contract.py`, `tools/ffi_unbound_baseline.json`): the
+  contract check now also freezes every public export that has no Dart binding, no internal-only
+  classification and no test reference. The baseline may only shrink — a new unclassified export,
+  or a symbol that is now bound/tested but still listed, fails the gate. Current debt: 58 of 314
+  exports (KD-45).
+
+### Changed
+
+- Architecture-health maintenance pass: registered KD-45 (FFI export debt), KD-46
+  (`flutter_shell/lib/map/amap_map_view.dart` reviewed under the change-coupling rule and kept
+  as-is) and KD-47 (`JsonMap` typedef placement accepted), tightened the A7 verification note,
+  and documented the maintenance-time review signals in `docs/development.md`. `__pycache__/` is
+  now git-ignored.
+
 ## [0.2.0] - 2026-10-11
 
 ### Added

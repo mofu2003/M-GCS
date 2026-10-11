@@ -19,6 +19,10 @@ build_waveform_check/
 .tools/
 third_party/mavlink/include/
 
+# === Python caches ===
+__pycache__/
+*.pyc
+
 # === IDE ===
 .idea/
 .vscode/
