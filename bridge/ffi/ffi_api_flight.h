@@ -7,17 +7,6 @@
 extern "C" {
 #endif
 
-/* Compatibility commands with simplified signatures. New consumers should use
- * the mg_command_* family so force/base/custom values remain explicit. */
-MGCORE_API char* mg_cmd_arm(mg_core_t* core);
-MGCORE_API char* mg_cmd_disarm(mg_core_t* core);
-MGCORE_API char* mg_cmd_set_mode(mg_core_t* core, const char* mode);
-MGCORE_API char* mg_cmd_rtl(mg_core_t* core);
-MGCORE_API char* mg_cmd_takeoff(mg_core_t* core, float altitude);
-MGCORE_API char* mg_cmd_land(mg_core_t* core);
-MGCORE_API char* mg_cmd_loiter(mg_core_t* core);
-MGCORE_API char* mg_cmd_guided(mg_core_t* core, double lat, double lon, float alt);
-
 // Explicit-target command dispatch. JSON example:
 // {"command":"rtl"} or {"command":"takeoff","args":{"altitude_m":30}}.
 // Commands: rtl, land, takeoff, arm, disarm, set_mode, mission_start,
@@ -42,18 +31,28 @@ MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
                                                const char* command_json);
 MGCORE_API char* mg_command_poll(mg_core_t* core, uint64_t ticket);
 
+// 以下同步命令会发送并等待飞控的 COMMAND_ACK（safety.md 的 S2），最长阻塞约 5 s，
+// 期间调用线程被占用。界面线程不得直接调用——请改用非阻塞的
+// mg_command_submit_for_vehicle + mg_command_poll。无 COMMAND_ACK 的引导命令
+// （改变高度/引导速度/引导暂停/环绕/ROI/改航向/设原点）发送后立即返回。
 MGCORE_API char* mg_command_arm(mg_core_t* core, int force);
 MGCORE_API char* mg_command_disarm(mg_core_t* core, int force);
 MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_mode);
 // 飞行模式操作台接口。模式表按机型给（ArduPilot 用 Copter/Plane/Rover/Sub/Tracker 各自
 // 的枚举号，PX4 用 main/sub 打包），与 MP 的 CMB_modes、QGC 的 flightMode 菜单同源。
-// mg_flight_get_modes 返回 available / current_mode / armed / modes[{id,name,settable}]；
-// mg_flight_set_mode 按名字切换，内部转成 base_mode + custom_mode 再发 DO_SET_MODE。
+// mg_flight_get_modes 返回 available / current_mode / armed / modes[{id,name,settable}]，
+// 以及 heartbeat_fresh / heartbeat_age_ms：heartbeat_fresh 为 false 时 armed 与
+// current_mode 来自最后一帧，调用方必须按“未知”处理，不能当成当前值（S5）。
+// mg_flight_set_mode 按名字切换，内部转成 base_mode + custom_mode，并等待
+// COMMAND_ACK 后才返回成功（safety.md 的 S2）。它是同步调用，最长等待约 5 s，
+// 界面线程应改用 mg_command_submit_for_vehicle + mg_command_poll。
 MGCORE_API char* mg_flight_get_modes(mg_core_t* core);
 MGCORE_API char* mg_flight_set_mode(mg_core_t* core, const char* mode_name);
 // 遥控通道 → 飞行模式的映射（对标 MP 的 ConfigFlightModes 页面）：读取
-// FLTMODE1..6 / COM_FLTMODE1..6、FLTMODE_CH|MODE_CH，以及 Copter/Rover 的
-// SIMPLE / SUPER_SIMPLE 位掩码。写回复用 mg_config_write_params。
+// FLTMODE1..6 / COM_FLTMODE1..6、通道参数 FLTMODE_CH|MODE_CH（PX4 为
+// RC_MAP_FLTMODE），以及 Copter/Rover 的 SIMPLE / SUPER_SIMPLE 位掩码。
+// PX4 的 COM_FLTMODEn 取值是参数枚举（非 custom_mode），槽位名与 options
+// 由 core 的 px4_fltmode_slot_table() 提供。写回复用 mg_config_write_params。
 MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core);
 MGCORE_API char* mg_command_rtl(mg_core_t* core);
 MGCORE_API char* mg_command_takeoff(mg_core_t* core, float altitude_m);
@@ -66,9 +65,10 @@ MGCORE_API char* mg_command_land(mg_core_t* core);
 // core 保留能力、界面不暴露（QGC 全仓不引用该命令；MP 在 Actions 下拉里以
 // Terminate Flight 暴露并要求一次 Yes/No 确认）。
 MGCORE_API char* mg_command_terminate_flight(mg_core_t* core);
-// 历史命名，语义是终止飞行，与名字不符。保留以免打断并行分支；新代码请用
-// mg_command_terminate_flight。
-MGCORE_API char* mg_command_emergency_stop(mg_core_t* core);
+// 注意：SET_POSITION_TARGET_* / DO_REPOSITION 之外的引导类命令（改变高度、
+// 引导速度、引导暂停、环绕、ROI、改变航向、设置原点）在 MAVLink 上**没有
+// COMMAND_ACK**。这些入口返回的 success 只表示“已交给发送层”，不代表飞控已
+// 执行；界面不要把它展示成执行成功。有 ACK 的命令见 mg_command_* 的 ACK 队列。
 MGCORE_API char* mg_command_guided_point(mg_core_t* core,
                                          double lat, double lon, float alt,
                                          float yaw, float speed);
@@ -100,11 +100,18 @@ MGCORE_API char* mg_command_change_heading(mg_core_t* core, float heading_deg,
 // 设置 EKF 全局原点（QGC 地图菜单的 “Set Estimator Origin”）。
 //
 // 无 GPS 的室内/视觉定位场景用它指定本地坐标原点的经纬高。
+// 发 MAV_CMD_DO_SET_GLOBAL_ORIGIN（COMMAND_INT + MAV_FRAME_GLOBAL），
+// 只有飞控回 COMMAND_ACK=ACCEPTED 才返回 success（S2）；拒绝与无 ACK 超时如实失败。
+// 最长阻塞约 5 s。
 MGCORE_API char* mg_command_set_global_origin(mg_core_t* core, double lat,
                                               double lon, float alt_m);
+// 收放起落架。发 MAV_CMD_AIRFRAME_CONFIGURATION，同样等 COMMAND_ACK；
+// 只有确认才返回 success（S2）。最长阻塞约 5 s。
 MGCORE_API char* mg_command_landing_gear(mg_core_t* core, bool deploy);
 
 MGCORE_API char* mg_flight_get_available_modes(mg_core_t* core);
+/// 当前模式/解锁/是否在飞，附 heartbeat_fresh 与 heartbeat_age_ms；
+/// heartbeat_fresh 为 false 时这些值已过期，界面显示为未知而不是当前值（S5）。
 MGCORE_API char* mg_flight_get_mode_status(mg_core_t* core);
 MGCORE_API char* mg_flight_get_mode_history(mg_core_t* core);
 MGCORE_API char* mg_flight_get_takeoff_altitude(mg_core_t* core);

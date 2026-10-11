@@ -5,23 +5,29 @@
  * read thread that dispatches received bytes to the registered callback.
  *
  * Thread safety:
- *   - opened_ and stop_requested_ are std::atomic<bool>.
- *   - close() calls join_read_thread() which uses CancelIoEx to interrupt
- *     any blocked ReadFile, then waits for the thread to exit before
- *     releasing the COM handle. This eliminates the destructor race where
- *     a blocked read thread could access freed memory.
- *   - cb_mtx_ protects receive_cb_ while close() clears it.
+ *   - The read thread only touches SerialLink::Reader (a shared_ptr the thread
+ *     owns), never SerialLink itself, so destroying the link cannot turn a
+ *     delayed thread exit into a use-after-free (KD-24).
+ *   - close() interrupts a blocked ReadFile with CancelIoEx and waits for the
+ *     thread to finish before releasing the COM handle. If it cannot finish in
+ *     time the port is abandoned: the handle is intentionally left open instead
+ *     of using TerminateThread, which could kill the thread while it holds
+ *     locks or handles.
+ *   - Reader::cb_mtx protects Reader::receive_cb while close() clears it.
  */
 
 #include "core/transport/serial_link.h"
 #include "core/log/logging.h"
 
 #include <algorithm>
+#include <memory>
 
 #ifndef _WIN32
 #include <cerrno>
 #include <chrono>
 #include <fcntl.h>
+#include <poll.h>
+#include <system_error>
 #include <termios.h>
 #include <thread>
 #include <unistd.h>
@@ -31,6 +37,9 @@ namespace mg::core::transport {
 
 #ifndef _WIN32
 namespace {
+/// 一次 send() 补齐短写的等待上限。send() 在 adapter 锁内被调用，不能无限等。
+constexpr int kWriteTimeoutMs = 200;
+
 speed_t to_termios_baud(uint32_t baud_rate) {
     switch (baud_rate) {
         case 9600: return B9600;
@@ -53,8 +62,34 @@ speed_t to_termios_baud(uint32_t baud_rate) {
 } // namespace
 #endif
 
+/// 读线程自持的状态。线程与链路共享 shared_ptr：链路先消失时线程仍然安全，
+/// 线程仍在运行时其状态也不会被释放。
+struct SerialLink::Reader {
+    std::atomic<bool> opened{false};
+    std::atomic<bool> stop_requested{false};
+    std::atomic<bool> finished{false};
+#ifdef _WIN32
+    HANDLE handle = INVALID_HANDLE_VALUE;
+#else
+    int fd = -1;
+#endif
+    mg::core::platform::Mutex cb_mtx;
+    ReceiveCallback receive_cb;
+
+    mg::core::platform::Mutex done_mtx;
+    mg::core::platform::ConditionVariable done_cv;
+
+    void mark_finished() {
+        finished.store(true);
+        mg::core::platform::LockGuard lk(done_mtx);
+        done_cv.notify_all();
+    }
+};
+
 SerialLink::SerialLink(const LinkDescriptor& descriptor)
-    : descriptor_(descriptor) {}
+    : descriptor_(descriptor) {
+    reader_ = std::make_shared<Reader>();
+}
 
 SerialLink::~SerialLink() {
     close();
@@ -62,7 +97,7 @@ SerialLink::~SerialLink() {
 
 // 打开串口，配置波特率和 8N1，启动后台读取线程
 bool SerialLink::open() {
-    if (opened_.load()) return true;
+    if (reader_->opened.load()) return true;
 
 #ifdef _WIN32
     std::string port_path = "\\\\.\\" + descriptor_.endpoint;
@@ -139,17 +174,20 @@ bool SerialLink::open() {
         return false;
     }
 
-    stop_requested_.store(false);
-    opened_.store(true);
+    reader_->stop_requested.store(false);
+    reader_->opened.store(true);
+    reader_->handle = handle_;
 
     // 启动后台读取线程
-    if (receive_cb_) {
-        read_thread_ = CreateThread(nullptr, 0, read_thread_proc, this, 0, nullptr);
+    if (reader_->receive_cb) {
+        auto* arg = new std::shared_ptr<Reader>(reader_);
+        read_thread_ = CreateThread(nullptr, 0, read_thread_proc, arg, 0, nullptr);
         if (!read_thread_) {
+            delete arg;
             MGC_LOG_ERROR("[SerialLink] CreateThread failed for %s", descriptor_.endpoint.c_str());
             CloseHandle(handle_);
             handle_ = INVALID_HANDLE_VALUE;
-            opened_.store(false);
+            reader_->opened.store(false);
             return false;
         }
     }
@@ -190,11 +228,12 @@ bool SerialLink::open() {
         return false;
     }
 
-    stop_requested_.store(false);
-    opened_.store(true);
+    reader_->stop_requested.store(false);
+    reader_->opened.store(true);
+    reader_->fd = fd_;
 
-    if (receive_cb_) {
-        read_thread_ = std::thread(read_thread_proc, this);
+    if (reader_->receive_cb) {
+        read_thread_ = std::thread(read_thread_proc, reader_);
     }
 
     MGC_LOG_INFO("[SerialLink] Opened %s @ %u baud", descriptor_.endpoint.c_str(), descriptor_.baud_rate);
@@ -204,6 +243,7 @@ bool SerialLink::open() {
 
 // 等待读取线程退出，使用 CancelIoEx 中断阻塞的读操作
 void SerialLink::join_read_thread() {
+    if (abandoned_) return;  // 句柄归读线程所有，不能再动它
 #ifdef _WIN32
     if (!read_thread_) return;
 
@@ -215,14 +255,24 @@ void SerialLink::join_read_thread() {
     }
     CancelSynchronousIo(read_thread_);
 
-    // 等待读取线程退出（5 秒超时）。旧版 USB 串口驱动可能忽略
-    // CancelIoEx；最后使用 TerminateThread，避免 close() 释放对象后
-    // 读取线程仍访问 this。
-    if (WaitForSingleObject(read_thread_, 5000) == WAIT_TIMEOUT) {
+    // 等待读取线程退出（5 秒超时）。旧版 USB 串口驱动可能忽略 CancelIoEx。
+    // 这里不强杀线程（KD-24）：TerminateThread 会在任意点中断，可能留下未释放
+    // 的句柄或锁。超时就放弃等待，把句柄所有权留给仍在运行的读线程——不关闭
+    // 串口句柄，代价是一次性的句柄泄漏，换取不会 use-after-free。
+    const auto reader = reader_;
+    bool finished = false;
+    {
+        mg::core::platform::UniqueLock lk(reader->done_mtx);
+        finished = reader->done_cv.wait_for(
+            lk, std::chrono::seconds(5), [&] { return reader->finished.load(); });
+    }
+    if (!finished) {
         MGC_LOG_ERROR(
-            "[SerialLink] Read thread did not stop for %s; terminating",
+            "[SerialLink] Read thread did not stop for %s; abandoning the port "
+            "(handle intentionally left open)",
             descriptor_.endpoint.c_str());
-        TerminateThread(read_thread_, ERROR_OPERATION_ABORTED);
+        abandoned_ = true;
+        return;
     }
     CloseHandle(read_thread_);
     read_thread_ = nullptr;
@@ -236,20 +286,20 @@ void SerialLink::join_read_thread() {
 // 关闭串口，停止读取线程并释放句柄
 void SerialLink::close() {
 #ifdef _WIN32
-    if (!opened_.load() && read_thread_ == nullptr && handle_ == INVALID_HANDLE_VALUE) return;
+    if (!reader_->opened.load() && read_thread_ == nullptr && handle_ == INVALID_HANDLE_VALUE) return;
 #else
-    if (!opened_.load() && !read_thread_.joinable() && fd_ < 0) return;
+    if (!reader_->opened.load() && !read_thread_.joinable() && fd_ < 0) return;
 #endif
 
     // 通知读取线程停止
-    stop_requested_.store(true);
+    reader_->stop_requested.store(true);
     set_receive_callback(nullptr);
 
     // 中断阻塞的 I/O 并等待线程退出
     join_read_thread();
 
 #ifdef _WIN32
-    if (handle_ != INVALID_HANDLE_VALUE) {
+    if (!abandoned_ && handle_ != INVALID_HANDLE_VALUE) {
         CloseHandle(handle_);
         handle_ = INVALID_HANDLE_VALUE;
     }
@@ -260,17 +310,17 @@ void SerialLink::close() {
     }
 #endif
 
-    opened_.store(false);
+    reader_->opened.store(false);
     MGC_LOG_INFO("[SerialLink] Closed %s", descriptor_.endpoint.c_str());
 }
 
 bool SerialLink::is_open() const {
-    return opened_.load();
+    return reader_->opened.load();
 }
 
 // 向串口写入数据
 bool SerialLink::send(const uint8_t* data, size_t size) {
-    if (!opened_.load()) return false;
+    if (!reader_->opened.load()) return false;
 
 #ifdef _WIN32
     size_t written_total = 0;
@@ -291,8 +341,41 @@ bool SerialLink::send(const uint8_t* data, size_t size) {
     }
     return true;
 #else
-    ssize_t bytes_written = ::write(fd_, data, size);
-    return bytes_written == static_cast<ssize_t>(size);
+    // POSIX 串口以 O_NONBLOCK 打开：短写与 EAGAIN 都必须补齐，否则一帧
+    // MAVLink 会被静默丢掉（以前只写一次，飞控侧看到的是坏帧）。
+    size_t written_total = 0;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(kWriteTimeoutMs);
+    while (written_total < size) {
+        const ssize_t written = ::write(fd_, data + written_total, size - written_total);
+        if (written > 0) {
+            written_total += static_cast<size_t>(written);
+            continue;
+        }
+        if (written < 0 && errno == EINTR) continue;
+        if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now()).count();
+            if (remaining <= 0) {
+                MGC_LOG_WARN("[SerialLink] Write timed out for %s after %zu/%zu bytes",
+                             descriptor_.endpoint.c_str(), written_total, size);
+                return false;
+            }
+            pollfd pfd{};
+            pfd.fd = fd_;
+            pfd.events = POLLOUT;
+            if (::poll(&pfd, 1, static_cast<int>(remaining)) <= 0) {
+                MGC_LOG_WARN("[SerialLink] Write timed out for %s after %zu/%zu bytes",
+                             descriptor_.endpoint.c_str(), written_total, size);
+                return false;
+            }
+            continue;
+        }
+        MGC_LOG_WARN("[SerialLink] Write failed for %s after %zu/%zu bytes: %d",
+                     descriptor_.endpoint.c_str(), written_total, size, errno);
+        return false;
+    }
+    return true;
 #endif
 }
 
@@ -300,23 +383,53 @@ bool SerialLink::send(const uint8_t* data, size_t size) {
 void SerialLink::set_receive_callback(ReceiveCallback cb) {
     const bool should_start = static_cast<bool>(cb);
     {
-        mg::core::platform::LockGuard lk(cb_mtx_);
-        receive_cb_ = std::move(cb);
+        mg::core::platform::LockGuard lk(reader_->cb_mtx);
+        reader_->receive_cb = std::move(cb);
     }
 
-    // 若已打开且尚未启动读取线程，则现在启动
+    // 若已打开且尚未启动读取线程，则现在启动。没有读取线程的串口链路不能工作，
+    // 启动失败必须让链路变成“已关闭”而不是继续对外显示已打开（KD-05）。
 #ifdef _WIN32
-    if (opened_.load() && should_start && !read_thread_) {
-        read_thread_ = CreateThread(nullptr, 0, read_thread_proc, this, 0, nullptr);
+    if (reader_->opened.load() && should_start && !read_thread_) {
+        auto* arg = new std::shared_ptr<Reader>(reader_);
+        read_thread_ = CreateThread(nullptr, 0, read_thread_proc, arg, 0, nullptr);
         if (!read_thread_) {
-            MGC_LOG_ERROR(
-                "[SerialLink] Failed to start read thread for %s",
-                descriptor_.endpoint.c_str());
+            delete arg;
+            fail_read_thread_start();
         }
     }
 #else
-    if (opened_.load() && should_start && !read_thread_.joinable()) {
-        read_thread_ = std::thread(read_thread_proc, this);
+    if (reader_->opened.load() && should_start && !read_thread_.joinable()) {
+        try {
+            read_thread_ = std::thread(read_thread_proc, reader_);
+        } catch (const std::system_error& error) {
+            // std::thread 构造失败会抛异常；这里不能让它穿出 C ABI 边界。
+            MGC_LOG_ERROR("[SerialLink] Failed to start read thread for %s: %s",
+                          descriptor_.endpoint.c_str(), error.what());
+            fail_read_thread_start();
+        }
+    }
+#endif
+}
+
+/// 读取线程启动失败：关闭端口并标记为未打开，避免上层以为链路可用。
+void SerialLink::fail_read_thread_start() {
+    MGC_LOG_ERROR("[SerialLink] Read thread unavailable for %s; closing the port",
+                  descriptor_.endpoint.c_str());
+    reader_->opened.store(false);
+    reader_->stop_requested.store(true);
+    reader_->mark_finished();  // 没有线程会再置位，避免 join 白等 5 秒
+#ifdef _WIN32
+    if (handle_ != INVALID_HANDLE_VALUE) {
+        CancelIoEx(handle_, nullptr);
+        CloseHandle(handle_);
+        handle_ = INVALID_HANDLE_VALUE;
+    }
+    read_thread_ = nullptr;
+#else
+    if (fd_ >= 0) {
+        ::close(fd_);
+        fd_ = -1;
     }
 #endif
 }
@@ -324,54 +437,56 @@ void SerialLink::set_receive_callback(ReceiveCallback cb) {
 // 后台读取线程入口函数，循环读取串口数据并分发给回调
 #ifdef _WIN32
 DWORD WINAPI SerialLink::read_thread_proc(LPVOID lpParam) {
-    auto* self = static_cast<SerialLink*>(lpParam);
+    std::unique_ptr<std::shared_ptr<Reader>> holder(
+        static_cast<std::shared_ptr<Reader>*>(lpParam));
+    const std::shared_ptr<Reader> reader = *holder;
     uint8_t buffer[4096];
 
-    while (!self->stop_requested_.load()) {
+    while (!reader->stop_requested.load()) {
         DWORD bytes_read = 0;
-        BOOL result = ReadFile(self->handle_, buffer, sizeof(buffer), &bytes_read, nullptr);
+        BOOL result = ReadFile(reader->handle, buffer, sizeof(buffer), &bytes_read, nullptr);
 
         if (result && bytes_read > 0) {
             ReceiveCallback cb_copy;
             {
-                mg::core::platform::LockGuard lk(self->cb_mtx_);  // 加锁保护回调
-                cb_copy = self->receive_cb_;
+                mg::core::platform::LockGuard lk(reader->cb_mtx);  // 加锁保护回调
+                cb_copy = reader->receive_cb;
             }
             if (cb_copy) cb_copy(buffer, bytes_read);
         } else if (!result) {
             // 读取出错或被 CancelIoEx 中断，检查是否应退出
             DWORD err = GetLastError();
-            if (err == ERROR_OPERATION_ABORTED || self->stop_requested_.load()) {
+            if (err == ERROR_OPERATION_ABORTED || reader->stop_requested.load()) {
                 break;
             }
             // 真实错误，也退出
-            self->opened_.store(false);
+            reader->opened.store(false);
             break;
         }
         // result==true 但 bytes_read==0 表示无数据可用（非阻塞模式）
-        // 必须 sleep 以避免 CPU 空转，同时让 stop_requested_ 有机会被检查
+        // 必须 sleep 以避免 CPU 空转，同时让 reader_->stop_requested 有机会被检查
         if (result && bytes_read == 0) {
             Sleep(10);
         }
     }
 
-    if (!self->stop_requested_.load()) {
-        self->opened_.store(false);
+    if (!reader->stop_requested.load()) {
+        reader->opened.store(false);
     }
-
+    reader->mark_finished();
     return 0;
 }
 #else
-void SerialLink::read_thread_proc(SerialLink* self) {
+void SerialLink::read_thread_proc(std::shared_ptr<Reader> reader) {
     uint8_t buffer[4096];
 
-    while (!self->stop_requested_.load()) {
-        ssize_t bytes_read = ::read(self->fd_, buffer, sizeof(buffer));
+    while (!reader->stop_requested.load()) {
+        ssize_t bytes_read = ::read(reader->fd, buffer, sizeof(buffer));
         if (bytes_read > 0) {
             ReceiveCallback cb_copy;
             {
-                mg::core::platform::LockGuard lk(self->cb_mtx_);
-                cb_copy = self->receive_cb_;
+                mg::core::platform::LockGuard lk(reader->cb_mtx);
+                cb_copy = reader->receive_cb;
             }
             if (cb_copy) cb_copy(buffer, static_cast<size_t>(bytes_read));
         } else if (bytes_read == 0) {
@@ -382,16 +497,17 @@ void SerialLink::read_thread_proc(SerialLink* self) {
             if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
                 continue;
             }
-            if (!self->stop_requested_.load()) {
+            if (!reader->stop_requested.load()) {
                 MGC_LOG_ERROR("[SerialLink] Read error: %d", errno);
             }
             break;
         }
     }
 
-    if (!self->stop_requested_.load()) {
-        self->opened_.store(false);
+    if (!reader->stop_requested.load()) {
+        reader->opened.store(false);
     }
+    reader->mark_finished();
 }
 #endif
 

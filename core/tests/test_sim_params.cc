@@ -78,7 +78,7 @@ static void test_param_value_write_validation() {
     // Drop the mock's automatic echo so the test can inject controlled
     // PARAM_VALUE replies.
     env.mock->set_param_drop(1);
-    char* set_res = mg_param_set(env.core, "WPNAV_SPEED", 10.0f);
+    char* set_res = mg_params_set(env.core, "WPNAV_SPEED", 10.0f, 0);
     CHECK("controlled write request is sent",
           set_res != nullptr && strstr(set_res, "true") != nullptr);
     if (set_res) mg_free_string(set_res);
@@ -104,7 +104,7 @@ static void test_param_value_write_validation() {
     CHECK("same-name reply with wrong value does not confirm write",
           diagnostics_has_state(env, "\"state\":\"pending\""));
 
-    char* cached = mg_param_get(env.core, "WPNAV_SPEED");
+    char* cached = mg_params_get_by_name(env.core, "WPNAV_SPEED");
     CHECK("mismatched replies do not update the active cache",
           cached != nullptr && parse_param_value(cached) > 4.9f &&
               parse_param_value(cached) < 5.1f);
@@ -118,10 +118,10 @@ static void test_param_value_write_validation() {
     // A delayed reply from an older request generation must not confirm a
     // newer write to the same parameter.
     env.mock->set_param_drop(2);
-    char* first = mg_param_set(env.core, "WPNAV_SPEED", 11.0f);
+    char* first = mg_params_set(env.core, "WPNAV_SPEED", 11.0f, 0);
     if (first) mg_free_string(first);
     env.tick(50);
-    char* second = mg_param_set(env.core, "WPNAV_SPEED", 12.0f);
+    char* second = mg_params_set(env.core, "WPNAV_SPEED", 12.0f, 0);
     CHECK("replacement write request is sent",
           second != nullptr && strstr(second, "true") != nullptr);
     if (second) mg_free_string(second);
@@ -138,6 +138,43 @@ static void test_param_value_write_validation() {
           diagnostics_has_state(env, "\"state\":\"confirmed\""));
 }
 
+static void test_write_isolated_by_new_download() {
+    fprintf(stderr, "\n[Group] Parameter write isolation across a new download\n");
+    TestEnv env;
+    env.tick(1100);
+    if (!load_all_params(env)) return;
+
+    // Hold the echo so the write is still pending when the download restarts.
+    env.mock->set_param_drop(1);
+    char* set_res = mg_params_set(env.core, "WPNAV_SPEED", 10.0f, 0);
+    CHECK("pending write request is sent",
+          set_res != nullptr && strstr(set_res, "true") != nullptr);
+    if (set_res) mg_free_string(set_res);
+    env.tick(50);
+    CHECK("write is pending before the download restarts",
+          diagnostics_has_state(env, "\"state\":\"pending\""));
+
+    // A reconnect or forced refresh begins a new download. The in-flight write
+    // must be failed against the old session instead of crossing into the new
+    // one, where a same-name PARAM_VALUE could otherwise confirm it.
+    char* restart = mg_params_request_all(env.core);
+    CHECK("new download request is sent after the link restarts",
+          restart != nullptr && strstr(restart, "\"success\":true") != nullptr);
+    if (restart) mg_free_string(restart);
+    env.tick(50);
+    CHECK("in-flight write is failed by the new download",
+          diagnostics_has_state(
+              env, "parameter write cancelled by a new parameter download"));
+    CHECK("cancelled write is no longer pending",
+          !diagnostics_has_state(env, "\"state\":\"pending\""));
+
+    // A late echo from the old request must not resurrect a confirmed state.
+    inject_param_value(env, 1, 1, "WPNAV_SPEED", 10.0f,
+                       MAV_PARAM_TYPE_REAL32, 36, 0);
+    CHECK("late echo after restart does not confirm the cancelled write",
+          !diagnostics_has_state(env, "\"state\":\"confirmed\""));
+}
+
 static void test_download_index_completion_and_source_filter() {
     fprintf(stderr, "\n[Group] Parameter download index and source filtering\n");
     TestEnv env;
@@ -152,7 +189,7 @@ static void test_download_index_completion_and_source_filter() {
 
     inject_param_value(env, 2, 1, "WRONG_SYSTEM", 1.0f,
                        MAV_PARAM_TYPE_REAL32, 3, 0);
-    char* wrong = mg_param_get(env.core, "WRONG_SYSTEM");
+    char* wrong = mg_params_get_by_name(env.core, "WRONG_SYSTEM");
     CHECK("other system parameter is not cached by active download",
           wrong != nullptr && strstr(wrong, "\"found\":false") != nullptr);
     if (wrong) mg_free_string(wrong);
@@ -304,7 +341,7 @@ static void test_param_get() {
         if (t > 0 && r >= t) break;
     }
 
-    char* json = mg_param_get(env.core, "WPNAV_SPEED");
+    char* json = mg_params_get_by_name(env.core, "WPNAV_SPEED");
     CHECK("get WPNAV_SPEED not null", json != nullptr);
     CHECK("get WPNAV_SPEED found", strstr(json, "\"found\":true") != nullptr);
 
@@ -317,7 +354,7 @@ static void test_param_get() {
     }
     mg_free_string(json);
 
-    char* notfound = mg_param_get(env.core, "NONEXISTENT_PARAM");
+    char* notfound = mg_params_get_by_name(env.core, "NONEXISTENT_PARAM");
     CHECK("not found param returns found:false", strstr(notfound, "\"found\":false") != nullptr);
     mg_free_string(notfound);
 }
@@ -341,7 +378,7 @@ static void test_param_set() {
 
     env.mock->received_params_set.clear();
 
-    char* set_res = mg_param_set(env.core, "WPNAV_SPEED", 10.0f);
+    char* set_res = mg_params_set(env.core, "WPNAV_SPEED", 10.0f, 0);
     CHECK("set returns success", set_res != nullptr && strstr(set_res, "true") != nullptr);
     mg_free_string(set_res);
 
@@ -356,7 +393,7 @@ static void test_param_set() {
     }
     CHECK("mock received WPNAV_SPEED set", found);
 
-    char* json = mg_param_get(env.core, "WPNAV_SPEED");
+    char* json = mg_params_get_by_name(env.core, "WPNAV_SPEED");
     const char* vp = strstr(json, "\"value\":");
     if (vp) {
         const float val = static_cast<float>(atof(vp + 8));
@@ -556,7 +593,7 @@ static void test_geofence_get_uses_loaded_ardupilot_params() {
         if (t > 0 && r >= t) break;
     }
 
-    char* fence = mg_geofence_get(env.core);
+    char* fence = mg_geofence_get_config(env.core);
     CHECK("FENCE_ENABLE maps to enabled true", strstr(fence, "\"enabled\":true") != nullptr);
     CHECK("FENCE_ALT_MAX maps to max_altitude 100", strstr(fence, "\"max_altitude\":100") != nullptr);
     CHECK("FENCE_ALT_MIN maps to min_altitude -10", strstr(fence, "\"min_altitude\":-10") != nullptr);
@@ -686,6 +723,7 @@ int main() {
     test_full_download();
     test_download_index_completion_and_source_filter();
     test_param_value_write_validation();
+    test_write_isolated_by_new_download();
     test_refresh_source_filter();
     test_cancel_download();
     test_param_get();

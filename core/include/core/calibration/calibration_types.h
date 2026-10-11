@@ -38,7 +38,11 @@ enum class CalibrationStage : uint8_t {
     Verifying         = 4,  // 校准完成，正在验证参数。
     Success           = 5,  // 校准成功。
     Failed            = 6,  // 校准失败。
-    Cancelled         = 7,  // 用户取消。
+    Cancelled         = 7,  // 飞控已确认停止（或取消超时收尾）。
+    // 已向飞控发出取消命令，等待确认。放在末尾而不是插在 Cancelled 前面，
+    // 是为了不改变已落盘校准历史里 Cancelled=7 的数值（见
+    // calibration_service.cc 的 MGCAL1 读写）。
+    Cancelling        = 8,
 };
 
 /// 校准质量评估。

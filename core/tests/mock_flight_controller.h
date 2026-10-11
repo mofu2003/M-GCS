@@ -15,6 +15,7 @@
 #include "core/mavlink/mavlink_adapter.h"
 #include "ardupilotmega/mavlink.h"
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <cstdio>
@@ -96,15 +97,25 @@ public:
     }
 
     // Mission
-    void set_mission(const std::vector<mavlink_mission_item_int_t>& v) { stored_mission_=v; }
-    const std::vector<mavlink_mission_item_int_t>& stored_mission() const { return stored_mission_; }
+    // 任务存储由 pump 线程写入（模拟飞控接收上传），测试主线程也会读取，
+    // 因此全部访问都在 mission_mutex_ 下进行，读接口返回副本。
+    void set_mission(const std::vector<mavlink_mission_item_int_t>& v) {
+        std::lock_guard<std::mutex> lock(mission_mutex_);
+        stored_mission_=v;
+    }
+    std::vector<mavlink_mission_item_int_t> stored_mission() const {
+        std::lock_guard<std::mutex> lock(mission_mutex_);
+        return stored_mission_;
+    }
     // 非 0 mission type（fence=1 / rally=2）的任务列表，供端到端测试断言。
-    const std::vector<mavlink_mission_item_int_t>& stored_mission_type(
+    std::vector<mavlink_mission_item_int_t> stored_mission_type(
         uint8_t mission_type) const {
+        std::lock_guard<std::mutex> lock(mission_mutex_);
         if (mission_type == MAV_MISSION_TYPE_MISSION) return stored_mission_;
-        static const std::vector<mavlink_mission_item_int_t> empty;
         const auto it = mission_by_type_.find(mission_type);
-        return it == mission_by_type_.end() ? empty : it->second;
+        if (it == mission_by_type_.end())
+            return std::vector<mavlink_mission_item_int_t>{};
+        return it->second;
     }
 
     // Command ACK
@@ -138,13 +149,40 @@ public:
         ftp_files_[path] = content;
     }
 
+    /// 注册一个可被 FTP 列出的虚拟目录；元素形如 "Fname\t123" / "Dname"。
+    void set_ftp_directory(const std::string& path,
+                           const std::vector<std::string>& entries) {
+        ftp_dirs_[path] = entries;
+    }
+
     /// 发送一条 LOG_ENTRY，模拟飞控的日志列表。
-    void send_log_entry(uint16_t id, uint32_t time_utc, uint32_t size) {
+    /// num_logs 是飞控声明的日志总数（前端用它判断列表是否收齐）。
+    void send_log_entry(uint16_t id, uint32_t time_utc, uint32_t size,
+                        uint16_t num_logs = 1) {
         mavlink_message_t m;
         mavlink_msg_log_entry_pack(config_.system_id, config_.component_id, &m,
-                                   id, 1, id, time_utc, size);
+                                   id, num_logs, id, time_utc, size);
         send(m);
     }
+
+    /// 发送一条 LOG_DATA，模拟飞控回传一段日志字节。
+    void send_log_data(uint16_t id, uint32_t ofs, const uint8_t* data, uint8_t count) {
+        mavlink_message_t m;
+        uint8_t buf[90] = {};
+        if (count > 90) count = 90;
+        if (data != nullptr && count > 0) std::memcpy(buf, data, count);
+        mavlink_msg_log_data_pack(config_.system_id, config_.component_id, &m,
+                                  id, ofs, count, buf);
+        send(m);
+    }
+
+    /// GCS 收到 LOG_REQUEST_DATA 的次数（含丢包补发）。用于验证状态查询无副作用。
+    int log_request_data_count = 0;
+    uint32_t last_log_request_ofs = 0;
+    /// GCS 收到 LOG_REQUEST_END 的次数（取消下载）。
+    int log_request_end_count = 0;
+    /// GCS 收到 LOG_ERASE 的次数（擦除全部日志）。
+    int log_erase_count = 0;
 
     /// 发送一条 STATUSTEXT，模拟飞控的提示/告警文本。
     void send_statustext(const std::string& text, uint8_t severity) {
@@ -219,8 +257,10 @@ private:
     std::vector<std::pair<std::string,ParamDef>> param_cache_;
     int param_drop_=0;
     std::map<std::string,std::string> ftp_files_;
+    std::map<std::string,std::vector<std::string>> ftp_dirs_;
     std::string ftp_open_path_;
     uint8_t ftp_session_=0;
+    mutable std::mutex mission_mutex_;
     std::vector<mavlink_mission_item_int_t> stored_mission_;
     std::map<uint8_t, std::vector<mavlink_mission_item_int_t>> mission_by_type_;
     int mission_recv_=0, mission_total_=0;
@@ -344,6 +384,7 @@ private:
             // 故障注入：首次任务请求不响应（测试任务超时重发）
             if(mission_first_drop_ && !mission_dropped_){ mission_dropped_=true; break; }
             mavlink_mission_request_int_t r; mavlink_msg_mission_request_int_decode(&msg,&r);
+            std::lock_guard<std::mutex> lock(mission_mutex_);
             auto& store = mission_store(r.mission_type);
             if(r.seq<store.size()){
                 mavlink_message_t m;
@@ -369,6 +410,7 @@ private:
         case MAVLINK_MSG_ID_MISSION_ITEM_INT: {
             if (mission_use_compat_request_) break;
             mavlink_mission_item_int_t it; mavlink_msg_mission_item_int_decode(&msg,&it);
+            std::lock_guard<std::mutex> lock(mission_mutex_);
             auto& store = mission_store(it.mission_type);
             mission_recv_++; if(it.seq>=(int)store.size()) store.resize(it.seq+1);
             mission_items_received = mission_recv_;
@@ -385,6 +427,7 @@ private:
             break; }
         case MAVLINK_MSG_ID_MISSION_ITEM: {
             mavlink_mission_item_t it; mavlink_msg_mission_item_decode(&msg,&it);
+            std::lock_guard<std::mutex> lock(mission_mutex_);
             auto& store = mission_store(it.mission_type);
             mission_recv_++; if(it.seq>=(int)store.size()) store.resize(it.seq+1);
             mission_items_received = mission_recv_;
@@ -419,6 +462,7 @@ private:
             break; }
         case MAVLINK_MSG_ID_MISSION_COUNT: {
             mavlink_mission_count_t mc; mavlink_msg_mission_count_decode(&msg,&mc);
+            std::lock_guard<std::mutex> lock(mission_mutex_);
             auto& store = mission_store(mc.mission_type);
             mission_total_=mc.count; mission_recv_=0; store.clear(); store.resize(mission_total_);
             if(mission_total_>0){mavlink_message_t r;
@@ -433,6 +477,7 @@ private:
             break; }
         case MAVLINK_MSG_ID_MISSION_CLEAR_ALL: {
             mavlink_mission_clear_all_t ca; mavlink_msg_mission_clear_all_decode(&msg,&ca);
+            std::lock_guard<std::mutex> lock(mission_mutex_);
             mission_clear_received=true; mission_store(ca.mission_type).clear();
             send_mission_ack(ca.mission_type); break; }
         case MAVLINK_MSG_ID_MISSION_SET_CURRENT: {
@@ -466,6 +511,18 @@ private:
                 send(a); next_cmd_result_=0;
             }
             break; }
+        case MAVLINK_MSG_ID_LOG_REQUEST_DATA: {
+            mavlink_log_request_data_t r;
+            mavlink_msg_log_request_data_decode(&msg, &r);
+            log_request_data_count++;
+            last_log_request_ofs = r.ofs;
+            break; }
+        case MAVLINK_MSG_ID_LOG_REQUEST_END:
+            log_request_end_count++;
+            break;
+        case MAVLINK_MSG_ID_LOG_ERASE:
+            log_erase_count++;
+            break;
         case MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL:
             handle_ftp(msg);
             break;
@@ -478,6 +535,7 @@ private:
     // ReadFile / TerminateSession。足够覆盖 @SYS/uarts.txt 之类的下载路径。
     static constexpr uint8_t kFtpOpTerminate = 1;
     static constexpr uint8_t kFtpOpReset     = 2;
+    static constexpr uint8_t kFtpOpListDir   = 3;
     static constexpr uint8_t kFtpOpOpenRead  = 4;
     static constexpr uint8_t kFtpOpRead      = 5;
     static constexpr uint8_t kFtpRspAck      = 128;
@@ -536,6 +594,30 @@ private:
             case kFtpOpTerminate:
                 send_ftp(seq, session, kFtpRspAck, opcode, 0, {});
                 break;
+            case kFtpOpListDir: {
+                const std::string path(
+                    reinterpret_cast<const char*>(p + kFtpHeader),
+                    request_size);
+                auto it = ftp_dirs_.find(path);
+                if (it == ftp_dirs_.end()) {
+                    // MAV_FTP_ERR_FILE_NOT_FOUND = 10
+                    send_ftp(seq, session, kFtpRspNak, opcode, 0, {10});
+                    break;
+                }
+                if (offset >= it->second.size()) {
+                    // MAV_FTP_ERR_EOF = 6 结束列表
+                    send_ftp(seq, session, kFtpRspNak, opcode, 0, {6});
+                    break;
+                }
+                std::vector<uint8_t> encoded;
+                for (size_t i = offset; i < it->second.size(); ++i) {
+                    encoded.insert(encoded.end(), it->second[i].begin(),
+                                   it->second[i].end());
+                    encoded.push_back(0);
+                }
+                send_ftp(seq, session, kFtpRspAck, opcode, 0, encoded);
+                break;
+            }
             case kFtpOpOpenRead: {
                 const std::string path(reinterpret_cast<const char*>(p + kFtpHeader),
                                        request_size);

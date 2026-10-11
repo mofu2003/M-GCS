@@ -3,7 +3,7 @@
 
 #include "ffi_internal.h"
 #include "ffi_helpers.h"
-#include "json_serializers.h"
+#include "core/telemetry/json_serializers.h"
 #include "mission_json_serializers.h"
 #include "ffi_operations_internal.h"
 
@@ -23,7 +23,7 @@ std::string params_operation_json(mg_core_t* core) {
     const bool failed = mav && mav->param_download_failed();
     const std::string error = mav ? mav->param_download_error() : std::string();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("id", "params");
     jb.field("type", "parameter_sync");
@@ -73,7 +73,7 @@ std::string transfer_operation_json(
         case mg::core::mission::MissionState::WaitingAck: state = "waiting_ack"; break;
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("id", id);
     jb.field("type", type);
@@ -129,8 +129,13 @@ std::string rally_operation_json(mg_core_t* core) {
 
 std::string calibration_operation_json(mg_core_t* core) {
     const auto status = get_active_calibration(core).get_status();
+    const bool cancelling =
+        status.stage == mg::core::calibration::CalibrationStage::Cancelling;
     const char* state = "idle";
-    if (status.active) {
+    if (cancelling) {
+        // 取消命令已下发、飞控尚未确认：仍在进行中，但不允许再点一次取消。
+        state = "cancelling";
+    } else if (status.active) {
         state = "running";
     } else {
         switch (status.stage) {
@@ -149,7 +154,7 @@ std::string calibration_operation_json(mg_core_t* core) {
         }
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("id", "calibration");
     jb.field("type", "calibration");
@@ -161,7 +166,7 @@ std::string calibration_operation_json(mg_core_t* core) {
     jb.field("progress_pct", static_cast<int>(status.progress));
     jb.field("current_step", static_cast<int>(status.current_step));
     jb.field("total_steps", static_cast<int>(status.total_steps));
-    jb.field("cancellable", status.active);
+    jb.field("cancellable", status.active && !cancelling);
     jb.field("cancelled", status.stage == mg::core::calibration::CalibrationStage::Cancelled);
     jb.field("message", status.user_message);
     jb.field("error", status.failure_reason);
@@ -177,6 +182,8 @@ std::string log_operation_json(mg_core_t* core) {
     const char* state = "idle";
     if (status.active) {
         state = "downloading";
+    } else if (status.saving) {
+        state = "saving";
     } else if (status.completed) {
         state = "complete";
     } else if (status.cancelled) {
@@ -184,19 +191,23 @@ std::string log_operation_json(mg_core_t* core) {
     } else if (!status.error.empty()) {
         state = "failed";
     }
+    // 64 位中间量：received_bytes 可超过 42 MB，直接乘 100 会溢出 uint32。
     const int progress = status.total_bytes > 0
-        ? static_cast<int>((status.received_bytes * 100) / status.total_bytes)
+        ? static_cast<int>((static_cast<uint64_t>(status.received_bytes) * 100) /
+                           status.total_bytes)
         : 0;
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("id", "log");
     jb.field("type", "log_download");
     jb.field("state", state);
     jb.field("progress_pct", progress);
     jb.field("log_id", static_cast<int>(status.id));
-    jb.field("received_bytes", static_cast<int>(status.received_bytes));
-    jb.field("total_bytes", static_cast<int>(status.total_bytes));
+    jb.field("received_bytes", static_cast<unsigned long long>(status.received_bytes));
+    jb.field("total_bytes", static_cast<unsigned long long>(status.total_bytes));
+    jb.field("size_declared", status.size_declared);
+    jb.field("saved_bytes", static_cast<unsigned long long>(status.saved_bytes));
     jb.field("path", status.filepath);
     jb.field("cancellable", status.active);
     jb.field("cancelled", status.cancelled);
@@ -206,7 +217,7 @@ std::string log_operation_json(mg_core_t* core) {
 }
 
 std::string operations_snapshot_json(mg_core_t* core) {
-    mg::bridge::JsonBuilder ops;
+    mg::core::telemetry::JsonBuilder ops;
     ops.begin_array();
     ops.append_json(params_operation_json(core));
     ops.append_json(mission_operation_json(core));
@@ -216,7 +227,7 @@ std::string operations_snapshot_json(mg_core_t* core) {
     ops.append_json(log_operation_json(core));
     ops.end_array();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.raw_field("operations", ops.str());
@@ -280,16 +291,17 @@ MGCORE_API char* mg_operations_cancel(mg_core_t* core, const char* operation_id)
         }
     } else if (id == "calibration") {
         auto& calibration = get_active_calibration(core);
-        if (calibration.is_active()) {
+        if (!calibration.is_active()) {
+            reason = "no active cancellable operation";
+        } else {
             char* result = mg_calibration_cancel(core);
             const bool request_ok =
                 result && std::strstr(result, "\"success\":true") != nullptr;
             if (result) mg_free_string(result);
-            canceled = !calibration.is_active();
-            reason = canceled
-                ? std::string()
-                : (request_ok ? "calibration cancel is still pending"
-                              : "failed to cancel calibration");
+            // 校准取消是异步的：请求被受理即视为已下发（快照的 state 会短暂
+            // 显示 cancelling），等飞控 COMMAND_ACK 才真正落到 cancelled。
+            canceled = request_ok;
+            reason = request_ok ? std::string() : "failed to cancel calibration";
         }
     } else if (id == "log") {
         if (auto* vehicle = get_active_vehicle(core)) {
@@ -298,7 +310,7 @@ MGCORE_API char* mg_operations_cancel(mg_core_t* core, const char* operation_id)
         }
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", known);
     jb.field("operation_id", id);

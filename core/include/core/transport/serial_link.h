@@ -5,6 +5,7 @@
 #include "core/transport/link_interface.h"
 #include "core/platform/platform_mutex.h"
 #include <atomic>
+#include <memory>
 #ifndef _WIN32
 #include <thread>
 #endif
@@ -33,15 +34,25 @@ public:
 
     void join_read_thread();
 
+    /// 读取线程启动失败时关闭端口并标记链路未打开（KD-05）。
+    void fail_read_thread_start();
+
+    /// 读线程自持的状态（定义在 .cc）。读循环只访问这个对象，不访问 SerialLink
+    /// 本身；因此 join 超时后即使 SerialLink 被销毁，线程也不会读到已释放的内存。
+    struct Reader;
+
 #ifdef _WIN32
     static DWORD WINAPI read_thread_proc(LPVOID lpParam);
 #else
-    static void read_thread_proc(SerialLink* self);
+    static void read_thread_proc(std::shared_ptr<Reader> reader);
 #endif
 
     LinkDescriptor descriptor_;
-    std::atomic<bool> opened_{false};
-    std::atomic<bool> stop_requested_{false};
+    std::shared_ptr<Reader> reader_;
+
+    /// join 超时后置位：句柄所有权留给仍在运行的读线程，close() 不再关闭它。
+    bool abandoned_ = false;
+
 #ifdef _WIN32
     HANDLE handle_ = INVALID_HANDLE_VALUE;  // 串口句柄
     HANDLE read_thread_ = nullptr;          // 后台读取线程句柄
@@ -49,8 +60,6 @@ public:
     int fd_ = -1;                            // POSIX serial file descriptor
     std::thread read_thread_;                // 后台读取线程
 #endif
-    ReceiveCallback receive_cb_;
-    mg::core::platform::Mutex cb_mtx_;  // 加锁保护回调函数
 };
 
 } // namespace mg::core::transport

@@ -1,15 +1,15 @@
 /**
- * mavlink_adapter_command.cc - Command queue send helper
+ * mavlink_adapter_command.cc - Command queue packing helper
  *
- * Definitions are out of line. Dispatch, locking, timeout checks,
- * and callback execution semantics are unchanged.
+ * Definitions are out of line. 只负责把队列条目打包进 Impl::msg；发送由调用方
+ * 决定（持锁派发路径入队，公开路径临时解锁直发，见 ADR-0005）。
  */
 
 #include "mavlink_adapter_internal.h"
 
 namespace mg::core::mavlink {
 
-bool MavlinkAdapter::Impl::send_command_queue_entry(const CommandQueueEntry& e)
+void MavlinkAdapter::Impl::pack_command_queue_entry(const CommandQueueEntry& e)
 {
     if (e.use_command_int) {
         mavlink_msg_command_int_pack(255, 0, &msg, e.target_sys, e.target_comp,
@@ -22,7 +22,6 @@ bool MavlinkAdapter::Impl::send_command_queue_entry(const CommandQueueEntry& e)
                                       e.params[0], e.params[1], e.params[2], e.params[3],
                                       e.params[4], e.params[5], e.params[6]);
     }
-    return send_msg();
 }
 
 } // namespace mg::core::mavlink

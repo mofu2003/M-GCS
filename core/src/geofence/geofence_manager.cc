@@ -10,6 +10,7 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 static constexpr double kEarthRadiusM = 6371000.0;
 static constexpr double kDegToRad = M_PI / 180.0;
@@ -293,7 +294,7 @@ std::string GeofenceManager::export_json() const {
 
 bool GeofenceManager::import_json(const std::string& json) {
     mg::core::platform::LockGuard lk(mtx_);
-    cJSON* root = cJSON_Parse(json.c_str());
+    cJSON* root = mg::core::json::parse(json.c_str());
     if (!root) return false;
 
     // Parse config

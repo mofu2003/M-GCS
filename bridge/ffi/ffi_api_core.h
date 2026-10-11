@@ -40,6 +40,7 @@ typedef enum {
     MG_ERROR_PROTOCOL          = -13,
     MG_ERROR_NOT_FOUND         = -14,
     MG_ERROR_CALIBRATION       = -15,
+    MG_ERROR_REJECTED          = -16,
 } mg_error_t;
 
 MGCORE_API const char* mg_error_string(mg_error_t error);

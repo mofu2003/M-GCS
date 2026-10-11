@@ -9,11 +9,11 @@
  *   飞行命令      -> ffi_flight_commands.cc
  *   参数文件读写  -> ffi_param_file.cc
  *
- * v0.18：任务 JSON 解析统一使用 cJSON。
+ * Mission JSON parsing uses cJSON consistently across the bridge.
  */
 #include "ffi_internal.h"
-#include "json_builder.h"
-#include "json_serializers.h"
+#include "core/telemetry/json_builder.h"
+#include "core/telemetry/json_serializers.h"
 #include "mission_json_serializers.h"
 #include "core/mission/mission_types.h"
 
@@ -37,7 +37,8 @@ static char* export_connected_plan_json(mg_core_t* core, Getter&& getter) {
     CHECK_CORE(core);
     auto* mav = get_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
-    return to_cstr(mg::bridge::mission_plan_json(getter(*mav)));
+    return to_cstr(mg::bridge::mission_plan_json(
+        getter(*mav), ffi_param_profile(core)));
 }
 
 // ================================================================
@@ -120,7 +121,7 @@ MGCORE_API char* mg_fence_enable(mg_core_t* core, int enable) {
 MGCORE_API char* mg_vehicle_list(mg_core_t* core) {
     CHECK_CORE(core);
     auto all = core->vehicles.get_all_vehicles_shared();
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
     for (const auto& v : all) {
         auto& info = v->info();
@@ -134,7 +135,7 @@ MGCORE_API char* mg_vehicle_list(mg_core_t* core) {
             if (!status.comm_lost) ++healthy_links;
             if (status.primary) primary_heartbeat_age_ms = status.heartbeat_age_ms;
         }
-        mg::bridge::JsonBuilder obj;
+        mg::core::telemetry::JsonBuilder obj;
         obj.begin_object();
         obj.field("vehicle_id", info.vehicle_id);
         obj.field("system_id", (int)info.system_id);
@@ -154,6 +155,8 @@ MGCORE_API char* mg_vehicle_list(mg_core_t* core) {
         obj.field("communication_lost", v->link_manager().communication_lost());
         obj.field("primary_heartbeat_age_ms",
                   static_cast<int64_t>(primary_heartbeat_age_ms));
+        obj.field("heartbeat_fresh",
+                  v->is_connected() && v->conn().heartbeat_alive(3000));
         obj.end_object();
         jb.append_json(obj.str());
     }
@@ -163,7 +166,7 @@ MGCORE_API char* mg_vehicle_list(mg_core_t* core) {
 
 MGCORE_API char* mg_vehicle_count(mg_core_t* core) {
     CHECK_CORE(core);
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("count", static_cast<int>(core->vehicles.vehicle_count()));
     jb.end_object();
@@ -182,14 +185,10 @@ MGCORE_API char* mg_firmware_flash(mg_core_t* core, const char* firmware_path) {
 
 MGCORE_API char* mg_firmware_flash_status(mg_core_t* core) {
     CHECK_CORE(core);
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("flashing", false);
     jb.field("progress", 0);
     jb.end_object();
     return to_cstr(jb.str());
 }
-
-// ================================================================
-// ffi_api.h aliases
-// ================================================================

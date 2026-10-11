@@ -64,7 +64,7 @@ mg::core::vehicle::Vehicle* require_vehicle(mg_core_t* core) {
     return resolve_vehicle_session(core).vehicle;
 }
 
-mg::bridge::TelemetryCache* session_cache(mg_core_t* core) {
+mg::core::telemetry::TelemetryCache* session_cache(mg_core_t* core) {
     auto* vehicle = require_vehicle(core);
     return vehicle ? &vehicle->cache() : nullptr;
 }

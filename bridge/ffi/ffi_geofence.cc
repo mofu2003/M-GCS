@@ -7,10 +7,11 @@
  * Routes through active vehicle's GeofenceManager via get_active_geofence().
  */
 #include "ffi_internal.h"
-#include "json_serializers.h"
+#include "core/telemetry/json_serializers.h"
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 static bool geofence_param(mg_core_t* core, const char* name, float* value) {
     auto* mav = get_active_mavlink(core);
@@ -32,7 +33,7 @@ MGCORE_API char* mg_geofence_get_config(mg_core_t* core) {
     if (geofence_param(core, "FENCE_ACTION", &param)) config.action = static_cast<uint8_t>(param);
     if (geofence_param(core, "FENCE_MARGIN", &param)) config.breach_distance = param;
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("enabled", config.enabled);
     jb.field("max_altitude", config.max_altitude);
@@ -48,7 +49,7 @@ MGCORE_API char* mg_geofence_set_config(mg_core_t* core, const char* json) {
     CHECK_CORE(core);
     if (!json || json[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null json");
 
-    cJSON* root = cJSON_Parse(json);
+    cJSON* root = mg::core::json::parse(json);
     if (!root) return fail(MG_ERROR_INVALID_PARAM, "invalid JSON");
 
     mg::core::geofence::FenceConfig config;
@@ -81,7 +82,7 @@ MGCORE_API char* mg_geofence_add_point(mg_core_t* core, double lat, double lon, 
     auto& fence = get_active_geofence(core);
     fence.add_point(lat, lon, alt);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("point_count", static_cast<int>(fence.point_count()));
@@ -102,10 +103,10 @@ MGCORE_API char* mg_geofence_get_points(mg_core_t* core) {
 
     auto points = get_active_geofence(core).get_points();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
     for (size_t i = 0; i < points.size(); i++) {
-        mg::bridge::JsonBuilder p;
+        mg::core::telemetry::JsonBuilder p;
         p.begin_object();
         p.field("index", static_cast<int>(i));
         p.field("lat", points[i].lat);
@@ -123,17 +124,17 @@ MGCORE_API char* mg_geofence_validate(mg_core_t* core) {
 
     auto result = get_active_geofence(core).validate();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("valid", result.valid);
-    if (!result.error.empty()) jb.field("error", result.error);
+    if (!result.error.empty()) jb.field("message", result.error);
     jb.field("area_m2", result.area_m2);
     jb.field("perimeter_m", result.perimeter_m);
 
-    mg::bridge::JsonBuilder warnings;
+    mg::core::telemetry::JsonBuilder warnings;
     warnings.begin_array();
     for (const auto& w : result.warnings) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("msg", w);
         item.end_object();
@@ -166,23 +167,12 @@ MGCORE_API char* mg_geofence_export_kml(mg_core_t* core, const char* name) {
     return to_cstr(get_active_geofence(core).export_kml(name ? name : "Geofence"));
 }
 
-// ================================================================
-// ffi_api.h aliases
-// ================================================================
-
-MGCORE_API char* mg_geofence_get(mg_core_t* core) {
-    return mg_geofence_get_config(core);
-}
-
-MGCORE_API char* mg_geofence_set(mg_core_t* core, const char* json_fence) {
-    return mg_geofence_set_config(core, json_fence);
-}
 
 MGCORE_API char* mg_geofence_check(mg_core_t* core, double lat, double lon) {
     CHECK_CORE(core);
     auto& fence = get_active_geofence(core);
     bool inside = fence.is_inside_fence(lat, lon);
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("inside_fence", inside);
     jb.field("lat", lat);

@@ -5,9 +5,9 @@
  * 传感器健康、飞控固件状态、固件版本请求。
  */
 #include "ffi_internal.h"
-#include "ffi_v2_response.h"
-#include "json_serializers.h"
-#include "sensor_health_json_serializers.h"
+#include "ffi_response.h"
+#include "core/telemetry/json_serializers.h"
+#include "core/telemetry/sensor_health_json_serializers.h"
 #include "core/firmware/firmware_adapter.h"
 #include "core/firmware/firmware_plugin.h"
 
@@ -24,7 +24,7 @@ const char* firmware_profile(mg::core::firmware::FirmwareKind kind) {
     }
 }
 
-void capability_field(mg::bridge::JsonBuilder& jb,
+void capability_field(mg::core::telemetry::JsonBuilder& jb,
                       const char* name,
                       uint32_t flags,
                       mg::core::firmware::FirmwareCapability capability) {
@@ -32,7 +32,7 @@ void capability_field(mg::bridge::JsonBuilder& jb,
 }
 
 std::string capability_json(uint32_t flags, bool has_param_remapping) {
-    mg::bridge::JsonBuilder caps;
+    mg::core::telemetry::JsonBuilder caps;
     caps.begin_object();
     capability_field(caps, "guided_mode", flags,
                      mg::core::firmware::CapGuidedMode);
@@ -46,6 +46,9 @@ std::string capability_json(uint32_t flags, bool has_param_remapping) {
                      mg::core::firmware::CapMotorTest);
     capability_field(caps, "calibration", flags,
                      mg::core::firmware::CapCalibration);
+    capability_field(caps, "roi", flags, mg::core::firmware::CapRoi);
+    capability_field(caps, "change_heading", flags,
+                     mg::core::firmware::CapChangeHeading);
     caps.field("param_remapping", has_param_remapping);
     caps.end_object();
     return caps.str();
@@ -64,7 +67,7 @@ MGCORE_API char* mg_sensors_get_health(mg_core_t* core) {
     if (!cache) return to_cstr(R"({"present":0,"enabled":0,"health":0})");
     auto snap = cache->snapshot_sys_status();
     const auto hb = cache->snapshot_heartbeat().data;
-    return to_cstr(mg::bridge::sensor_health_json(snap.data, hb.autopilot_type));
+    return to_cstr(mg::core::telemetry::sensor_health_json(snap.data, hb.autopilot_type));
 }
 
 MGCORE_API char* mg_vehicle_get_firmware(mg_core_t* core) {
@@ -72,14 +75,14 @@ MGCORE_API char* mg_vehicle_get_firmware(mg_core_t* core) {
     auto* cache = get_active_cache(core);
     if (!cache) return to_cstr(R"({"autopilot_type":0,"vehicle_type":0})");
     auto snap = cache->snapshot_heartbeat();
-    return to_cstr(mg::bridge::firmware_json(snap.data));
+    return to_cstr(mg::core::telemetry::firmware_json(snap.data));
 }
 MGCORE_API char* mg_sensors_get_statustext(mg_core_t* core) {
     CHECK_CORE(core);
     auto* cache = get_active_cache(core);
     if (!cache) return to_cstr(R"({"severity":7,"text":"","severity_label":"debug"})");
     auto snap = cache->snapshot_statustext();
-    return to_cstr(mg::bridge::statustext_json(snap.data));
+    return to_cstr(mg::core::telemetry::statustext_json(snap.data));
 }
 
 
@@ -97,7 +100,7 @@ MGCORE_API char* mg_firmware_get_type(mg_core_t* core) {
     CHECK_CORE(core);
     auto* cache = get_active_cache(core);
     if (!cache) {
-        mg::bridge::JsonBuilder empty;
+        mg::core::telemetry::JsonBuilder empty;
         empty.begin_object();
         empty.field("schema_version", 1);
         empty.field("firmware", "Unknown");
@@ -106,9 +109,10 @@ MGCORE_API char* mg_firmware_get_type(mg_core_t* core) {
         empty.field("autopilot_type", 0);
         empty.field("vehicle_type_id", 0);
         empty.field("capability_flags", 0);
+        empty.field("minimum_takeoff_altitude_m", 0.0);
         empty.raw_field("capabilities", capability_json(0, false));
         empty.end_object();
-        return mg::bridge::ffi::v2::ok(empty.str());
+        return mg::bridge::ffi::response::ok(empty.str());
     }
     auto hb_snap = cache->snapshot_heartbeat();
     const auto& hb = hb_snap.data;
@@ -119,8 +123,10 @@ MGCORE_API char* mg_firmware_get_type(mg_core_t* core) {
     const uint32_t flags =
         plugin ? plugin->capabilities(adapter.vehicle_kind()) : 0;
     const bool has_param_remapping = plugin && plugin->has_param_remapping();
+    const float minimum_takeoff_altitude_m =
+        plugin ? plugin->minimum_takeoff_altitude(adapter.vehicle_kind()) : 0.0f;
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("schema_version", 1);
     jb.field("firmware", adapter.firmware_name());
@@ -129,9 +135,11 @@ MGCORE_API char* mg_firmware_get_type(mg_core_t* core) {
     jb.field("autopilot_type", (int)hb.autopilot_type);
     jb.field("vehicle_type_id", (int)hb.vehicle_type);
     jb.field("capability_flags", static_cast<unsigned>(flags));
+    jb.field("minimum_takeoff_altitude_m",
+             static_cast<double>(minimum_takeoff_altitude_m));
     jb.raw_field("capabilities", capability_json(flags, has_param_remapping));
     jb.end_object();
-    return mg::bridge::ffi::v2::ok(jb.str());
+    return mg::bridge::ffi::response::ok(jb.str());
 }
 
 MGCORE_API char* mg_health_get_all(mg_core_t* core) {
@@ -141,7 +149,7 @@ MGCORE_API char* mg_health_get_all(mg_core_t* core) {
     auto hb_snap = cache->snapshot_heartbeat();
     const auto& ss = ss_snap.data;
     const auto& hb = hb_snap.data;
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("connected", is_active_connected(core));
     jb.field("system_id", (int)hb.system_id);
@@ -155,16 +163,4 @@ MGCORE_API char* mg_health_get_all(mg_core_t* core) {
     jb.field("battery_remaining", (int)ss.battery_remaining);
     jb.end_object();
     return to_cstr(jb.str());
-}
-
-// ================================================================
-// ffi_api.h aliases
-// ================================================================
-
-MGCORE_API char* mg_firmware_request_version(mg_core_t* core) {
-    return mg_vehicle_request_firmware_version(core);
-}
-
-MGCORE_API char* mg_firmware_get_version(mg_core_t* core) {
-    return mg_vehicle_get_firmware_version(core);
 }

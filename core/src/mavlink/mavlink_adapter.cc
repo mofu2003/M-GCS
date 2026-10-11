@@ -17,6 +17,7 @@
 #include <atomic>
 #include <chrono>
 #include <string>
+#include <cstring>
 
 namespace mg::core::mavlink {
 
@@ -29,58 +30,48 @@ MavlinkAdapter::MavlinkAdapter()
 
 MavlinkAdapter::~MavlinkAdapter() = default;
 
-bool MavlinkAdapter::download_file(uint8_t target_system, uint8_t target_component,
-                                    const std::string& remote_path,
-                                    const std::string& local_path,
-                                    std::string* error) {
-    mg::core::ftp::FtpResult result;
-    const bool success = impl_->ftp.download_file(
-        target_system, target_component, remote_path, local_path, nullptr, &result);
-    if (!success && error) {
-        *error = result.error;
-        if (result.error_code != 0) {
-            *error += " (MAVLink FTP 错误码 " +
-                std::to_string(static_cast<unsigned>(result.error_code)) + ")";
-        }
-    }
-    return success;
+// FTP 传输跑在自己的后台线程上；析构时先取消并 join，保证线程不会碰到
+// 已经析构的 send_mtx/send_cb（成员按声明逆序析构，ftp 晚于它们）。
+MavlinkAdapter::Impl::~Impl() {
+    ftp.shutdown();
 }
 
-bool MavlinkAdapter::upload_file(uint8_t target_system, uint8_t target_component,
-                                 const std::string& local_path,
-                                 const std::string& remote_path,
-                                 std::string* error) {
-    mg::core::ftp::FtpResult result;
-    const bool success = impl_->ftp.upload_file(
-        target_system, target_component, local_path, remote_path, nullptr, &result);
-    if (!success && error) {
-        *error = result.error;
-        if (result.error_code != 0) {
-            *error += " (MAVLink FTP 错误码 " +
-                std::to_string(static_cast<unsigned>(result.error_code)) + ")";
-        }
-    }
-    return success;
+bool MavlinkAdapter::file_list_start(uint8_t target_system,
+                                     uint8_t target_component,
+                                     const std::string& remote_path) {
+    return impl_->ftp.start_list_directory(target_system, target_component,
+                                           remote_path);
 }
 
-std::vector<mg::core::ftp::DirEntry> MavlinkAdapter::list_directory(
-    uint8_t target_system, uint8_t target_component,
-    const std::string& remote_path, std::string* error) {
-    mg::core::ftp::FtpResult result;
-    auto entries = impl_->ftp.list_directory(
-        target_system, target_component, remote_path, &result);
-    if (!result.success && error != nullptr) {
-        *error = result.error;
-        if (result.error_code != 0) {
-            *error += " (MAVLink FTP 错误码 " +
-                std::to_string(static_cast<unsigned>(result.error_code)) + ")";
-        }
-    }
-    return entries;
+bool MavlinkAdapter::file_download_start(uint8_t target_system,
+                                         uint8_t target_component,
+                                         const std::string& remote_path,
+                                         const std::string& local_path) {
+    return impl_->ftp.start_download_file(target_system, target_component,
+                                          remote_path, local_path);
 }
 
-void MavlinkAdapter::cancel_file_transfer() {
+bool MavlinkAdapter::file_upload_start(uint8_t target_system,
+                                       uint8_t target_component,
+                                       const std::string& local_path,
+                                       const std::string& remote_path) {
+    return impl_->ftp.start_upload_file(target_system, target_component,
+                                        local_path, remote_path);
+}
+
+mg::core::ftp::MavlinkFtpClient::FtpTransferStatus
+MavlinkAdapter::file_transfer_status() const {
+    return impl_->ftp.transfer_status();
+}
+
+bool MavlinkAdapter::file_transfer_cancel() {
+    if (!impl_->ftp.transfer_active()) return false;
     impl_->ftp.cancel();
+    return true;
+}
+
+bool MavlinkAdapter::file_transfer_wait(int timeout_ms) {
+    return impl_->ftp.wait_for_completion(timeout_ms);
 }
 
 // ================================================================
@@ -140,6 +131,11 @@ bool MavlinkAdapter::feed_raw(const uint8_t* data, size_t size) {
         }
         impl_->process(frame);
         accepted = true;
+        // .tlog 录制：process() 已释放 mtx，这里做文件 I/O 不违反 A3。
+        // 把解码消息重新序列化成完整帧字节再落盘（含去签名/跳过 SETUP_SIGNING）。
+        uint8_t logbuf[MAVLINK_MAX_PACKET_LEN];
+        const uint16_t loglen = mavlink_msg_to_send_buffer(logbuf, &frame);
+        impl_->record_frame(logbuf, loglen);
     }
     return accepted;
 }
@@ -184,10 +180,80 @@ bool signing_key_matches(const std::array<uint8_t, 32>& key,
 
 } // namespace
 
-// 设置底层发送回调，加锁保护
+// 设置底层发送回调。send_cb 由 send_mtx 保护，与所有发送路径一致；
+// 若这里改用 impl_->mtx，就会和发送线程在 send_cb 上形成数据竞态。
 void MavlinkAdapter::set_send_callback(SendCallback cb) {
-    mg::core::platform::LockGuard lk(impl_->mtx);
+    mg::core::platform::LockGuard lk(impl_->send_mtx);
     impl_->send_cb = std::move(cb);
+}
+
+// ================================================================
+// .tlog 录制（ADR-0006）
+// ================================================================
+
+void MavlinkAdapter::set_log_sink(mg::core::settings::MavlinkLogWriter* writer) {
+    impl_->log_sink.store(writer, std::memory_order_release);
+}
+
+// 把一帧原始 MAVLink 字节按 .tlog 记录写盘。调用方必须不持任何 adapter 锁，
+// 否则就是 A3 违规（持锁路径禁止文件 I/O）。未绑定 sink / 未在录制时为空操作。
+void MavlinkAdapter::Impl::record_frame(const uint8_t* data, size_t size) {
+    auto* sink = log_sink.load(std::memory_order_acquire);
+    if (sink == nullptr || !sink->is_recording()) return;
+    if (data == nullptr || size < 8) return;
+
+    const uint8_t magic = data[0];
+    uint8_t core_header_len = 0;   // STX 之后的头部字节数（不含 STX、payload、CRC）
+    uint8_t incompat_flags = 0;
+    uint32_t msgid = 0;
+    if (magic == MAVLINK_STX) {                    // MAVLink v2 (0xFD)
+        core_header_len = MAVLINK_CORE_HEADER_LEN;             // 9
+        if (size < 1u + core_header_len + 2u) return;
+        incompat_flags = data[2];
+        msgid = static_cast<uint32_t>(data[7]) |
+                (static_cast<uint32_t>(data[8]) << 8) |
+                (static_cast<uint32_t>(data[9]) << 16);
+    } else if (magic == MAVLINK_STX_MAVLINK1) {    // MAVLink v1 (0xFE)
+        core_header_len = MAVLINK_CORE_HEADER_MAVLINK1_LEN;    // 5
+        if (size < 1u + core_header_len + 2u) return;
+        msgid = data[5];
+    } else {
+        return;  // 非 MAVLink 字节不写入 .tlog
+    }
+
+    // MAVLink 日志规范：SETUP_SIGNING 载荷含密钥，绝不入盘（QGC 同样跳过）。
+    if (msgid == MAVLINK_MSG_ID_SETUP_SIGNING) return;
+
+    const uint8_t payload_len = data[1];
+    const bool signed_frame =
+        (magic == MAVLINK_STX) && ((incompat_flags & MAVLINK_IFLAG_SIGNED) != 0);
+    const size_t signature_len = signed_frame ? MAVLINK_SIGNATURE_BLOCK_LEN : 0;
+    const size_t frame_len =
+        1u + core_header_len + static_cast<size_t>(payload_len) + 2u + signature_len;
+    if (size < frame_len) return;  // 残缺帧不落盘
+
+    if (!signed_frame) {
+        sink->write_frame(data, frame_len);
+        return;
+    }
+
+    // 去掉签名块并重算校验和，使回放侧按未签名帧解析（对齐 QGC 的
+    // MAVLinkSigning::serializeUnsignedCopy）。丢弃的是 HMAC，不是密钥。
+    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+    const size_t unsigned_len = frame_len - signature_len;
+    std::memcpy(buf, data, unsigned_len);
+    buf[2] = static_cast<uint8_t>(incompat_flags &
+                                  static_cast<uint8_t>(~MAVLINK_IFLAG_SIGNED));
+    uint16_t checksum = crc_calculate(&buf[1], core_header_len);
+    crc_accumulate_buffer(&checksum,
+                          reinterpret_cast<const char*>(&buf[1 + core_header_len]),
+                          payload_len);
+    mavlink_message_t probe{};
+    probe.msgid = msgid;
+    crc_accumulate(mavlink_get_crc_extra(&probe), &checksum);
+    buf[unsigned_len - 2] = static_cast<uint8_t>(checksum & 0xFF);
+    buf[unsigned_len - 1] = static_cast<uint8_t>(checksum >> 8);
+    sink->write_frame(buf, unsigned_len);
 }
 
 bool MavlinkAdapter::set_signing_key(const uint8_t* key,
@@ -349,13 +415,16 @@ bool MavlinkAdapter::send_setup_signing(uint8_t target_system,
     if (key == nullptr || key_size < sizeof(impl_->signing.secret_key)) {
         return false;
     }
-    mg::core::platform::LockGuard lk(impl_->mtx);
+    mg::core::platform::UniqueLock lk(impl_->mtx);
     const uint64_t timestamp = initial_timestamp == 0
         ? signing_now_ticks()
         : initial_timestamp;
     mavlink_msg_setup_signing_pack(
         255, 0, &impl_->msg, target_system, target_component,
         key, timestamp);
+    // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
+    // 也避免传输层回调重入 adapter 时死锁）。
+    lk.unlock();
     return impl_->send_message_with_mode(impl_->msg, false);
 }
 
@@ -751,17 +820,30 @@ std::vector<MavlinkAdapter::ParamChangeRecord> MavlinkAdapter::param_change_hist
 int MavlinkAdapter::start_param_refresh(uint8_t target_system,
                                         uint8_t target_component,
                                         const std::vector<std::string>& names) {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    impl_->pc.begin_refresh(names, target_system, target_component);
+    // 先把每一帧在锁内打包好（共用缓冲 impl_->msg 不能跨解锁使用），
+    // 然后整批在锁外发送（KD-22：A3 要求持锁路径不做阻塞 I/O）。
+    std::vector<mavlink_message_t> frames;
+    frames.reserve(names.size());
+    {
+        mg::core::platform::LockGuard lk(impl_->mtx);
+        impl_->pc.begin_refresh(names, target_system, target_component);
+        for (const auto& name : names) {
+            mavlink_message_t frame{};
+            mavlink_msg_param_request_read_pack(
+                255, 0, &frame,
+                target_system, target_component, name.c_str(), -1);
+            frames.push_back(frame);
+        }
+    }
+
     int sent = 0;
-    for (const auto& name : names) {
-        mavlink_msg_param_request_read_pack(
-            255, 0, &impl_->msg,
-            target_system, target_component, name.c_str(), -1);
-        if (impl_->send_msg()) {
-            sent++;
+    for (size_t index = 0; index < frames.size(); ++index) {
+        if (impl_->send_message(frames[index])) {
+            ++sent;
         } else {
-            impl_->pc.fail_refresh(name);
+            // 失败记录要改刷新状态，短暂加锁后立刻释放。
+            mg::core::platform::LockGuard lk(impl_->mtx);
+            impl_->pc.fail_refresh(names[index]);
         }
     }
     return sent;
@@ -828,44 +910,7 @@ std::optional<GpsInfo> MavlinkAdapter::latest_gps() const {
 
 
 // ================================================================
-// ACK 等待机制（QGC MavCommandQueue 模式）
-// ================================================================
-
-// 清除待处理的 ACK 状态
-void MavlinkAdapter::clear_pending_ack() {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    impl_->ack_waiter.ack_received = false;
-    impl_->ack_waiter.pending.reset();
-}
-
-// 等待特定命令的 ACK，使用条件变量超时机制
-std::optional<CommandAckInfo> MavlinkAdapter::wait_for_ack(uint16_t command, int timeout_ms) {
-    mg::core::platform::UniqueLock lk(impl_->mtx);
-    // 自动清除旧状态，避免第二次调用复用过期 ACK
-    if (impl_->ack_waiter.pending.has_value() && impl_->ack_waiter.pending->command != command) {
-        impl_->ack_waiter.ack_received = false;
-        impl_->ack_waiter.pending.reset();
-    }
-
-    impl_->ack_waiter.cv.wait_for(lk, std::chrono::milliseconds(timeout_ms), [&]() {
-        if (impl_->ack_waiter.ack_received && impl_->ack_waiter.pending.has_value()) {
-            return impl_->ack_waiter.pending->command == command;
-        }
-        return false;
-    });
-
-    if (impl_->ack_waiter.ack_received && impl_->ack_waiter.pending.has_value() &&
-        impl_->ack_waiter.pending->command == command) {
-        auto result = impl_->ack_waiter.pending;
-        impl_->ack_waiter.ack_received = false;
-        impl_->ack_waiter.pending.reset();
-        return result;
-    }
-    return std::nullopt;
-}
-
-// ================================================================
-// 命令队列 API 实现
+// 命令队列 API 实现（QGC MavCommandQueue 模式）
 // ================================================================
 
 // 阻塞等待命令完成
@@ -889,7 +934,9 @@ std::optional<CommandAckInfo> MavlinkAdapter::wait_for_command(CommandTicket tic
             info.command = e.command;
             info.result = e.ack_result;
             info.progress = e.ack_progress;
-            if (e.timed_out) {
+            info.result_text = e.result_text;
+            info.outcome = e.outcome;
+            if (e.timed_out && e.result_text.empty()) {
                 info.result_text = "command ack timeout";
             }
             return info;
@@ -917,10 +964,15 @@ void MavlinkAdapter::tick() {
     std::vector<std::function<void()>> callbacks;
     {
         mg::core::platform::LockGuard lk(impl_->mtx);
+        // 标记本线程正在持锁派发：重发等发送只入队（ADR-0005）。
+        impl_->tls_dispatching_impl = impl_.get();
         impl_->process_timeouts();
         callbacks = std::move(impl_->deferred_cbs);
         impl_->deferred_cbs.clear();
+        impl_->tls_dispatching_impl = nullptr;
     }
+    // 锁外发送与回调（A3/A4）。
+    impl_->flush_deferred_frames();
     for (auto& callback : callbacks) callback();
 }
 

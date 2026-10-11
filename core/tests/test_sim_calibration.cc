@@ -62,8 +62,8 @@ static void test_cal_start_compass() {
 
     for (int i = 0; i < 15; i++) env.tick(100);
 
-    char* result = mg_cal_start(env.core, 2, 0);
-    CHECK(result != nullptr, "mg_cal_start returns non-null");
+    char* result = mg_calibration_start(env.core, 2, 0);
+    CHECK(result != nullptr, "mg_calibration_start returns non-null");
     if (result) mg_free_string(result);
 
     for (int i = 0; i < 20; i++) env.tick(50);
@@ -107,6 +107,15 @@ static void test_calibration_operation_cancel() {
     CHECK(cancel && strstr(cancel, "\"canceled\":true") != nullptr,
           "calibration can be cancelled through operations");
     if (cancel) mg_free_string(cancel);
+
+    // 取消是异步的：请求受理后、飞控确认前，快照必须显示 cancelling。
+    char* pending = mg_operations_get_snapshot(env.core);
+    CHECK(pending && strstr(pending, "\"state\":\"cancelling\"") != nullptr,
+          "calibration reports cancelling until the vehicle confirms");
+    CHECK(pending && strstr(pending, "\"cancellable\":false") != nullptr,
+          "a calibration being cancelled cannot be cancelled again");
+    if (pending) mg_free_string(pending);
+
     for (int i = 0; i < 10; ++i) env.tick(20);
 
     bool sent_mag_cal_cancel = false;
@@ -122,6 +131,104 @@ static void test_calibration_operation_cancel() {
     CHECK(snapshot && strstr(snapshot, "\"state\":\"cancelled\"") != nullptr,
           "calibration operation reports cancelled state");
     if (snapshot) mg_free_string(snapshot);
+}
+
+static void test_cancel_waits_for_the_vehicle_ack() {
+    fprintf(stderr, "\n[Group] Calibration cancel waits for the ACK\n");
+    TestEnv env;
+    for (int i = 0; i < 15; ++i) env.tick(100);
+
+    char* start = mg_calibration_start(env.core, 2 /*compass*/, 0);
+    CHECK(start && strstr(start, "\"success\":true") != nullptr,
+          "compass calibration starts for the cancel test");
+    if (start) mg_free_string(start);
+    for (int i = 0; i < 5; ++i) env.tick(20);
+
+    char* cancel = mg_calibration_cancel(env.core);
+    CHECK(cancel && strstr(cancel, "\"success\":true") != nullptr &&
+              strstr(cancel, "\"state\":\"cancelling\"") != nullptr,
+          "cancel reports the request as pending, not as already stopped");
+    if (cancel) mg_free_string(cancel);
+
+    char* pending = mg_calibration_get_status(env.core);
+    CHECK(pending && strstr(pending, "\"active\":true") != nullptr &&
+              strstr(pending, "\"stage\":\"cancelling\"") != nullptr,
+          "S8: before the ACK the calibration is still active in cancelling state");
+    if (pending) mg_free_string(pending);
+
+    // 与取消无关的命令 ACK 不能当作停止确认。
+    mg_calibration_process_command_ack(env.core, 42424 /*DO_START_MAG_CAL*/, 0, 0);
+    char* still = mg_calibration_get_status(env.core);
+    CHECK(still && strstr(still, "\"stage\":\"cancelling\"") != nullptr,
+          "an unrelated ACK does not end the cancellation");
+    if (still) mg_free_string(still);
+
+    // 飞控对 DO_CANCEL_MAG_CAL 的 ACK 才是真正的停止确认。
+    mg_calibration_process_command_ack(env.core, 42426 /*DO_CANCEL_MAG_CAL*/, 0, 0);
+    char* done = mg_calibration_get_status(env.core);
+    CHECK(done && strstr(done, "\"active\":false") != nullptr &&
+              strstr(done, "\"stage\":\"cancelled\"") != nullptr,
+          "the vehicle's cancel ACK finalizes the cancellation");
+    CHECK(done && strstr(done, "Cancelled by user") != nullptr,
+          "the finalized result keeps the user-cancel reason");
+    if (done) mg_free_string(done);
+}
+
+static void test_cancel_watchdog_finishes_when_vehicle_is_silent() {
+    fprintf(stderr, "\n[Group] Calibration watchdog: cancel never confirmed\n");
+
+    mg::core::transport::ConnectionManager conn;
+    auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
+    conn.wire_for_test(std::make_unique<mg::core::transport::InMemoryLink>(), std::move(mav));
+    conn.get_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
+    conn.record_heartbeat();
+
+    CalibrationService svc;
+    svc.set_connection(&conn);
+    svc.set_target(1, 1);
+    svc.set_cancel_timeout_ms(1);  // 极短阈值，避免测试真等 10 秒
+    CHECK(svc.start(CalibrationType::Magnetometer), "compass calibration starts");
+    CHECK(svc.cancel(), "the cancel request is accepted");
+    CHECK(svc.is_active() &&
+              svc.get_status().stage == CalibrationStage::Cancelling,
+          "the cancel request keeps the calibration active until confirmed");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(3));
+    svc.poll();
+
+    const auto status = svc.get_status();
+    CHECK(!status.active, "an unconfirmed cancel is still finalized by the watchdog");
+    CHECK(status.stage == CalibrationStage::Cancelled,
+          "the cancel watchdog lands on Cancelled, not Failed");
+    CHECK(status.user_message.find("did not confirm") != std::string::npos,
+          "the watchdog explains that the vehicle never confirmed");
+    CHECK(status.failure_reason.empty(),
+          "an operator cancel is not reported as a failure");
+}
+
+static void test_cancel_link_loss_still_lands_on_cancelled() {
+    fprintf(stderr, "\n[Group] Calibration watchdog: link lost during cancel\n");
+
+    mg::core::transport::ConnectionManager conn;
+    auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
+    conn.wire_for_test(std::make_unique<mg::core::transport::InMemoryLink>(), std::move(mav));
+    conn.get_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
+    conn.record_heartbeat();
+
+    CalibrationService svc;
+    svc.set_connection(&conn);
+    svc.set_target(1, 1);
+    CHECK(svc.start(CalibrationType::Magnetometer), "compass calibration starts");
+    CHECK(svc.cancel(), "cancel request accepted before the link drops");
+
+    conn.disconnect();
+    svc.poll();
+
+    const auto status = svc.get_status();
+    CHECK(!status.active && status.stage == CalibrationStage::Cancelled,
+          "link loss during cancel ends in Cancelled, not Failed");
+    CHECK(status.user_message.find("link lost") != std::string::npos,
+          "link loss during cancel records why it stopped waiting");
 }
 
 static void test_mag_cal_report_completes_calibration() {
@@ -246,8 +353,8 @@ static void test_cal_start_uses_heartbeat_target() {
 
     for (int i = 0; i < 15; i++) env.tick(100);
 
-    char* result = mg_cal_start(env.core, 0, 0);
-    CHECK(result != nullptr, "mg_cal_start returns non-null for sysid 2");
+    char* result = mg_calibration_start(env.core, 0, 0);
+    CHECK(result != nullptr, "mg_calibration_start returns non-null for sysid 2");
     if (result) mg_free_string(result);
 
     for (int i = 0; i < 20; i++) env.tick(50);
@@ -262,8 +369,8 @@ static void test_radio_calibration_ffi_sends_param4() {
 
     for (int i = 0; i < 15; i++) env.tick(100);
 
-    char* result = mg_cal_start(env.core, 4, 0);
-    CHECK(result != nullptr, "mg_cal_start accepts type=4 (radio)");
+    char* result = mg_calibration_start(env.core, 4, 0);
+    CHECK(result != nullptr, "mg_calibration_start accepts type=4 (radio)");
     if (result) mg_free_string(result);
 
     for (int i = 0; i < 20; i++) env.tick(50);
@@ -394,13 +501,13 @@ static void test_success_history_clears_verification_failure() {
     for (int i = 0; i < 15; i++) env.tick(100);
     env.request_params();
 
-    char* result = mg_cal_start(env.core, 0, 0);
-    CHECK(result != nullptr, "mg_cal_start returns non-null for gyro");
+    char* result = mg_calibration_start(env.core, 0, 0);
+    CHECK(result != nullptr, "mg_calibration_start returns non-null for gyro");
     if (result) mg_free_string(result);
 
     for (int i = 0; i < 20; i++) env.tick(50);
 
-    char* history = mg_cal_history(env.core, 0);
+    char* history = mg_calibration_get_history(env.core, 0);
     std::string json = history ? history : "";
     if (history) mg_free_string(history);
 
@@ -418,7 +525,7 @@ static void test_verification_readback_failure_is_reported_failed() {
 
     for (int i = 0; i < 15; i++) env.tick(100);
 
-    char* result = mg_cal_start(env.core, 0, 0);
+    char* result = mg_calibration_start(env.core, 0, 0);
     CHECK(result != nullptr, "gyro start returns non-null without params");
     if (result) mg_free_string(result);
 
@@ -433,7 +540,7 @@ static void test_verification_readback_failure_is_reported_failed() {
     CHECK(json.find("\"stage\":\"failed\"") != std::string::npos,
           "parameter readback failure is not reported as success");
 
-    char* history = mg_cal_history(env.core, 0);
+    char* history = mg_calibration_get_history(env.core, 0);
     std::string history_json = history ? history : "";
     if (history) mg_free_string(history);
     CHECK(history_json.find("\"failure_reason\":\"\"") == std::string::npos,
@@ -452,7 +559,7 @@ static void test_history_is_flushed_to_disk_outside_the_lock() {
     std::error_code ignored;
     std::filesystem::remove(path, ignored);
 
-    char* result = mg_cal_start(env.core, 0, 0);
+    char* result = mg_calibration_start(env.core, 0, 0);
     CHECK(result != nullptr, "gyro start returns non-null for flush test");
     if (result) mg_free_string(result);
     for (int i = 0; i < 20; i++) env.tick(50);
@@ -785,6 +892,9 @@ int main() {
     fprintf(stderr, "=== Calibration Simulation Tests ===\n");
     test_cal_start_compass();
     test_calibration_operation_cancel();
+    test_cancel_waits_for_the_vehicle_ack();
+    test_cancel_watchdog_finishes_when_vehicle_is_silent();
+    test_cancel_link_loss_still_lands_on_cancelled();
     test_mag_cal_report_completes_calibration();
     test_mag_cal_report_failure_does_not_auto_retry();
     test_mag_cal_progress_reaches_calibration_service();

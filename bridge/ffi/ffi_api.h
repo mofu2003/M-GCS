@@ -10,14 +10,10 @@
  * discover multiple vehicles; mg_connection_close_route() removes only one
  * route while preserving the shared physical link.
  * Strings: every returned char* must be released with mg_free_string().
- * Routing: mg_vehicle_open() creates an independent session without changing
- * focus. UDP sessions use a shared LinkSession so one socket can discover more
- * than one sysid; each discovered vehicle has its own session/vehicle id.
- * Legacy command/query functions operate on the vehicle selected via
- * mg_vehicle_select(); single-connection helpers select their own session for
- * backwards compatibility. Multi-vehicle callers should use
- * mg_command_execute_for_vehicle() so a command targets an explicit session
- * without changing UI focus.
+ * Routing: a connection can discover multiple vehicles; each discovered
+ * vehicle has its own session/vehicle id. Multi-vehicle callers should use
+ * mg_command_execute_for_vehicle() or mg_command_submit_for_vehicle() so a
+ * command targets an explicit session without changing UI focus.
  */
 
 #ifndef MGCORE_FFI_API_H

@@ -18,6 +18,10 @@
 #include <vector>
 #include "ardupilotmega/mavlink.h"
 #include "core/ftp/mavlink_ftp.h"
+#include "core/log/flight_log_replayer.h"
+#include "core/mavlink/mavlink_adapter.h"
+#include "core/log/tlog_format.h"
+#include "core/settings/mavlink_log_writer.h"
 
 static int g_pass = 0, g_fail = 0;
 #define CHECK(cond, msg) do { \
@@ -35,6 +39,9 @@ constexpr uint8_t kFtpOpenFileRO = 4;
 constexpr uint8_t kFtpReadFile = 5;
 constexpr uint8_t kFtpTerminateSession = 1;
 constexpr uint8_t kFtpResetSessions = 2;
+constexpr uint8_t kFtpListDirectory = 3;
+constexpr uint8_t kFtpCreateFile = 6;
+constexpr uint8_t kFtpWriteFile = 7;
 constexpr uint8_t kFtpAck = 128;
 constexpr uint8_t kFtpNak = 129;
 constexpr size_t kFtpHeaderSize = 12;
@@ -104,10 +111,17 @@ struct FakeFtpServer {
     uint8_t open_error_code = 10;
     bool send_bad_read_offset = false;
     bool bad_read_offset_sent = false;
+    // 不回复任何请求：把传输钉在等待状态，用于取消/单会话用例。
+    bool silent = false;
+    // 目录列表（ListDirectory）返回值，元素形如 "Fname\t123" / "Dname"。
+    std::vector<std::string> dir_entries;
+    // 上传（CreateFile/WriteFile）落盘内容。
+    std::vector<uint8_t> uploaded_file;
 
     bool send(const uint8_t* bytes, size_t length) {
         mavlink_file_transfer_protocol_t ftp{};
         if (!decode_ftp_message(bytes, length, &ftp)) return false;
+        if (silent) return true;
 
         const uint8_t* payload = ftp.payload;
         Request request;
@@ -170,6 +184,36 @@ struct FakeFtpServer {
 
         if (request.opcode == kFtpTerminateSession) {
             reply(request, kFtpAck, request.session, 0, {});
+            return true;
+        }
+
+        if (request.opcode == kFtpListDirectory) {
+            if (request.offset >= dir_entries.size()) {
+                // MAV_FTP_ERR_EOF = 6 表示列表结束。
+                reply(request, kFtpNak, 0, 0, {6});
+                return true;
+            }
+            std::vector<uint8_t> encoded;
+            for (size_t index = request.offset; index < dir_entries.size();
+                 ++index) {
+                encoded.insert(encoded.end(), dir_entries[index].begin(),
+                               dir_entries[index].end());
+                encoded.push_back(0);
+            }
+            reply(request, kFtpAck, 0, 0, encoded);
+            return true;
+        }
+
+        if (request.opcode == kFtpCreateFile) {
+            uploaded_file.clear();
+            reply(request, kFtpAck, session, 0, {});
+            return true;
+        }
+
+        if (request.opcode == kFtpWriteFile) {
+            uploaded_file.insert(uploaded_file.end(), request.data.begin(),
+                                 request.data.end());
+            reply(request, kFtpAck, session, request.offset, {});
             return true;
         }
 
@@ -343,47 +387,93 @@ static void test_failsafe_ffi() {
 // FlightLogReplayer Tests
 // ================================================================
 static void test_replayer() {
-    fprintf(stderr, "\n[Group] FlightLogReplayer\n");
+    fprintf(stderr, "\n[Group] tlog record -> replay round-trip\n");
 
-    // Create a synthetic tlog file for testing
     const char* test_file = "test_replay.tlog";
+    std::vector<uint16_t> sent_ids;
+    size_t bytes_recorded = 0;
+
+    // 1) 用 MavlinkLogWriter 录 3 帧（走公开写入器，覆盖真实录制格式）
     {
-        FILE* f = fopen(test_file, "wb");
-        CHECK(f != nullptr, "create test tlog file");
-        if (!f) return;
+        mg::core::settings::MavlinkLogWriter writer;
+        CHECK(writer.start_recording(test_file), "writer starts recording");
 
-        // Write 3 records
+        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
         for (int i = 0; i < 3; i++) {
-            uint64_t ts = 1000000 + i * 100000;  // 1 second apart
-            fwrite(&ts, sizeof(ts), 1, f);
-
-            // Create a simple MAVLink heartbeat message
-            mavlink_message_t msg;
-            mavlink_msg_heartbeat_pack(1, 1, &msg,
-                MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
-                0, 0, MAV_STATE_STANDBY);
-            uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-            uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-
-            fwrite(&len, sizeof(len), 1, f);
-            fwrite(buf, 1, len, f);
+            mavlink_message_t msg{};
+            switch (i) {
+                case 0:
+                    mavlink_msg_heartbeat_pack(1, 1, &msg, MAV_TYPE_QUADROTOR,
+                        MAV_AUTOPILOT_ARDUPILOTMEGA, 0, 0, MAV_STATE_STANDBY);
+                    break;
+                case 1:
+                    mavlink_msg_attitude_pack(1, 1, &msg, 100, 0.1f, 0.2f, 0.3f,
+                        0.01f, 0.02f, 0.03f);
+                    break;
+                default:
+                    mavlink_msg_attitude_pack(1, 1, &msg, 200, 0.4f, 0.5f, 0.6f,
+                        0.04f, 0.05f, 0.06f);
+                    break;
+            }
+            const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+            writer.write_frame(buf, len);
+            sent_ids.push_back(msg.msgid);
         }
-        fclose(f);
+        bytes_recorded = writer.bytes_written();
+        writer.stop_recording();
+    }
+    CHECK(sent_ids.size() == 3, "recorded 3 frames");
+    CHECK(bytes_recorded > 3 * mg::core::log::tlog::kTimestampBytes,
+          "recorded bytes exceed timestamps-only (writer writes frames)");
+
+    // 2) 回放：必须读回同样的消息与时间戳，且无截断
+    {
+        mg::core::log::FlightLogReplayer replayer;
+        CHECK(replayer.open(test_file), "replayer opens the recorded tlog");
+        replayer.set_speed(0.0);  // 尽快，不做实时等待
+        CHECK(replayer.file_info().message_count == 3, "replayer scans 3 records");
+
+        int idx = 0;
+        bool ids_match = true;
+        bool timestamps_monotonic = true;
+        uint64_t prev_ts = 0;
+        while (replayer.next_message()) {
+            if (idx < 3 && replayer.current_message().msgid != sent_ids[idx]) ids_match = false;
+            const uint64_t ts = replayer.current_timestamp_us();
+            if (ts < prev_ts) timestamps_monotonic = false;
+            prev_ts = ts;
+            idx++;
+        }
+        CHECK(idx == 3, "replayed exactly 3 messages");
+        CHECK(ids_match, "replayed msgids match what was recorded");
+        CHECK(timestamps_monotonic, "replayed timestamps are monotonic");
+        CHECK(!replayer.truncated(), "clean recording is not reported truncated");
+        CHECK(replayer.progress() >= 0.0f, "progress is computed without crash");
     }
 
-    // Note: FlightLogReplayer is a C++ class, not exposed via FFI
-    // We can only test it through the C++ API or indirectly
-    // For now, verify the test file was created
-    FILE* check = fopen(test_file, "rb");
-    CHECK(check != nullptr, "test tlog file exists");
-    if (check) {
-        fseek(check, 0, SEEK_END);
-        long size = ftell(check);
-        fclose(check);
-        CHECK(size > 0, "test tlog file is non-empty");
+    // 3) 截断检测：时间戳 + 半条帧 -> 不产出消息且报告 truncated
+    {
+        const char* truncated_file = "test_replay_truncated.tlog";
+        FILE* f = fopen(truncated_file, "wb");
+        CHECK(f != nullptr, "create truncated tlog file");
+        if (f) {
+            uint8_t ts[mg::core::log::tlog::kTimestampBytes];
+            mg::core::log::tlog::encode_timestamp(1700000000000000ULL, ts);
+            fwrite(ts, 1, sizeof(ts), f);
+            const uint8_t half_frame[3] = {0xFD, 0x09, 0x00};  // MAVLink v2 STX + 残头
+            fwrite(half_frame, 1, sizeof(half_frame), f);
+            fclose(f);
+
+            mg::core::log::FlightLogReplayer truncated;
+            CHECK(truncated.open(truncated_file), "replayer opens truncated tlog");
+            truncated.set_speed(0.0);
+            CHECK(!truncated.next_message(), "truncated record yields no message");
+            CHECK(truncated.truncated(), "truncation is reported to the caller");
+            truncated.close();
+            remove(truncated_file);
+        }
     }
 
-    // Cleanup
     remove(test_file);
 }
 
@@ -400,9 +490,8 @@ static void test_extended_commands() {
     char* r = mg_command_terminate_flight(core);
     CHECK(r != nullptr, "mg_command_terminate_flight returns non-null");
     if (r) mg_free_string(r);
-    // 旧名保留为转发，避免打断并行分支。
-    r = mg_command_emergency_stop(core);
-    CHECK(r != nullptr, "emergency_stop returns non-null");
+    r = mg_command_terminate_flight(core);
+    CHECK(r != nullptr, "terminate_flight remains callable");
     if (r) mg_free_string(r);
 
     // Guided velocity
@@ -771,6 +860,202 @@ static void test_mavlink_ftp_nak_and_empty_file() {
     std::filesystem::remove(empty_path, ignored);
 }
 
+// 异步 FTP façade（P1）：FFI 调用线程不能阻塞在传输上，必须能起线程、
+// 读进度、取消，并且同一时刻只允许一个传输。
+static void test_mavlink_ftp_async_download_and_list() {
+    fprintf(stderr, "\n[Group] MAVLink FTP async transfer\n");
+
+    FakeFtpServer server;
+    const std::string content =
+        "UARTV1\nSERIAL1 USART3 TX=10 RX=20 FlowCtrl=2\n";
+    server.file.assign(content.begin(), content.end());
+    server.dir_entries = {"S208.42 1", "Fuarts.txt\t123", "Dlogs",
+                          "Fparams.txt\t42"};
+    mg::core::ftp::MavlinkFtpClient client(
+        [&](const uint8_t* data, size_t size) {
+            return server.send(data, size);
+        });
+    server.client = &client;
+
+    const auto output_path = ftp_test_path("mgcs_ftp_async_download.txt");
+    std::error_code ignored;
+    std::filesystem::remove(output_path, ignored);
+
+    CHECK(client.start_download_file(1, 1, "@SYS/uarts.txt",
+                                     output_path.string()),
+          "async download returns to the caller immediately");
+    const auto live = client.transfer_status();
+    CHECK(live.task == mg::core::ftp::MavlinkFtpClient::FtpTask::Download,
+          "status names the running download task");
+    CHECK(client.wait_for_completion(5000),
+          "wait_for_completion observes the background finish");
+    const auto done = client.transfer_status();
+    CHECK(done.finished && done.success && !done.cancelled,
+          "async download reports completed success");
+    CHECK(done.remote_path == "@SYS/uarts.txt" && done.target_sys == 1 &&
+              done.target_comp == 1,
+          "async status echoes transfer target and remote path");
+    CHECK(done.transferred_bytes == server.file.size() &&
+              done.total_bytes == server.file.size(),
+          "async status exposes exact received/total progress");
+    CHECK(read_binary_file(output_path) == server.file,
+          "async download writes the file byte-for-byte");
+    CHECK(!client.transfer_active(), "worker is idle after completion");
+    std::filesystem::remove(output_path, ignored);
+
+    CHECK(client.start_list_directory(1, 1, "@SYS"),
+          "client accepts a new transfer after completion");
+    CHECK(client.wait_for_completion(5000), "list transfer finishes");
+    const auto listed = client.transfer_status();
+    CHECK(listed.task == mg::core::ftp::MavlinkFtpClient::FtpTask::List &&
+              listed.finished && listed.success,
+          "async list reports completed success");
+    bool have_uart = false;
+    bool have_dir = false;
+    bool have_param = false;
+    for (const auto& entry : listed.entries) {
+        if (entry.name == "uarts.txt" && !entry.is_directory &&
+            entry.size == 123) {
+            have_uart = true;
+        }
+        if (entry.name == "logs" && entry.is_directory) have_dir = true;
+        if (entry.name == "params.txt" && entry.size == 42) have_param = true;
+    }
+    CHECK(have_uart && have_dir && have_param,
+          "async list returns parsed file and directory entries");
+}
+
+static void test_mavlink_ftp_async_single_session_and_cancel() {
+    fprintf(stderr, "\n[Group] MAVLink FTP async cancel\n");
+
+    FakeFtpServer server;
+    server.silent = true;  // 不回复，把传输钉在等待状态
+    mg::core::ftp::MavlinkFtpClient client(
+        [&](const uint8_t* data, size_t size) {
+            return server.send(data, size);
+        });
+    server.client = &client;
+
+    const auto output_path = ftp_test_path("mgcs_ftp_async_cancel.txt");
+    std::error_code ignored;
+    std::filesystem::remove(output_path, ignored);
+
+    CHECK(client.start_download_file(1, 1, "@SYS/uarts.txt",
+                                     output_path.string()),
+          "download starts while the server stays silent");
+    CHECK(client.transfer_active(), "transfer_active is true while in flight");
+    CHECK(!client.start_upload_file(1, 1, output_path.string(), "@SYS/x.txt"),
+          "a second transfer is rejected while one is in flight");
+    CHECK(!client.wait_for_completion(50),
+          "wait_for_completion times out before the server responds");
+    CHECK(client.transfer_status().active,
+          "status still reports active after the wait times out");
+
+    client.cancel();
+    CHECK(client.wait_for_completion(2000),
+          "cancel ends the transfer instead of waiting out the timeout");
+    const auto cancelled = client.transfer_status();
+    CHECK(cancelled.finished && cancelled.cancelled && !cancelled.success,
+          "cancelled transfer is reported as cancelled, not failed");
+    CHECK(!client.transfer_active(), "worker is idle after cancel");
+
+    const std::string content = "UARTV1\nSERIAL1 USART3 TX=1 RX=2\n";
+    server.silent = false;
+    server.file.assign(content.begin(), content.end());
+    CHECK(client.start_download_file(1, 1, "@SYS/uarts.txt",
+                                     output_path.string()),
+          "client accepts a new transfer after a cancel");
+    CHECK(client.wait_for_completion(5000), "reused transfer finishes");
+    CHECK(client.transfer_status().success &&
+              read_binary_file(output_path) == server.file,
+          "transfer after cancel downloads correctly");
+    std::filesystem::remove(output_path, ignored);
+}
+
+static void test_mavlink_ftp_async_upload() {
+    fprintf(stderr, "\n[Group] MAVLink FTP async upload\n");
+
+    const std::string content =
+        "UARTV1\nSERIAL1 USART3 TX=10 RX=20 FlowCtrl=2\n";
+    const auto local_path = ftp_test_path("mgcs_ftp_async_upload_src.txt");
+    std::error_code ignored;
+    {
+        std::ofstream out(local_path, std::ios::binary | std::ios::trunc);
+        out.write(content.data(), static_cast<std::streamsize>(content.size()));
+    }
+
+    FakeFtpServer server;
+    mg::core::ftp::MavlinkFtpClient client(
+        [&](const uint8_t* data, size_t size) {
+            return server.send(data, size);
+        });
+    server.client = &client;
+
+    CHECK(client.start_upload_file(1, 1, local_path.string(), "@SYS/out.txt"),
+          "async upload starts");
+    CHECK(client.wait_for_completion(5000), "upload transfer finishes");
+    const auto status = client.transfer_status();
+    CHECK(status.task == mg::core::ftp::MavlinkFtpClient::FtpTask::Upload &&
+              status.finished && status.success,
+          "async upload reports completed success");
+    CHECK(status.transferred_bytes == content.size(),
+          "upload reports the bytes written");
+    CHECK(std::string(server.uploaded_file.begin(), server.uploaded_file.end()) ==
+              content,
+          "uploaded bytes reach the server unchanged");
+    std::filesystem::remove(local_path, ignored);
+}
+
+// 录制接线：链路适配器收到/发出的完整帧必须真的落进 .tlog。
+static void test_tlog_recording_wiring() {
+    fprintf(stderr, "\n[Group] tlog recording is wired to the adapter\n");
+
+    const char* file = "test_tlog_wiring.tlog";
+    mg::core::mavlink::MavlinkAdapter adapter;
+    mg::core::settings::MavlinkLogWriter writer;
+
+    std::vector<std::vector<uint8_t>> sent;
+    adapter.set_send_callback([&](const uint8_t* data, size_t size) -> bool {
+        sent.emplace_back(data, data + size);
+        return true;
+    });
+    adapter.set_log_sink(&writer);
+    CHECK(writer.start_recording(file), "adapter recording starts");
+
+    // RX：注入一条 heartbeat，必须进日志。
+    mavlink_message_t hb{};
+    mavlink_msg_heartbeat_pack(1, 1, &hb, MAV_TYPE_QUADROTOR,
+        MAV_AUTOPILOT_ARDUPILOTMEGA, 0, 0, MAV_STATE_STANDBY);
+    uint8_t rbuf[MAVLINK_MAX_PACKET_LEN];
+    const uint16_t rlen = mavlink_msg_to_send_buffer(rbuf, &hb);
+    adapter.feed_raw(rbuf, rlen);
+
+    // TX：主动发一条 REQUEST_MESSAGE_INTERVAL，也必须进日志。
+    adapter.request_message_interval(1, 1, MAVLINK_MSG_ID_ATTITUDE, 1000000);
+    writer.stop_recording();
+    CHECK(!sent.empty(), "adapter delivered the outgoing frame");
+
+    mg::core::log::FlightLogReplayer replayer;
+    CHECK(replayer.open(file), "replay opens the recording");
+    replayer.set_speed(0.0);
+    int total = 0;
+    bool has_hb = false;
+    bool has_req = false;
+    while (replayer.next_message()) {
+        ++total;
+        const uint32_t id = replayer.current_message().msgid;
+        if (id == MAVLINK_MSG_ID_HEARTBEAT) has_hb = true;
+        if (id == MAVLINK_MSG_ID_COMMAND_LONG) has_req = true;
+    }
+    CHECK(has_hb, "RX heartbeat recorded into tlog");
+    CHECK(has_req, "TX request recorded into tlog");
+    CHECK(total >= 2, "tlog replay sees both directions");
+    CHECK(!replayer.truncated(), "recording is not truncated");
+
+    std::error_code ignored;
+    std::filesystem::remove(file, ignored);
+}
+
 // ================================================================
 int main() {
     fprintf(stderr, "=== New Module Tests ===\n");
@@ -779,12 +1064,16 @@ int main() {
     test_gimbal_ffi();
     test_failsafe_ffi();
     test_replayer();
+    test_tlog_recording_wiring();
     test_extended_commands();
     test_vehicle_data();
     test_telemetry_freshness();
     test_mavlink_ftp_download();
     test_mavlink_ftp_retry_and_validation();
     test_mavlink_ftp_nak_and_empty_file();
+    test_mavlink_ftp_async_download_and_list();
+    test_mavlink_ftp_async_single_session_and_cancel();
+    test_mavlink_ftp_async_upload();
 
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail;

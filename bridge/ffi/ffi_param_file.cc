@@ -7,7 +7,7 @@
  * mg_params_save_to_file, mg_params_load_from_file
  */
 #include "ffi_internal.h"
-#include "json_serializers.h"
+#include "core/telemetry/json_serializers.h"
 #include "core/config/param_file_io.h"
 
 #include <string>
@@ -88,10 +88,10 @@ MGCORE_API char* mg_params_load_from_file(mg_core_t* core, const char* filepath)
         }
     }
 
-    mg::bridge::JsonBuilder failed_json;
+    mg::core::telemetry::JsonBuilder failed_json;
     failed_json.begin_array();
     for (const auto& name : failed) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("name", name);
         item.field("reason", "failed to send parameter write");
@@ -100,7 +100,7 @@ MGCORE_API char* mg_params_load_from_file(mg_core_t* core, const char* filepath)
     }
     failed_json.end_array();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", failed.empty());
     jb.field("count", (int)params.size());

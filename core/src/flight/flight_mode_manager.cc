@@ -17,12 +17,6 @@ namespace mg::core::flight {
 FlightModeManager::FlightModeManager() = default;
 FlightModeManager::~FlightModeManager() = default;
 
-void FlightModeManager::set_mavlink(mg::core::mavlink::MavlinkAdapter* mav, uint8_t sys_id, uint8_t comp_id) {
-    mavlink_ = mav;
-    target_sys_ = sys_id;
-    target_comp_ = comp_id;
-}
-
 // ================================================================
 // Mode detection and status
 // ================================================================
@@ -179,68 +173,27 @@ bool FlightModeManager::mission_fly_completed() const {
     return mission_fly_completed_;
 }
 
-bool FlightModeManager::set_mode(const std::string& mode_name) {
-    mg::core::platform::LockGuard lk(mtx_);
-    if (!fw_plugin_ || !mavlink_ || mode_name.empty()) return false;
-    const int custom =
-        fw_plugin_->encode_flight_mode(fw_adapter_.vehicle_kind(), mode_name);
-    if (custom < 0) return false;
-    // QGC Vehicle::setFlightMode：base_mode 带 CUSTOM_MODE_ENABLED，并按需保留
-    // SAFETY_ARMED 位，ArduPilot 只看 custom_mode。
-    uint8_t base_mode = 0x01;             // MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
-    if (armed_) base_mode |= 0x80;        // MAV_MODE_FLAG_SAFETY_ARMED
-    return mavlink_->set_mode(target_sys_, target_comp_, base_mode,
-                              static_cast<uint32_t>(custom));
-}
-
-bool FlightModeManager::arm(bool force) {
-    if (!armed_) {
-        MGC_LOG_INFO("[FlightMode] Arm requested (force=%d)", force);
-        if (mavlink_) return mavlink_->arm_disarm(target_sys_, target_comp_, true, force);
-        return false;
+bool FlightModeManager::resolve_mode_request_locked(
+    const std::string& mode_name, uint8_t& base_mode, uint32_t& custom_mode) const {
+    if (!fw_plugin_ || mode_name.empty()) return false;
+    for (const auto& entry :
+         fw_plugin_->available_modes(fw_adapter_.vehicle_kind())) {
+        if (entry.name != mode_name) continue;
+        if (!entry.can_be_set) return false;
+        custom_mode = entry.custom_mode;
+        // QGC Vehicle::setFlightMode：base_mode 带 CUSTOM_MODE_ENABLED，并按需保留
+        // SAFETY_ARMED 位，ArduPilot 只看 custom_mode。
+        base_mode = 0x01;                 // MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
+        if (armed_) base_mode |= 0x80;    // MAV_MODE_FLAG_SAFETY_ARMED
+        return true;
     }
     return false;
 }
 
-bool FlightModeManager::disarm(bool force) {
-    if (armed_) {
-        MGC_LOG_INFO("[FlightMode] Disarm requested (force=%d)", force);
-        if (mavlink_) return mavlink_->arm_disarm(target_sys_, target_comp_, false, force);
-        return false;
-    }
-    return false;
-}
-
-/// 按语义角色切模式：模式号由固件插件给出，通用代码不写字面量（S6）。
-///
-/// 该固件/机型没有这个模式时**不下发**并返回 false。以前这里写死的是 ArduCopter
-/// 的值（RTL=6、Land=9、Loiter=5），在别的机型上会切到完全不同的模式：
-/// Rover 的 9 是 CIRCLE（"降落"变成原地转圈），Plane 的 5 是 FBWA。
-bool FlightModeManager::set_mode_role(
-    mg::core::firmware::FirmwareAdapter::ModeRole role, const char* label) {
+bool FlightModeManager::resolve_mode_request(
+    const std::string& mode_name, uint8_t& base_mode, uint32_t& custom_mode) const {
     mg::core::platform::LockGuard lk(mtx_);
-    if (!mavlink_) return false;
-    const auto custom_mode = fw_adapter_.resolve_mode_role(role);
-    if (!custom_mode.has_value()) {
-        MGC_LOG_WARN("[FlightMode] %s is not a mode of %s/%s; command not sent",
-                     label, fw_adapter_.firmware_name().c_str(),
-                     fw_adapter_.vehicle_name().c_str());
-        return false;
-    }
-    MGC_LOG_INFO("[FlightMode] %s requested (custom_mode=%u)", label, *custom_mode);
-    return mavlink_->set_mode(target_sys_, target_comp_, 0, *custom_mode);
-}
-
-bool FlightModeManager::return_to_launch() {
-    return set_mode_role(mg::core::firmware::FirmwareAdapter::ModeRole::ReturnToLaunch, "RTL");
-}
-
-bool FlightModeManager::land() {
-    return set_mode_role(mg::core::firmware::FirmwareAdapter::ModeRole::Land, "Land");
-}
-
-bool FlightModeManager::loiter() {
-    return set_mode_role(mg::core::firmware::FirmwareAdapter::ModeRole::Loiter, "Loiter");
+    return resolve_mode_request_locked(mode_name, base_mode, custom_mode);
 }
 
 // ================================================================

@@ -31,10 +31,10 @@ MGCORE_API char* mg_flight_get_available_modes(mg_core_t* core) {
 
     auto modes = get_active_flight_modes(core).available_modes();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
     for (const auto& mode : modes) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("name", mode);
         item.end_object();
@@ -52,13 +52,14 @@ MGCORE_API char* mg_flight_get_mode_status(mg_core_t* core) {
     auto& mgr = get_active_flight_modes(core);
     auto status = mgr.get_status();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("current_mode", status.current_mode);
     jb.field("armed", status.armed);
     jb.field("in_flight", status.in_flight);
     jb.field("base_mode", static_cast<int>(status.base_mode));
     jb.field("custom_mode", static_cast<int>(status.custom_mode));
+    write_heartbeat_freshness(jb, get_active_cache(core));
     jb.end_object();
     return to_cstr(jb.str());
 }
@@ -69,10 +70,10 @@ MGCORE_API char* mg_flight_get_mode_history(mg_core_t* core) {
     auto& mgr = get_active_flight_modes(core);
     auto history = mgr.get_history();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
     for (const auto& entry : history) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("old_mode", entry.old_mode);
         item.field("new_mode", entry.new_mode);
@@ -90,7 +91,7 @@ MGCORE_API char* mg_flight_get_takeoff_altitude(mg_core_t* core) {
 
     auto& mgr = get_active_flight_modes(core);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("altitude_m", mgr.takeoff_altitude());
     jb.end_object();
@@ -113,7 +114,7 @@ MGCORE_API char* mg_flight_get_loiter_radius(mg_core_t* core) {
 
     auto& mgr = get_active_flight_modes(core);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("radius_m", mgr.loiter_radius());
     jb.end_object();

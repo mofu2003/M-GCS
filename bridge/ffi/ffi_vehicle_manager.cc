@@ -6,6 +6,7 @@
 #include "core/transport/link_config.h"
 
 #include "cJSON.h"
+#include "core/util/json.h"
 
 #include <algorithm>
 #include <cctype>
@@ -101,7 +102,7 @@ int open_managed_link(mg_core_t* core, const char* endpoint_uri) {
     return link_id > 0 ? link_id : MG_ERROR_SEND_FAILED;
 }
 
-int open_legacy_vehicle_session(mg_core_t* core, const char* endpoint_uri) {
+int open_vehicle_session(mg_core_t* core, const char* endpoint_uri) {
     const auto config = mg::core::transport::LinkConfig::from_uri(endpoint_uri);
     auto event_cb = [core](int event_type, const std::string& json) {
         core->events.fire(static_cast<mg_event_type_t>(event_type), json);
@@ -171,7 +172,7 @@ MGCORE_API char* mg_vehicle_set_signing_candidates(
     if (vehicle_id <= 0 || !candidates_json || !candidates_json[0]) {
         return fail(MG_ERROR_INVALID_PARAM, "invalid signing candidates");
     }
-    cJSON* root = cJSON_Parse(candidates_json);
+    cJSON* root = mg::core::json::parse(candidates_json);
     if (!root || !cJSON_IsArray(root)) {
         if (root) cJSON_Delete(root);
         return fail(MG_ERROR_INVALID_PARAM,
@@ -246,7 +247,7 @@ MGCORE_API char* mg_vehicle_get_signing_status(mg_core_t* core,
     auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
     if (!vehicle) return fail(MG_ERROR_NOT_FOUND, "vehicle not found");
     const int status = vehicle->signing_status();
-    mg::bridge::JsonBuilder json;
+    mg::core::telemetry::JsonBuilder json;
     json.begin_object();
     json.field("success", true);
     json.field("vehicle_id", vehicle_id);
@@ -349,7 +350,7 @@ MGCORE_API char* mg_connection_get_session_state(mg_core_t* core, int session_id
         vehicle_id = session_id;
     }
 
-    mg::bridge::JsonBuilder result;
+    mg::core::telemetry::JsonBuilder result;
     result.begin_object();
     result.field("success", true);
     result.field("session_id", session_id);
@@ -359,6 +360,7 @@ MGCORE_API char* mg_connection_get_session_state(mg_core_t* core, int session_id
     result.field("connected", connected);
     result.field("heartbeat_age_ms", static_cast<int64_t>(heartbeat_age_ms));
     result.field("heartbeat_alive", heartbeat_alive);
+    result.field("heartbeat_fresh", connected && heartbeat_age_ms <= 3000);
     result.field("active_focus", active_focus);
     result.end_object();
     return to_cstr(result.str());
@@ -366,10 +368,10 @@ MGCORE_API char* mg_connection_get_session_state(mg_core_t* core, int session_id
 
 MGCORE_API char* mg_connection_list(mg_core_t* core) {
     CHECK_CORE(core);
-    mg::bridge::JsonBuilder array;
+    mg::core::telemetry::JsonBuilder array;
     array.begin_array();
     for (const auto& link : core->vehicles.managed_links()) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("link_id", link.link_id);
         item.field("route_id", link.route_id);
@@ -379,6 +381,7 @@ MGCORE_API char* mg_connection_list(mg_core_t* core) {
         item.field("connected", link.connected);
         item.field("heartbeat_alive", link.heartbeat_alive);
         item.field("heartbeat_age_ms", static_cast<int64_t>(link.heartbeat_age_ms));
+        item.field("heartbeat_fresh", link.connected && link.heartbeat_age_ms <= 3000);
         item.field("active_focus", link.active_focus);
         item.field("primary", link.primary);
         item.field("state", link.state);
@@ -412,9 +415,6 @@ MGCORE_API char* mg_connection_close(mg_core_t* core, int session_id) {
     return fail(MG_ERROR_NOT_FOUND, "connection session not found");
 }
 
-// ================================================================
-// Compatibility aliases for the former vehicle lifecycle names.
-// ================================================================
 MGCORE_API int mg_vehicle_open(mg_core_t* core, const char* endpoint) {
     if (!endpoint || endpoint[0] == '\0') {
         mg_set_last_error(MG_ERROR_INVALID_PARAM);
@@ -422,7 +422,7 @@ MGCORE_API int mg_vehicle_open(mg_core_t* core, const char* endpoint) {
     }
     std::string uri(endpoint);
     if (uri.find("://") == std::string::npos) uri = "serial://" + uri;
-    const int result = open_legacy_vehicle_session(core, uri.c_str());
+    const int result = open_vehicle_session(core, uri.c_str());
     return result < 0 ? -1 : result;
 }
 
@@ -472,10 +472,10 @@ MGCORE_API char* mg_discover_devices(mg_core_t* core, const char* transport_type
     }
 
     auto devices = core->vehicles.discover_devices(lt);
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
     for (auto& d : devices) {
-        mg::bridge::JsonBuilder obj;
+        mg::core::telemetry::JsonBuilder obj;
         obj.begin_object();
         obj.field("endpoint", d.endpoint);
         obj.field("description", d.description);

@@ -7,6 +7,8 @@
 #include "core/mission/mission_types.h"
 #include "core/firmware/firmware_adapter.h"
 #include "core/ftp/mavlink_ftp.h"
+// 内部 helper 的签名需要 UniqueLock（发送时临时解锁，见 ADR-0005）。
+#include "core/platform/platform_mutex.h"
 #include <array>
 #include <functional>
 #include <memory>
@@ -14,6 +16,8 @@
 #include <string>
 #include <vector>
 #include <map>
+
+namespace mg::core::settings { class MavlinkLogWriter; }
 
 namespace mg::core::mavlink {
 
@@ -185,12 +189,38 @@ struct ParamInfo {
 };
 
 
+/// 排队命令的最终去向。
+///
+/// 单看 `result` 无法把"链路层没发出去"或"等 ACK 超时"和"飞控明确拒绝"
+/// 区分开：三种情况历史上都会落到 MAV_RESULT_FAILED(4)。调用方必须按本枚举
+/// 分支，不要再解析 `result_text` 里的字符串（plan 阶段 1B）。
+enum class CommandOutcome : uint8_t {
+    Accepted,     // MAV_RESULT_ACCEPTED
+    Rejected,     // 飞控回了非 ACCEPTED 的 COMMAND_ACK
+    InProgress,   // MAV_RESULT_IN_PROGRESS，仍在执行
+    Timeout,      // 重试预算内没有收到 COMMAND_ACK（含迟到 ACK 隔离窗口）
+    SendFailed,   // 链路层发送失败，命令没有离开本机
+};
+
+/// 稳定符号名，作为 FFI 响应里的 `outcome` 字段（小写 snake_case）。
+inline const char* command_outcome_name(CommandOutcome outcome) {
+    switch (outcome) {
+        case CommandOutcome::Accepted:   return "accepted";
+        case CommandOutcome::Rejected:   return "rejected";
+        case CommandOutcome::InProgress: return "in_progress";
+        case CommandOutcome::Timeout:    return "timeout";
+        case CommandOutcome::SendFailed: return "send_failed";
+    }
+    return "unknown";
+}
+
 /// 命令确认信息（msg id 77）— 命令执行结果
 struct CommandAckInfo {
     uint8_t result = 0;          // MAV_RESULT_xxx
     uint16_t command = 0;        // MAV_CMD_xxx that was acknowledged
     uint8_t progress = 0;        // progress (0-100) for IN_PROGRESS
     std::string result_text;     // optional text
+    CommandOutcome outcome = CommandOutcome::Accepted;  // 机器可读去向
 };
 
 /// 飞控主动发出的 COMMAND_LONG。用于少数由飞控驱动的交互流程，
@@ -435,6 +465,10 @@ public:
     // 设置底层发送回调
     void set_send_callback(SendCallback cb);
 
+    /// 绑定 .tlog 录制 sink（由 Vehicle 绑定到自己的 MavlinkLogWriter）。
+    /// 传入 nullptr 解绑。录制写盘只在所有 adapter 锁之外发生，见 ADR-0006。
+    void set_log_sink(mg::core::settings::MavlinkLogWriter* writer);
+
     // MAVLink signing。key 必须是 32 字节；状态只属于当前适配器，
     // 不写入生成库的全局 MAVLINK_COMM_0。
     bool set_signing_key(const uint8_t* key, size_t key_size,
@@ -492,6 +526,12 @@ public:
     /// Returns true if the command was sent successfully.
     bool request_message_interval(uint8_t target_system, uint8_t target_component,
                                   uint32_t msg_id, int32_t interval_us);
+    // ---- 命令发送的返回值语义（safety.md S2）----
+    // 下面这一组命令发送接口的 bool 只表示“已交给发送层”，不代表飞控接受。
+    // 判断成功必须匹配对应的 COMMAND_ACK：用 send_command_queued /
+    // send_command_int_queued 拿 ticket，再 wait_for_command() 等 ACK。
+    // 界面不得把“已发送”显示为成功，所以生产路径一律走 FFI 的 submit/poll。
+
     /// 发送 COMMAND_LONG 到飞控
     bool send_command_long(uint8_t target_system, uint8_t target_component,
                            uint16_t command, uint8_t confirmation,
@@ -559,15 +599,6 @@ public:
     bool cmd_change_heading(uint8_t target_sys, uint8_t target_comp,
                             float heading_deg, float yaw_rate_dps,
                             int8_t direction, bool relative);
-
-    /// 设置 EKF 全局原点（SET_GPS_GLOBAL_ORIGIN 报文）。
-    ///
-    /// 无 GPS 的室内/视觉定位场景用它指定本地坐标原点的经纬高。QGC 优先用
-    /// COMMAND_INT 的 MAV_CMD_DO_SET_GLOBAL_ORIGIN；该命令目前只在 MAVLink 的
-    /// development 方言里（本仓库固定的稳定方言没有生成），所以这里走 QGC 的
-    /// 兼容分支：直接发 SET_GPS_GLOBAL_ORIGIN 报文，ArduPilot 仍然处理它。
-    bool cmd_set_global_origin(uint8_t target_sys, uint8_t target_comp,
-                               double lat, double lon, float alt_m);
 
     /// 收放起落架
     bool cmd_landing_gear(uint8_t target_sys, uint8_t target_comp, bool deploy);
@@ -694,6 +725,10 @@ public:
 
     // 获取已接收的日志条目（线程安全快照）
     std::vector<LogEntry> log_get_entries() const;
+
+    // 日志列表总条数。飞控在 LOG_ENTRY 的 num_logs 字段给出；0 表示未知
+    // （尚无 LOG_ENTRY）。UI 用它判断列表是否收齐，而不是靠“一段时间没新条目”猜。
+    uint16_t log_list_expected() const;
     /// 开始日志下载
     bool log_download_start(uint8_t target_system, uint8_t target_component,
                             uint16_t log_id, const std::string& filepath);
@@ -708,12 +743,15 @@ public:
     bool log_download_active() const;
 
     struct LogDownloadStatus {
-        bool active = false;
+        bool active = false;   // 正在接收 LOG_DATA
+        bool saving = false;   // 字节已收齐，正在落盘（完成态尚未确定）
         bool completed = false;
         bool cancelled = false;
         uint16_t id = 0;
         uint32_t received_bytes = 0;
         uint32_t total_bytes = 0;
+        bool size_declared = false;  // 大小来自 LOG_ENTRY（非 0），可作完成校验基准
+        uint32_t saved_bytes = 0;  // 实际写入本地文件的字节数
         std::string filepath;
         std::string error;
     };
@@ -933,14 +971,14 @@ public:
 
 
 
-    /// 清除待处理的 ACK 状态
-    void clear_pending_ack();
-    /// 等待特定命令的 ACK 响应，超时返回 nullopt（旧 API，保留向后兼容）
-    std::optional<CommandAckInfo> wait_for_ack(uint16_t command, int timeout_ms = 3000);
-
     // ================================================================
     // 命令队列 API — ACK 超时重发（参照 QGC MavCommandQueue）
     // ================================================================
+    //
+    // ACK 匹配约束：MAVLink 的 COMMAND_ACK 不带请求 ID，只能按
+    // (来源 sysid, compid, command) 匹配。因此“同一目标、同一条命令尚未收到 ACK
+    // 就重复下发”无法区分两次请求的 ACK 归属，必须由调用方在入队前拒绝
+    // （FFI 层按 QGC 的 isPending(compId, command) 规则拒绝重复提交）。
 
     /// 入队一个命令，自动处理 ACK 等待和超时重发
     /// 返回 CommandTicket 用于跟踪结果
@@ -980,41 +1018,61 @@ public:
     /// 周期性检查超时（由 process() 自动调用，也可手动调用）
     void tick();
 
-    /// Download a small ArduPilot system file through MAVLink FTP.
-    /// Used for board-specific metadata such as @SYS/uarts.txt.
-    bool download_file(uint8_t target_system, uint8_t target_component,
-                       const std::string& remote_path,
-                       const std::string& local_path,
-                       std::string* error = nullptr);
+    // ================================================================
+    // MAVLink FTP（FILE_TRANSFER_PROTOCOL）
+    //
+    // 传输跑在 FTP 客户端的后台线程上：这些入口只负责发起，调用线程立刻
+    // 返回；进度、结果与错误通过 file_transfer_status() 读取；取消走
+    // file_transfer_cancel()。同一时刻只允许一个传输（协议是单会话），
+    // 重复发起返回 false。详见 docs/features/flight-logging-and-replay.md。
+    // ================================================================
 
-    bool upload_file(uint8_t target_system, uint8_t target_component,
-                     const std::string& local_path,
-                     const std::string& remote_path,
-                     std::string* error = nullptr);
+    /// 发起列目录；已有传输在进行时返回 false。
+    bool file_list_start(uint8_t target_system, uint8_t target_component,
+                         const std::string& remote_path);
 
-    /// List a directory on the vehicle's MAVLink FTP filesystem.
-    std::vector<mg::core::ftp::DirEntry> list_directory(
-        uint8_t target_system, uint8_t target_component,
-        const std::string& remote_path,
-        std::string* error = nullptr);
+    /// 发起下载；已有传输在进行时返回 false。
+    bool file_download_start(uint8_t target_system, uint8_t target_component,
+                             const std::string& remote_path,
+                             const std::string& local_path);
 
-    /// Cancel an active MAVLink FTP operation.
-    void cancel_file_transfer();
+    /// 发起上传；已有传输在进行时返回 false。
+    bool file_upload_start(uint8_t target_system, uint8_t target_component,
+                           const std::string& local_path,
+                           const std::string& remote_path);
+
+    /// 当前/最近一次传输的状态快照（线程安全）。
+    mg::core::ftp::MavlinkFtpClient::FtpTransferStatus file_transfer_status() const;
+
+    /// 取消正在进行的传输；没有传输时返回 false。
+    bool file_transfer_cancel();
+
+    /// 等待传输结束（供 @SYS/uarts.txt 这类必须同步取回的小文件使用）。
+    /// 返回 true 表示在超时前结束；超时返回 false，调用方应立即取消。
+    /// 这个等待在 FFI 调用线程上发生，最长就是 timeout_ms，且不持任何
+    /// adapter 锁；真正的传输在 FTP 后台线程上跑。
+    bool file_transfer_wait(int timeout_ms);
 
 private:
     struct Impl;  // PIMPL 模式，隐藏实现细节
     std::unique_ptr<Impl> impl_;
 
-    // 内部通用任务传输 helpers（消除 mission/rally/fence 三重复制）
+    // 内部通用任务传输 helpers（消除 mission/rally/fence 三重复制）。
+    // 调用方持有 impl_->mtx（UniqueLock），helper 在发送那一帧时临时解锁，
+    // 避免在锁内调用传输层回调（A3/A4，见 ADR-0005）。
     bool mission_type_download(uint8_t sys, uint8_t comp,
-                               MissionTransferState& state, uint8_t mission_type);
+                               MissionTransferState& state, uint8_t mission_type,
+                               mg::core::platform::UniqueLock& lk);
     bool mission_type_upload(uint8_t sys, uint8_t comp,
                              MissionTransferState& state,
                              const mg::core::mission::MissionPlan& plan,
-                             uint8_t mission_type);
+                             uint8_t mission_type,
+                             mg::core::platform::UniqueLock& lk);
     bool mission_type_clear(uint8_t sys, uint8_t comp,
-                            MissionTransferState& state, uint8_t mission_type);
-    bool mission_type_cancel(MissionTransferState& state, uint8_t mission_type);
+                            MissionTransferState& state, uint8_t mission_type,
+                            mg::core::platform::UniqueLock& lk);
+    bool mission_type_cancel(MissionTransferState& state, uint8_t mission_type,
+                             mg::core::platform::UniqueLock& lk);
     bool try_auto_detect_signing(const mavlink_message_t& message);
 };
 

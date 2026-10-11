@@ -136,12 +136,22 @@ bool CalibrationService::cancel() {
 
     if (!status_.active) return false;
 
-    MGC_LOG_INFO("[CalService] Calibration cancelled by user");
-    status_.stage = CalibrationStage::Cancelled;
-    status_.active = false;
-    current_result_.stage = CalibrationStage::Cancelled;
+    if (status_.stage == CalibrationStage::Cancelling) {
+        // 已经在取消中：取消命令由第一次请求发出，这里只表示“请求已受理”，
+        // 不重复下发，也不提前收尾。
+        return true;
+    }
+
+    MGC_LOG_INFO("[CalService] Calibration cancel requested by user (type=%s)",
+                 active_strategy_ ? active_strategy_->type_name() : "unknown");
+
+    // 只进入 Cancelling：取消命令的实际下发由 FFI 层完成，飞控确认（或取消
+    // 超时/链路断开）之前 active 保持 true，界面不得显示为已停止（S8）。
+    status_.stage = CalibrationStage::Cancelling;
+    status_.user_message = "Cancelling calibration...";
+    current_result_.stage = CalibrationStage::Cancelling;
     current_result_.failure_reason = "Cancelled by user";
-    save_to_history();
+    cancel_requested_ms_ = now_ms();
     fire_event();
     return true;
 }
@@ -151,6 +161,24 @@ void CalibrationService::poll() {
     mg::core::platform::LockGuard lk(mtx_);
 
     if (!status_.active) return;
+
+    // 取消在途：等飞控确认。取消是操作者意图，不是失败，不触发重试；链路断开
+    // 或等待超过 cancel_timeout_ms_ 就收尾为 Cancelled，避免界面卡在"取消中"。
+    if (status_.stage == CalibrationStage::Cancelling) {
+        if (conn_ && !conn_->is_connected()) {
+            finalize_cancelled(
+                "Cancelled by user (link lost before the flight controller confirmed)");
+            return;
+        }
+        const uint64_t cancel_now = now_ms();
+        if (cancel_requested_ms_ != 0 && cancel_now > cancel_requested_ms_ &&
+            cancel_now - cancel_requested_ms_ > cancel_timeout_ms_) {
+            finalize_cancelled(
+                "Cancelled by user (flight controller did not confirm within " +
+                std::to_string(cancel_timeout_ms_ / 1000) + "s)");
+        }
+        return;
+    }
 
     // 链路断开后飞控不可能继续上报进度，直接失败，避免界面永远停在"校准中"。
     if (conn_ && !conn_->is_connected()) {
@@ -177,6 +205,8 @@ void CalibrationService::process_statustext(const std::string& text, uint8_t sev
     mg::core::platform::LockGuard lk(mtx_);
 
     if (!status_.active || !active_strategy_) return;
+    // 取消在途：忽略飞控残留的进度/结果文本，不回退也不复活已取消的状态。
+    if (status_.stage == CalibrationStage::Cancelling) return;
 
     // Store raw text for debugging
     current_result_.raw_status_text = text;
@@ -245,6 +275,18 @@ void CalibrationService::process_command_ack(uint16_t command, uint8_t result,
 
     if (!status_.active || !active_strategy_) return;
 
+    // 取消在途：只认取消命令的 ACK，收到即确认飞控已停止。
+    if (status_.stage == CalibrationStage::Cancelling) {
+        if (!is_cancel_command(command)) return;
+        MGC_LOG_INFO("[CalService] Cancel confirmed by flight controller (cmd=%u result=%u)",
+                     static_cast<unsigned>(command), static_cast<unsigned>(result));
+        finalize_cancelled(result == 0
+            ? "Cancelled by user"
+            : "Cancelled by user (flight controller reported result " +
+                  std::to_string(static_cast<unsigned>(result)) + ")");
+        return;
+    }
+
     // Only process ACK for our calibration command
     if (command != active_strategy_->mav_command()) return;
 
@@ -285,6 +327,7 @@ void CalibrationService::process_mag_cal_progress(
     EventDispatchScope dispatch(*this);
     mg::core::platform::LockGuard lk(mtx_);
     if (!status_.active || status_.current_type != CalibrationType::Magnetometer) return;
+    if (status_.stage == CalibrationStage::Cancelling) return;
 
     last_progress_ms_ = now_ms();
 
@@ -334,6 +377,7 @@ void CalibrationService::process_mag_cal_report(
     EventDispatchScope dispatch(*this);
     mg::core::platform::LockGuard lk(mtx_);
     if (!status_.active || status_.current_type != CalibrationType::Magnetometer) return;
+    if (status_.stage == CalibrationStage::Cancelling) return;
 
     last_progress_ms_ = now_ms();
 
@@ -376,6 +420,7 @@ void CalibrationService::process_accelerometer_position_request(uint32_t positio
         accel_mode_ != AccelCalMode::Full) {
         return;
     }
+    if (status_.stage == CalibrationStage::Cancelling) return;
 
     last_progress_ms_ = now_ms();
 
@@ -434,6 +479,40 @@ bool CalibrationService::is_active() const {
 // ================================================================
 // Internal helpers
 // ================================================================
+
+bool CalibrationService::is_cancel_command(uint16_t command) {
+    // 本服务的取消路径只可能发这三条命令（见 bridge/ffi/ffi_calibration.cc）：
+    //  241   MAV_CMD_PREFLIGHT_CALIBRATION（陀螺/气压/遥控，全零参数）
+    //  42426 MAV_CMD_DO_CANCEL_MAG_CAL（罗盘）
+    //  42429 MAV_CMD_ACCELCAL_VEHICLE_POS（加速度计，position 16777216 = 取消）
+    return command == 241 || command == 42426 || command == 42429;
+}
+
+bool CalibrationService::finish_cancel(const std::string& reason) {
+    EventDispatchScope dispatch(*this);
+    mg::core::platform::LockGuard lk(mtx_);
+
+    if (!status_.active || status_.stage != CalibrationStage::Cancelling) return false;
+    finalize_cancelled(reason);
+    return true;
+}
+
+void CalibrationService::finalize_cancelled(const std::string& reason) {
+    // NOTE: caller must hold mtx_
+
+    MGC_LOG_INFO("[CalService] Calibration cancellation finalized: %s", reason.c_str());
+
+    status_.stage = CalibrationStage::Cancelled;
+    status_.active = false;
+    status_.user_message = reason;
+    status_.failure_reason.clear();
+    current_result_.stage = CalibrationStage::Cancelled;
+    current_result_.failure_reason = reason;
+    current_result_.timestamp_ms = wall_clock_now_ms();
+    cancel_requested_ms_ = 0;
+    save_to_history();
+    fire_event();
+}
 
 void CalibrationService::transition_to(CalibrationStage new_stage) {
     // NOTE: caller must hold mtx_
@@ -716,7 +795,7 @@ void CalibrationService::load_history_from_disk() {
            std::quoted(result.failure_reason)) {
         if (version != "MGCAL1" || type < 0 || type >= static_cast<int>(history_.size()) ||
             stage < static_cast<int>(CalibrationStage::Idle) ||
-            stage > static_cast<int>(CalibrationStage::Cancelled) ||
+            stage > static_cast<int>(CalibrationStage::Cancelling) ||
             quality < static_cast<int>(CalibrationQuality::Excellent) ||
             quality > static_cast<int>(CalibrationQuality::Poor) ||
             (accel_mode != static_cast<int>(AccelCalMode::Full) &&

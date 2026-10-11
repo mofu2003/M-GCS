@@ -81,13 +81,6 @@ struct TelemetryLatest {
     bool     heartbeat_lost = false;
 };
 
-// Command ACK waiter retained for the legacy wait_for_ack path.
-struct CommandAckWaiter {
-    std::optional<CommandAckInfo> pending;
-    bool ack_received = false;
-    mg::core::platform::ConditionVariable cv;
-};
-
 struct LinkQualitySample {
     std::chrono::steady_clock::time_point received_at;
     uint8_t lost_before = 0;
@@ -156,11 +149,16 @@ private:
 // Log download state. Entries share the public LogEntry representation.
 struct LogState {
     std::vector<MavlinkAdapter::LogEntry> entries;
+    // LOG_ENTRY.num_logs：飞控声明的日志总数，0 表示尚未收到任何条目。
+    uint16_t list_num_logs = 0;
 
     bool     downloading = false;
     uint16_t download_id = 0;
     uint32_t download_ofs = 0;
     uint32_t download_size = 0;
+    // LOG_ENTRY 提供了非 0 大小（可当作完成校验基准）；否则大小只能由
+    // 数据流推断，完成后无法与飞控声明核对。
+    bool download_size_declared = false;
     std::vector<uint8_t> download_data;
     std::vector<uint8_t> download_received;
     uint32_t download_received_bytes = 0;
@@ -168,8 +166,11 @@ struct LogState {
     std::string download_filepath;
     uint8_t download_target_sys = 0;
     uint8_t download_target_comp = 0;
-    std::function<void(uint32_t received, uint32_t total)> download_progress_cb;
-    std::function<void(bool success, const std::string& path)> download_complete_cb;
+    // 收齐所有字节后，文件写入排到 deferred_cbs（锁外）执行。
+    // 写入完成前 download_write_pending 为 true，download_completed 保持 false，
+    // 避免“报告已完成但落盘失败”（P2）。
+    bool download_write_pending = false;
+    uint32_t download_saved_bytes = 0;
     bool download_completed = false;
     bool download_cancelled = false;
     std::string download_error;

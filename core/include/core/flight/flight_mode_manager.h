@@ -115,19 +115,17 @@ public:
     /// "最后一项是否到达"来判断，见 `mg_mission_get_execution_progress` 的 `aborted`。
     bool mission_mode_exited_while_armed() const;
 
-    /// 按名字切换模式。MP 的 CMB_modes 与 QGC 的 flightMode 属性都是按名字切。
-    /// 名字不识别或未绑定时返回 false。
-    bool set_mode(const std::string& mode_name);
-
-    bool arm(bool force = false);
-    bool disarm(bool force = false);
-    /// 按语义角色切模式（模式号来自固件插件，见 S6）。见 .cc 中的说明。
-    bool set_mode_role(
-        mg::core::firmware::FirmwareAdapter::ModeRole role, const char* label);
-
-    bool return_to_launch();
-    bool land();
-    bool loiter();
+    /// 解析一个按名字切换的请求：命中且可切换时填充 base_mode/custom_mode。
+    /// base_mode 规则是 CUSTOM_MODE_ENABLED（已解锁时附带 SAFETY_ARMED），
+    /// 供走 ACK 队列的调用方使用，避免两处各算一遍。
+    ///
+    /// 这里**不提供发送入口**：解锁/上锁/切模式的生产路径是 FFI 的命令队列
+    /// （`mg_command_submit_for_vehicle` → `arm_disarm_queued`/`set_mode_queued`），
+    /// 由它绑定 ticket 并等 COMMAND_ACK。以前这里有一套只发送、不等 ACK 的
+    /// `arm()`/`disarm()`/`set_mode()`，而且在“已是目标状态”时静默返回 false，
+    /// 调用方无法区分“无需动作”和“被拒绝”（S1）；它们没有任何调用者，已删除。
+    bool resolve_mode_request(const std::string& mode_name,
+                              uint8_t& base_mode, uint32_t& custom_mode) const;
 
     // ================================================================
     // Mode-specific parameters
@@ -152,14 +150,12 @@ public:
     /// Get mode change history (last N changes)
     std::vector<ModeChangeEvent> get_history(size_t max_entries = 20) const;
 
-    // ================================================================
-    // Binding
-    // ================================================================
-
-    /// Bind to a MavlinkAdapter for sending commands
-    void set_mavlink(mg::core::mavlink::MavlinkAdapter* mav, uint8_t sys_id = 1, uint8_t comp_id = 0);
-
 private:
+    /// resolve_mode_request() 的持锁版本，调用方必须已持有 mtx_。
+    bool resolve_mode_request_locked(const std::string& mode_name,
+                                     uint8_t& base_mode,
+                                     uint32_t& custom_mode) const;
+
     // NON-RECURSIVE: never call back into FlightModeManager while holding this lock.
     // Callbacks (mode_change_cb_) are always invoked outside the lock.
     mutable mg::core::platform::Mutex mtx_;
@@ -193,9 +189,6 @@ private:
 
     // Callback
     ModeChangeCallback mode_change_cb_;
-    mg::core::mavlink::MavlinkAdapter* mavlink_ = nullptr;
-    uint8_t target_sys_ = 1;
-    uint8_t target_comp_ = 0;
 };
 
 } // namespace mg::core::flight

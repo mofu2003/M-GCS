@@ -40,6 +40,30 @@ MGCORE_API const char* mg_error_string(mg_error_t error) {
         case MG_ERROR_PROTOCOL: return "Protocol error";
         case MG_ERROR_NOT_FOUND: return "Resource not found";
         case MG_ERROR_CALIBRATION: return "Calibration error";
+        case MG_ERROR_REJECTED: return "Vehicle rejected the command";
         default: return "Unknown error";
+    }
+}
+
+const char* ffi_error_name(mg_error_t error) {
+    switch (error) {
+        case MG_ERROR_NONE: return "NONE";
+        case MG_ERROR_NULL_CORE: return "NULL_CORE";
+        case MG_ERROR_NOT_CONNECTED: return "NOT_CONNECTED";
+        case MG_ERROR_SEND_FAILED: return "SEND_FAILED";
+        case MG_ERROR_INVALID_PARAM: return "INVALID_PARAM";
+        case MG_ERROR_INVALID_STATE: return "INVALID_STATE";
+        case MG_ERROR_TIMEOUT: return "TIMEOUT";
+        case MG_ERROR_BUSY: return "BUSY";
+        case MG_ERROR_NOT_SUPPORTED: return "NOT_SUPPORTED";
+        case MG_ERROR_INTERNAL: return "INTERNAL";
+        case MG_ERROR_BUFFER_TOO_SMALL: return "BUFFER_TOO_SMALL";
+        case MG_ERROR_INVALID_MESSAGE: return "INVALID_MESSAGE";
+        case MG_ERROR_CHECKSUM_FAIL: return "CHECKSUM_FAIL";
+        case MG_ERROR_PROTOCOL: return "PROTOCOL";
+        case MG_ERROR_NOT_FOUND: return "NOT_FOUND";
+        case MG_ERROR_CALIBRATION: return "CALIBRATION";
+        case MG_ERROR_REJECTED: return "REJECTED";
+        default: return "UNKNOWN";
     }
 }

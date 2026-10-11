@@ -11,10 +11,13 @@
 #include "mock_vehicle_test_env.h"
 #include "ffi_api.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
+#include <thread>
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -106,6 +109,41 @@ void test_params_get_by_name() {
     if (null_name) mg_free_string(null_name);
 }
 
+// S4：任务命令目录按固件覆盖参数（QGC PX4-MavCmdInfoCommon.json 的 paramRemove）。
+// PX4 隐藏 NAV_WAYPOINT 的接受半径/通过半径；ArduPilot 保留全部字段。
+void test_mission_catalog_param_remove_per_firmware() {
+    fprintf(stderr, "\n[Group] mg_mission_get_command_catalog (paramRemove)\n");
+
+    {
+        MockFlightController::Config cfg; // 默认 ArduPilot
+        TestEnv env(cfg);
+        env.connect();
+        char* catalog = mg_mission_get_command_catalog(env.core);
+        CHECK(json_has(catalog, "\"name\":\"accept_radius\""),
+              "ArduPilot catalog keeps the waypoint acceptance radius");
+        CHECK(json_has(catalog, "\"name\":\"pass_radius\""),
+              "ArduPilot catalog keeps the waypoint pass radius");
+        if (catalog) mg_free_string(catalog);
+    }
+
+    {
+        MockFlightController::Config cfg;
+        cfg.firmware = MockFlightController::PX4;
+        TestEnv env(cfg);
+        env.connect();
+        char* catalog = mg_mission_get_command_catalog(env.core);
+        CHECK(!json_has(catalog, "\"name\":\"accept_radius\""),
+              "PX4 catalog hides the waypoint acceptance radius (paramRemove 2)");
+        CHECK(!json_has(catalog, "\"name\":\"pass_radius\""),
+              "PX4 catalog hides the waypoint pass radius (paramRemove 3)");
+        CHECK(json_has(catalog, "\"name\":\"hold_time\""),
+              "PX4 catalog keeps the waypoint hold time (not removed)");
+        CHECK(json_has(catalog, "\"name\":\"yaw\""),
+              "PX4 catalog keeps the waypoint yaw (not removed)");
+        if (catalog) mg_free_string(catalog);
+    }
+}
+
 void test_stream_set_interval() {
     fprintf(stderr, "\n[Group] mg_stream_set_interval\n");
     TestEnv env;
@@ -179,8 +217,21 @@ void test_calibration_cancel() {
     CHECK(json_has(cancel, "\"success\":true"), "cancel reports success");
     if (cancel) mg_free_string(cancel);
 
+    // S8：飞控确认之前不能显示为已停止，status 必须停在 cancelling。
+    char* pending = mg_calibration_get_status(env.core);
+    CHECK(json_has(pending, "\"active\":true") &&
+              json_has(pending, "\"stage\":\"cancelling\""),
+          "calibration stays active and reports cancelling before the ACK");
+    if (pending) mg_free_string(pending);
+
+    // 放开 ACK：飞控确认后才落到 cancelled。
+    env.mock->set_cmd_no_response(false);
+    for (int i = 0; i < 5; ++i) env.tick(20);
+
     char* stopped = mg_calibration_get_status(env.core);
-    CHECK(json_has(stopped, "\"active\":false"), "calibration is inactive after cancel");
+    CHECK(json_has(stopped, "\"active\":false") &&
+              json_has(stopped, "\"stage\":\"cancelled\""),
+          "calibration is inactive after the vehicle confirms the cancel");
     if (stopped) mg_free_string(stopped);
 }
 
@@ -212,50 +263,304 @@ void test_config_param_write_path() {
     if (empty) mg_free_string(empty);
 }
 
-// 兼容入口以前无论有没有日志都返回 success:true + 空数组，这条用例要求它
-// 反映飞控真实上报的日志条目。
+// The canonical log listing reports the entries received from the flight controller.
 void test_log_list_reports_real_entries() {
-    fprintf(stderr, "\n[Group] mg_log_list\n");
+    fprintf(stderr, "\n[Group] mg_onboard_log_get_entries\n");
     TestEnv env;
     env.connect();
 
-    env.mock->send_log_entry(7, 1700000000u, 4096u);
+    env.mock->send_log_entry(7, 1700000000u, 4096u, 2);
+    env.mock->send_log_entry(8, 1700000060u, 8192u, 2);
+    // 重传同一条目不能产生重复行，也不能把计数顶到 num_logs 之上。
+    env.mock->send_log_entry(7, 1700000000u, 4096u, 2);
     env.tick(50);
 
-    char* list = mg_log_list(env.core);
+    char* list = mg_onboard_log_get_entries(env.core);
     CHECK(json_has(list, "\"success\":true"), "log list reports success");
-    CHECK(json_has(list, "\"total\":1"), "log list reports the real entry count");
+    CHECK(json_has(list, "\"total\":2"), "log list dedupes retransmitted entries");
+    CHECK(json_has(list, "\"expected\":2"), "log list reports the flight controller's num_logs");
+    CHECK(json_has(list, "\"complete\":true"), "log list reports completion once num_logs are received");
     CHECK(json_has(list, "\"id\":7"), "log list carries the real log id");
     CHECK(json_has(list, "\"size_bytes\":4096"), "log list carries the real size");
+    CHECK(json_has(list, "\"size_bytes\":8192"), "log list carries both entries");
     if (list) mg_free_string(list);
 
-    // mg_log_get_entries 与兼容入口必须给出同一份数据。
-    char* entries = mg_log_get_entries(env.core);
-    CHECK(json_has(entries, "\"id\":7"), "mg_log_get_entries agrees with mg_log_list");
-    if (entries) mg_free_string(entries);
+}
+
+// P2：下载完成态只在文件真的写成功之后置位，并报告 saved_bytes。
+void test_log_download_reports_saved_bytes() {
+    fprintf(stderr, "\n[Group] mg_onboard_log_download completion follows a successful write\n");
+    TestEnv env;
+    env.connect();
+
+    env.mock->send_log_entry(7, 1700000000u, 8u);
+    env.tick(50);
+
+    const auto path =
+        std::filesystem::temp_directory_path() / "mgcs_log_download_test.bin";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    char* start = mg_onboard_log_download(env.core, 7, path.string().c_str());
+    CHECK(json_has(start, "\"success\":true"), "log download starts");
+    if (start) mg_free_string(start);
+    env.tick(10);
+
+    const uint8_t payload[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    env.mock->send_log_data(7, 0, payload, 8);
+
+    char* status = mg_onboard_log_download_status(env.core);
+    CHECK(json_has(status, "\"state\":\"completed\""),
+          "download reports completed only after the file is saved");
+    CHECK(json_has(status, "\"completed\":true"), "completed flag is set");
+    CHECK(json_has(status, "\"saved_bytes\":8"), "status reports the saved byte count");
+    if (status) mg_free_string(status);
+
+    FILE* f = fopen(path.string().c_str(), "rb");
+    CHECK(f != nullptr, "downloaded file exists");
+    if (f) {
+        uint8_t got[16] = {};
+        const size_t n = fread(got, 1, sizeof(got), f);
+        fclose(f);
+        CHECK(n == 8 && std::memcmp(got, payload, 8) == 0,
+              "downloaded file content matches the LOG_DATA payload");
+    }
+    std::filesystem::remove(path, ec);
+}
+
+// P2：落盘失败必须显示为失败，而不是“报告完成但文件不存在”。
+void test_log_download_write_failure_is_visible() {
+    fprintf(stderr, "\n[Group] mg_onboard_log_download surfaces a write failure\n");
+    TestEnv env;
+    env.connect();
+
+    env.mock->send_log_entry(9, 1700000000u, 8u);
+    env.tick(50);
+
+    // 父目录不存在 → fopen 必然失败（普通用户与 root 都一样）。
+    const auto dir =
+        std::filesystem::temp_directory_path() / "mgcs_missing_dir_for_test";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    const auto path = dir / "log.bin";
+
+    char* start = mg_onboard_log_download(env.core, 9, path.string().c_str());
+    CHECK(json_has(start, "\"success\":true"), "log download starts");
+    if (start) mg_free_string(start);
+    env.tick(10);
+
+    const uint8_t payload[8] = {9, 9, 9, 9, 9, 9, 9, 9};
+    env.mock->send_log_data(9, 0, payload, 8);
+
+    char* status = mg_onboard_log_download_status(env.core);
+    CHECK(json_has(status, "\"state\":\"failed\""),
+          "write failure is reported as failed, not completed");
+    CHECK(!json_has(status, "\"completed\":true"),
+          "failed write never reports completion");
+    CHECK(json_has(status, "\"saved_bytes\":0"), "failed write saved zero bytes");
+    CHECK(!std::filesystem::exists(path), "no partial file is left behind");
+    if (status) mg_free_string(status);
+}
+
+// P4：状态查询是纯读取；丢包补发由周期超时检查驱动。
+void test_log_download_status_has_no_side_effect() {
+    fprintf(stderr, "\n[Group] mg_onboard_log_download_status is a pure read\n");
+    TestEnv env;
+    env.connect();
+
+    env.mock->send_log_entry(11, 1700000000u, 8u);
+    env.tick(50);
+
+    const auto path =
+        std::filesystem::temp_directory_path() / "mgcs_log_status_test.bin";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    char* start = mg_onboard_log_download(env.core, 11, path.string().c_str());
+    CHECK(json_has(start, "\"success\":true"), "log download starts");
+    if (start) mg_free_string(start);
+    env.tick(10);
+    const int after_start = env.mock->log_request_data_count;
+    CHECK(after_start == 1, "start sends exactly one LOG_REQUEST_DATA");
+
+    // 静默 600ms（超过 500ms 补发阈值）后再查状态。旧实现会在这里补发。
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    char* status = mg_onboard_log_download_status(env.core);
+    CHECK(json_has(status, "\"state\":\"downloading\""),
+          "stalled download still reports downloading");
+    if (status) mg_free_string(status);
+    env.tick(0);  // 只把 GCS→FC 的帧交给模拟飞控，不产生新的遥测
+    CHECK(env.mock->log_request_data_count == after_start,
+          "status query sends no LOG_REQUEST_DATA");
+
+    // 周期超时检查才是补发的驱动：推进一次遥测即可触发从缺口重发。
+    env.tick(100);
+    CHECK(env.mock->log_request_data_count > after_start,
+          "stall recovery retransmits from the periodic timeout path");
+    CHECK(env.mock->last_log_request_ofs == 0,
+          "retransmit starts from the first missing chunk");
+    std::filesystem::remove(path, ec);
+}
+
+// 取消下载只发送 LOG_REQUEST_END，并落到 cancelled 状态。
+void test_log_download_cancel_sends_request_end() {
+    fprintf(stderr, "\n[Group] mg_onboard_log_download_cancel\n");
+    TestEnv env;
+    env.connect();
+
+    env.mock->send_log_entry(3, 1700000000u, 8u);
+    env.tick(50);
+
+    const auto path =
+        std::filesystem::temp_directory_path() / "mgcs_log_cancel_test.bin";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    char* start = mg_onboard_log_download(env.core, 3, path.string().c_str());
+    CHECK(json_has(start, "\"success\":true"), "log download starts");
+    if (start) mg_free_string(start);
+    env.tick(10);
+
+    char* cancel = mg_onboard_log_download_cancel(env.core);
+    CHECK(json_has(cancel, "\"success\":true"), "cancel is accepted");
+    if (cancel) mg_free_string(cancel);
+    env.tick(10);
+    CHECK(env.mock->log_request_end_count == 1,
+          "cancel sends exactly one LOG_REQUEST_END");
+
+    char* status = mg_onboard_log_download_status(env.core);
+    CHECK(json_has(status, "\"state\":\"cancelled\""),
+          "cancelled state is reported");
+    if (status) mg_free_string(status);
+    std::filesystem::remove(path, ec);
+}
+
+// LOG_ENTRY 声明的大小大于实际发出的字节时，明确报告截断，不写半个文件。
+void test_log_download_truncation_is_reported() {
+    fprintf(stderr, "\n[Group] mg_onboard_log_download reports truncation\n");
+    TestEnv env;
+    env.connect();
+
+    env.mock->send_log_entry(21, 1700000000u, 100u);
+    env.tick(50);
+
+    const auto path =
+        std::filesystem::temp_directory_path() / "mgcs_log_truncated_test.bin";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    char* start = mg_onboard_log_download(env.core, 21, path.string().c_str());
+    CHECK(json_has(start, "\"success\":true"), "log download starts");
+    if (start) mg_free_string(start);
+    env.tick(10);
+
+    // 只发 8 字节，然后飞控用空帧表示“没有更多数据”。
+    const uint8_t payload[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    env.mock->send_log_data(21, 0, payload, 8);
+    env.mock->send_log_data(21, 8, nullptr, 0);
+
+    char* status = mg_onboard_log_download_status(env.core);
+    CHECK(json_has(status, "\"state\":\"failed\""),
+          "early stream end is reported as failed");
+    CHECK(!json_has(status, "\"completed\":true"),
+          "truncated download never reports completion");
+    CHECK(json_has(status, "log truncated"),
+          "truncation reason is surfaced to the caller");
+    if (status) mg_free_string(status);
+    CHECK(!std::filesystem::exists(path),
+          "no partial file is written when the download is truncated");
+}
+
+// 飞控没声明大小时仍能下载，但完成态明确标注“未校验”。
+void test_log_download_unknown_size_is_unverified() {
+    fprintf(stderr, "\n[Group] mg_onboard_log_download without a declared size\n");
+    TestEnv env;
+    env.connect();
+
+    // 不发送 LOG_ENTRY：飞控没有声明大小，下载只能靠空帧判定结束。
+    const auto path =
+        std::filesystem::temp_directory_path() / "mgcs_log_unknown_size_test.bin";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    char* start = mg_onboard_log_download(env.core, 5, path.string().c_str());
+    CHECK(json_has(start, "\"success\":true"), "log download starts without a list");
+    if (start) mg_free_string(start);
+    env.tick(10);
+
+    uint8_t payload[90];
+    for (int i = 0; i < 90; ++i) payload[i] = static_cast<uint8_t>(i);
+    env.mock->send_log_data(5, 0, payload, 90);
+    env.mock->send_log_data(5, 90, nullptr, 0);
+
+    char* status = mg_onboard_log_download_status(env.core);
+    CHECK(json_has(status, "\"state\":\"completed\""),
+          "empty frame ends an undeclared-size download");
+    CHECK(json_has(status, "\"size_declared\":false"),
+          "status marks that the flight controller declared no size");
+    CHECK(json_has(status, "\"saved_bytes\":90"), "all received bytes are saved");
+    if (status) mg_free_string(status);
+
+    FILE* f = fopen(path.string().c_str(), "rb");
+    CHECK(f != nullptr, "undeclared-size download still writes a file");
+    if (f) fclose(f);
+    std::filesystem::remove(path, ec);
+}
+
+// 擦除发送 LOG_ERASE；下载进行中必须拒绝，避免半途丢失数据。
+void test_log_erase_gating() {
+    fprintf(stderr, "\n[Group] mg_onboard_log_erase\n");
+    TestEnv env;
+    env.connect();
+
+    char* erase = mg_onboard_log_erase(env.core);
+    CHECK(json_has(erase, "\"success\":true"), "erase is accepted on an idle link");
+    if (erase) mg_free_string(erase);
+    env.tick(20);
+    CHECK(env.mock->log_erase_count == 1, "erase sends exactly one LOG_ERASE");
+
+    // 下载进行中 → 拒绝擦除，且不发送 LOG_ERASE。
+    env.mock->send_log_entry(22, 1700000000u, 100u);
+    env.tick(50);
+    const auto path =
+        std::filesystem::temp_directory_path() / "mgcs_log_erase_gate_test.bin";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    char* start = mg_onboard_log_download(env.core, 22, path.string().c_str());
+    if (start) mg_free_string(start);
+    env.tick(10);
+
+    char* blocked = mg_onboard_log_erase(env.core);
+    CHECK(json_has(blocked, "\"success\":false"),
+          "erase is refused while a download is active");
+    if (blocked) mg_free_string(blocked);
+    env.tick(20);
+    CHECK(env.mock->log_erase_count == 1,
+          "refused erase sends no LOG_ERASE");
+    std::filesystem::remove(path, ec);
 }
 
 // 飞行日志声明会采集飞控 STATUSTEXT，但状态转发以前没接线。这条用例要求
-// 事件真的落到 mg_log_get_events 里。
+// 事件真的落到 mg_event_log_get_events 里。
 void test_flight_log_captures_statustext() {
     fprintf(stderr, "\n[Group] flight log captures STATUSTEXT\n");
     TestEnv env;
     env.connect();
 
-    char* start = mg_log_start(env.core);
+    char* start = mg_event_log_start(env.core);
     CHECK(json_has(start, "\"success\":true"), "flight log starts");
     if (start) mg_free_string(start);
 
     env.mock->send_statustext("PreArm: Throttle too high", 4);
     env.tick(50);
 
-    char* events = mg_log_get_events(env.core);
+    char* events = mg_event_log_get_events(env.core);
     CHECK(json_has(events, "fc.statustext"), "statustext stored under fc.statustext");
     CHECK(json_has(events, "PreArm: Throttle too high"),
           "statustext text reaches the flight log");
     if (events) mg_free_string(events);
 
-    char* stop = mg_log_stop(env.core);
+    char* stop = mg_event_log_stop(env.core);
     CHECK(json_has(stop, "\"success\":true"), "flight log stops");
     if (stop) mg_free_string(stop);
 }
@@ -273,7 +578,7 @@ void test_rc_calibrate_save_is_honest() {
 
     // 校准进行中（ACK = IN_PROGRESS）时不得谎报保存成功。
     env.mock->set_cmd_no_response(false);
-    env.mock->set_next_cmd_result(1 /* MAV_RESULT_IN_PROGRESS */);
+    env.mock->set_next_cmd_result(5 /* MAV_RESULT_IN_PROGRESS */);
     char* start = mg_rc_calibrate_start(env.core);
     if (start) mg_free_string(start);
     env.tick(50);
@@ -285,11 +590,11 @@ void test_rc_calibrate_save_is_honest() {
 }
 
 void test_mission_request_propagates_send_failure() {
-    fprintf(stderr, "\n[Group] mg_mission_request\n");
+    fprintf(stderr, "\n[Group] mg_mission_download\n");
     TestEnv env;
     env.connect();
 
-    char* ok_result = mg_mission_request(env.core, "{}");
+    char* ok_result = mg_mission_download(env.core);
     CHECK(json_has(ok_result, "\"success\":true"), "mission request succeeds on a live link");
     if (ok_result) mg_free_string(ok_result);
 }
@@ -321,6 +626,129 @@ void test_serial_get_uart_names() {
     CHECK(json_has(missing, "\"available\":false"), "missing uart file is not faked as available");
     CHECK(!json_has(missing, "\"success\":true"), "missing uart file does not report success");
     if (missing) mg_free_string(missing);
+}
+
+
+// 轮询 mg_fs_transfer_status，直到出现期望状态或超时；pump 线程负责把
+// mock 的 FTP 响应喂回适配器。
+std::string wait_for_fs_state(TestEnv& env, const char* want,
+                              int timeout_ms = 5000) {
+    const auto start = std::chrono::steady_clock::now();
+    std::string last;
+    while (true) {
+        char* status = mg_fs_transfer_status(env.core);
+        last = status != nullptr ? status : std::string();
+        if (status != nullptr) mg_free_string(status);
+        const std::string marker = std::string("\"state\":\"") + want + "\"";
+        if (last.find(marker) != std::string::npos) return last;
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start).count();
+        if (elapsed > timeout_ms) return last;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+}
+
+// mg_fs_* 是异步入口：发起后调用线程必须立刻返回，传输在后台推进，
+// 结果只能通过 mg_fs_transfer_status 轮询（P1）。
+void test_fs_transfer_async_ffi() {
+    fprintf(stderr, "\n[Group] mg_fs_* async file transfer\n");
+
+    TestEnv env;
+    env.connect();
+    const std::string uart_text =
+        "UARTV1\n"
+        "SERIAL0 OTG1 TX=1 RX=1\n"
+        "SERIAL2 USART3 TX=2 RX=2 FlowCtrl=1\n";
+    env.mock->set_ftp_file("@SYS/uarts.txt", uart_text);
+    env.mock->set_ftp_directory(
+        "@SYS", {"S208.42 1", "Fuarts.txt\t41", "Dlogs", "Fparams.txt\t42"});
+
+    const auto output =
+        std::filesystem::temp_directory_path() / "mgcs_ffi_fs_async.txt";
+    std::error_code ignored;
+    std::filesystem::remove(output, ignored);
+
+    // 没有活动传输时，取消必须被拒绝而不是假装成功。
+    char* idle_cancel = mg_fs_cancel(env.core);
+    CHECK(json_has(idle_cancel, "\"success\":false"),
+          "mg_fs_cancel refuses when nothing is transferring");
+    if (idle_cancel) mg_free_string(idle_cancel);
+
+    env.start_pump();
+    char* started =
+        mg_fs_download_file(env.core, "@SYS/uarts.txt", output.string().c_str());
+    CHECK(json_has(started, "\"success\":true"),
+          "mg_fs_download_file starts and returns immediately");
+    if (started) mg_free_string(started);
+
+    const std::string completed = wait_for_fs_state(env, "completed");
+    CHECK(json_has(completed.c_str(), "\"state\":\"completed\""),
+          "download reaches completed through status polling");
+    CHECK(json_has(completed.c_str(), "\"task\":\"download\""),
+          "status names the download task");
+    CHECK(json_has(completed.c_str(), "\"remote_path\":\"@SYS/uarts.txt\""),
+          "status echoes the remote path");
+    CHECK(json_has(completed.c_str(),
+                   ("\"received_bytes\":" + std::to_string(uart_text.size()))
+                       .c_str()),
+          "status reports the bytes received");
+    CHECK(std::filesystem::exists(output) &&
+              std::filesystem::file_size(output) == uart_text.size(),
+          "downloaded file lands on disk");
+
+    char* after = mg_fs_transfer_status(env.core);
+    CHECK(json_has(after, "\"active\":false"),
+          "finished transfer is no longer active");
+    if (after) mg_free_string(after);
+
+    char* list_start = mg_fs_list_directory(env.core, "@SYS");
+    CHECK(json_has(list_start, "\"success\":true"),
+          "mg_fs_list_directory starts a background listing");
+    if (list_start) mg_free_string(list_start);
+    const std::string listed = wait_for_fs_state(env, "completed");
+    CHECK(json_has(listed.c_str(), "\"task\":\"list\"") &&
+              json_has(listed.c_str(), "\"name\":\"uarts.txt\"") &&
+              json_has(listed.c_str(), "\"name\":\"logs\""),
+          "list status carries parsed directory items");
+    env.stop_pump();
+
+    // 远端不存在 → NAK FILE_NOT_FOUND：状态必须是 failed 且带协议错误码。
+    TestEnv failing;
+    failing.connect();
+    failing.start_pump();
+    char* missing = mg_fs_download_file(failing.core, "@SYS/missing.txt",
+                                        output.string().c_str());
+    CHECK(json_has(missing, "\"success\":true"),
+          "request for a missing file still starts asynchronously");
+    if (missing) mg_free_string(missing);
+    const std::string failed = wait_for_fs_state(failing, "failed");
+    failing.stop_pump();
+    CHECK(json_has(failed.c_str(), "\"state\":\"failed\""),
+          "missing remote file ends as failed");
+    CHECK(json_has(failed.c_str(), "\"error_code\":10"),
+          "failure surfaces the MAV_FTP_ERR code");
+
+    // 不启动 pump：没有响应，传输停在等待中，此时取消必须真的中断它。
+    TestEnv cancel_env;
+    cancel_env.connect();
+    cancel_env.mock->set_ftp_file("@SYS/big.txt", std::string(4096, 'x'));
+    const auto cancel_out =
+        std::filesystem::temp_directory_path() / "mgcs_ffi_fs_cancel.txt";
+    std::filesystem::remove(cancel_out, ignored);
+    char* c_start = mg_fs_download_file(cancel_env.core, "@SYS/big.txt",
+                                        cancel_out.string().c_str());
+    CHECK(json_has(c_start, "\"success\":true"), "in-flight download starts");
+    if (c_start) mg_free_string(c_start);
+    char* c_cancel = mg_fs_cancel(cancel_env.core);
+    CHECK(json_has(c_cancel, "\"success\":true"),
+          "mg_fs_cancel accepts an in-flight transfer");
+    if (c_cancel) mg_free_string(c_cancel);
+    const std::string cancelled = wait_for_fs_state(cancel_env, "cancelled", 3000);
+    CHECK(json_has(cancelled.c_str(), "\"state\":\"cancelled\""),
+          "cancelled transfer reports cancelled, not failed");
+
+    std::filesystem::remove(output, ignored);
+    std::filesystem::remove(cancel_out, ignored);
 }
 
 }  // namespace
@@ -374,9 +802,197 @@ void test_home_position_is_requested_on_identify() {
     if (home) mg_free_string(home);
 }
 
+// S1：PX4 的 COM_FLTMODE1..6 是参数枚举（不是 custom_mode），模式选择通道是
+// RC_MAP_FLTMODE。槽位名与 options 都必须来自参数枚举表，不能拿模式表反查。
+void test_px4_mode_mapping_uses_param_enum() {
+    fprintf(stderr, "\n[Group] mg_flight_get_mode_mapping (PX4)\n");
+    MockFlightController::Config cfg;
+    cfg.firmware = MockFlightController::PX4;
+    TestEnv env(cfg);
+    env.mock->add_param("COM_FLTMODE1", 2);   // Position
+    env.mock->add_param("COM_FLTMODE2", 3);   // Mission
+    env.mock->add_param("COM_FLTMODE3", 5);   // Return
+    env.mock->add_param("COM_FLTMODE4", 6);   // Acro
+    env.mock->add_param("COM_FLTMODE5", 7);   // Offboard（参数枚举，不是 custom_mode 0x00060000）
+    env.mock->add_param("COM_FLTMODE6", 9);   // Position Slow
+    env.mock->add_param("RC_MAP_FLTMODE", 6, 4);
+    env.connect();
+    env.load_params();
+
+    char* mapping = mg_flight_get_mode_mapping(env.core);
+    CHECK(json_has(mapping, "\"available\":true"), "PX4 mapping reports available");
+    CHECK(json_has(mapping, "\"param_prefix\":\"COM_FLTMODE\""),
+          "param prefix is COM_FLTMODE");
+    CHECK(json_has(mapping, "\"channel_param\":\"RC_MAP_FLTMODE\""),
+          "channel param is RC_MAP_FLTMODE");
+    CHECK(!json_has(mapping, "\"channel_param\":\"FLTMODE_CH\""),
+          "ArduPilot channel param does not leak into PX4 mapping");
+    CHECK(json_has(mapping, "\"name\":\"Position\""),
+          "slot name decodes from the param enum table (value 2 -> Position)");
+    CHECK(!json_has(mapping, "\"name\":\"Position Control\""),
+          "custom_mode name does not leak into the param-enum slots/options");
+    CHECK(json_has(mapping, "\"name\":\"Offboard\""),
+          "param value 7 decodes to Offboard (param enum, not custom_mode)");
+    // options 来自参数枚举表：包含 Mission/Return 等只在该表出现的名字。
+    CHECK(json_has(mapping, "\"name\":\"Return\""),
+          "options list comes from the param enum table");
+    if (mapping) mg_free_string(mapping);
+}
+
+// S6：PX4 执行器映射读写 16 路 PWM_MAIN_FUNC（旧实现只读写前 8 路，9..16 永远
+// 报 0 并静默丢弃写入）。同时钉住字段形状。
+void test_px4_actuator_maps_all_sixteen_channels() {
+    fprintf(stderr, "\n[Group] mg_px4_actuator_get/set_config (PX4)\n");
+    MockFlightController::Config cfg;
+    cfg.firmware = MockFlightController::PX4;
+    TestEnv env(cfg);
+    for (int i = 1; i <= 16; i++) {
+        env.mock->add_param("PWM_MAIN_FUNC" + std::to_string(i), static_cast<float>(i));
+    }
+    env.connect();
+    env.load_params();
+
+    char* got = mg_px4_actuator_get_config(env.core);
+    CHECK(json_has(got, "\"firmware\":\"PX4\""), "actuator config reports PX4 firmware");
+    CHECK(json_has(got, "\"param_prefix\":\"PWM_MAIN_FUNC\""), "actuator config reports the PWM_MAIN_FUNC prefix");
+    CHECK(json_has(got, "\"channel_count\":16"), "actuator config reports 16 main channels");
+    CHECK(json_has(got, "\"main_functions\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]"),
+          "actuator read covers all 16 PWM_MAIN_FUNC values, not just the first 8");
+    if (got) mg_free_string(got);
+
+    env.mock->received_params_set.clear();
+    char* set = mg_px4_actuator_set_config(
+        env.core, "{\"main_functions\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]}");
+    CHECK(json_has(set, "\"success\":true"), "actuator set reports success");
+    CHECK(json_has(set, "\"written\":16"), "actuator set reports 16 writes");
+    if (set) mg_free_string(set);
+    env.tick(50);
+
+    bool wrote9 = false, wrote16 = false;
+    for (const auto& name : env.mock->received_params_set) {
+        if (name == "PWM_MAIN_FUNC9") wrote9 = true;
+        if (name == "PWM_MAIN_FUNC16") wrote16 = true;
+    }
+    CHECK(wrote9 && wrote16, "actuator write sends PWM_MAIN_FUNC9..16, not only the first 8");
+
+    char* bad = mg_px4_actuator_set_config(env.core, "{\"main_functions\":\"nope\"}");
+    CHECK(json_has(bad, "\"success\":false") && json_has(bad, "\"name\":\"INVALID_PARAM\""),
+          "actuator set rejects a non-array main_functions");
+    if (bad) mg_free_string(bad);
+}
+
+// S6：PX4 安全只报告飞控实际缓存的 CBRK_*（旧实现写死 CBRK_AIRSPD_CHK /
+// CBRK_GPS_CHK / CBRK_IO_SAFETY，其中 CBRK_GPS_CHK 在 PX4 与 QGC 中都不存在）。
+void test_px4_safety_reports_only_real_circuit_breakers() {
+    fprintf(stderr, "\n[Group] mg_px4_safety_get/set (PX4)\n");
+    MockFlightController::Config cfg;
+    cfg.firmware = MockFlightController::PX4;
+    TestEnv env(cfg);
+    env.mock->add_param("CBRK_IO_SAFETY", 0, 2);
+    env.mock->add_param("CBRK_USB_CHK", 1, 2);
+    env.connect();
+    env.load_params();
+
+    char* got = mg_px4_safety_get(env.core);
+    CHECK(json_has(got, "\"circuit_breakers\":{\"CBRK_IO_SAFETY\":0,\"CBRK_USB_CHK\":1}"),
+          "safety get reports exactly the cached CBRK_* parameters");
+    CHECK(!json_has(got, "\"CBRK_GPS_CHK\""),
+          "safety get does not fabricate CBRK_GPS_CHK (absent from PX4 and QGC)");
+    CHECK(!json_has(got, "\"CBRK_AIRSPD_CHK\""),
+          "safety get does not fabricate CBRK_AIRSPD_CHK when the vehicle lacks it");
+    if (got) mg_free_string(got);
+
+    char* missing = mg_px4_safety_set(env.core, "{\"circuit_breakers\":{\"CBRK_GPS_CHK\":1}}");
+    CHECK(json_has(missing, "\"success\":false") && json_has(missing, "\"name\":\"NOT_FOUND\""),
+          "safety set rejects a breaker the vehicle does not have");
+    if (missing) mg_free_string(missing);
+
+    char* not_a_breaker = mg_px4_safety_set(env.core, "{\"circuit_breakers\":{\"NOT_A_CBRK\":1}}");
+    CHECK(json_has(not_a_breaker, "\"success\":false") && json_has(not_a_breaker, "\"name\":\"INVALID_PARAM\""),
+          "safety set rejects a key that is not a CBRK_* parameter");
+    if (not_a_breaker) mg_free_string(not_a_breaker);
+
+    env.mock->received_params_set.clear();
+    char* ok = mg_px4_safety_set(env.core, "{\"circuit_breakers\":{\"CBRK_IO_SAFETY\":1}}");
+    CHECK(json_has(ok, "\"success\":true") && json_has(ok, "\"written\":1"),
+          "safety set writes a breaker the vehicle has");
+    if (ok) mg_free_string(ok);
+    env.tick(50);
+
+    bool forwarded = false;
+    for (const auto& name : env.mock->received_params_set) {
+        if (name == "CBRK_IO_SAFETY") forwarded = true;
+    }
+    CHECK(forwarded, "safety set forwards PARAM_SET to the flight controller");
+}
+
+// S6：PX4 模式槽只读 COM_FLTMODE1..6，形如参数枚举值而不是 custom_mode。
+void test_px4_flight_mode_slots_are_read_only_list() {
+    fprintf(stderr, "\n[Group] mg_px4_flight_mode_get_config (PX4)\n");
+    MockFlightController::Config cfg;
+    cfg.firmware = MockFlightController::PX4;
+    TestEnv env(cfg);
+    env.mock->add_param("COM_FLTMODE1", 2);   // Position
+    env.mock->add_param("COM_FLTMODE2", 3);   // Mission
+    env.mock->add_param("COM_FLTMODE3", 5);   // Return
+    env.mock->add_param("COM_FLTMODE4", 6);   // Acro
+    env.mock->add_param("COM_FLTMODE5", 7);   // Offboard
+    env.mock->add_param("COM_FLTMODE6", 9);   // Position Slow
+    env.connect();
+    env.load_params();
+
+    char* modes = mg_px4_flight_mode_get_config(env.core);
+    CHECK(json_has(modes, "\"param_prefix\":\"COM_FLTMODE\""), "flight mode config uses the COM_FLTMODE prefix");
+    CHECK(json_has(modes, "\"slot_count\":6"), "flight mode config reports six slots");
+    CHECK(json_has(modes, "\"flight_modes\":[2,3,5,6,7,9]"),
+          "flight mode slots carry the raw COM_FLTMODE parameter values");
+    if (modes) mg_free_string(modes);
+}
+
+// S6：ArduPilot 车辆上 7 个 mg_px4_* 全部明确拒绝，不能对非 PX4 悄悄给结果。
+void test_px4_apis_reject_ardupilot() {
+    fprintf(stderr, "\n[Group] mg_px4_* on ArduPilot\n");
+    TestEnv env;  // 默认 ArduPilot/Copter
+    env.connect();
+
+    char* a = mg_px4_actuator_get_config(env.core);
+    CHECK(json_has(a, "\"name\":\"NOT_SUPPORTED\""), "actuator get rejects ArduPilot");
+    if (a) mg_free_string(a);
+
+    char* b = mg_px4_actuator_set_config(env.core, "{\"main_functions\":[1]}");
+    CHECK(json_has(b, "\"name\":\"NOT_SUPPORTED\""), "actuator set rejects ArduPilot");
+    if (b) mg_free_string(b);
+
+    char* c = mg_px4_safety_get(env.core);
+    CHECK(json_has(c, "\"name\":\"NOT_SUPPORTED\""), "safety get rejects ArduPilot");
+    if (c) mg_free_string(c);
+
+    char* d = mg_px4_safety_set(env.core, "{\"circuit_breakers\":{\"CBRK_IO_SAFETY\":1}}");
+    CHECK(json_has(d, "\"name\":\"NOT_SUPPORTED\""), "safety set rejects ArduPilot");
+    if (d) mg_free_string(d);
+
+    char* e = mg_px4_flight_mode_get_config(env.core);
+    CHECK(json_has(e, "\"name\":\"NOT_SUPPORTED\""), "flight mode get rejects ArduPilot");
+    if (e) mg_free_string(e);
+
+    char* f = mg_px4_tuning_get(env.core);
+    CHECK(json_has(f, "\"name\":\"NOT_SUPPORTED\""), "tuning get rejects ArduPilot");
+    if (f) mg_free_string(f);
+
+    char* g = mg_px4_tuning_set(env.core, "{\"mc_roll_p\":0.1}");
+    CHECK(json_has(g, "\"name\":\"NOT_SUPPORTED\""), "tuning set rejects ArduPilot");
+    if (g) mg_free_string(g);
+}
+
 int main() {
     fprintf(stderr, "=== FFI UI path simulation tests ===\n");
     test_params_get_by_name();
+    test_px4_mode_mapping_uses_param_enum();
+    test_px4_actuator_maps_all_sixteen_channels();
+    test_px4_safety_reports_only_real_circuit_breakers();
+    test_px4_flight_mode_slots_are_read_only_list();
+    test_px4_apis_reject_ardupilot();
+    test_mission_catalog_param_remove_per_firmware();
     test_stream_set_interval();
     test_vehicle_request_firmware_version();
     test_calibration_cancel();
@@ -385,9 +1001,17 @@ int main() {
     test_waypoint_reached_event_is_emitted();
     test_home_position_is_requested_on_identify();
     test_log_list_reports_real_entries();
+    test_log_download_reports_saved_bytes();
+    test_log_download_write_failure_is_visible();
+    test_log_download_status_has_no_side_effect();
+    test_log_download_cancel_sends_request_end();
+    test_log_download_truncation_is_reported();
+    test_log_download_unknown_size_is_unverified();
+    test_log_erase_gating();
     test_rc_calibrate_save_is_honest();
     test_mission_request_propagates_send_failure();
     test_serial_get_uart_names();
+    test_fs_transfer_async_ffi();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

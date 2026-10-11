@@ -13,7 +13,7 @@ bool MavlinkAdapter::Impl::send_param_request_read_by_index(uint8_t sysid, uint8
 {
     char empty_name[16] = {};
     mavlink_msg_param_request_read_pack(255, 0, &msg, sysid, compid, empty_name, param_index);
-    return send_msg();
+    return queue_msg();
 }
 
 void MavlinkAdapter::Impl::process_param_timeouts()
@@ -23,7 +23,7 @@ void MavlinkAdapter::Impl::process_param_timeouts()
     case 1: {
         // 重试 PARAM_REQUEST_LIST
         mavlink_msg_param_request_list_pack(255, 0, &msg, pc.target_sys, pc.target_comp);
-        send_msg();
+        queue_msg();
         break;
     }
     case 2: {
@@ -50,7 +50,7 @@ void MavlinkAdapter::Impl::process_param_timeouts()
                 255, 0, &msg,
                 pending.target_sys, pending.target_comp,
                 pending.name.c_str(), pending.value, pending.type);
-            if (!send_msg()) {
+            if (!queue_msg()) {
                 pc.complete_write(
                     pending.history_id,
                     false,
@@ -69,7 +69,7 @@ void MavlinkAdapter::Impl::process_param_timeouts()
                 255, 0, &msg,
                 request.target_sys, request.target_comp,
                 request.name.c_str(), -1);
-            if (!send_msg()) {
+            if (!queue_msg()) {
                 pc.fail_refresh(request.name);
             }
         }

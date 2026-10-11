@@ -157,8 +157,11 @@ bool CalibrationValidator::read_calibration_params(CalibrationType type,
 
 bool CalibrationValidator::should_retry(const CalibrationResult& result,
                                          const RetryInfo& retry) const {
-    // Don't retry if cancelled by user
-    if (result.stage == CalibrationStage::Cancelled) return false;
+    // Don't retry if cancelled by user (取消中同样不重试，等确认收尾)
+    if (result.stage == CalibrationStage::Cancelled ||
+        result.stage == CalibrationStage::Cancelling) {
+        return false;
+    }
 
     // Don't retry if already at max
     if (retry.retry_count >= retry.max_retries) return false;
@@ -176,7 +179,8 @@ bool CalibrationValidator::should_retry(const CalibrationResult& result,
 
 std::string CalibrationValidator::describe_failure(const CalibrationResult& result) const {
     if (result.stage != CalibrationStage::Failed &&
-        result.stage != CalibrationStage::Cancelled) {
+        result.stage != CalibrationStage::Cancelled &&
+        result.stage != CalibrationStage::Cancelling) {
         return "";
     }
 
@@ -249,6 +253,7 @@ const char* CalibrationValidator::stage_string(CalibrationStage s) {
         case CalibrationStage::Verifying:         return "verifying";
         case CalibrationStage::Success:           return "success";
         case CalibrationStage::Failed:            return "failed";
+        case CalibrationStage::Cancelling:        return "cancelling";
         case CalibrationStage::Cancelled:         return "cancelled";
         default: return "unknown";
     }

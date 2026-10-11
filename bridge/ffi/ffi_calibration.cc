@@ -8,6 +8,10 @@
  * mg_calibration_get_history, mg_calibration_get_retry_info,
  * mg_calibration_process_statustext, mg_calibration_process_command_ack
  *
+ * 取消是异步的：mg_calibration_cancel 只负责把取消命令下发并把状态置为
+ * cancelling，等飞控 COMMAND_ACK（或超时/链路断开）才落到 cancelled。
+ * 在飞控确认之前，状态查询的 active 仍为 true（safety.md S8）。
+ *
  * 所有调用都通过 active vehicle 的 CalibrationService 路由。
  */
 #include "ffi_internal.h"
@@ -60,6 +64,13 @@ MGCORE_API char* mg_calibration_cancel(mg_core_t* core) {
     }
     const auto status = cal.get_status();
     auto* mav = get_active_mavlink(core);
+
+    // 先进入 Cancelling，再发取消命令：链路读线程可能在 send 返回后、状态改
+    // 动前就把 COMMAND_ACK 递进来，先置状态才不会漏掉那条确认。
+    if (!cal.cancel()) {
+        return fail(MG_ERROR_INVALID_STATE, "no calibration in progress");
+    }
+
     bool command_sent = true;
     if (mav && status.current_type == mg::core::calibration::CalibrationType::Accelerometer) {
         command_sent = mav->send_command_long(
@@ -83,14 +94,23 @@ MGCORE_API char* mg_calibration_cancel(mg_core_t* core) {
             active_target_sys(core), active_target_comp(core),
             241, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     }
-    if (!cal.cancel()) {
-        return fail(MG_ERROR_INVALID_STATE, "no calibration in progress");
-    }
     if (!command_sent) {
+        // 取消命令没发出去，就不会有飞控确认。立刻收尾为 Cancelled 并写明原因，
+        // 不让界面停在“取消中”等一次永远不会到来的 ACK。
+        cal.finish_cancel(
+            "Cancelled by user (cancel command could not be sent to the flight controller)");
         return fail(MG_ERROR_SEND_FAILED,
                     "calibration cancelled locally, but the cancel command was not sent");
     }
-    return ok();
+
+    // success 只表示“取消请求已下发并受理”。真正停止要等飞控 COMMAND_ACK；
+    // 在此之前 state 为 cancelling，界面保持轮询（S8）。
+    mg::core::telemetry::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("state", "cancelling");
+    jb.end_object();
+    return to_cstr(jb.str());
 }
 
 MGCORE_API char* mg_calibration_get_status(mg_core_t* core) {
@@ -168,27 +188,4 @@ void mg_calibration_process_statustext(mg_core_t* core, const char* text, uint8_
 void mg_calibration_process_command_ack(mg_core_t* core, uint16_t command, uint8_t result, uint8_t progress) {
     if (!core) return;
     get_active_calibration(core).process_command_ack(command, result, progress);
-}
-
-// ================================================================
-// 统一校准别名：与 ffi_api.h 中的公开声明保持一致。
-// ================================================================
-MGCORE_API char* mg_cal_start(mg_core_t* core, int type, int mode) {
-    return mg_calibration_start(core, type, mode);
-}
-
-MGCORE_API char* mg_cal_cancel(mg_core_t* core) {
-    return mg_calibration_cancel(core);
-}
-
-MGCORE_API char* mg_cal_status(mg_core_t* core) {
-    return mg_calibration_get_status(core);
-}
-
-MGCORE_API char* mg_cal_history(mg_core_t* core, int type) {
-    return mg_calibration_get_history(core, type);
-}
-
-MGCORE_API char* mg_cal_retry_info(mg_core_t* core) {
-    return mg_calibration_get_retry_info(core);
 }

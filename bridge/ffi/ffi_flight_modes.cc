@@ -3,14 +3,16 @@
 #include "ffi_api.h"
 #include "ffi_internal.h"
 
-#include "json_builder.h"
+#include <cstring>
+
+#include "core/telemetry/json_builder.h"
+#include "core/firmware/modes/px4_modes.h"
 
 #include <optional>
 #include <string>
 
 namespace {
 
-using mg::bridge::JsonBuilder;
 
 } // namespace
 
@@ -18,7 +20,7 @@ MGCORE_API char* mg_flight_get_modes(mg_core_t* core) {
     CHECK_CORE(core);
 
     auto* mavlink = get_active_mavlink(core);
-    JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
 
@@ -26,6 +28,7 @@ MGCORE_API char* mg_flight_get_modes(mg_core_t* core) {
         jb.field("available", false);
         jb.field("current_mode", "");
         jb.field("armed", false);
+        write_heartbeat_freshness(jb, get_active_cache(core));
         jb.raw_field("modes", "[]");
         jb.end_object();
         return to_cstr(jb.str());
@@ -40,11 +43,12 @@ MGCORE_API char* mg_flight_get_modes(mg_core_t* core) {
     jb.field("armed", status.armed);
     jb.field("base_mode", static_cast<int>(status.base_mode));
     jb.field("custom_mode", static_cast<unsigned long long>(status.custom_mode));
+    write_heartbeat_freshness(jb, get_active_cache(core));
 
-    JsonBuilder array;
+    mg::core::telemetry::JsonBuilder array;
     array.begin_array();
     for (const auto& entry : entries) {
-        JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("id", static_cast<unsigned long long>(entry.custom_mode));
         item.field("name", entry.name);
@@ -62,7 +66,7 @@ MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core) {
     CHECK_CORE(core);
 
     auto* mav = get_active_mavlink(core);
-    JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
 
@@ -86,15 +90,21 @@ MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core) {
         read_param("COM_FLTMODE1").has_value()) {
         prefix = "COM_FLTMODE";
     }
+    const bool is_px4 = strcmp(prefix, "COM_FLTMODE") == 0;
     const bool available = read_param(prefix == std::string("FLTMODE") ? "FLTMODE1"
                                                                        : "COM_FLTMODE1")
                                .has_value();
     jb.field("available", available);
     jb.field("param_prefix", prefix);
 
-    // 模式选择通道：Plane/Copter 用 FLTMODE_CH，Rover 用 MODE_CH。
+    // 模式选择通道：Plane/Copter 用 FLTMODE_CH，Rover 用 MODE_CH，
+    // PX4 用 RC_MAP_FLTMODE（值是通道号，语义与 ArduPilot 的 *_CH 相同）。
     const char* channel_param = nullptr;
-    if (read_param("FLTMODE_CH").has_value()) {
+    if (is_px4) {
+        if (read_param("RC_MAP_FLTMODE").has_value()) {
+            channel_param = "RC_MAP_FLTMODE";
+        }
+    } else if (read_param("FLTMODE_CH").has_value()) {
         channel_param = "FLTMODE_CH";
     } else if (read_param("MODE_CH").has_value()) {
         channel_param = "MODE_CH";
@@ -104,19 +114,23 @@ MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core) {
         jb.field("channel", static_cast<int>(*read_param(channel_param)));
     }
 
-    JsonBuilder slots;
+    mg::core::telemetry::JsonBuilder slots;
     slots.begin_array();
     for (int slot = 1; slot <= 6; ++slot) {
         const std::string name = std::string(prefix) + std::to_string(slot);
         const auto value = read_param(name.c_str());
         if (!value.has_value()) continue;
         const int mode_id = static_cast<int>(*value);
-        JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("slot", slot);
         item.field("param", name);
         item.field("value", mode_id);
-        item.field("name", get_active_flight_modes(core).decode_mode_name(mode_id));
+        // PX4 的 COM_FLTMODEn 取值是参数枚举，和 custom_mode 不是同一套编码，
+        // 不能拿模式表反查；ArduPilot 的 FLTMODEn 才是模式号。
+        item.field("name", is_px4
+                               ? std::string(mg::core::firmware::modes::px4_fltmode_slot_name(mode_id))
+                               : get_active_flight_modes(core).decode_mode_name(mode_id));
         item.end_object();
         slots.append_json(item.str());
     }
@@ -130,15 +144,30 @@ MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core) {
         jb.field(simple_param, static_cast<int>(*value));
     }
 
-    JsonBuilder options;
+    mg::core::telemetry::JsonBuilder options;
     options.begin_array();
-    for (const auto& entry : get_active_flight_modes(core).mode_entries()) {
-        JsonBuilder item;
-        item.begin_object();
-        item.field("value", static_cast<unsigned long long>(entry.custom_mode));
-        item.field("name", entry.name);
-        item.end_object();
-        options.append_json(item.str());
+    if (is_px4) {
+        // PX4 的模式槽写入的是 COM_FLTMODE 枚举值，不是 custom_mode。
+        size_t slot_count = 0;
+        const auto* slots = mg::core::firmware::modes::px4_fltmode_slot_table(slot_count);
+        for (size_t i = 0; i < slot_count; ++i) {
+            if (slots[i].value < 0) continue;  // -1 = Unassigned，不进可选列表
+            mg::core::telemetry::JsonBuilder item;
+            item.begin_object();
+            item.field("value", slots[i].value);
+            item.field("name", slots[i].name);
+            item.end_object();
+            options.append_json(item.str());
+        }
+    } else {
+        for (const auto& entry : get_active_flight_modes(core).mode_entries()) {
+            mg::core::telemetry::JsonBuilder item;
+            item.begin_object();
+            item.field("value", static_cast<unsigned long long>(entry.custom_mode));
+            item.field("name", entry.name);
+            item.end_object();
+            options.append_json(item.str());
+        }
     }
     options.end_array();
     jb.raw_field("options", options.str());
@@ -151,28 +180,42 @@ MGCORE_API char* mg_flight_set_mode(mg_core_t* core, const char* mode_name) {
     if (!mode_name || mode_name[0] == '\0') {
         return fail(MG_ERROR_INVALID_PARAM, "mode name is required");
     }
-    if (!get_active_mavlink(core)) {
+    auto* mav = get_active_mavlink(core);
+    if (!mav) {
         return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected");
     }
 
     const std::string requested(mode_name);
     auto& modes = get_active_flight_modes(core);
-    for (const auto& entry : modes.mode_entries()) {
-        if (entry.name != requested) continue;
-        if (!entry.can_be_set) {
-            return fail(MG_ERROR_INVALID_PARAM,
-                        "flight mode is not selectable on this vehicle");
+    uint8_t base_mode = 0;
+    uint32_t custom_mode = 0;
+    if (!modes.resolve_mode_request(requested, base_mode, custom_mode)) {
+        for (const auto& entry : modes.mode_entries()) {
+            if (entry.name == requested) {
+                return fail(MG_ERROR_INVALID_PARAM,
+                            "flight mode is not selectable on this vehicle");
+            }
         }
-        if (!modes.set_mode(requested)) {
-            return fail(MG_ERROR_SEND_FAILED, "flight mode change failed to send");
-        }
-        JsonBuilder jb;
-        jb.begin_object();
-        jb.field("success", true);
-        jb.field("mode", requested);
-        jb.field("custom_mode", static_cast<unsigned long long>(entry.custom_mode));
-        jb.end_object();
-        return to_cstr(jb.str());
+        return fail(MG_ERROR_INVALID_PARAM, "unknown flight mode for this vehicle");
     }
-    return fail(MG_ERROR_INVALID_PARAM, "unknown flight mode for this vehicle");
+
+    // S2：命令结果以 COMMAND_ACK 为准。这里等 ACK 再回成功，避免把“已发出”
+    // 当成“已切换”。主界面走非阻塞的 submit/poll，不经过这个同步入口。
+    char* acked = ffi_cmd_result_queued(
+        core, mav, MAV_CMD_DO_SET_MODE,
+        active_target_sys(core), active_target_comp(core),
+        static_cast<float>(base_mode), static_cast<float>(custom_mode),
+        0, 0, 0, 0, 0);
+    if (!acked || strcmp(acked, ok_json()) != 0) {
+        return acked;  // 拒绝、超时或发送失败：原样传播
+    }
+    mg_free_string(acked);
+
+    mg::core::telemetry::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("mode", requested);
+    jb.field("custom_mode", static_cast<unsigned long long>(custom_mode));
+    jb.end_object();
+    return to_cstr(jb.str());
 }

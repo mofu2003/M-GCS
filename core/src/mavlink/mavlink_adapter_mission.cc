@@ -334,14 +334,14 @@ bool MavlinkAdapter::Impl::send_mission_request_int(uint8_t sysid, uint8_t compi
                                                     uint8_t mission_type)
 {
     mavlink_msg_mission_request_int_pack(255, 0, &msg, sysid, compid, seq, mission_type);
-    return send_msg();
+    return queue_msg();
 }
 
 bool MavlinkAdapter::Impl::send_mission_ack(uint8_t sysid, uint8_t compid, uint8_t type,
                                             uint8_t mission_type)
 {
     mavlink_msg_mission_ack_pack(255, 0, &msg, sysid, compid, type, mission_type, 0);
-    return send_msg();
+    return queue_msg();
 }
 
 bool MavlinkAdapter::Impl::send_mission_item_int(uint8_t sysid, uint8_t compid,
@@ -350,7 +350,7 @@ bool MavlinkAdapter::Impl::send_mission_item_int(uint8_t sysid, uint8_t compid,
     mavlink_msg_mission_item_int_pack(255, 0, &msg, sysid, compid, item.seq, item.frame, item.command, item.current,
                                       item.autocontinue, item.param1, item.param2, item.param3, item.param4, item.x,
                                       item.y, item.z, item.mission_type);
-    return send_msg();
+    return queue_msg();
 }
 
 bool MavlinkAdapter::Impl::send_mission_item(uint8_t sysid, uint8_t compid, const mg::core::mission::MissionItem& item)
@@ -365,7 +365,7 @@ bool MavlinkAdapter::Impl::send_mission_item(uint8_t sysid, uint8_t compid, cons
     mavlink_msg_mission_item_pack(255, 0, &msg, sysid, compid, item.seq, item.frame, item.command, item.current,
                                   item.autocontinue, item.param1, item.param2, item.param3, item.param4, x, y, item.z,
                                   item.mission_type);
-    return send_msg();
+    return queue_msg();
 }
 
 } // namespace mg::core::mavlink

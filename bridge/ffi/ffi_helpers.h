@@ -17,7 +17,7 @@ namespace bridge {
 namespace ffi_helpers {
 
 inline std::string cal_status_json(const mg::core::calibration::CalibrationStatus& s) {
-    JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("active",         s.active);
     jb.field("type",           mg::core::calibration::CalibrationValidator::type_string(s.current_type));
@@ -33,10 +33,10 @@ inline std::string cal_status_json(const mg::core::calibration::CalibrationStatu
     // 分罗盘进度：元素为 {compass_id, completion_pct}，界面按识别到的罗盘数量
     // 各画一条进度条。
     {
-        mg::bridge::JsonBuilder arr;
+        mg::core::telemetry::JsonBuilder arr;
         arr.begin_array();
         for (const auto& [compass_id, pct] : s.compass_progress) {
-            mg::bridge::JsonBuilder item;
+            mg::core::telemetry::JsonBuilder item;
             item.begin_object();
             item.field("compass_id", (int)compass_id);
             item.field("completion_pct", (int)pct);
@@ -58,7 +58,7 @@ inline std::string cal_status_json(const mg::core::calibration::CalibrationStatu
 }
 
 inline std::string cal_result_json(const mg::core::calibration::CalibrationResult& r) {
-    JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("type",     mg::core::calibration::CalibrationValidator::type_string(r.type));
     jb.field("stage",    mg::core::calibration::CalibrationValidator::stage_string(r.stage));
@@ -74,19 +74,19 @@ inline std::string cal_result_json(const mg::core::calibration::CalibrationResul
         jb.field("accelerometer_mode", accel_mode);
     }
 
-    { JsonBuilder sub; sub.begin_object(); sub.field("x", r.offset_x); sub.field("y", r.offset_y); sub.field("z", r.offset_z); sub.end_object(); jb.raw_field("offsets", sub.str()); }
+    { mg::core::telemetry::JsonBuilder sub; sub.begin_object(); sub.field("x", r.offset_x); sub.field("y", r.offset_y); sub.field("z", r.offset_z); sub.end_object(); jb.raw_field("offsets", sub.str()); }
 
     if (r.type == mg::core::calibration::CalibrationType::Accelerometer) {
-        JsonBuilder sub; sub.begin_object(); sub.field("x", r.scale_x); sub.field("y", r.scale_y); sub.field("z", r.scale_z); sub.end_object(); jb.raw_field("scale", sub.str());
+        mg::core::telemetry::JsonBuilder sub; sub.begin_object(); sub.field("x", r.scale_x); sub.field("y", r.scale_y); sub.field("z", r.scale_z); sub.end_object(); jb.raw_field("scale", sub.str());
     }
 
     if (r.type == mg::core::calibration::CalibrationType::Magnetometer) {
         jb.field("fitness", r.fitness);
-        { JsonBuilder sub; sub.begin_object(); sub.field("x", r.diagonal_x); sub.field("y", r.diagonal_y); sub.field("z", r.diagonal_z); sub.end_object(); jb.raw_field("diagonals", sub.str()); }
-        { JsonBuilder sub; sub.begin_object(); sub.field("x", r.offdiag_x); sub.field("y", r.offdiag_y); sub.field("z", r.offdiag_z); sub.end_object(); jb.raw_field("offdiagonals", sub.str()); }
+        { mg::core::telemetry::JsonBuilder sub; sub.begin_object(); sub.field("x", r.diagonal_x); sub.field("y", r.diagonal_y); sub.field("z", r.diagonal_z); sub.end_object(); jb.raw_field("diagonals", sub.str()); }
+        { mg::core::telemetry::JsonBuilder sub; sub.begin_object(); sub.field("x", r.offdiag_x); sub.field("y", r.offdiag_y); sub.field("z", r.offdiag_z); sub.end_object(); jb.raw_field("offdiagonals", sub.str()); }
     }
 
-    { JsonBuilder sub; sub.begin_object(); sub.field("x", r.prev_offset_x); sub.field("y", r.prev_offset_y); sub.field("z", r.prev_offset_z); sub.end_object(); jb.raw_field("previous_offsets", sub.str()); }
+    { mg::core::telemetry::JsonBuilder sub; sub.begin_object(); sub.field("x", r.prev_offset_x); sub.field("y", r.prev_offset_y); sub.field("z", r.prev_offset_z); sub.end_object(); jb.raw_field("previous_offsets", sub.str()); }
 
     jb.field("progress", (int)r.progress);
     jb.field("current_step", (int)r.current_step);
@@ -97,7 +97,7 @@ inline std::string cal_result_json(const mg::core::calibration::CalibrationResul
 }
 
 inline std::string cal_history_json(const std::vector<mg::core::calibration::CalibrationResult>& results) {
-    JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
     for (const auto& r : results) { jb.append_json(cal_result_json(r)); }
     jb.end_array();
@@ -105,7 +105,7 @@ inline std::string cal_history_json(const std::vector<mg::core::calibration::Cal
 }
 
 inline std::string cal_retry_json(const mg::core::calibration::RetryInfo& retry) {
-    JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("retry_count", retry.retry_count);
     jb.field("max_retries", retry.max_retries);

@@ -71,12 +71,17 @@ void MavlinkAdapter::Impl::process_timeouts()
 
     // 命令队列超时检查
     auto timed_out = cmd_queue.check_timeouts(
-        [this](const CommandQueueEntry& e) -> bool { return send_command_queue_entry(e); });
+        [this](const CommandQueueEntry& e) -> bool {
+            // 重发在持锁派发路径里发生，只入队（ADR-0005）。
+            pack_command_queue_entry(e);
+            return queue_msg();
+        });
     for (auto& entry : timed_out) {
         if (entry.result_cb) {
             CommandAckInfo fail_info{};
             fail_info.command = entry.command;
             fail_info.result = 4; // MAV_RESULT_FAILED
+            fail_info.outcome = CommandOutcome::Timeout;
             fail_info.result_text = "command ack timeout - no response";
             deferred_cbs.push_back(
                 [cb = entry.result_cb, fail_info = std::move(fail_info)]() { cb(fail_info); });
@@ -91,6 +96,30 @@ void MavlinkAdapter::Impl::process_timeouts()
 
     // 参数下载/写入超时
     process_param_timeouts();
+
+    // 日志下载丢包补发（P4）：以前挂在 log_download_status() 上，导致
+    // “查状态”改变链路行为。现在由周期超时检查驱动，失速 500ms 后从文件头
+    // 查找第一个缺口重发——收包可能乱序，用“已收到字节数”当起点会漏掉前面的洞。
+    if (log_state.downloading &&
+        now - log_state.download_last_data_at >= std::chrono::milliseconds(500)) {
+        uint32_t missing_ofs = 0;
+        while (missing_ofs < log_state.download_received.size() &&
+               log_state.download_received[missing_ofs]) {
+            ++missing_ofs;
+        }
+        mavlink_msg_log_request_data_pack(
+            255, 0, &msg,
+            log_state.download_target_sys,
+            log_state.download_target_comp,
+            log_state.download_id,
+            missing_ofs,
+            90);
+        // ADR-0005：持锁派发路径只入队；只有确实有发送回调时才重置计时，
+        // 否则下个周期继续尝试。
+        if (queue_msg()) {
+            log_state.download_last_data_at = now;
+        }
+    }
 }
 
 void MavlinkAdapter::Impl::process(const mavlink_message_t& m)
@@ -98,6 +127,8 @@ void MavlinkAdapter::Impl::process(const mavlink_message_t& m)
     std::vector<std::function<void()>> callbacks;
     {
         mg::core::platform::LockGuard lk(mtx);
+        // 标记本线程正在持锁派发：这期间的发送只入队（ADR-0005）。
+        tls_dispatching_impl = this;
         msg_count++;
         link_quality.observe(m);
 
@@ -249,9 +280,11 @@ void MavlinkAdapter::Impl::process(const mavlink_message_t& m)
         // 将延迟回调移出，以便在锁释放后执行
         callbacks = std::move(deferred_cbs);
         deferred_cbs.clear();
+        tls_dispatching_impl = nullptr;
     } // LockGuard 在此释放（RAII）
 
-    // 在锁外执行回调（防止 POSIX 死锁）
+    // 在锁外发送延迟帧、执行回调（A3/A4：send_cb 与外部回调都不在锁内）
+    flush_deferred_frames();
     for (auto& cb : callbacks) {
         cb();
     }

@@ -25,6 +25,11 @@ static bool contains(const char* json, const char* needle) {
 static bool is_success(const char* json) { return contains(json, "\"success\":true"); }
 static bool is_failure(const char* json) { return contains(json, "\"success\":false"); }
 
+static void check_failure_and_free(char* result, const char* label) {
+    check(is_failure(result), label);
+    mg_free_string(result);
+}
+
 static void test_null_core() {
     fprintf(stderr, "\n[Group] Null core safety\n");
     // All functions should handle null core gracefully
@@ -35,10 +40,10 @@ static void test_null_core() {
     check(is_failure(mg_preflight_check(nullptr)), "preflight_check null");
     check(is_failure(mg_rc_get_channels(nullptr)), "rc_get_channels null");
     check(is_failure(mg_servo_get_outputs(nullptr)), "servo_get_outputs null");
-    check(is_failure(mg_param_list(nullptr)), "param_list null");
-    check(is_failure(mg_param_get(nullptr, "TEST")), "param_get null");
-    // check(is_failure(mg_geofence_get(nullptr)), "geofence_get null"); // not linked
-    // check(is_failure(mg_logging_get_stats(nullptr)), "logging_stats null"); // not linked
+    check(is_failure(mg_params_request_all(nullptr)), "params_request_all null");
+    check(is_failure(mg_params_get_by_name(nullptr, "TEST")), "params_get_by_name null");
+    check_failure_and_free(mg_geofence_get_config(nullptr), "geofence_get_config null");
+    check_failure_and_free(mg_tlog_status(nullptr), "logging_stats null");
     check(mg_vehicle_get_active(nullptr) == -1, "vehicle_get_active null -> -1");
     check(mg_vehicle_select(nullptr, 0) == nullptr || is_failure(mg_vehicle_select(nullptr, 0)), "vehicle_select null");
 }
@@ -72,61 +77,30 @@ static void test_lifecycle() {
     mg_destroy(core);
 }
 
-static void test_disconnected_v1_getters() {
-    fprintf(stderr, "\n[Group] v1 getters (disconnected, no crash)\n");
-    mg_core_t* core = mg_create();
-    check(core != nullptr, "mg_create");
-
-    // All v1 getters should return valid JSON without crashing
-    char* r;
-    r = mg_vehicle_get_summary(core);     check(r != nullptr, "v1 summary no crash"); mg_free_string(r);
-    r = mg_vehicle_get_battery(core);     check(r != nullptr, "v1 battery no crash"); mg_free_string(r);
-    r = mg_vehicle_get_gps(core);         check(r != nullptr, "v1 gps no crash"); mg_free_string(r);
-    r = mg_vehicle_get_attitude(core);    check(r != nullptr, "v1 attitude no crash"); mg_free_string(r);
-    r = mg_vehicle_get_firmware(core);    check(r != nullptr, "v1 firmware no crash"); mg_free_string(r);
-    r = mg_vehicle_get_firmware_version(core); check(r != nullptr, "v1 fw_ver no crash"); mg_free_string(r);
-    r = mg_vehicle_get_global_position(core);  check(r != nullptr, "v1 global_pos no crash"); mg_free_string(r);
-    r = mg_vehicle_get_home_position(core);    check(r != nullptr, "v1 home no crash"); mg_free_string(r);
-    r = mg_vehicle_get_extended_sys_state(core); check(r != nullptr, "v1 ext_sys no crash"); mg_free_string(r);
-    r = mg_vehicle_get_vfr_hud(core);     check(r != nullptr, "v1 vfr_hud no crash"); mg_free_string(r);
-    r = mg_vehicle_get_imu(core);         check(r != nullptr, "v1 imu no crash"); mg_free_string(r);
-    r = mg_vehicle_get_pressure(core);    check(r != nullptr, "v1 pressure no crash"); mg_free_string(r);
-    r = mg_sensors_get_health(core);      check(r != nullptr, "v1 health no crash"); mg_free_string(r);
-    r = mg_sensors_get_statustext(core);  check(r != nullptr, "v1 statustext no crash"); mg_free_string(r);
-    r = mg_vehicle_get_battery(core); check(r != nullptr, "v1 batt_status no crash"); mg_free_string(r);
-    r = mg_vehicle_get_highres_imu(core); check(r != nullptr, "v1 highres_imu no crash"); mg_free_string(r);
-    r = mg_vehicle_get_vibration(core);   check(r != nullptr, "v1 vibration no crash"); mg_free_string(r);
-    r = mg_vehicle_get_prearm_check(core); check(r != nullptr, "v1 prearm no crash"); mg_free_string(r);
-    r = mg_vehicle_get_esc_status(core);  check(r != nullptr, "v1 esc no crash"); mg_free_string(r);
-    r = mg_vehicle_get_wind_estimate(core); check(r != nullptr, "v1 wind no crash"); mg_free_string(r);
-
-    mg_destroy(core);
-}
-
-static void test_disconnected_v2_getters() {
-    fprintf(stderr, "\n[Group] v2 getters (disconnected, returns defaults)\n");
+static void test_disconnected_telemetry_getters() {
+    fprintf(stderr, "\n[Group] Telemetry getters (disconnected)\n");
     mg_core_t* core = mg_create();
 
-    // All v2 getters should return success with default values when disconnected
+    // Telemetry getters use one response contract when disconnected.
     char* r;
-    r = mg_vehicle_get_summary(core);  check(is_success(r), "v2 summary success"); mg_free_string(r);
-    r = mg_vehicle_get_battery(core);  check(is_success(r), "v2 battery success"); mg_free_string(r);
-    r = mg_vehicle_get_gps(core);      check(is_success(r), "v2 gps success"); mg_free_string(r);
-    r = mg_vehicle_get_attitude(core); check(is_success(r), "v2 attitude success"); mg_free_string(r);
-    r = mg_vehicle_get_global_position(core); check(is_success(r), "v2 global_pos success"); mg_free_string(r);
-    r = mg_vehicle_get_rc_channels(core); check(is_success(r), "v2 rc success"); mg_free_string(r);
-    r = mg_vehicle_get_servo_output(core); check(is_success(r), "v2 servo success"); mg_free_string(r);
-    r = mg_vehicle_get_home_position(core); check(is_success(r), "v2 home success"); mg_free_string(r);
-    r = mg_vehicle_get_vfr_hud(core);  check(is_success(r), "v2 vfr_hud success"); mg_free_string(r);
-    r = mg_vehicle_get_imu(core);      check(is_success(r), "v2 imu success"); mg_free_string(r);
-    r = mg_vehicle_get_pressure(core); check(is_success(r), "v2 pressure success"); mg_free_string(r);
-    r = mg_vehicle_get_highres_imu(core); check(is_success(r), "v2 highres_imu success"); mg_free_string(r);
-    r = mg_vehicle_get_extended_sys_state(core); check(is_success(r), "v2 ext_sys success"); mg_free_string(r);
-    r = mg_vehicle_get_firmware_version(core); check(is_success(r), "v2 fw_ver success"); mg_free_string(r);
-    r = mg_vehicle_get_vibration(core); check(is_success(r), "v2 vibration success"); mg_free_string(r);
-    r = mg_vehicle_get_esc_status(core); check(is_success(r), "v2 esc success"); mg_free_string(r);
-    r = mg_vehicle_get_wind_estimate(core); check(is_success(r), "v2 wind success"); mg_free_string(r);
-    r = mg_vehicle_get_prearm_check(core); check(is_success(r), "v2 prearm success"); mg_free_string(r);
+    r = mg_vehicle_get_summary(core);  check(is_success(r), "vehicle summary success"); mg_free_string(r);
+    r = mg_vehicle_get_battery(core);  check(is_success(r), "battery success"); mg_free_string(r);
+    r = mg_vehicle_get_gps(core);      check(is_success(r), "GPS success"); mg_free_string(r);
+    r = mg_vehicle_get_attitude(core); check(is_success(r), "attitude success"); mg_free_string(r);
+    r = mg_vehicle_get_global_position(core); check(is_success(r), "global position success"); mg_free_string(r);
+    r = mg_vehicle_get_rc_channels(core); check(is_success(r), "RC channels success"); mg_free_string(r);
+    r = mg_vehicle_get_servo_output(core); check(is_success(r), "servo outputs success"); mg_free_string(r);
+    r = mg_vehicle_get_home_position(core); check(is_success(r), "home position success"); mg_free_string(r);
+    r = mg_vehicle_get_vfr_hud(core);  check(is_success(r), "VFR HUD success"); mg_free_string(r);
+    r = mg_vehicle_get_imu(core);      check(is_success(r), "IMU success"); mg_free_string(r);
+    r = mg_vehicle_get_pressure(core); check(is_success(r), "pressure success"); mg_free_string(r);
+    r = mg_vehicle_get_highres_imu(core); check(is_success(r), "high resolution IMU success"); mg_free_string(r);
+    r = mg_vehicle_get_extended_sys_state(core); check(is_success(r), "extended system state success"); mg_free_string(r);
+    r = mg_vehicle_get_firmware_version(core); check(is_success(r), "firmware version success"); mg_free_string(r);
+    r = mg_vehicle_get_vibration(core); check(is_success(r), "vibration success"); mg_free_string(r);
+    r = mg_vehicle_get_esc_status(core); check(is_success(r), "ESC status success"); mg_free_string(r);
+    r = mg_vehicle_get_wind_estimate(core); check(is_success(r), "wind estimate success"); mg_free_string(r);
+    r = mg_vehicle_get_prearm_check(core); check(is_success(r), "pre-arm check success"); mg_free_string(r);
 
     mg_destroy(core);
 }
@@ -135,18 +109,18 @@ static void test_disconnected_commands() {
     fprintf(stderr, "\n[Group] Commands (disconnected, should fail)\n");
     mg_core_t* core = mg_create();
 
-    // check(is_failure(mg_cmd_arm(core)), "arm disconnected -> fail"); // not linked
-    // check(is_failure(mg_cmd_disarm(core)), "disarm disconnected -> fail"); // not linked
-    // check(is_failure(mg_cmd_rtl(core)), "rtl disconnected -> fail"); // not linked
-    // check(is_failure(mg_cmd_takeoff(core, 10)), "takeoff disconnected -> fail"); // not linked
-    // check(is_failure(mg_cmd_land(core)), "land disconnected -> fail"); // not linked
-    // check(is_failure(mg_cmd_set_mode(core, "Stabilize")), "set_mode disconnected -> fail"); // not linked
+    check_failure_and_free(mg_command_arm(core, 0), "arm disconnected -> fail");
+    check_failure_and_free(mg_command_disarm(core, 0), "disarm disconnected -> fail");
+    check_failure_and_free(mg_command_rtl(core), "rtl disconnected -> fail");
+    check_failure_and_free(mg_command_takeoff(core, 10), "takeoff disconnected -> fail");
+    check_failure_and_free(mg_command_land(core), "land disconnected -> fail");
+    check_failure_and_free(mg_flight_set_mode(core, "Stabilize"), "set_mode disconnected -> fail");
 
     // Params
-    check(is_failure(mg_param_set(core, "TEST", 1.0f)), "param_set disconnected -> fail");
+    check(is_failure(mg_params_set(core, "TEST", 1.0f, 0)), "params_set disconnected -> fail");
 
     // Mission
-    // check(is_failure(mg_mission_download(core)), "mission_download disconnected -> fail"); // not linked
+    check_failure_and_free(mg_mission_download(core), "mission_download disconnected -> fail");
 
     mg_destroy(core);
 }
@@ -249,14 +223,19 @@ static void test_disconnected_config() {
     fprintf(stderr, "\n[Group] Config & geofence (disconnected)\n");
     mg_core_t* core = mg_create();
 
-    // check(is_failure(mg_config_read_param(core, "TEST")), "config_read disconnected -> fail"); // not linked
+    char* metadata = mg_config_read_param(core, "TEST");
+    check(contains(metadata, "\"found\":false"),
+          "unknown parameter metadata is absent without a connection");
+    mg_free_string(metadata);
     check(is_failure(mg_config_write_param(core, "TEST", 1.0f)), "config_write disconnected -> fail");
 
     char* r;
-    r = nullptr; // mg_geofence_get not linked (skipped)
+    r = mg_geofence_get_config(core);
+    check(contains(r, "\"enabled\":false"), "geofence defaults to disabled");
     mg_free_string(r);
 
-    r = nullptr; // mg_logging_get_stats not linked (skipped)
+    r = mg_tlog_status(core);
+    check(contains(r, "\"recording\":false"), "logging is inactive before connection");
     mg_free_string(r);
 
     mg_destroy(core);
@@ -266,11 +245,11 @@ static void test_disconnected_stubs() {
     fprintf(stderr, "\n[Group] Stub functions (should return NOT_SUPPORTED)\n");
     mg_core_t* core = mg_create();
 
-    // SITL is now real — start may fail (no SITL binary) or succeed, just verify no crash
-    { char* r = mg_sitl_start(core, ""); if (r) mg_free_string(r); }
-    check(true, "sitl_start no crash");
-    { char* r = mg_sitl_stop(core); if (r) mg_free_string(r); }
-    check(true, "sitl_stop no crash");
+    // Never launch a host-installed simulator as part of an offline test.
+    check_failure_and_free(mg_sitl_start(nullptr, ""), "SITL start rejects a null core");
+    char* stopped = mg_sitl_stop(core);
+    check(is_success(stopped), "stopping an idle simulator succeeds");
+    mg_free_string(stopped);
     check(is_failure(mg_firmware_flash(core, "")), "firmware_flash -> NOT_SUPPORTED");
     check(is_failure(mg_px4_actuator_set_config(core, "")), "px4_actuator -> NOT_SUPPORTED");
     check(is_failure(mg_px4_flight_mode_get_config(core)), "px4_flight_mode -> NOT_SUPPORTED");
@@ -328,8 +307,7 @@ int main() {
 
     test_null_core();
     test_lifecycle();
-    test_disconnected_v1_getters();
-    test_disconnected_v2_getters();
+    test_disconnected_telemetry_getters();
     test_disconnected_commands();
     test_disconnected_health();
     test_firmware_type_normalization_contract();

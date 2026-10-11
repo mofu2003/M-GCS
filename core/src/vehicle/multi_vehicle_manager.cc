@@ -245,10 +245,17 @@ void MultiVehicleManager::on_shared_heartbeat(
         // Re-register the route after a watchdog reset or identity refresh.
         session->set_peer_for_route(existing->vehicle_id(), link_peer);
         if (const auto mavlink = existing->conn().shared_mavlink()) {
-            (void)session->add_vehicle(existing->vehicle_id(),
-                                       heartbeat.system_id,
-                                       heartbeat.component_id,
-                                       mavlink);
+            if (!session->add_vehicle(existing->vehicle_id(),
+                                      heartbeat.system_id,
+                                      heartbeat.component_id,
+                                      mavlink)) {
+                MGC_LOG_ERROR(
+                    "[MultiVehicle] Failed to re-register vehicle %d on its link "
+                    "(sysid=%u compid=%u)",
+                    existing->vehicle_id(),
+                    static_cast<unsigned>(heartbeat.system_id),
+                    static_cast<unsigned>(heartbeat.component_id));
+            }
         }
         return;
     }

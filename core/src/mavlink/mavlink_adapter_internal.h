@@ -25,6 +25,7 @@
 #include "core/firmware/firmware_adapter.h"
 #include "core/ftp/mavlink_ftp.h"
 #include "core/platform/platform_mutex.h"
+#include "core/settings/mavlink_log_writer.h"
 #include "command_queue.h"
 #include "param_cache.h"
 #include "mission_transfer.h"
@@ -77,13 +78,17 @@ extern "C" inline void comm_send_ch(mavlink_channel_t /*chan*/, uint8_t ch) {
 struct MavlinkAdapter::Impl {
     Impl()
         : ftp([this](const uint8_t* data, size_t size) {
-            return send_cb ? send_cb(data, size) : false;
+            return send_bytes_routed(data, size);
         }) {
         tx_status.current_tx_seq = 1;
         ftp.set_message_send_fn([this](mavlink_message_t& message) {
-            return send_message(message);
+            return send_message_routed(message);
         });
     }
+
+    // 必须在成员析构之前停掉 FTP 后台线程：send_mtx/回调等成员会比 ftp
+    // 先析构，若线程还在跑就会访问已销毁的对象（A3 的等价要求）。
+    ~Impl();
 
     // Official caller-owned parser buffers: independent per transport stream.
     // Never use the generated library's global MAVLINK_COMM_0 RX buffer.
@@ -112,11 +117,18 @@ struct MavlinkAdapter::Impl {
     MissionTransferState rally;
     MissionTransferState fence;
     LogState             log_state;
-    CommandAckWaiter     ack_waiter;
     CommandQueue         cmd_queue;         // 命令队列（ACK 超时重发）
     SendCallback         send_cb;
     mg::core::ftp::MavlinkFtpClient ftp;
     std::vector<std::function<void()>> deferred_cbs;
+    // 延迟发送队列（ADR-0005）：持锁派发路径只入队，出锁后统一发送。
+    std::vector<std::vector<uint8_t>> deferred_frames;
+    // tlog 录制 sink（ADR-0006）：由 Vehicle 绑定到它自己的 MavlinkLogWriter。
+    // 只读原子指针；实际写盘只发生在所有 adapter 锁之外（A3）。
+    std::atomic<mg::core::settings::MavlinkLogWriter*> log_sink{nullptr};
+    // 当前线程是否正在持锁派发（process()/tick()）。仅用于 MAVLink FTP 客户端
+    // 这类无法显式改写调用点的发送回调。
+    inline static thread_local Impl* tls_dispatching_impl = nullptr;
     std::chrono::steady_clock::time_point last_timeout_check_;  // 超时检查节流
     std::array<uint8_t, MAVLINK_MAX_PACKET_LEN> mag_progress_frame{};
     size_t mag_progress_frame_len = 0;
@@ -130,11 +142,11 @@ struct MavlinkAdapter::Impl {
     mutable mg::core::platform::Mutex mtx;  // 加锁保护所有可变状态
     mutable mg::core::platform::Mutex send_mtx;
 
-    // 通过注册的回调发送一条消息。使用适配器私有的 tx_status 重新
-    // finalize，保证共享链路下的 sequence、checksum 和后续签名状态隔离。
-    bool send_message_with_mode(mavlink_message_t& message, bool allow_signing) {
-        mg::core::platform::LockGuard send_lock(send_mtx);
-        if (!send_cb) return false;
+    // 打包一条消息（含签名与 tx 序号）。只改适配器私有的发送状态，不做任何
+    // I/O，因此可以安全地在持锁路径里调用。调用方必须持有 send_mtx。
+    void pack_message_locked(mavlink_message_t& message, bool allow_signing,
+                             std::vector<uint8_t>& out) {
+        // 设置 thread_local s_active_send_cb 以便 comm_send_ch() 路由到本适配器。
         set_active_send_cb(&send_cb);
         const auto* entry = mavlink_get_msg_entry(message.msgid);
         if (entry != nullptr) {
@@ -153,18 +165,119 @@ struct MavlinkAdapter::Impl {
         uint8_t buf[MAVLINK_MAX_PACKET_LEN];
         const uint16_t len = mavlink_msg_to_send_buffer(buf, &message);
         set_active_send_cb(nullptr);
-        return send_cb(buf, len);
+        out.assign(buf, buf + len);
+    }
+
+    // 是否已注册发送回调。
+    //
+    // send_cb 由 send_mtx 保护：所有发送路径（deliver_frame/send_message*/
+    // queue_message/flush_deferred_frames）都在 send_mtx 下读写它。
+    // 其它持 mtx 的调用点若要探测回调是否可用，必须走这个 helper，
+    // 不要直接读 send_cb，否则会与发送线程构成数据竞态。
+    bool has_send_callback() const {
+        mg::core::platform::LockGuard lk(send_mtx);
+        return static_cast<bool>(send_cb);
+    }
+
+    // 把一帧已打包的字节交给传输层。调用方必须不持有 mtx（A3/A4）。
+    bool deliver_frame(const std::vector<uint8_t>& frame) {
+        return deliver_frame(frame.data(), frame.size());
+    }
+
+    // 发送一帧原始字节，并在 send_mtx 释放之后把它写进 tlog。
+    // 文件 I/O 发生在所有 adapter 锁之外（A3），详设见 ADR-0006。
+    bool deliver_frame(const uint8_t* data, size_t size) {
+        bool sent = false;
+        {
+            mg::core::platform::LockGuard send_lock(send_mtx);
+            if (!send_cb) return false;
+            sent = send_cb(data, size);
+        }
+        record_frame(data, size);
+        return sent;
+    }
+
+    // 把一帧原始 MAVLink 字节按 .tlog 记录写盘。调用方必须不持任何 adapter
+    // 锁；未绑定 sink 或未在录制时是空操作。SETUP_SIGNING 绝不入盘，签名块
+    // 会被剥掉（对齐 QGC 的 MAVLinkSigning::serializeUnsignedCopy）。
+    void record_frame(const uint8_t* data, size_t size);
+
+    // 通过注册的回调发送一条消息。使用适配器私有的 tx_status 重新
+    // finalize，保证共享链路下的 sequence、checksum 和后续签名状态隔离。
+    bool send_message_with_mode(mavlink_message_t& message, bool allow_signing) {
+        std::vector<uint8_t> frame;
+        {
+            mg::core::platform::LockGuard send_lock(send_mtx);
+            if (!send_cb) return false;
+            pack_message_locked(message, allow_signing, frame);
+        }
+        return deliver_frame(frame);
     }
 
     bool send_message(mavlink_message_t& message) {
         return send_message_with_mode(message, true);
     }
 
-    // 通过注册的回调发送当前 msg 缓冲区。
-    // 设置 thread_local s_active_send_cb 以便 comm_send_ch() 路由到本适配器。
+    // 通过注册的回调发送当前 msg 缓冲区。调用方必须不持有 mtx。
     bool send_msg() { return send_message(msg); }
 
-    bool send_command_queue_entry(const CommandQueueEntry& e);
+    // 持锁派发路径（process()/tick() 内）专用：打包并入队，由出锁后的
+    // flush_deferred_frames() 统一发送，避免在 impl_->mtx 内做阻塞 I/O 或
+    // 调用外部回调（A3/A4，见 ADR-0005）。返回 false 仅表示没有可用的发送回调。
+    bool queue_message(mavlink_message_t& message, bool allow_signing = true) {
+        mg::core::platform::LockGuard send_lock(send_mtx);
+        if (!send_cb) return false;
+        std::vector<uint8_t> frame;
+        pack_message_locked(message, allow_signing, frame);
+        deferred_frames.push_back(std::move(frame));
+        return true;
+    }
+    bool queue_msg() { return queue_message(msg, true); }
+
+    // 在持锁的调用方里发送当前 msg：锁内打包 → 临时解锁调用 send_cb →
+    // 重新加锁。返回真实发送结果，语义与 send_msg() 相同（A3/A4）。
+    bool send_msg_unlocked(mg::core::platform::UniqueLock& lk) {
+        std::vector<uint8_t> frame;
+        {
+            mg::core::platform::LockGuard send_lock(send_mtx);
+            if (!send_cb) return false;
+            pack_message_locked(msg, true, frame);
+        }
+        lk.unlock();
+        const bool ok = deliver_frame(frame);
+        lk.lock();
+        return ok;
+    }
+
+    // 出锁后统一发送延迟帧。自身短暂加锁取出队列，发送在 mtx 之外完成。
+    void flush_deferred_frames() {
+        if (deferred_frames.empty()) return;
+        std::vector<std::vector<uint8_t>> frames;
+        {
+            mg::core::platform::LockGuard lk(mtx);
+            frames.swap(deferred_frames);
+        }
+        for (const auto& frame : frames) {
+            deliver_frame(frame.data(), frame.size());
+        }
+    }
+
+    // MAVLink FTP 客户端的回调没法显式改写成 queue_msg()：用线程局部标记判断
+    // 当前线程是否正在持锁派发，是则入队，否则直接发送。
+    bool send_bytes_routed(const uint8_t* data, size_t size) {
+        if (tls_dispatching_impl == this) {
+            deferred_frames.emplace_back(data, data + size);
+            return true;
+        }
+        return deliver_frame(data, size);
+    }
+    bool send_message_routed(mavlink_message_t& message) {
+        if (tls_dispatching_impl == this) return queue_message(message, true);
+        return send_message(message);
+    }
+
+    // 把一条命令队列条目打包进 msg（不发送；调用方持有 mtx）。
+    void pack_command_queue_entry(const CommandQueueEntry& e);
 
     // ================================================================
     // 消息处理器（在 process() 中持锁调用）

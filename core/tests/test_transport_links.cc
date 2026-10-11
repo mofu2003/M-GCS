@@ -10,6 +10,7 @@
 #include "core/transport/link_config.h"
 #include "core/transport/serial_port_discovery.h"
 #include "core/platform/platform_socket.h"
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 
@@ -251,13 +252,38 @@ static void test_tcp_reconnect() {
     CHECK(!link.open(), "second connect also fails cleanly");
     link.close();
 
-    CHECK(true, "reconnect cycle doesn't crash");
+    CHECK(!link.is_open(), "failed reconnect leaves the link closed");
+}
+
+/// KD-25：不可达地址上的 connect 必须有界返回，不能挂到操作系统超时
+/// （默认可达 75 s，而看门狗要等连接返回后才启动）。
+static void test_tcp_connect_timeout_is_bounded() {
+    fprintf(stderr, "\n[Group] TCP connect timeout\n");
+
+    LinkDescriptor desc;
+    // 192.0.2.0/24 是 TEST-NET-1，保留给文档使用，正常不会被路由到。
+    desc.id = "tcp://192.0.2.1:9";
+    desc.type = "tcp";
+    desc.endpoint = "192.0.2.1:9";
+    TcpLink link(desc);
+
+    const auto start = std::chrono::steady_clock::now();
+    const bool opened = link.open();
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start).count();
+
+    CHECK(!opened, "connect to an unroutable address fails");
+    CHECK(elapsed < 6000,
+          "connect failure returns within the bounded timeout (not the OS default)");
+    link.close();
+    CHECK(!link.is_open(), "a failed connect leaves the link closed");
 }
 
 int main() {
     fprintf(stderr, "=== Transport Link Tests ===\n");
 
     test_tcp_link();
+    test_tcp_connect_timeout_is_bounded();
     test_udp_link();
     test_udp_link_close_waits_for_read_thread();
     test_serial_link();

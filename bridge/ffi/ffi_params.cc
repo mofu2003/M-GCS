@@ -5,17 +5,18 @@
  * 参数读写：请求全部参数、按名查询/设置、进度查询。
  *
  * mg_params_request_all, mg_params_get_all, mg_params_get_progress,
- * mg_params_get_by_name, mg_params_set
+ * mg_params_get_by_name, mg_params_get_write_status, mg_params_set
  */
 #include "ffi_internal.h"
-#include "param_json_serializers.h"
-#include "telemetry_bindings.h"
+#include "ffi_response.h"
+#include "core/telemetry/param_json_serializers.h"
 #include "core/config/parameter_change_set.h"
 
 #include <unordered_set>
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 namespace {
 
@@ -40,7 +41,7 @@ bool parse_change_set(const char* json, std::vector<ParamEntry>& entries, std::s
         error = "empty parameter change-set";
         return false;
     }
-    cJSON* root = cJSON_Parse(json);
+    cJSON* root = mg::core::json::parse(json);
     if (!root || !cJSON_IsArray(root)) {
         if (root) cJSON_Delete(root);
         error = "expected JSON array";
@@ -72,17 +73,17 @@ bool parse_change_set(const char* json, std::vector<ParamEntry>& entries, std::s
 }
 
 std::string change_set_json(const ParameterChangeSet& change_set) {
-    mg::bridge::JsonBuilder output;
+    mg::core::telemetry::JsonBuilder output;
     output.begin_object();
     output.field("success", true);
     output.field("ready", change_set.ready_count);
     output.field("unchanged", change_set.unchanged_count);
     output.field("unknown", change_set.unknown_count);
     output.field("invalid", change_set.invalid_count);
-    mg::bridge::JsonBuilder items;
+    mg::core::telemetry::JsonBuilder items;
     items.begin_array();
     for (const auto& change : ParameterChangeSetPlanner::ordered_ready(change_set)) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("name", change.entry.name);
         item.field("value", change.entry.value);
@@ -94,7 +95,7 @@ std::string change_set_json(const ParameterChangeSet& change_set) {
     }
     for (const auto& change : change_set.changes) {
         if (change.disposition == ParameterChangeDisposition::Ready) continue;
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("name", change.entry.name);
         item.field("value", change.entry.value);
@@ -128,7 +129,7 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
         return fail(MG_ERROR_INVALID_PARAM, "empty parameter refresh list");
     }
 
-    cJSON* root = cJSON_Parse(json_names);
+    cJSON* root = mg::core::json::parse(json_names);
     if (!root || !cJSON_IsArray(root)) {
         if (root) cJSON_Delete(root);
         return fail(MG_ERROR_INVALID_PARAM, "expected JSON array of parameter names");
@@ -190,7 +191,7 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
     const int failed = static_cast<int>(resolved.size()) - sent;
     const auto status = mav->param_refresh_status();
 
-    mg::bridge::JsonBuilder output;
+    mg::core::telemetry::JsonBuilder output;
     output.begin_object();
     output.field("success", failed == 0);
     output.field("requested", requested);
@@ -202,7 +203,7 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
     output.field("pending", status.pending);
     output.field("completed", status.completed);
     output.field("round", status.round);
-    mg::bridge::JsonBuilder unknown_json;
+    mg::core::telemetry::JsonBuilder unknown_json;
     unknown_json.begin_array();
     for (const auto& name : unknown) unknown_json.append_string(name);
     unknown_json.end_array();
@@ -218,14 +219,14 @@ MGCORE_API char* mg_params_get_refresh_status(mg_core_t* core) {
         return to_cstr(R"({"active":false,"total":0,"completed":0,"pending":0,"round":0,"failed":[]})");
     }
     const auto status = mav->param_refresh_status();
-    mg::bridge::JsonBuilder output;
+    mg::core::telemetry::JsonBuilder output;
     output.begin_object();
     output.field("active", status.active);
     output.field("total", status.total);
     output.field("completed", status.completed);
     output.field("pending", status.pending);
     output.field("round", status.round);
-    mg::bridge::JsonBuilder failed;
+    mg::core::telemetry::JsonBuilder failed;
     failed.begin_array();
     for (const auto& name : status.failed) failed.append_string(name);
     failed.end_array();
@@ -239,10 +240,10 @@ MGCORE_API char* mg_params_get_all(mg_core_t* core) {
     auto* mav = get_active_mavlink(core);
     if (!mav) return to_cstr("[]");
     auto params = mav->all_params();
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
     for (const auto& p : params) {
-        jb.append_json(mg::bridge::param_json(p));
+        jb.append_json(mg::core::telemetry::param_json(p));
     }
     jb.end_array();
     return to_cstr(jb.str());
@@ -252,7 +253,7 @@ MGCORE_API char* mg_params_get_progress(mg_core_t* core) {
     CHECK_CORE(core);
     auto* mav = get_active_mavlink(core);
     if (!mav) return to_cstr(R"({"received":0,"total":0})");
-    return to_cstr(mg::bridge::param_progress_json(
+    return to_cstr(mg::core::telemetry::param_progress_json(
         static_cast<uint16_t>(mav->params_download_received()), mav->param_count()));
 }
 
@@ -262,8 +263,38 @@ MGCORE_API char* mg_params_get_by_name(mg_core_t* core, const char* param_name) 
     auto* mav = get_active_mavlink(core);
     if (!mav) return to_cstr("{\"found\":false}");
     auto p = mav->get_param_by_name(param_name);
-    if (!p.has_value()) return to_cstr(mg::bridge::param_not_found_json());
-    return to_cstr(mg::bridge::param_detail_json(p.value()));
+    if (!p.has_value()) return to_cstr(mg::core::telemetry::param_not_found_json());
+    return to_cstr(mg::core::telemetry::param_detail_json(p.value()));
+}
+
+MGCORE_API char* mg_params_get_write_status(mg_core_t* core) {
+    CHECK_CORE_RET(core, mg::bridge::ffi::response::error(MG_ERROR_NULL_CORE, "null core"));
+
+    auto* mav = get_active_mavlink(core);
+    mg::core::telemetry::JsonBuilder writes;
+    writes.begin_array();
+    if (mav) {
+        for (const auto& record : mav->param_change_history()) {
+            mg::core::telemetry::JsonBuilder item;
+            item.begin_object();
+            item.field("id", static_cast<unsigned long long>(record.id));
+            item.field("name", record.name);
+            item.field("requested_value", record.requested_value);
+            item.field("actual_value", record.actual_value);
+            item.field("type", static_cast<int>(record.type));
+            item.field("state", record.state);
+            item.field("error", record.error);
+            item.field("requested_at_ms", static_cast<int64_t>(record.requested_at_ms));
+            item.field("completed_at_ms", static_cast<int64_t>(record.completed_at_ms));
+            item.end_object();
+            writes.append_json(item.str());
+        }
+    }
+    mg::core::telemetry::JsonBuilder data;
+    data.begin_object();
+    data.raw_field("writes", writes.str());
+    data.end_object();
+    return mg::bridge::ffi::response::ok(data.str());
 }
 
 MGCORE_API char* mg_params_set(mg_core_t* core, const char* param_name, float param_value, int param_type) {
@@ -328,11 +359,11 @@ MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_p
         return fail(MG_ERROR_INVALID_PARAM, error.c_str());
     }
     const auto prepared = ParameterChangeSetPlanner::prepare(entries, mav->all_params());
-    mg::bridge::JsonBuilder output;
+    mg::core::telemetry::JsonBuilder output;
     output.begin_object();
-    mg::bridge::JsonBuilder succeeded;
+    mg::core::telemetry::JsonBuilder succeeded;
     succeeded.begin_array();
-    mg::bridge::JsonBuilder failed;
+    mg::core::telemetry::JsonBuilder failed;
     failed.begin_array();
     int written = 0;
     int resolved = 0;
@@ -341,7 +372,7 @@ MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_p
         const auto validation_error = descriptor_db.validate(
             ffi_param_profile(core), change.entry.name, change.entry.value);
         if (!validation_error.empty()) {
-            mg::bridge::JsonBuilder item;
+            mg::core::telemetry::JsonBuilder item;
             item.begin_object();
             item.field("name", change.entry.name);
             item.field("reason", validation_error);
@@ -351,7 +382,7 @@ MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_p
         }
         if (mav->set_param(active_target_sys(core), active_target_comp(core),
                            change.entry.name.c_str(), change.entry.value, change.entry.type)) {
-            mg::bridge::JsonBuilder item;
+            mg::core::telemetry::JsonBuilder item;
             item.begin_object();
             item.field("name", change.entry.name);
             item.field("value", change.entry.value);
@@ -360,7 +391,7 @@ MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_p
             written++;
             resolved++;
         } else {
-            mg::bridge::JsonBuilder item;
+            mg::core::telemetry::JsonBuilder item;
             item.begin_object();
             item.field("name", change.entry.name);
             item.field("reason", "failed to send parameter write");
@@ -371,7 +402,7 @@ MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_p
     for (const auto& change : prepared.changes) {
         if (change.disposition == ParameterChangeDisposition::Ready) continue;
         if (change.disposition == ParameterChangeDisposition::Unchanged) {
-            mg::bridge::JsonBuilder item;
+            mg::core::telemetry::JsonBuilder item;
             item.begin_object();
             item.field("name", change.entry.name);
             item.field("value", change.entry.value);
@@ -379,7 +410,7 @@ MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_p
             succeeded.append_json(item.str());
             resolved++;
         } else {
-            mg::bridge::JsonBuilder item;
+            mg::core::telemetry::JsonBuilder item;
             item.begin_object();
             item.field("name", change.entry.name);
             item.field("reason", change.reason.empty()
@@ -401,11 +432,6 @@ MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_p
     return to_cstr(output.str());
 }
 
-// Aliases matching ffi_api.h declarations
-MGCORE_API char* mg_param_list(mg_core_t* core) { return mg_params_request_all(core); }
-MGCORE_API char* mg_param_get(mg_core_t* core, const char* name) { return mg_params_get_by_name(core, name); }
-MGCORE_API char* mg_param_set(mg_core_t* core, const char* name, float value) { return mg_params_set(core, name, value, 0); }
-
 // ================================================================
 // Parameter diff — return all params (frontend compares against defaults)
 // ================================================================
@@ -416,14 +442,14 @@ MGCORE_API char* mg_params_get_changed(mg_core_t* core) {
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
 
     auto all_params = mav->all_params();
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.begin_array();;
     // Since we don't have default values stored, return all params
     // The frontend can compare against ParameterDescriptors.json defaults
     for (const auto& p : all_params) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("name", p.name);
         item.field("value", static_cast<double>(p.value));

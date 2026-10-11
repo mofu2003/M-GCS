@@ -6,6 +6,7 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 #include <cstdio>
 #include <cstring>
@@ -31,9 +32,23 @@ static cJSON* object_item(cJSON* root, const char* key) {
 struct SimEnv : MockVehicleTestEnv {
     SimEnv() : MockVehicleTestEnv({}, true) {}
 
+    char* call_arm_with_pump() {
+        start_pump();
+        char* result = mg_command_arm(core, 0);
+        stop_pump();
+        return result;
+    }
+
     char* call_takeoff_with_pump(float altitude_m) {
         start_pump();
-        char* result = mg_cmd_takeoff(core, altitude_m);
+        char* result = mg_command_takeoff(core, altitude_m);
+        stop_pump();
+        return result;
+    }
+
+    char* call_disarm_with_pump() {
+        start_pump();
+        char* result = mg_command_disarm(core, 0);
         stop_pump();
         return result;
     }
@@ -92,7 +107,7 @@ int main() {
     CHECK("operations reports complete params", ops && strstr(ops, "\"state\":\"complete\""));
     mg_free_string(ops);
 
-    char* pv = mg_param_get(env.core, "WPNAV_SPEED");
+    char* pv = mg_params_get_by_name(env.core, "WPNAV_SPEED");
     CHECK("WPNAV_SPEED exists", pv && strstr(pv, "5"));
     mg_free_string(pv);
 
@@ -111,7 +126,7 @@ int main() {
 
     fprintf(stderr, "\n[Step 5] Arm\n");
     env.tick(500);
-    char* arm_r = env.call_with_pump(mg_cmd_arm);
+    char* arm_r = env.call_arm_with_pump();
     CHECK("arm command issued", arm_r != nullptr);
     CHECK("arm accepted", arm_r && strstr(arm_r, "success"));
     CHECK("mock got ARM command", env.mock->received_cmds.size() >= 1);
@@ -141,7 +156,7 @@ int main() {
     CHECK("dashboard snapshot has connection", dash && strstr(dash, "\"connection\""));
     CHECK("dashboard snapshot has telemetry", dash && strstr(dash, "\"telemetry\""));
     CHECK("dashboard snapshot has freshness", dash && strstr(dash, "\"freshness\""));
-    cJSON* dash_root = dash ? cJSON_Parse(dash) : nullptr;
+    cJSON* dash_root = dash ? mg::core::json::parse(dash) : nullptr;
     cJSON* dash_telemetry = object_item(dash_root, "telemetry");
     cJSON* dash_attitude = object_item(dash_telemetry, "attitude");
     cJSON* dash_roll_deg = object_item(dash_attitude, "roll_deg");
@@ -165,12 +180,12 @@ int main() {
     mg_free_string(sys);
 
     fprintf(stderr, "\n[Step 8] RTL\n");
-    char* rtl_r = env.call_with_pump(mg_cmd_rtl);
+    char* rtl_r = env.call_with_pump(mg_command_rtl);
     CHECK("RTL succeeds", rtl_r && strstr(rtl_r, "success"));
     mg_free_string(rtl_r);
 
     fprintf(stderr, "\n[Step 9] Disarm\n");
-    char* disarm_r = env.call_with_pump(mg_cmd_disarm);
+    char* disarm_r = env.call_disarm_with_pump();
     CHECK("disarm succeeds", disarm_r && strstr(disarm_r, "success"));
     mg_free_string(disarm_r);
 

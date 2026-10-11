@@ -1,5 +1,5 @@
 #include "core/vehicle/vehicle.h"
-#include "telemetry_bindings.h"
+#include "core/event/event_codes.h"
 #include "core/telemetry/json_serializers.h"
 #include "core/telemetry/param_json_serializers.h"
 #include "core/firmware/firmware_adapter.h"
@@ -8,6 +8,33 @@
 #include <algorithm>
 
 namespace mg::core::vehicle {
+namespace {
+
+/// 传输层状态 → 车辆状态（KD-15）。
+///
+/// 两个枚举一一对应，只有 `VehicleState::Initializing` 是车辆层独有（子系统初始化
+/// 期间），没有传输层对应值，返回 nullopt 表示"不要改写车辆状态"。
+std::optional<VehicleState> vehicle_state_for(
+    mg::core::transport::ConnectionState state) {
+    switch (state) {
+        case mg::core::transport::ConnectionState::Disconnected:
+            return VehicleState::Disconnected;
+        case mg::core::transport::ConnectionState::Connecting:
+            return VehicleState::Connecting;
+        case mg::core::transport::ConnectionState::WaitingHeartbeat:
+            return VehicleState::WaitingHeartbeat;
+        case mg::core::transport::ConnectionState::Connected:
+            return VehicleState::Connected;
+        case mg::core::transport::ConnectionState::HeartbeatLost:
+            return VehicleState::HeartbeatLost;
+        case mg::core::transport::ConnectionState::Disconnecting:
+            return VehicleState::Disconnecting;
+    }
+    return std::nullopt;
+}
+
+}  // namespace
+
 
 namespace {
 /// 单调时钟毫秒，波形缓冲只关心相对时间。
@@ -258,12 +285,16 @@ void Vehicle::install_connection_state_callback(
     if (!connection) return;
     connection->set_state_callback([this](mg::core::transport::ConnectionState state,
                                           const char* reason) {
+        // KD-15：车辆状态与传输层状态同源，断链/心跳丢失后不会再漂移。
+        if (const auto mirrored = vehicle_state_for(state)) {
+            state_.store(*mirrored);
+        }
         flight_log_.on_connection_state(
             mg::core::transport::ConnectionManager::state_string(state),
             reason ? reason : "");
         switch (state) {
             case mg::core::transport::ConnectionState::Connected:
-                fire_event(MG_EVENT_CONNECTION, R"({"connected":true})");
+                fire_event(mg::core::event::kConnection, R"({"connected":true})");
                 break;
             case mg::core::transport::ConnectionState::HeartbeatLost:
             case mg::core::transport::ConnectionState::Disconnected: {
@@ -272,7 +303,7 @@ void Vehicle::install_connection_state_callback(
                 jb.field("connected", is_connected());
                 jb.field("reason", reason ? reason : "");
                 jb.end_object();
-                fire_event(MG_EVENT_CONNECTION, jb.str());
+                fire_event(mg::core::event::kConnection, jb.str());
                 break;
             }
             default: break;
@@ -294,9 +325,6 @@ void Vehicle::refresh_primary_connection() {
         primary_route_id_ = route_id;
     }
     calibration_.set_connection(connection.get());
-    if (auto* mav = connection->get_mavlink()) {
-        flight_modes_.set_mavlink(mav, info_.system_id, info_.component_id);
-    }
 }
 
 bool Vehicle::remove_shared_route(int route_id) {
@@ -699,6 +727,10 @@ void Vehicle::wire_telemetry_callbacks_for(
     auto* mav = source ? source->get_mavlink() : nullptr;
     if (!mav) return;
 
+    // 把链路适配器绑到本车自己的 .tlog 写入器（ADR-0006）。绑定是幂等的，
+    // 写入器只在 mg_tlog_start 后真正落盘。
+    mav->set_log_sink(&mavlink_log_);
+
     std::weak_ptr<Vehicle> weak = shared_from_this();
     mav->set_signing_detected_callback(
         [weak](const mg::core::mavlink::SigningCandidate& candidate) {
@@ -710,7 +742,6 @@ void Vehicle::wire_telemetry_callbacks_for(
     mav->on_heartbeat([weak, source, route_id](const mg::core::mavlink::HeartbeatInfo& info) {
         auto self = weak.lock();
         if (!self) return;
-        self->flight_modes_.set_mavlink(source->get_mavlink(), info.system_id, info.component_id);
         self->flight_modes_.update_from_heartbeat(
             info.autopilot_type,
             info.vehicle_type,
@@ -718,7 +749,7 @@ void Vehicle::wire_telemetry_callbacks_for(
             info.custom_mode,
             info.armed,
             info.system_status);
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kHeartbeat, MG_EVENT_HEARTBEAT);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kHeartbeat, mg::core::event::kHeartbeat);
 
         const uint64_t age = source->heartbeat_age_ms();
         if (self->info_.system_id > 0 && age > 5000) {
@@ -782,55 +813,55 @@ void Vehicle::wire_telemetry_callbacks_for(
     // 这一组回调负责把 MAVLink 快照同步进缓存，并按需转成事件抛给上层。
     mav->on_sys_status([weak, source](const mg::core::mavlink::SysStatusInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kSysStatus, MG_EVENT_SYS_STATUS);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kSysStatus, mg::core::event::kSysStatus);
     });
     mav->on_gps([weak, source](const mg::core::mavlink::GpsInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kGps, MG_EVENT_GPS);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kGps, mg::core::event::kGps);
     });
     mav->on_attitude([weak, source](const mg::core::mavlink::AttitudeInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kAttitude, MG_EVENT_ATTITUDE);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kAttitude, mg::core::event::kAttitude);
     });
     mav->on_vfr_hud([weak, source](const mg::core::mavlink::VfrHudInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kVfrHud, MG_EVENT_TELEMETRY);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kVfrHud, mg::core::event::kTelemetry);
     });
     mav->on_firmware_version([weak, source](const mg::core::mavlink::FirmwareVersionInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kFirmwareVersion, MG_EVENT_FIRMWARE);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kFirmwareVersion, mg::core::event::kFirmware);
     });
     mav->on_global_position([weak, source](const mg::core::mavlink::GlobalPositionInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kGlobalPosition, MG_EVENT_GLOBAL_POSITION);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kGlobalPosition, mg::core::event::kGlobalPosition);
     });
     mav->on_battery([weak, source](const mg::core::mavlink::BatteryInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kBattery, MG_EVENT_BATTERY);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kBattery, mg::core::event::kBattery);
     });
     mav->on_extended_sys_state([weak, source](const mg::core::mavlink::ExtendedSysStateInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kExtendedSysState, MG_EVENT_EXTENDED_SYS_STATE);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kExtendedSysState, mg::core::event::kExtendedSysState);
     });
     mav->on_prearm_check([weak, source](const mg::core::mavlink::PrearmCheckInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kPrearmCheck, MG_EVENT_PREARM_CHECK);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kPrearmCheck, mg::core::event::kPrearmCheck);
     });
     mav->on_vibration([weak, source](const mg::core::mavlink::VibrationInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kVibration, MG_EVENT_VIBRATION);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kVibration, mg::core::event::kVibration);
     });
     mav->on_esc_status([weak, source](const mg::core::mavlink::EscStatusInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kEscStatus, MG_EVENT_ESC_STATUS);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kEscStatus, mg::core::event::kEscStatus);
     });
     mav->on_wind_estimate([weak, source](const mg::core::mavlink::WindEstimateInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kWindEstimate, MG_EVENT_WIND_ESTIMATE);
+        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kWindEstimate, mg::core::event::kWindEstimate);
     });
     mav->on_param([weak](const mg::core::mavlink::ParamInfo& param) {
         auto self = weak.lock(); if (!self) return;
-        self->fire_event(MG_EVENT_PARAMETERS, mg::core::telemetry::param_json(param));
+        self->fire_event(mg::core::event::kParameters, mg::core::telemetry::param_json(param));
     });
     mav->on_statustext([weak](const std::string& text, uint8_t severity) {
         auto self = weak.lock(); if (!self) return;
@@ -840,7 +871,7 @@ void Vehicle::wire_telemetry_callbacks_for(
         // 同理：飞行日志声明采集飞控 STATUSTEXT，但之前没有接线。
         self->flight_log_.on_statustext(severity, text);
         auto snap = self->cache_.snapshot_statustext();
-        self->fire_event(MG_EVENT_STATUSTEXT, mg::core::telemetry::statustext_json(snap.data));
+        self->fire_event(mg::core::event::kStatustext, mg::core::telemetry::statustext_json(snap.data));
         self->calibration_.process_statustext(text, severity);
     });
     mav->on_command_ack([weak](const mg::core::mavlink::CommandAckInfo& ack) {
@@ -863,7 +894,7 @@ void Vehicle::wire_telemetry_callbacks_for(
         }
     });
 
-    // MG_EVENT_WAYPOINT_REACHED 之前只在公开枚举里声明，没有任何地方发出，
+    // mg::core::event::kWaypointReached 之前只在公开枚举里声明，没有任何地方发出，
     // 订阅该事件的客户端会一直收不到消息。这里把适配器的 reached 回调接上。
     mav->on_mission_reached([weak](uint16_t seq) {
         auto self = weak.lock(); if (!self) return;
@@ -871,7 +902,7 @@ void Vehicle::wire_telemetry_callbacks_for(
         jb.begin_object();
         jb.field("seq", static_cast<int>(seq));
         jb.end_object();
-        self->fire_event(MG_EVENT_WAYPOINT_REACHED, jb.str());
+        self->fire_event(mg::core::event::kWaypointReached, jb.str());
     });
 
     mav->on_imu([weak, source](const mg::core::mavlink::ImuInfo& info) {

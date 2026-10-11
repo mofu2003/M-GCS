@@ -238,6 +238,9 @@ void MavlinkAdapter::Impl::handle_command_ack(const mavlink_message_t& m)
     info.result = ack.result;
     info.command = ack.command;
     info.progress = ack.progress;
+    info.outcome = ack.result == 0 ? CommandOutcome::Accepted
+                 : ack.result == 5 ? CommandOutcome::InProgress
+                                   : CommandOutcome::Rejected;
     tel.command_ack = info;
 
     // 路由到命令队列。多机共用链路时必须带上 ACK 的来源系统号，否则别的飞机的
@@ -254,10 +257,6 @@ void MavlinkAdapter::Impl::handle_command_ack(const mavlink_message_t& m)
         }
     }
 
-    // 旧 waiter 路径（向后兼容 wait_for_ack）
-    ack_waiter.pending = info;
-    ack_waiter.ack_received = true;
-    ack_waiter.cv.notify_one();
     if (tel.command_ack_cb)
         deferred_cbs.push_back([cb = tel.command_ack_cb, info]() { cb(info); });
 }

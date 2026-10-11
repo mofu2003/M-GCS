@@ -7,8 +7,6 @@
 extern "C" {
 #endif
 
-MGCORE_API char* mg_geofence_get(mg_core_t* core);
-MGCORE_API char* mg_geofence_set(mg_core_t* core, const char* json_fence);
 MGCORE_API char* mg_geofence_check(mg_core_t* core, double lat, double lon);
 MGCORE_API char* mg_geofence_get_config(mg_core_t* core);
 MGCORE_API char* mg_geofence_set_config(mg_core_t* core, const char* json_config);

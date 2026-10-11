@@ -28,8 +28,8 @@ int main() {
     fprintf(stderr, "[Group] Construction\n");
     {
         mg::core::telemetry::TelemetryCache cache;
-        (void)cache;
-        CHECK(true, "TelemetryCache constructs without crash");
+        CHECK(cache.heartbeat.data.system_id == 0 && cache.heartbeat.data.base_mode == 0,
+              "new cache has no identified or armed heartbeat");
     }
 
     // 2. Default JSON output

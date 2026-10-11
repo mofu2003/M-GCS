@@ -9,6 +9,7 @@
 #include "core/vehicle/vehicle_link_manager.h"
 #include "core/transport/in_memory_link.h"
 #include "core/transport/connection_manager.h"
+#include "core/transport/link_session.h"
 #include "core/platform/platform_mutex.h"
 #include "ardupilotmega/mavlink.h"
 #include <cstdio>
@@ -74,9 +75,6 @@ int main() {
         v2.set_identity(2, 1, "PX4", "Copter");
 
         // Each vehicle has its own cache
-        v1.cache().gps.data.lat = 39.9f;
-        v2.cache().gps.data.lat = 31.2f;
-
         v1.cache().gps.data.lat = 399042000;  // 39.9042 deg * 1e7
         v2.cache().gps.data.lat = 312000000;  // 31.2 deg * 1e7
         CHECK(v1.cache().gps.data.lat == 399042000, "vehicle 1 GPS lat preserved (int32)");
@@ -281,6 +279,39 @@ int main() {
         links.clear();
         CHECK(links.link_count() == 0 && !links.communication_lost(),
               "clear resets link health state");
+    }
+
+    // 9. KD-15: Vehicle::state 与传输层状态同源，断链后不残留 Connected
+    {
+        fprintf(stderr, "[Group] Vehicle state mirrors transport state (KD-15)\n");
+        auto link = std::make_shared<mg::core::transport::InMemoryLink>();
+        auto session = std::make_shared<mg::core::transport::LinkSession>(
+            link, "memory://kd15");
+        session->open();
+
+        auto vehicle = std::make_shared<mg::core::vehicle::Vehicle>(99);
+        CHECK(vehicle->attach_shared_primary_route(
+                  session, 99, "memory://kd15", 1, 1),
+              "attach shared primary route (installs state callback)");
+        CHECK(vehicle->state() == mg::core::vehicle::VehicleState::WaitingHeartbeat,
+              "attach leaves vehicle waiting for heartbeat");
+
+        mavlink_message_t hb{};
+        mavlink_msg_heartbeat_pack(1, 1, &hb, MAV_TYPE_QUADROTOR,
+                                   MAV_AUTOPILOT_ARDUPILOTMEGA,
+                                   MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 0,
+                                   MAV_STATE_STANDBY);
+        uint8_t hb_buf[MAVLINK_MAX_PACKET_LEN]{};
+        const uint16_t hb_len = mavlink_msg_to_send_buffer(hb_buf, &hb);
+        link->inject_incoming(hb_buf, hb_len);
+        CHECK(vehicle->state() == mg::core::vehicle::VehicleState::Connected,
+              "heartbeat mirrors vehicle to Connected");
+
+        // 显式断开只经过传输层状态回调这条路径；若 Vehicle 状态不与
+        // 传输层同源，这里会残留 Connected（KD-15 描述的状态漂移）。
+        vehicle->conn().disconnect();
+        CHECK(vehicle->state() == mg::core::vehicle::VehicleState::Disconnected,
+              "disconnect resets vehicle state (no stale Connected)");
     }
 
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);

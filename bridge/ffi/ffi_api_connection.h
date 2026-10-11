@@ -13,7 +13,7 @@ extern "C" {
 /// mg_vehicle_list(). The result is a positive ID, or a negative mg_error_t on
 /// failure. Opening a link never changes the active/UI focus.
 MGCORE_API int mg_connection_open(mg_core_t* core, const char* endpoint_uri);
-/// Returns state for this specific link or legacy vehicle session without
+/// Returns state for this specific link or vehicle session without
 /// selecting it.
 MGCORE_API char* mg_connection_get_session_state(mg_core_t* core, int link_id);
 /// Closes exactly this link/session without relying on active vehicle focus.
@@ -23,10 +23,12 @@ MGCORE_API char* mg_connection_close_route(mg_core_t* core, int route_id);
 /// Lists physical links and their discovered vehicle routes.
 MGCORE_API char* mg_connection_list(mg_core_t* core);
 
-/// Compatibility wrapper. Accepts a URI or a bare serial device path.
+/// Opens a vehicle session from a URI or bare serial device path.
 MGCORE_API int mg_vehicle_open(mg_core_t* core, const char* endpoint);
-/// Compatibility wrapper for closing one vehicle and all of its routes.
+/// Closes one vehicle session and all of its routes.
 MGCORE_API char* mg_vehicle_close(mg_core_t* core, int vehicle_id);
+/// Lists vehicles with `heartbeat_fresh`, `primary_heartbeat_age_ms` and
+/// `communication_lost`; consumers must not use armed/mode from a stale item.
 MGCORE_API char* mg_vehicle_list(mg_core_t* core);
 MGCORE_API char* mg_vehicle_select(mg_core_t* core, int vehicle_id);
 /// Applies a 32-byte MAVLink signing key, encoded as 64 hex characters, to
@@ -57,8 +59,8 @@ MGCORE_API int mg_vehicle_get_active(mg_core_t* core);
 MGCORE_API char* mg_discover_devices(mg_core_t* core, const char* transport_type);
 
 MGCORE_API char* mg_connection_list_ports(mg_core_t* core);
-/// Legacy single-connection convenience wrappers. They open then select the
-/// new session so existing active-vehicle command callers keep working.
+/// Convenience wrappers for opening one serial/TCP/UDP session and selecting
+/// it as the active command target.
 MGCORE_API char* mg_connection_connect(mg_core_t* core, const char* port, int baud);
 MGCORE_API char* mg_connection_disconnect(mg_core_t* core);
 MGCORE_API char* mg_connection_connect_tcp(mg_core_t* core, const char* endpoint);

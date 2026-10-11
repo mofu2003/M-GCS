@@ -1,5 +1,6 @@
 #include "core/mavlink/mavlink_router.h"
 
+#include "core/log/logging.h"
 #include "core/platform/platform_mutex.h"
 
 #include "ardupilotmega/mavlink.h"
@@ -191,10 +192,19 @@ std::vector<int> MavlinkRouter::route_bytes(const uint8_t* data,
                     sender ? *sender : empty_peer);
                 if (discovered && discovered->route_id > 0 &&
                     discovered->adapter) {
-                    (void)add_target(discovered->route_id,
-                                     message.sysid,
-                                     message.compid,
-                                     discovered->adapter);
+                    // 注册失败意味着该目标的报文不会再有归属；静默丢弃会让
+                    // “发现了飞机但一直没有数据”变得无法诊断（KD-06）。
+                    if (!add_target(discovered->route_id,
+                                    message.sysid,
+                                    message.compid,
+                                    discovered->adapter)) {
+                        MGC_LOG_ERROR(
+                            "[MavlinkRouter] Failed to register discovered target "
+                            "route=%d sysid=%u compid=%u",
+                            discovered->route_id,
+                            static_cast<unsigned>(message.sysid),
+                            static_cast<unsigned>(message.compid));
+                    }
                 }
             }
 

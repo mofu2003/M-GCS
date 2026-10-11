@@ -17,6 +17,7 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -58,7 +59,7 @@ static void inject_scaled_imu(MockVehicleTestEnv& env, int instance, int16_t xac
 static bool instance_indices(const char* json, const char* category, std::vector<int>& out) {
     out.clear();
     if (!json) return false;
-    cJSON* root = cJSON_Parse(json);
+    cJSON* root = mg::core::json::parse(json);
     if (!root) return false;
     cJSON* arr = cJSON_GetObjectItemCaseSensitive(root, category);
     bool ok = cJSON_IsArray(arr);
@@ -75,7 +76,7 @@ static bool instance_indices(const char* json, const char* category, std::vector
 
 static bool instance_is_active(const char* json, const char* category, int index) {
     if (!json) return false;
-    cJSON* root = cJSON_Parse(json);
+    cJSON* root = mg::core::json::parse(json);
     if (!root) return false;
     cJSON* arr = cJSON_GetObjectItemCaseSensitive(root, category);
     bool found = false;

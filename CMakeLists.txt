@@ -110,6 +110,7 @@ set(MGCORE_SOURCES
     core/src/mavlink/command_queue.cc
     core/src/mavlink/param_cache.cc
     core/src/mavlink/mission_transfer.cc
+    core/src/mavlink/mavlink_message_names.cc
     core/src/firmware/firmware_adapter.cc
     core/src/firmware/firmware_plugin_ardupilot.cc
     core/src/firmware/firmware_plugin_px4.cc
@@ -161,7 +162,7 @@ set(MGCORE_SOURCES
     # Geofence
     core/src/geofence/geofence_manager.cc
     # Terrain
-    core/src/terrain/terrain_query.cc
+    core/src/terrain/terrain_store.cc
     # Camera
     core/src/camera/camera_manager.cc
     # Video
@@ -196,9 +197,9 @@ set(MGCORE_SOURCES
     bridge/ffi/ffi_rc.cc
     bridge/ffi/ffi_utility.cc
     bridge/ffi/ffi_logging.cc
-    bridge/ffi/ffi_v2_wrappers.cc
-    bridge/ffi/ffi_v2_navigation.cc
-    bridge/ffi/ffi_v2_power_sensors.cc
+    bridge/ffi/ffi_telemetry_summary.cc
+    bridge/ffi/ffi_telemetry_navigation.cc
+    bridge/ffi/ffi_telemetry_sensors.cc
     bridge/ffi/ffi_sensor_decode.cc
     bridge/ffi/ffi_mission_commands.cc
     bridge/ffi/ffi_mission_document.cc
@@ -238,57 +239,79 @@ elseif(MGCORE_PLATFORM STREQUAL "android")
     list(APPEND MGCORE_SOURCES core/src/transport/android_usb_serial_link.cc)
 endif()
 
-# Build library
-if(MGCORE_BUILD_SHARED)
-    add_library(mgcore SHARED ${MGCORE_SOURCES})
-    target_compile_definitions(mgcore PRIVATE CJSON_HIDE_SYMBOLS)
-    # 去掉 MinGW 默认的 lib 前缀，输出 mgcore.dll 而非 libmgcore.dll
-    set_target_properties(mgcore PROPERTIES PREFIX "")
-else()
-    add_library(mgcore STATIC ${MGCORE_SOURCES})
-endif()
+# ================================================================
+# 目标拆分：core 与 bridge/ffi 分成两个目标。
+#
+# A1（core 不依赖上层）由目标边界强制：core 目标只带 core/include，不带 bridge/ffi，
+# 所以 core 里一旦 include bridge 头就直接编译失败。以前两者同在一个目标里、且
+# bridge/ffi 在 PUBLIC include 路径上，只能靠 test_bridge_architecture_guards 的
+# 文本扫描兜底（KD-20）。
+# ================================================================
+set(MGCORE_FFI_SOURCES ${MGCORE_SOURCES})
+list(FILTER MGCORE_FFI_SOURCES INCLUDE REGEX "^bridge/ffi/")
+set(MGCORE_CORE_SOURCES ${MGCORE_SOURCES})
+list(FILTER MGCORE_CORE_SOURCES EXCLUDE REGEX "^bridge/ffi/")
 
-target_include_directories(mgcore PUBLIC
-    ${MGCORE_ROOT_DIR}/core/include
-    ${MGCORE_ROOT_DIR}/bridge/ffi
-)
-target_include_directories(mgcore SYSTEM PUBLIC
-    ${MAVLINK_INCLUDE_DIR}
-    ${CJSON_INCLUDE_DIR}
-)
-
-# FFmpeg integration
-if(MGCORE_HAS_FFMPEG AND FFMPEG_FOUND)
-    target_compile_definitions(mgcore PUBLIC MGCORE_HAS_FFMPEG)
-    if(FFMPEG_INCLUDE_DIRS)
-        target_include_directories(mgcore PRIVATE ${FFMPEG_INCLUDE_DIRS})
-        target_link_libraries(mgcore PRIVATE ${FFMPEG_LIBRARIES})
-    elseif(FFMPEG_INCLUDE_DIR)
-        target_include_directories(mgcore PRIVATE ${FFMPEG_INCLUDE_DIR})
-        target_link_libraries(mgcore PRIVATE ${AVFORMAT_LIB} ${AVCODEC_LIB} ${SWSCALE_LIB})
-    endif()
-endif()
-
-# Platform-specific link libraries
-if(MGCORE_PLATFORM STREQUAL "win32")
-    target_link_libraries(mgcore PRIVATE setupapi ws2_32)
-    if(MINGW)
-        target_link_options(mgcore PRIVATE -static-libgcc -static-libstdc++)
-    endif()
-elseif(MGCORE_PLATFORM STREQUAL "linux")
-    target_link_libraries(mgcore PRIVATE pthread)
-elseif(MGCORE_PLATFORM STREQUAL "macos")
-    find_library(IOKIT_FRAMEWORK IOKit REQUIRED)
-    find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
-    target_link_libraries(
-        mgcore
-        PRIVATE
-            ${IOKIT_FRAMEWORK}
-            ${COREFOUNDATION_FRAMEWORK}
+# core 目标的公共配置：include 路径、第三方可见性、FFmpeg 与平台库。
+function(mg_configure_core_target target)
+    target_include_directories(${target} PUBLIC
+        ${MGCORE_ROOT_DIR}/core/include
+        ${CJSON_INCLUDE_DIR}
     )
-elseif(MGCORE_PLATFORM STREQUAL "android")
-    find_library(LOG_LIB log)
-    target_link_libraries(mgcore PRIVATE ${LOG_LIB})
+    target_include_directories(${target} SYSTEM PUBLIC
+        ${MAVLINK_INCLUDE_DIR}
+    )
+    target_compile_definitions(${target} PRIVATE CJSON_HIDE_SYMBOLS)
+    if(MGCORE_HAS_FFMPEG AND FFMPEG_FOUND)
+        target_compile_definitions(${target} PUBLIC MGCORE_HAS_FFMPEG)
+        if(FFMPEG_INCLUDE_DIRS)
+            target_include_directories(${target} PRIVATE ${FFMPEG_INCLUDE_DIRS})
+            target_link_libraries(${target} PUBLIC ${FFMPEG_LIBRARIES})
+        elseif(FFMPEG_INCLUDE_DIR)
+            target_include_directories(${target} PRIVATE ${FFMPEG_INCLUDE_DIR})
+            target_link_libraries(${target} PUBLIC
+                ${AVFORMAT_LIB} ${AVCODEC_LIB} ${SWSCALE_LIB})
+        endif()
+    endif()
+    if(MGCORE_PLATFORM STREQUAL "win32")
+        target_link_libraries(${target} PUBLIC setupapi ws2_32)
+    elseif(MGCORE_PLATFORM STREQUAL "linux")
+        target_link_libraries(${target} PUBLIC pthread)
+    elseif(MGCORE_PLATFORM STREQUAL "macos")
+        find_library(IOKIT_FRAMEWORK IOKit REQUIRED)
+        find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
+        target_link_libraries(${target} PUBLIC
+            ${IOKIT_FRAMEWORK} ${COREFOUNDATION_FRAMEWORK})
+    elseif(MGCORE_PLATFORM STREQUAL "android")
+        find_library(LOG_LIB log)
+        target_link_libraries(${target} PUBLIC ${LOG_LIB})
+    endif()
+endfunction()
+
+# Build library
+add_library(mgcore_core STATIC ${MGCORE_CORE_SOURCES})
+mg_configure_core_target(mgcore_core)
+
+if(MGCORE_BUILD_SHARED)
+    add_library(mgcore SHARED ${MGCORE_FFI_SOURCES})
+    # Windows consumers load the DLL as mgcore.dll. Keep the platform
+    # default prefix on Unix so Linux/Android produce libmgcore.so and
+    # macOS produces libmgcore.dylib, matching the FFI loaders.
+    if(WIN32)
+        set_target_properties(mgcore PROPERTIES PREFIX "")
+    endif()
+else()
+    add_library(mgcore STATIC ${MGCORE_FFI_SOURCES})
+endif()
+target_link_libraries(mgcore PUBLIC mgcore_core)
+# 只有 bridge/ffi 进 include 路径：FFI 源码与外部消费者都要能看到 ffi_api.h。
+target_include_directories(mgcore PUBLIC ${MGCORE_ROOT_DIR}/bridge/ffi)
+target_compile_definitions(mgcore PRIVATE CJSON_HIDE_SYMBOLS)
+
+# FFmpeg 与平台库（setupapi/ws2_32/pthread/框架/log）都挂在 core 目标上，
+# 由 mg_configure_core_target() 统一配置——它们都是 core 的实现依赖。
+if(MINGW)
+    target_link_options(mgcore PRIVATE -static-libgcc -static-libstdc++)
 endif()
 
 # Output directory
@@ -314,6 +337,7 @@ set(MGCORE_DATA_FILES
     core/src/sensor/SensorDeviceInfo.json
     core/src/config/ParameterDescriptors.json
     core/src/config/ParameterTranslations.zh-CN.json
+    core/src/config/PX4ParameterMetaData.json
 )
 foreach(DATA_FILE ${MGCORE_DATA_FILES})
     get_filename_component(DATA_NAME ${DATA_FILE} NAME)
@@ -340,29 +364,17 @@ endif()
 if(MGCORE_BUILD_TESTS)
     enable_testing()
 
-    # Build a static library for tests (exports all symbols)
-    add_library(mgcore_static STATIC ${MGCORE_SOURCES})
-    target_include_directories(mgcore_static PUBLIC
-        ${MGCORE_ROOT_DIR}/core/include
-        ${MGCORE_ROOT_DIR}/bridge/ffi
-    )
-    target_include_directories(mgcore_static SYSTEM PUBLIC
-        ${MAVLINK_INCLUDE_DIR}
-        ${CJSON_INCLUDE_DIR}
-    )
-    target_compile_definitions(mgcore_static PRIVATE CJSON_HIDE_SYMBOLS MGCORE_TEST_BUILD)
-    if(MGCORE_PLATFORM STREQUAL "win32")
-        target_link_libraries(mgcore_static PRIVATE setupapi ws2_32)
-    elseif(MGCORE_PLATFORM STREQUAL "linux")
-        target_link_libraries(mgcore_static PRIVATE pthread)
-    elseif(MGCORE_PLATFORM STREQUAL "macos")
-        target_link_libraries(
-            mgcore_static
-            PRIVATE
-                ${IOKIT_FRAMEWORK}
-                ${COREFOUNDATION_FRAMEWORK}
-        )
-    endif()
+    # Build a static library for tests (exports all symbols).
+    # 测试用的 core 变体单独编译：MGCORE_TEST_BUILD 让校准历史写到临时目录而不是
+    # 开发者的真实状态目录（calibration_service.cc 的 history_storage_path）。
+    add_library(mgcore_core_test STATIC ${MGCORE_CORE_SOURCES})
+    mg_configure_core_target(mgcore_core_test)
+    target_compile_definitions(mgcore_core_test PRIVATE MGCORE_TEST_BUILD)
+
+    add_library(mgcore_static STATIC ${MGCORE_FFI_SOURCES})
+    target_link_libraries(mgcore_static PUBLIC mgcore_core_test)
+    target_include_directories(mgcore_static PUBLIC ${MGCORE_ROOT_DIR}/bridge/ffi)
+    target_compile_definitions(mgcore_static PRIVATE CJSON_HIDE_SYMBOLS)
 
     set(TEST_SOURCES
         # Offline / automated tests only
@@ -383,13 +395,14 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_bridge_vehicle_session.cc
         core/tests/test_bridge_mission_workflow.cc
     core/tests/test_mission_document.cc
-        tests/test_v2_contract.cc
+        tests/test_ffi_response_contract.cc
         core/tests/test_mavlink_protocol.cc
         core/tests/test_mavlink_router.cc
         core/tests/test_shared_link_transports.cc
 
         tests/test_px4_sensor_offline.cc
         tests/manual/test_real_fc_cal_mission.cc
+        tests/manual/test_sitl_mission_scenario.cc
         tests/manual/test_real_fc_calibration.cc
         tests/manual/test_real_fc_modes.cc
         tests/manual/test_real_fc_px4_ops.cc
@@ -403,6 +416,7 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_sim_commands.cc
         core/tests/test_sim_calibration.cc
         core/tests/test_sim_survey.cc
+        core/tests/test_terrain.cc
         core/tests/test_state_machines.cc
         core/tests/test_transport_links.cc
         core/tests/test_new_modules.cc

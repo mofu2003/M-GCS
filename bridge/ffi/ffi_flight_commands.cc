@@ -7,8 +7,7 @@
  * arm, disarm, takeoff, land, set_mode, RTL, terminate_flight, guided_*
  */
 #include "ffi_internal.h"
-#include "json_serializers.h"
-#include "telemetry_bindings.h"
+#include "core/telemetry/json_serializers.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,24 +16,51 @@
 #include <chrono>
 #include <thread>
 
-// Cross-platform case-insensitive string compare
-#ifdef _WIN32
-  #define mg_stricmp _stricmp
-#else
-  #include <strings.h>
-  #define mg_stricmp strcasecmp
-#endif
-
 // cJSON
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
+
+namespace {
+
+/// MAV_RESULT (rejection) -> symbolic code used in the FFI error object.
+const char* ack_result_code(int result) {
+    switch (result) {
+        case 1: return "temporarily_rejected";
+        case 2: return "denied";
+        case 3: return "unsupported";
+        case 4: return "failed";
+        case 5: return "in_progress";
+        default: return "unknown";
+    }
+}
+
+}  // namespace
+
+/// Flight controller rejected the command: canonical error object plus the
+/// ACK detail the UI needs to explain why.
+static char* ack_rejection_json(const mg::core::mavlink::CommandAckInfo& ack) {
+    const char* code = ack_result_code(static_cast<int>(ack.result));
+    mg::core::telemetry::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", false);
+    write_error(jb, MG_ERROR_REJECTED,
+                std::string("flight controller rejected the command: ") + code);
+    jb.field("command", static_cast<int>(ack.command));
+    jb.field("result", static_cast<int>(ack.result));
+    jb.field("progress", static_cast<int>(ack.progress));
+    jb.field("result_str", code);
+    jb.field("result_text", code);
+    jb.end_object();
+    return to_cstr(jb.str());
+}
 
 /// 命令队列辅助函数：发送命令并阻塞等待 ACK
 /// 使用 send_command_queued() + wait_for_command()，支持超时重发
-static char* cmd_result_queued(mg_core_t* core, mg::core::mavlink::MavlinkAdapter* mav,
-                               uint16_t cmd_id, uint8_t sys, uint8_t comp,
-                               float p1, float p2, float p3, float p4,
-                               float p5, float p6, float p7, int max_wait_ms = 5000) {
+char* ffi_cmd_result_queued(mg_core_t* core, mg::core::mavlink::MavlinkAdapter* mav,
+                            uint16_t cmd_id, uint8_t sys, uint8_t comp,
+                            float p1, float p2, float p3, float p4,
+                            float p5, float p6, float p7, int max_wait_ms) {
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     auto ticket = mav->send_command_queued(sys, comp, cmd_id,
         p1, p2, p3, p4, p5, p6, p7);
@@ -44,8 +70,10 @@ static char* cmd_result_queued(mg_core_t* core, mg::core::mavlink::MavlinkAdapte
             return fail(MG_ERROR_TIMEOUT, ack->result_text.c_str());
         }
         if (ack->result == 0) return ok();  // MAV_RESULT_ACCEPTED
-        mg_set_last_error(MG_ERROR_SEND_FAILED);
-        return to_cstr(mg::bridge::command_ack_json(ack.value()));
+        if (ack->result == 5) {  // MAV_RESULT_IN_PROGRESS: still running, not an error
+            return to_cstr(mg::core::telemetry::command_ack_json(ack.value()));
+        }
+        return ack_rejection_json(ack.value());
     }
     mav->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
     return fail(MG_ERROR_TIMEOUT, "command ack timeout");
@@ -66,8 +94,10 @@ static char* cmd_int_result_queued(
             return fail(MG_ERROR_TIMEOUT, ack->result_text.c_str());
         }
         if (ack->result == 0) return ok();  // MAV_RESULT_ACCEPTED
-        mg_set_last_error(MG_ERROR_SEND_FAILED);
-        return to_cstr(mg::bridge::command_ack_json(ack.value()));
+        if (ack->result == 5) {  // MAV_RESULT_IN_PROGRESS: still running, not an error
+            return to_cstr(mg::core::telemetry::command_ack_json(ack.value()));
+        }
+        return ack_rejection_json(ack.value());
     }
     mav->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
     return fail(MG_ERROR_TIMEOUT, "command ack timeout");
@@ -77,7 +107,7 @@ MGCORE_API char* mg_command_arm(mg_core_t* core, int force) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
     float force_param = force ? 21196.0f : 0.0f;
-    auto* result = cmd_result_queued(core, mav, MAV_CMD_COMPONENT_ARM_DISARM,
+    auto* result = ffi_cmd_result_queued(core, mav, MAV_CMD_COMPONENT_ARM_DISARM,
         active_target_sys(core), active_target_comp(core),
         1.0f, force_param, 0, 0, 0, 0, 0);
     get_active_flight_log(core).on_command_result("arm", result && strstr(result, "\"success\":true"), "queued");
@@ -88,7 +118,7 @@ MGCORE_API char* mg_command_disarm(mg_core_t* core, int force) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
     float force_param = force ? 21196.0f : 0.0f;
-    auto* result = cmd_result_queued(core, mav, MAV_CMD_COMPONENT_ARM_DISARM,
+    auto* result = ffi_cmd_result_queued(core, mav, MAV_CMD_COMPONENT_ARM_DISARM,
         active_target_sys(core), active_target_comp(core),
         0.0f, force_param, 0, 0, 0, 0, 0);
     get_active_flight_log(core).on_command_result("disarm", result && strstr(result, "\"success\":true"), "queued");
@@ -98,7 +128,7 @@ MGCORE_API char* mg_command_disarm(mg_core_t* core, int force) {
 MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_mode) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
-    return cmd_result_queued(core, mav, MAV_CMD_DO_SET_MODE,
+    return ffi_cmd_result_queued(core, mav, MAV_CMD_DO_SET_MODE,
         active_target_sys(core), active_target_comp(core),
         static_cast<float>(base_mode), static_cast<float>(custom_mode),
         0, 0, 0, 0, 0);
@@ -107,25 +137,43 @@ MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_
 MGCORE_API char* mg_command_rtl(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
-    auto* result = cmd_result_queued(core, mav, MAV_CMD_NAV_RETURN_TO_LAUNCH,
+    auto* result = ffi_cmd_result_queued(core, mav, MAV_CMD_NAV_RETURN_TO_LAUNCH,
         active_target_sys(core), active_target_comp(core),
         0, 0, 0, 0, 0, 0, 0);
     get_active_flight_log(core).on_command_result("rtl", result && strstr(result, "\"success\":true"), "queued");
     return result;
 }
 
+// 起飞。PX4 与 ArduPilot 的高度语义不同：
+//   - ArduPilot：`NAV_TAKEOFF` 的 param7 是**相对 Home 的高度**（QGC APM 同）。
+//   - PX4：QGC `PX4FirmwarePlugin::guidedModeTakeoff`（:322-350）把界面给的相对
+//     高度加上当前 MSL 高度后写进 param7（AMSL），并在拿不到 MSL 高度时直接拒绝。
 MGCORE_API char* mg_command_takeoff(mg_core_t* core, float altitude_m) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
-    return cmd_result_queued(core, mav, MAV_CMD_NAV_TAKEOFF,
+    float param7 = altitude_m;
+    if (ffi_is_px4(core)) {
+        auto* cache = get_active_cache(core);
+        if (!cache) return fail(MG_ERROR_INVALID_STATE, "no telemetry cache");
+        const auto gp_snap = cache->snapshot_global_pos();
+        const auto& gp = gp_snap.data;
+        // GLOBAL_POSITION_INT 从未收到时缓存里是全零，与 global_position JSON 的
+        // valid 判定保持一致：没有有效位置就拒绝，而不是发一个假的 AMSL 高度。
+        if (gp.lat == 0 && gp.lon == 0) {
+            return fail(MG_ERROR_INVALID_STATE,
+                        "PX4 takeoff requires a known MSL altitude");
+        }
+        param7 = altitude_m + static_cast<float>(gp.alt / 1000.0);
+    }
+    return ffi_cmd_result_queued(core, mav, MAV_CMD_NAV_TAKEOFF,
         active_target_sys(core), active_target_comp(core),
-        0, 0, 0, 0, 0, 0, altitude_m);
+        0, 0, 0, 0, 0, 0, param7);
 }
 
 MGCORE_API char* mg_command_land(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
-    return cmd_result_queued(core, mav, MAV_CMD_NAV_LAND,
+    return ffi_cmd_result_queued(core, mav, MAV_CMD_NAV_LAND,
         active_target_sys(core), active_target_comp(core),
         0, 0, 0, 0, 0, 0, 0);
 }
@@ -133,14 +181,9 @@ MGCORE_API char* mg_command_land(mg_core_t* core) {
 MGCORE_API char* mg_command_terminate_flight(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
-    return cmd_result_queued(core, mav, MAV_CMD_DO_FLIGHTTERMINATION,
+    return ffi_cmd_result_queued(core, mav, MAV_CMD_DO_FLIGHTTERMINATION,
         active_target_sys(core), active_target_comp(core),
         1.0f, 0, 0, 0, 0, 0, 0);
-}
-
-// 旧名（与语义不符）：保留为转发，见 ffi_api_flight.h 的说明。
-MGCORE_API char* mg_command_emergency_stop(mg_core_t* core) {
-    return mg_command_terminate_flight(core);
 }
 
 // ================================================================
@@ -204,7 +247,7 @@ MGCORE_API char* mg_command_set_home(mg_core_t* core,
         return fail(MG_ERROR_INVALID_PARAM, "home latitude or longitude out of range");
     }
     auto* mav = get_active_mavlink(core);
-    auto* result = cmd_result_queued(core, mav, MAV_CMD_DO_SET_HOME,
+    auto* result = ffi_cmd_result_queued(core, mav, MAV_CMD_DO_SET_HOME,
         active_target_sys(core), active_target_comp(core),
         0.0f, 0.0f, 0.0f, 0.0f,
         static_cast<float>(lat), static_cast<float>(lon), alt_m);
@@ -217,66 +260,26 @@ MGCORE_API char* mg_command_guided_pause(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto* mav = get_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    if (ffi_is_px4(core)) {
+        // QGC `PX4FirmwarePlugin::pauseVehicle`（:276-288）：不是零速度
+        // SET_POSITION_TARGET（那条会过期），而是 DO_REPOSITION +
+        // MAV_DO_REPOSITION_FLAGS_CHANGE_MODE，让飞控切进 Auto Loiter 并停在原地。
+        // param1 = -1 表示沿用当前速度，param3 = 0，param5/6/7 允许 NaN，因为
+        // CHANGE_MODE 分支下飞控不会用这些位置参数。
+        auto* result = ffi_cmd_result_queued(
+            core, mav, MAV_CMD_DO_REPOSITION,
+            active_target_sys(core), active_target_comp(core),
+            -1.0f, static_cast<float>(MAV_DO_REPOSITION_FLAGS_CHANGE_MODE),
+            0.0f, 0.0f,
+            static_cast<float>(NAN), static_cast<float>(NAN),
+            static_cast<float>(NAN));
+        get_active_flight_log(core).on_command_result(
+            "guided_pause", result && strstr(result, "\"success\":true"), "queued");
+        return result;
+    }
     bool sent = mav->cmd_guided_pause(active_target_sys(core), active_target_comp(core));
     get_active_flight_log(core).on_command_result("guided_pause", sent, sent ? "sent" : "send_failed");
     return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "send failed");
-}
-
-// ================================================================
-// ffi_api.h aliases (simplified signatures)
-// ================================================================
-
-MGCORE_API char* mg_cmd_arm(mg_core_t* core) {
-    return mg_command_arm(core, 0);
-}
-
-MGCORE_API char* mg_cmd_disarm(mg_core_t* core) {
-    return mg_command_disarm(core, 0);
-}
-
-MGCORE_API char* mg_cmd_rtl(mg_core_t* core) {
-    return mg_command_rtl(core);
-}
-
-MGCORE_API char* mg_cmd_takeoff(mg_core_t* core, float altitude) {
-    return mg_command_takeoff(core, altitude);
-}
-
-MGCORE_API char* mg_cmd_land(mg_core_t* core) {
-    return mg_command_land(core);
-}
-
-MGCORE_API char* mg_cmd_loiter(mg_core_t* core) {
-    return mg_command_guided_pause(core);
-}
-
-MGCORE_API char* mg_cmd_guided(mg_core_t* core, double lat, double lon, float alt) {
-    return mg_command_guided_point(core, lat, lon, alt, 0.0f, -1.0f);
-}
-
-MGCORE_API char* mg_cmd_set_mode(mg_core_t* core, const char* mode) {
-    if (!mode || mode[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null mode");
-    static const struct { const char* name; int custom_mode; } ap_copter_modes[] = {
-        {"Stabilize", 0}, {"Acro", 1}, {"AltHold", 2}, {"Auto", 3},
-        {"Guided", 4}, {"Loiter", 5}, {"RTL", 6}, {"Circle", 7},
-        {"Land", 9}, {"Drift", 11}, {"Sport", 13}, {"Flip", 14},
-        {"AutoTune", 15}, {"PosHold", 16}, {"Brake", 17}, {"Throw", 18},
-        {"Avoid_ADSB", 19}, {"Guided_NoGPS", 20}, {"Smart_RTL", 21},
-        {"FlowHold", 22}, {"Follow", 23}, {"Zigzag", 24}, {"SystemID", 25},
-        {"Heli_Autorotate", 26}, {"Auto RTL", 27}, {"Turtle", 28},
-        {nullptr, -1}
-    };
-    for (int i = 0; ap_copter_modes[i].name; i++) {
-        if (mg_stricmp(mode, ap_copter_modes[i].name) == 0) {
-            return mg_command_set_mode(core, 0, ap_copter_modes[i].custom_mode);
-        }
-    }
-    char* endptr = nullptr;
-    long val = strtol(mode, &endptr, 10);
-    if (endptr != mode && *endptr == '\0' && val >= 0 && val <= 255) {
-        return mg_command_set_mode(core, 0, static_cast<int>(val));
-    }
-    return fail(MG_ERROR_INVALID_PARAM, "unknown mode");
 }
 
 // ================================================================
@@ -286,7 +289,7 @@ MGCORE_API char* mg_cmd_set_mode(mg_core_t* core, const char* mode) {
 MGCORE_API char* mg_command_orbit(mg_core_t* core, const char* json_config) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     if (!json_config) return fail(MG_ERROR_INVALID_PARAM, "null config");
-    cJSON* root = cJSON_Parse(json_config);
+    cJSON* root = mg::core::json::parse(json_config);
     if (!root) return fail(MG_ERROR_INVALID_PARAM, "invalid JSON");
     double lat = 0, lon = 0; float radius = 50, velocity = 5, alt = 50;
     cJSON* p;
@@ -328,6 +331,11 @@ MGCORE_API char* mg_command_change_heading(mg_core_t* core, float heading_deg,
     return ok();
 }
 
+/// MAV_CMD_DO_SET_GLOBAL_ORIGIN = 48（旧名 MAV_CMD_SET_GPS_GLOBAL_ORIGIN）。
+/// 仓库里的 MAVLink 方言快照早于该命令改名，所以这里有字面量；命令语义按
+/// MAVLink common.xml 固定，不需要按固件区分。
+constexpr uint16_t kSetGlobalOriginCommand = 48;
+
 MGCORE_API char* mg_command_set_global_origin(mg_core_t* core, double lat,
                                               double lon, float alt_m) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
@@ -337,31 +345,45 @@ MGCORE_API char* mg_command_set_global_origin(mg_core_t* core, double lat,
         (lat == 0.0 && lon == 0.0)) {
         return fail(MG_ERROR_INVALID_PARAM, "invalid origin lat/lon");
     }
-    const bool sent = get_active_mavlink(core)->cmd_set_global_origin(
-        active_target_sys(core), active_target_comp(core),
-        lat, lon, alt_m);
-    get_active_flight_log(core).on_command_result("set_global_origin", sent, sent ? "sent" : "send_failed");
-    if (!sent) return fail(MG_ERROR_SEND_FAILED, "set global origin send failed");
-    return ok();
+
+    // QGC 首选带 COMMAND_ACK 的 MAV_CMD_DO_SET_GLOBAL_ORIGIN（COMMAND_INT +
+    // MAV_FRAME_GLOBAL，经纬度用 degE7），ArduPilot（GCS_Common.cpp:5329、5712）
+    // 与 PX4（Commander.cpp:1709-1710）都实现并回 ACK。只有飞控确认才算成功（S2）：
+    // 原来发完已废弃的 SET_GPS_GLOBAL_ORIGIN 报文就回 success，界面把"已发出"
+    // 显示成了成功。
+    char* result = cmd_int_result_queued(
+        core, get_active_mavlink(core), kSetGlobalOriginCommand,
+        active_target_sys(core), active_target_comp(core), MAV_FRAME_GLOBAL,
+        0.0f, 0.0f, 0.0f, 0.0f,
+        static_cast<int32_t>(std::llround(lat * 1e7)),
+        static_cast<int32_t>(std::llround(lon * 1e7)),
+        alt_m);
+    const bool confirmed =
+        result != nullptr && std::strstr(result, "\"success\":true") != nullptr;
+    get_active_flight_log(core).on_command_result(
+        "set_global_origin", confirmed, confirmed ? "acknowledged" : "not_confirmed");
+    return result;
 }
 
 MGCORE_API char* mg_command_landing_gear(mg_core_t* core, bool deploy) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    if (get_active_mavlink(core)->cmd_landing_gear(active_target_sys(core), active_target_comp(core), deploy))
-        return ok();
-    return fail(MG_ERROR_SEND_FAILED, "landing gear command send failed");
+    // MAV_CMD_AIRFRAME_CONFIGURATION 有 COMMAND_ACK，必须等飞控确认（S2）。
+    return ffi_cmd_result_queued(core, get_active_mavlink(core),
+        MAV_CMD_AIRFRAME_CONFIGURATION,
+        active_target_sys(core), active_target_comp(core),
+        deploy ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 MGCORE_API char* mg_mission_start(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    return cmd_result_queued(core, get_active_mavlink(core), MAV_CMD_MISSION_START,
+    return ffi_cmd_result_queued(core, get_active_mavlink(core), MAV_CMD_MISSION_START,
         active_target_sys(core), active_target_comp(core), 0, 0, 0, 0, 0, 0, 0);
 }
 
 namespace {
 bool response_succeeded(const char* result) {
     if (!result) return false;
-    cJSON* object = cJSON_Parse(result);
+    cJSON* object = mg::core::json::parse(result);
     const bool success = object && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(object, "success"));
     cJSON_Delete(object);
     return success;
@@ -477,7 +499,7 @@ MGCORE_API char* mg_command_execute_for_vehicle(mg_core_t* core,
     auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
     if (!vehicle) return fail(MG_ERROR_NOT_FOUND, "target vehicle not found");
 
-    cJSON* root = cJSON_Parse(command_json);
+    cJSON* root = mg::core::json::parse(command_json);
     if (!root || !cJSON_IsObject(root)) {
         if (root) cJSON_Delete(root);
         return invalid_args("invalid command json");
@@ -606,7 +628,7 @@ MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
     // 命令里没有对应项，故未保留空名单；将来加入时按同一位置补。
     std::string command_key;
     {
-        cJSON* job_root = cJSON_Parse(command_json);
+        cJSON* job_root = mg::core::json::parse(command_json);
         if (job_root && cJSON_IsObject(job_root)) {
             cJSON* item = cJSON_GetObjectItemCaseSensitive(job_root, "command");
             if (cJSON_IsString(item) && item->valuestring) command_key = item->valuestring;
@@ -646,7 +668,7 @@ MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
             return fail(MG_ERROR_INTERNAL, "unable to start command worker");
         }
     }
-    mg::bridge::JsonBuilder response;
+    mg::core::telemetry::JsonBuilder response;
     response.begin_object(); response.field("success", true);
     response.field("ticket", static_cast<int64_t>(ticket)); response.end_object();
     return to_cstr(response.str());
@@ -654,7 +676,7 @@ MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
 
 MGCORE_API char* mg_command_poll(mg_core_t* core, uint64_t ticket) {
     CHECK_CORE(core);
-    mg::bridge::JsonBuilder response;
+    mg::core::telemetry::JsonBuilder response;
     response.begin_object(); response.field("success", true);
     response.field("ticket", static_cast<int64_t>(ticket));
     {

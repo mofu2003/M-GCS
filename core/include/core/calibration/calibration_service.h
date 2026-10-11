@@ -88,6 +88,10 @@ public:
                AccelCalMode accel_mode = AccelCalMode::Full);
 
     /// 取消当前校准。
+    ///
+    /// 只把状态置为 Cancelling 并向飞控发出取消命令，返回 true 表示“取消请求已
+    /// 受理”。active 仍为 true，直到收到飞控的 COMMAND_ACK、取消超时或链路断开，
+    /// 才落到 Cancelled（S8：飞控确认前界面不得显示为已停止）。
     bool cancel();
 
     /// 驱动校准看门狗：检测链路断开与采样停滞。
@@ -100,6 +104,15 @@ public:
     /// 等待用户操作的阶段（WaitingForStart / WaitingOrientation）不计入停滞。
     void set_stall_timeout_ms(uint64_t ms) { stall_timeout_ms_ = ms; }
     uint64_t stall_timeout_ms() const { return stall_timeout_ms_; }
+
+    /// 取消请求已受理、但取消命令无法送达飞控时的收尾（例如链路写失败）。
+    /// 直接落到 Cancelled 并保留原因；仅在取消中生效，返回是否生效。
+    bool finish_cancel(const std::string& reason);
+
+    /// 发出取消命令后等飞控确认的上限，默认 10 秒。
+    /// 超时后不再等待，直接把状态收尾为 Cancelled（取消是操作者意图，不记为失败）。
+    void set_cancel_timeout_ms(uint64_t ms) { cancel_timeout_ms_ = ms; }
+    uint64_t cancel_timeout_ms() const { return cancel_timeout_ms_; }
 
     /// 处理飞控发来的 STATUSTEXT。
     void process_statustext(const std::string& text, uint8_t severity);
@@ -160,6 +173,10 @@ private:
     uint64_t last_progress_ms_ = 0;
     // 采样停滞判定阈值（毫秒）。
     uint64_t stall_timeout_ms_ = 30000;
+    // 最近一次发出取消请求的时间戳；0 表示当前不在取消中。
+    uint64_t cancel_requested_ms_ = 0;
+    // 等待飞控确认取消的上限（毫秒）。
+    uint64_t cancel_timeout_ms_ = 10000;
 
     // 按校准类型保存历史。
     std::array<std::vector<CalibrationResult>, 5> history_;
@@ -179,6 +196,11 @@ private:
 
     // 内部辅助函数。
     void transition_to(CalibrationStage new_stage);
+    /// 取消请求已受理后的收尾：落到 Cancelled、清 active、写历史。
+    /// 调用方必须持有 mtx_。reason 只影响历史里的取消原因文案。
+    void finalize_cancelled(const std::string& reason);
+    /// 该命令号是否是本服务可能发出的取消命令（用于匹配取消确认 ACK）。
+    static bool is_cancel_command(uint16_t command);
     void fire_event();
     void fire_event_safe();
     void handle_success();

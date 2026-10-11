@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include "cJSON.h"
+#include "core/util/json.h"
 #include "core/transport/link_session.h"
 
 
@@ -288,7 +289,7 @@ struct TwoVehicleMockEnv {
 };
 
 static uint64_t command_ticket(char* result) {
-    cJSON* json = result ? cJSON_Parse(result) : nullptr;
+    cJSON* json = result ? mg::core::json::parse(result) : nullptr;
     cJSON* ticket = json ? cJSON_GetObjectItemCaseSensitive(json, "ticket") : nullptr;
     const uint64_t id = cJSON_IsNumber(ticket) ? static_cast<uint64_t>(ticket->valuedouble) : 0;
     cJSON_Delete(json); mg_free_string(result); return id;
@@ -576,6 +577,8 @@ static void test_targeted_operation_cancel_isolated() {
               strstr(fleet_summary, "\"healthy_link_count\"") &&
               strstr(fleet_summary, "\"communication_lost\""),
           "fleet summary exposes mode, battery, GPS and link health fields");
+    CHECK(fleet_summary && strstr(fleet_summary, "\"heartbeat_fresh\":"),
+          "fleet summary exposes heartbeat freshness state");
     mg_free_string(fleet_summary);
 
     auto* first_mav = env.ends[0].vehicle->mavlink();
@@ -664,8 +667,18 @@ static void test_targeted_operation_cancel_isolated() {
               strstr(result, "\"canceled\":true"),
           "targeted calibration cancel succeeds");
     mg_free_string(result);
+    // 取消是异步的：请求受理后到飞控确认前仍是 cancelling（S8）。
+    CHECK(env.ends[0].vehicle->calibration().is_active() &&
+              env.ends[0].vehicle->calibration().get_status().stage ==
+                  mg::core::calibration::CalibrationStage::Cancelling,
+          "target calibration stays active in cancelling state until the ACK");
+    env.tick();
+    env.tick();
     CHECK(!env.ends[0].vehicle->calibration().is_active(),
-          "target calibration stops");
+          "target calibration stops after the vehicle confirms the cancel");
+    CHECK(env.ends[0].vehicle->calibration().get_status().stage ==
+              mg::core::calibration::CalibrationStage::Cancelled,
+          "target calibration reports cancelled after the ACK");
     CHECK(!env.ends[1].vehicle->calibration().is_active(),
           "non-target calibration remains idle");
 

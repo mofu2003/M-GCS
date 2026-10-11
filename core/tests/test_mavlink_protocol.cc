@@ -170,15 +170,19 @@ static void test_param_error_rejects_pending_write() {
 }
 
 static void test_command_ack() {
-    fprintf(stderr, "\n[Group] Command ACK - wait_for_ack\n");
+    fprintf(stderr, "\n[Group] Command ACK - queued command\n");
     TestFixture f;
     bool ack_cb = false;
     f.adapter.on_command_ack([&](const mg::core::mavlink::CommandAckInfo&) { ack_cb = true; });
-    f.adapter.clear_pending_ack();
+
+    const auto ticket = f.adapter.send_command_queued(
+        1, 1, MAV_CMD_COMPONENT_ARM_DISARM,
+        1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+
     std::atomic<bool> got_ack{false};
     std::atomic<uint8_t> ack_result{255};
     std::thread waiter([&]() {
-        auto result = f.adapter.wait_for_ack(MAV_CMD_COMPONENT_ARM_DISARM, 2000);
+        auto result = f.adapter.wait_for_command(ticket, 2000);
         if (result.has_value()) { got_ack = true; ack_result = result->result; }
     });
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -186,21 +190,25 @@ static void test_command_ack() {
     mavlink_msg_command_ack_pack(1, 1, &msg, MAV_CMD_COMPONENT_ARM_DISARM, MAV_RESULT_ACCEPTED, 0, 0, 0, 0);
     f.inject(msg);
     waiter.join();
+    f.adapter.tick();  // 回调在锁外派发
     CHECK("ACK callback fired", ack_cb);
-    CHECK("wait_for_ack returned", got_ack.load());
+    CHECK("queued command returned the ACK", got_ack.load());
     CHECK("ACK result ACCEPTED", ack_result.load() == MAV_RESULT_ACCEPTED);
 }
 
 static void test_command_ack_timeout() {
-    fprintf(stderr, "\n[Group] Command ACK - timeout\n");
+    fprintf(stderr, "\n[Group] Command queue - wait timeout\n");
     TestFixture f;
-    f.adapter.clear_pending_ack();
+    const auto ticket = f.adapter.send_command_queued(
+        1, 1, MAV_CMD_NAV_WAYPOINT, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     auto start = std::chrono::steady_clock::now();
-    auto result = f.adapter.wait_for_ack(MAV_CMD_NAV_WAYPOINT, 200);
+    auto result = f.adapter.wait_for_command(ticket, 200);
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start).count();
-    CHECK("timeout returns nullopt", !result.has_value());
-    CHECK("timeout ~200ms", elapsed >= 150 && elapsed < 500);
+    CHECK("waiting without an ACK returns nullopt", !result.has_value());
+    CHECK("wait respected the timeout", elapsed >= 150 && elapsed < 500);
+    CHECK("an unacknowledged command can still be cancelled",
+          f.adapter.cancel_command(ticket));
 }
 
 static void test_gps_decode() {
@@ -723,6 +731,59 @@ static void test_send_heartbeat() {
     CHECK("outgoing is HEARTBEAT (id=0)", parsed && msg.msgid == 0);
 }
 
+// A4 回归（ADR-0005）：持锁派发路径不得在 impl_->mtx 内调用 send_cb。
+//
+// 飞控发 MISSION_COUNT 时，adapter 会在持锁的 process() 里回 MISSION_REQUEST_INT。
+// 这里把发送回调换成"发送过程中重入 adapter 状态查询"——那些调用要拿同一把锁，
+// 发送若还在锁内就会自锁死。帧必须在 process() 出锁后才写出去。
+static void test_send_callback_never_runs_under_the_adapter_lock() {
+    fprintf(stderr, "\n[Group] A4 - send callback outside the adapter lock\n");
+
+    mg::core::transport::InMemoryLink link;
+    mg::core::mavlink::MavlinkAdapter adapter;
+    link.open();
+    link.set_receive_callback([&](const uint8_t* data, size_t size) {
+        adapter.feed_raw(data, size);
+    });
+
+    int sends = 0;
+    int reentries = 0;
+    adapter.set_send_callback([&](const uint8_t* data, size_t size) -> bool {
+        ++sends;
+        // 重入：两个调用都要拿 impl_->mtx。
+        adapter.latest_heartbeat();
+        adapter.message_count();
+        ++reentries;
+        return link.send(data, size);
+    });
+
+    // 先由 GCS 发起下载：这一步本身就是公开发送路径的临时解锁发送。
+    CHECK("mission download starts", adapter.mission_download(1, 1));
+    (void)link.take_outgoing();  // 只统计随后由处理器发出的请求帧
+
+    mavlink_message_t count{};
+    mavlink_msg_mission_count_pack(1, 1, &count, 0, MAV_COMP_ID_AUTOPILOT1, 3,
+                                   MAV_MISSION_TYPE_MISSION, 0);
+    const auto bytes = pack_msg(count);
+    link.inject_incoming(bytes.data(), bytes.size());
+
+    mavlink_message_t msg{};
+    mavlink_status_t status{};
+    int requests = 0;
+    const auto outgoing = link.take_outgoing();
+    for (uint8_t byte : outgoing) {
+        if (mavlink_parse_char(MAVLINK_COMM_0, byte, &msg, &status) &&
+            msg.msgid == MAVLINK_MSG_ID_MISSION_REQUEST_INT) {
+            ++requests;
+        }
+    }
+
+    CHECK("MISSION_REQUEST_INT is flushed after the lock is released", requests == 1);
+    CHECK("the send callback ran", sends >= 1);
+    CHECK("send callback re-entered adapter state without deadlocking",
+          reentries == sends);
+}
+
 static void test_feed_raw_reports_valid_frames() {
     fprintf(stderr, "\n[Group] Receive path - valid frame detection\n");
     mg::core::mavlink::MavlinkAdapter adapter;
@@ -798,6 +859,7 @@ int main() {
     test_heartbeat_alive();
     test_link_quality();
     test_send_heartbeat();
+    test_send_callback_never_runs_under_the_adapter_lock();
     test_tx_sequence_is_isolated_per_adapter();
     test_signing_is_per_adapter();
     test_signing_candidate_auto_detect();

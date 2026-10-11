@@ -2,7 +2,7 @@
 #define MGCORE_FFI_VEHICLE_SESSION_H
 
 #include "ffi_api.h"
-#include "telemetry_cache.h"
+#include "core/telemetry/telemetry_cache.h"
 #include "core/mavlink/mavlink_adapter.h"
 #include "core/vehicle/vehicle.h"
 
@@ -35,7 +35,7 @@ private:
 
 VehicleSessionView resolve_vehicle_session(mg_core_t* core);
 mg::core::vehicle::Vehicle* require_vehicle(mg_core_t* core);
-mg::bridge::TelemetryCache* session_cache(mg_core_t* core);
+mg::core::telemetry::TelemetryCache* session_cache(mg_core_t* core);
 
 } // namespace mg::bridge::ffi
 

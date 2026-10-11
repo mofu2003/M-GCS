@@ -3,9 +3,8 @@
  *
  * FFI 内部共享状态、辅助函数和活跃飞行器路由逻辑。
  *
- * v3.0: All subsystems migrated into Vehicle class.
- *       All ffi_*.cc should use the get_active_* helpers to route
- *       through the active vehicle's subsystems.
+ * All subsystems live in Vehicle. FFI modules use the get_active_* helpers to
+ * route through the active vehicle's subsystems.
  */
 
 #ifndef MGCORE_FFI_INTERNAL_H
@@ -15,8 +14,8 @@
 #include "ffi_api.h"
 #include "ffi_mission_bridge.h"
 #include "ffi_vehicle_session.h"
-#include "json_builder.h"
-#include "telemetry_cache.h"
+#include "core/telemetry/json_builder.h"
+#include "core/telemetry/telemetry_cache.h"
 #include "core/sensor/sensor_id_decoder.h"
 #include "core/calibration/calibration_service.h"
 #include "core/config/param_descriptors.h"
@@ -47,14 +46,39 @@ inline void post_event(mg_core_t* core, mg_event_type_t type, const std::string&
     core->events.fire(type, json);
 }
 
-inline char* ok() { return to_cstr(R"({"success":true})"); }
-inline char* fail(mg_error_t error, const char* reason) {
+/// Symbolic name for an mg_error_t, used as `error.name` in FFI responses.
+const char* ffi_error_name(mg_error_t error);
+
+/// Canonical error object shared by every failing FFI response:
+/// {"code":<int mg_error_t>,"name":"<SYMBOL>","message":"<text>"}
+/// See docs/constraints/ffi-contract.md (F4).
+inline std::string ffi_error_object_json(mg_error_t error, const std::string& message) {
+    mg::core::telemetry::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("code", static_cast<int>(error));
+    jb.field("name", ffi_error_name(error));
+    jb.field("message", message);
+    jb.end_object();
+    return jb.str();
+}
+
+/// Appends `"error":{...}` to a response already marked `success:false`.
+/// Also records the thread-local last error, so callers see the same code.
+inline void write_error(mg::core::telemetry::JsonBuilder& jb, mg_error_t error,
+                        const std::string& message) {
     mg_set_last_error(error);
-    mg::bridge::JsonBuilder jb;
+    jb.raw_field("error", ffi_error_object_json(error, message));
+}
+
+/// The exact JSON body returned by ok(); lets a caller distinguish a bare
+/// success from a fuller payload without re-parsing the response.
+inline const char* ok_json() { return R"({"success":true})"; }
+inline char* ok() { return to_cstr(ok_json()); }
+inline char* fail(mg_error_t error, const char* reason) {
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", false);
-    jb.field("error", reason ? reason : "");
-    jb.field("code", static_cast<int>(error));
+    write_error(jb, error, reason ? reason : "");
     jb.end_object();
     return to_cstr(jb.str());
 }
@@ -77,6 +101,17 @@ inline void platform_sleep_ms(int ms) {
 #ifndef MG_STATUSTEXT_MAX_LEN
 #define MG_STATUSTEXT_MAX_LEN 128
 #endif
+
+/// Sends one COMMAND_LONG and waits for the flight-controller ACK (safety.md S2).
+/// Returns `ok()` only on MAV_RESULT_ACCEPTED; rejections and timeouts return a
+/// response that must be forwarded to the caller as-is. Defined in
+/// ffi_flight_commands.cc.
+char* ffi_cmd_result_queued(mg_core_t* core,
+                            mg::core::mavlink::MavlinkAdapter* mav,
+                            uint16_t cmd_id, uint8_t sys, uint8_t comp,
+                            float p1, float p2, float p3, float p4,
+                            float p5, float p6, float p7,
+                            int max_wait_ms = 5000);
 
 // Forward declarations for calibration FFI (defined in ffi_calibration.cc)
 extern "C" void mg_calibration_process_statustext(mg_core_t* core, const char* text, uint8_t severity);
@@ -147,7 +182,7 @@ inline uint8_t active_target_comp(mg_core_t* core) {
 // ================================================================
 
 // Accessors route through active vehicle or fallback vehicle.
-inline mg::bridge::TelemetryCache* get_active_cache(mg_core_t* core) {
+inline mg::core::telemetry::TelemetryCache* get_active_cache(mg_core_t* core) {
     return mg::bridge::ffi::session_cache(core);
 }
 
@@ -156,6 +191,22 @@ inline mg::core::calibration::CalibrationService& get_active_calibration(mg_core
 }
 inline mg::core::flight::FlightModeManager& get_active_flight_modes(mg_core_t* core) {
     return get_active_vehicle(core)->flight_modes();
+}
+
+/// Appends heartbeat freshness to a state response (safety.md S5).
+/// `heartbeat_fresh == false` means armed/mode come from the last frame and must
+/// be shown as unknown, never as the current value.
+inline void write_heartbeat_freshness(mg::core::telemetry::JsonBuilder& jb,
+                                      mg::core::telemetry::TelemetryCache* cache) {
+    const bool fresh =
+        cache != nullptr && cache->is_fresh(mg::core::telemetry::TelemetryType::kHeartbeat);
+    const uint32_t age =
+        cache != nullptr ? cache->age_ms(mg::core::telemetry::TelemetryType::kHeartbeat) : 0u;
+    // age_ms() 用 UINT32_MAX 表示“从未收到”；对外统一成 -1，前端据此区分未知与过期。
+    const bool known_age = cache != nullptr && age != static_cast<uint32_t>(-1);
+    jb.field("heartbeat_fresh", fresh);
+    jb.field("heartbeat_age_ms",
+             known_age ? static_cast<int64_t>(age) : static_cast<int64_t>(-1));
 }
 inline mg::core::geofence::GeofenceManager& get_active_geofence(mg_core_t* core) {
     return get_active_vehicle(core)->geofence();
@@ -204,7 +255,10 @@ inline bool ffi_is_px4(mg_core_t* core) {
     return hb.has_value() && hb->autopilot_type == 12;
 }
 
-inline std::string ffi_param_profile(mg_core_t* core) {
+/// ArduPilot 归一化机型（copter/plane/vtol/rover/sub/tracker）。非 ArduPilot
+/// 固件、未连接或机型无法归一化时返回空串。任务命令能力门禁按这个结果判断
+/// 飞控是否真的存储某个任务字段，因此 PX4 保持空串。
+inline std::string ffi_ardupilot_vehicle_class(mg_core_t* core) {
     auto* mav = get_active_mavlink(core);
     if (!mav) return "";
     auto hb = mav->latest_heartbeat();
@@ -220,6 +274,17 @@ inline std::string ffi_param_profile(mg_core_t* core) {
     if (family == "Submarine") return "sub";
     if (family == "AntennaTracker") return "tracker";
     return "";
+}
+
+/// 参数描述库 profile：ArduPilot 用归一化机型，PX4 用 `px4`
+/// （`PX4ParameterMetaData.json`，见 `docs/adr/0007-px4-parameter-metadata.md`），
+/// 其余为空。
+inline std::string ffi_param_profile(mg_core_t* core) {
+    auto* mav = get_active_mavlink(core);
+    if (!mav) return "";
+    auto hb = mav->latest_heartbeat();
+    if (hb.has_value() && hb->autopilot_type == 12) return "px4";
+    return ffi_ardupilot_vehicle_class(core);
 }
 
 /// Translate a canonical (new) parameter name to the name expected by the

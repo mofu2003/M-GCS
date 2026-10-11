@@ -109,6 +109,13 @@ struct CommandQueueEntry {
     uint8_t ack_result = 0;       // MAV_RESULT_xxx
     uint8_t ack_progress = 0;     // 0-100 for IN_PROGRESS
     bool timed_out = false;
+    /// 终结去向。`ack_result` 只能表达飞控的 MAV_RESULT，无法区分"链路没发出去"
+    /// 或"等 ACK 超时"，所以等待方按本字段判断结果（plan 阶段 1B）。
+    CommandOutcome outcome = CommandOutcome::Accepted;
+    /// 超时终结时间。COMMAND_ACK 没有请求 ID，超时后同目标同命令的迟到 ACK
+    /// 不能安全地归属到下一笔请求；在这段时间内新请求会直接被隔离。
+    std::chrono::steady_clock::time_point timed_out_at{};
+    std::string result_text;
 
     // 完成回调（ACK 到达或超时时触发）
     std::function<void(const CommandAckInfo&)> result_cb;
@@ -145,6 +152,14 @@ struct CommandQueue {
     /// 返回匹配的条目 ID，0 表示无匹配
     uint64_t handle_ack(uint8_t sysid, uint8_t compid, uint16_t command, uint8_t result,
                         uint8_t progress);
+
+    /// 是否存在最近超时、仍在迟到 ACK 隔离窗口内的同目标同命令条目。
+    ///
+    /// MAVLink COMMAND_ACK 只带 command，不带请求 ID；若超时后立刻重发同一条
+    /// 命令，旧请求的迟到 ACK 可能被新请求误认。隔离窗口内拒绝重新提交，窗口
+    /// 结束后旧条目的 ACK 不再参与匹配。
+    bool has_recent_timeout(uint8_t sysid, uint8_t compid, uint16_t command,
+                            std::chrono::steady_clock::time_point now) const;
 
     /// 扫描超时条目，重发或标记失败
     /// 返回已完成（TimedOut）的条目列表，由调用者通过 deferred_cbs 触发回调
