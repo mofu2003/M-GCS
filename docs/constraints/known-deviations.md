@@ -17,6 +17,8 @@
 | KD-27 | 架构（建议：事件获取方式） | `flutter_shell/lib/connection/connection_controller.dart:1755`（会话 750 ms）、`:1760`（遥测 50 ms）、`:1117`（校准 250 ms）、`:1539`（机队 750 ms）、`:3203`（波形 100 ms） | **已决定：接受偏差，保留轮询**。FFI 的 `mg_set_event_callback` 已存在且由 core/FFI 测试覆盖（`test_ffi_contract.cc`、`test_sim_ui_paths.cc`），Dart 侧仍用 `Timer.periodic` 拉取。选轮询的理由：Dart FFI 上行回调需要 `NativeCallable`/`Pointer.fromFunction` 并处理跨线程与 isolate 生命周期，而当前绑定层完全不含 FFI 回调；轮询延迟有界（50–750 ms），对地面站交互足够。回调路径保留为低延迟备选，等 `docs/plans` 阶段 1 统一视图状态时再评估迁移。 | 已决定 |
 | KD-36 | U3 | `flutter_shell/lib/demo/component_gallery_demo.dart:169,953,1039` | **已决定：接受**。该文件是开发者画廊（自带 `main()`，`main.dart` 不引用、不进 release 包），用于并排对照 `macos_ui` 的原始色板与字号，不属于 U3 约束的「业务页面」。它是 `tools/check_ui_tokens.dart` 唯一的豁免文件，文件头已写明原因。 | 已决定 |
 | KD-40 | U7 | `flutter_shell/test/` | **已决定：接受现状**。U7 的约束是「三端构建通过 + 人工截图比对」，未要求自动化 golden。Flutter golden 对字体与平台渲染敏感，三端同时稳定很难，且会带来持续的基线维护成本；保留人工比对。自动化截图比对作为平台 CI 项列在 `docs/plans` 阶段 4。 | 已决定 |
+| KD-43 | 架构（建议：按变更耦合拆分） | `flutter_shell/lib/connection/connection_controller.dart`（4160 行，`ConnectionController` 自 `:491` 起） | **待评估拆分**。这是当前最大的 god file：一个 `ChangeNotifier` 同时承载连接/会话状态机、参数与语义角色解析、遥测/波形/机队通知等多块职责。拆分依据是变更耦合而不是行数——先量「修参数 bug 时是否必须同时改遥测部分」，只有确认是互不一起改的几坨东西才拆；若本就是紧耦合的状态机，拆开只会打散状态、抬高维护成本。评估结论确定后再动手。 | 待决定 |
+| KD-44 | 架构（建议：按变更耦合拆分） | `flutter_shell/lib/mission/mission_planning_panel.dart`（3053 行，`_MissionPlanningFloatingPanelState` 为 `:55-831`） | **待评估拆分**。文件已按 widget 拆成二十多个类，真正偏大的是面板状态类本身。是否拆分需先看任务编辑、围栏/Rally、Home、引导动作等区块的变更耦合：若各区块独立演进，按区块抽成独立 widget/文件；若它们共享大量面板状态、只能成对修改，则保持现状。 | 待决定 |
 
 ## 已关闭
 
