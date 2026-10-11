@@ -7,6 +7,7 @@
 #include "ffi_api.h"
 #include "ffi_internal.h"
 #include "ffi_core_context.h"
+#include "core/log/tlog_format.h"
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -109,15 +110,15 @@ int main() {
         mg_free_string((char*)r);
 
         r = mg_vehicle_get_summary(nullptr);
-        CHECK(r != nullptr, "v2_vehicle_get_summary null core returns non-null");
+        CHECK(r != nullptr, "vehicle_get_summary null core returns non-null");
         mg_free_string((char*)r);
 
         r = mg_vehicle_get_battery(nullptr);
-        CHECK(r != nullptr, "v2_vehicle_get_battery null core returns non-null");
+        CHECK(r != nullptr, "vehicle_get_battery null core returns non-null");
         mg_free_string((char*)r);
 
         r = mg_vehicle_get_global_position(nullptr);
-        CHECK(r != nullptr, "v2_vehicle_get_global_position null core returns non-null");
+        CHECK(r != nullptr, "vehicle_get_global_position null core returns non-null");
         mg_free_string((char*)r);
 
         // disconnect should not crash
@@ -170,11 +171,11 @@ int main() {
         mg_free_string(state);
 
         char* summary = mg_vehicle_get_summary(core);
-        CHECK(json_valid_envelope(summary), "v2 summary returns valid JSON");
+        CHECK(json_valid_envelope(summary), "response summary returns valid JSON");
         mg_free_string(summary);
 
         char* battery = mg_vehicle_get_battery(core);
-        CHECK(json_valid_envelope(battery), "v2 battery returns valid JSON");
+        CHECK(json_valid_envelope(battery), "response battery returns valid JSON");
         mg_free_string(battery);
 
         char* sensor = mg_sensor_decode_device_id(core, 0x00010001, "ins");
@@ -260,7 +261,8 @@ int main() {
               "session state/close operations do not require or change focus");
 
         char* telemetry = mg_vehicle_get_session_status(core, 999);
-        CHECK(json_has(telemetry, "SESSION_NOT_FOUND"),
+        CHECK(json_has(telemetry, "\"success\":false") &&
+                  json_has(telemetry, "\"name\":\"NOT_FOUND\""),
               "session telemetry rejects an unknown session");
         mg_free_string(telemetry);
 
@@ -283,9 +285,9 @@ int main() {
             session_cache.vfr_hud.data.heading = 271;
             session_cache.battery.data.battery_remaining = 82;
             session_cache.battery.data.voltage_v = 15.7f;
-            session_cache.freshness.mark_updated(mg::bridge::TelemetryType::kGps);
-            session_cache.freshness.mark_updated(mg::bridge::TelemetryType::kVfrHud);
-            session_cache.freshness.mark_updated(mg::bridge::TelemetryType::kBattery);
+            session_cache.freshness.mark_updated(mg::core::telemetry::TelemetryType::kGps);
+            session_cache.freshness.mark_updated(mg::core::telemetry::TelemetryType::kVfrHud);
+            session_cache.freshness.mark_updated(mg::core::telemetry::TelemetryType::kBattery);
         }
         telemetry = mg_vehicle_get_session_status(core, 42);
         CHECK(json_has(telemetry, "\"success\":true") &&
@@ -315,25 +317,43 @@ int main() {
     fprintf(stderr, "[Group] Free string safety\n");
     {
         mg_free_string(nullptr); // should not crash
-        CHECK(true, "free_string(nullptr) doesn't crash");
 
         char* s = mg_get_version();
+        const std::string first_version = s ? s : "";
+        CHECK(!first_version.empty(), "version allocation returns a usable value");
         mg_free_string(s);
-        CHECK(true, "free_string(valid pointer) doesn't crash");
+        s = mg_get_version();
+        CHECK(s && first_version == s,
+              "freeing a version result does not alter subsequent allocations");
+        mg_free_string(s);
     }
 
-    // 8. PX4 placeholders return NOT_SUPPORTED
-    fprintf(stderr, "[Group] PX4 placeholders\n");
+    // 8. PX4 convenience exports are PX4-only. Offline (no active vehicle) they
+    //    must return the unified error envelope, not a half-populated payload
+    //    (ffi-contract.md F4). See docs/features/px4-parity.md S5.
+    fprintf(stderr, "[Group] PX4 exports offline\n");
     {
         mg_core_t* core = mg_create();
 
-        char* r1 = mg_px4_actuator_get_config(core);
-        CHECK(r1 != nullptr, "px4_actuator_get_config returns non-null");
-        mg_free_string(r1);
+        char* a = mg_px4_actuator_get_config(core);
+        CHECK(json_has(a, "\"success\":false") && json_has(a, "\"name\":\"NOT_SUPPORTED\""),
+              "px4_actuator_get_config returns NOT_SUPPORTED when offline");
+        mg_free_string(a);
 
-        char* r2 = mg_px4_safety_get(core);
-        CHECK(r2 != nullptr, "px4_safety_get returns non-null");
-        mg_free_string(r2);
+        char* b = mg_px4_flight_mode_get_config(core);
+        CHECK(json_has(b, "\"success\":false") && json_has(b, "\"name\":\"NOT_SUPPORTED\""),
+              "px4_flight_mode_get_config returns NOT_SUPPORTED when offline");
+        mg_free_string(b);
+
+        char* c = mg_px4_safety_get(core);
+        CHECK(json_has(c, "\"success\":false") && json_has(c, "\"name\":\"NOT_SUPPORTED\""),
+              "px4_safety_get returns NOT_SUPPORTED when offline");
+        mg_free_string(c);
+
+        char* d = mg_px4_tuning_get(core);
+        CHECK(json_has(d, "\"success\":false") && json_has(d, "\"name\":\"NOT_SUPPORTED\""),
+              "px4_tuning_get returns NOT_SUPPORTED when offline");
+        mg_free_string(d);
 
         mg_destroy(core);
     }
@@ -420,7 +440,7 @@ int main() {
             mg::core::platform::LockGuard lk(cache.mtx);
             cache.rc_channels.data.chancount = 8;
             cache.rc_channels.data.chan[0] = 1500;
-            cache.freshness.mark_updated(mg::bridge::TelemetryType::kRcChannels);
+            cache.freshness.mark_updated(mg::core::telemetry::TelemetryType::kRcChannels);
         }
 
         char* channels = mg_rc_get_channels(core);
@@ -433,7 +453,21 @@ int main() {
               "fresh individual RC channel is valid");
         mg_free_string(channel);
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        // 等 RC 快照过期（ffi_rc.cc 的新鲜度窗口是 500 ms）。这里轮询到条件成立，
+        // 不用固定 sleep：固定等待在慢机器上可能不够，在快机器上纯属浪费
+        // （testing.md 的等待条件建议）。
+        bool rc_went_stale = false;
+        const auto stale_deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (std::chrono::steady_clock::now() < stale_deadline) {
+            char* probe = mg_rc_get_channels(core);
+            rc_went_stale = json_has(probe, "\"valid\":false");
+            mg_free_string(probe);
+            if (rc_went_stale) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        }
+        CHECK(rc_went_stale,
+              "RC snapshot leaves the validity window within the polling deadline");
 
         channels = mg_rc_get_channels(core);
         CHECK(json_has(channels, "\"valid\":false"),
@@ -448,7 +482,172 @@ int main() {
         mg_destroy(core);
     }
 
-    // 12. Industrial hardening APIs handle null core consistently
+    // 12. tlog replay FFI: local file, no link required (S2)
+    fprintf(stderr, "[Group] tlog replay FFI\n");
+    {
+        const char* tlog_path = "test_ffi_tlog_replay.tlog";
+
+        // 用录制写入器造一个真实 .tlog：两条 HEARTBEAT + 一条 VFR_HUD。
+        {
+            mg::core::settings::MavlinkLogWriter writer;
+            CHECK(writer.start_recording(tlog_path), "tlog writer starts on a temp file");
+            uint8_t frame[MAVLINK_MAX_PACKET_LEN];
+            for (int i = 0; i < 2; ++i) {
+                mavlink_message_t heartbeat{};
+                mavlink_msg_heartbeat_pack(1, 1, &heartbeat, MAV_TYPE_QUADROTOR,
+                                           MAV_AUTOPILOT_ARDUPILOTMEGA,
+                                           MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 0,
+                                           MAV_STATE_ACTIVE);
+                const uint16_t len = mavlink_msg_to_send_buffer(frame, &heartbeat);
+                writer.write_frame(frame, len);
+            }
+            mavlink_message_t hud{};
+            mavlink_msg_vfr_hud_pack(1, 1, &hud, 15.0f, 14.0f, 90, 50, 120.0f, 0.5f);
+            const uint16_t hud_len = mavlink_msg_to_send_buffer(frame, &hud);
+            writer.write_frame(frame, hud_len);
+            writer.stop_recording();
+        }
+
+        mg_core_t* core = mg_create();
+
+        // 未打开会话时 step/seek 必须是确定的 INVALID_STATE，而不是空结果。
+        char* step = mg_tlog_replay_step(core, 10);
+        CHECK(json_has(step, "\"success\":false") && json_has(step, "INVALID_STATE"),
+              "step without an open session reports INVALID_STATE");
+        mg_free_string(step);
+
+        char* seek = mg_tlog_replay_seek(core, 0.5);
+        CHECK(json_has(seek, "\"success\":false") && json_has(seek, "INVALID_STATE"),
+              "seek without an open session reports INVALID_STATE");
+        mg_free_string(seek);
+
+        // 参数与文件错误。
+        char* null_path = mg_tlog_replay_open(core, nullptr);
+        CHECK(json_has(null_path, "\"success\":false") && json_has(null_path, "INVALID_PARAM"),
+              "open with a null path reports INVALID_PARAM");
+        mg_free_string(null_path);
+
+        char* missing = mg_tlog_replay_open(core, "test_ffi_tlog_does_not_exist.tlog");
+        CHECK(json_has(missing, "\"success\":false") && json_has(missing, "NOT_FOUND"),
+              "open on a missing file reports NOT_FOUND");
+        mg_free_string(missing);
+
+        // 正常打开：文件统计来自 open 的扫描。
+        char* opened = mg_tlog_replay_open(core, tlog_path);
+        CHECK(json_has(opened, "\"success\":true"), "open a recorded tlog succeeds");
+        CHECK(json_has(opened, "\"messages\":3"), "open reports the scanned message count");
+        CHECK(json_has(opened, "\"truncated\":false"), "a clean recording is not truncated");
+        CHECK(json_has(opened, tlog_path), "open echoes the file path");
+        mg_free_string(opened);
+
+        // 批量读取：先读两条，再读剩余并到达 eof。
+        char* batch = mg_tlog_replay_step(core, 2);
+        CHECK(json_has(batch, "\"success\":true"), "step returns data");
+        CHECK(json_has(batch, "\"count\":2"), "step honours the batch size");
+        CHECK(json_has(batch, "\"name\":\"HEARTBEAT\""), "step resolves the MAVLink message name");
+        CHECK(json_has(batch, "\"msgid\":0"), "step reports the raw message id");
+        CHECK(json_has(batch, "\"eof\":false"), "the file is not exhausted after two of three messages");
+        mg_free_string(batch);
+
+        char* tail = mg_tlog_replay_step(core, 50);
+        CHECK(json_has(tail, "\"count\":1"), "step reads the remaining message");
+        CHECK(json_has(tail, "\"name\":\"VFR_HUD\""), "the remaining message keeps its name");
+        CHECK(json_has(tail, "\"eof\":true"), "step reports eof at the end of the file");
+        CHECK(json_has(tail, "\"truncated\":false"), "normal eof is not reported as truncated");
+        mg_free_string(tail);
+
+        // 跳转：回到开头仍能读到第一条消息；越界百分比是参数错误。
+        char* rewind_seek = mg_tlog_replay_seek(core, 0.0);
+        CHECK(json_has(rewind_seek, "\"success\":true"), "seek to the start succeeds");
+        mg_free_string(rewind_seek);
+
+        char* after_seek = mg_tlog_replay_step(core, 1);
+        CHECK(json_has(after_seek, "\"name\":\"HEARTBEAT\""),
+              "after seeking to 0 the next message is the first record");
+        mg_free_string(after_seek);
+
+        // 落点记录本身要被产出：从 0 起继续读完，应重新拿到剩下两条且顺序不变，
+        // 不能像旧的裸字节扫描那样随机跳过或误判落点。
+        char* after_seek_rest = mg_tlog_replay_step(core, 10);
+        CHECK(json_has(after_seek_rest, "\"count\":2"),
+              "seeking to 0 then stepping yields the remaining records");
+        CHECK(json_has(after_seek_rest, "\"name\":\"VFR_HUD\"") &&
+                  json_has(after_seek_rest, "\"eof\":true"),
+              "the remaining records keep their order and reach eof");
+        mg_free_string(after_seek_rest);
+
+        // 文件中部跳转：必须落在一条完整记录上，读出的消息名只能是已知帧。
+        char* mid_seek = mg_tlog_replay_seek(core, 0.5);
+        CHECK(json_has(mid_seek, "\"success\":true"), "seek to mid-file succeeds");
+        mg_free_string(mid_seek);
+        char* mid = mg_tlog_replay_step(core, 10);
+        CHECK(json_has(mid, "\"name\":\"HEARTBEAT\"") ||
+                  json_has(mid, "\"name\":\"VFR_HUD\""),
+              "a mid-file seek lands on a real record, not stray bytes");
+        CHECK(json_has(mid, "\"count\":1") || json_has(mid, "\"count\":2"),
+              "the mid-file landing still yields whole records");
+        mg_free_string(mid);
+
+        char* out_of_range = mg_tlog_replay_seek(core, 1.5);
+        CHECK(json_has(out_of_range, "\"success\":false") && json_has(out_of_range, "INVALID_PARAM"),
+              "seek rejects a percent outside [0, 1]");
+        mg_free_string(out_of_range);
+
+        char* past_end = mg_tlog_replay_seek(core, 1.0);
+        CHECK(json_has(past_end, "\"success\":false") && json_has(past_end, "NOT_FOUND"),
+              "seek past the last record reports NOT_FOUND");
+        mg_free_string(past_end);
+
+        char* closed = mg_tlog_replay_close(core);
+        CHECK(json_has(closed, "\"success\":true"), "close succeeds");
+        mg_free_string(closed);
+
+        char* after_close = mg_tlog_replay_step(core, 1);
+        CHECK(json_has(after_close, "\"success\":false") && json_has(after_close, "INVALID_STATE"),
+              "step after close reports INVALID_STATE");
+        mg_free_string(after_close);
+
+        mg_destroy(core);
+        std::remove(tlog_path);
+    }
+
+    // 13. 截断文件：open 就能看出不完整，回放读到结尾仍不产出半条消息
+    fprintf(stderr, "[Group] tlog replay truncation\n");
+    {
+        const char* truncated_path = "test_ffi_tlog_truncated.tlog";
+        {
+            FILE* file = fopen(truncated_path, "wb");
+            CHECK(file != nullptr, "create a truncated tlog fixture");
+            if (file != nullptr) {
+                uint8_t ts[mg::core::log::tlog::kTimestampBytes];
+                mg::core::log::tlog::encode_timestamp(1700000000000000ULL, ts);
+                fwrite(ts, 1, sizeof(ts), file);
+                // 一条只剩半截的 MAVLink 帧（magic + 长度 + 少量负载）。
+                const uint8_t partial[] = {0xFD, 0x09, 0x00, 0x00, 0x01};
+                fwrite(partial, 1, sizeof(partial), file);
+                fclose(file);
+            }
+        }
+
+        mg_core_t* core = mg_create();
+        char* opened = mg_tlog_replay_open(core, truncated_path);
+        CHECK(json_has(opened, "\"truncated\":true"),
+              "open reports a file with a half-written trailing record");
+        mg_free_string(opened);
+
+        char* step = mg_tlog_replay_step(core, 10);
+        CHECK(json_has(step, "\"count\":0"), "the partial record yields no message");
+        CHECK(json_has(step, "\"eof\":true"), "the partial record ends the file");
+        CHECK(json_has(step, "\"truncated\":true"),
+              "replay reports truncation instead of a clean eof");
+        mg_free_string(step);
+
+        mg_tlog_replay_close(core);
+        mg_destroy(core);
+        std::remove(truncated_path);
+    }
+
+    // 14. Industrial hardening APIs handle null core consistently
     fprintf(stderr, "[Group] Backend hardening API null safety\n");
     {
         char* conn_diag = mg_connection_get_diagnostics(nullptr);

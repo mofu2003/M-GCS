@@ -218,6 +218,27 @@ if [[ -z "$cmake_version" || "$cmake_version" != "$pubspec_version" || "$cmake_v
 fi
 echo "[preflight] 版本一致：$cmake_version"
 
+changelog_version="$(sed -n 's/^## \[\([0-9][0-9.]*\)\] - .*/\1/p' CHANGELOG.md | head -n 1)"
+if [[ "$changelog_version" != "$cmake_version" ]]; then
+  echo "[preflight] 最新发布条目与版本不一致：CHANGELOG=$changelog_version CMake=$cmake_version" >&2
+  exit 1
+fi
+
+# 判定一个动态库是否依赖 sanitizer 运行时。
+# CMakeLists 把 mgcore 的输出目录固定到仓库根 build/，所有构建树共用同一个文件；
+# 如果之前有构建树以 sanitizer 构建过共享目标，这里可能拿到带 TSAN/ASAN 的库。
+ffi_library_is_sanitized() {
+  local lib="$1" deps=""
+  case "$(uname -s)" in
+    Darwin) deps="$(otool -L "$lib" 2>/dev/null || true)" ;;
+    *) deps="$( (ldd "$lib" 2>/dev/null || readelf -d "$lib" 2>/dev/null) || true)" ;;
+  esac
+  grep -Eq 'clang_rt\.(tsan|asan)|libtsan|libasan' <<<"$deps"
+}
+
+echo "[preflight] 检查 FFI 声明与前端绑定"
+"${PYTHON_BIN:-python3}" tools/check_ffi_contract.py
+
 # 编译并发上限。
 # 不带数字的 `cmake --build --parallel` 等于不限并发：16 GB 机器上 10+ 个 clang
 # 同时编译 mavlink 重头文件的 TU 会触发换页，实测 165 s，而限成 8 路只要 26 s。
@@ -351,6 +372,31 @@ if [[ "$run_macos_build" -eq 1 ]]; then
     )
   else
     echo "[preflight] 非 macOS 环境，跳过 Flutter macOS debug 构建。"
+  fi
+fi
+
+if [[ "$run_backend" -eq 1 && "$backend_scope" == "full" ]]; then
+  case "$(uname -s)" in
+    Darwin) ffi_library="build/libmgcore.dylib" ;;
+    Linux) ffi_library="build/libmgcore.so" ;;
+    *) ffi_library="build/mgcore.dll" ;;
+  esac
+  # build/ 是所有构建树共用的共享库输出目录。若别处以 sanitizer 构建过，make 的
+  # “已最新”判断会跳过 Release 重链接，load 带 sanitizer 运行时的库会直接 abort。
+  # 发现后删除该产物并用 build_check 重新链接 Release 版本。
+  if [[ -f "$ffi_library" ]] && ffi_library_is_sanitized "$ffi_library"; then
+    echo "[preflight] $ffi_library 带 sanitizer 运行时，重新以 Release 链接 mgcore"
+    rm -f "$ffi_library"
+    cmake --build build_check --config Release --target mgcore --parallel "$build_jobs"
+  fi
+  "${PYTHON_BIN:-python3}" tools/check_ffi_contract.py --library "$ffi_library"
+  if [[ "$run_frontend" -eq 1 ]]; then
+    echo "[preflight] Flutter 与刚编译后端的 FFI 联调"
+    (
+      cd flutter_shell
+      MGCS_FLEET_LIBRARY="$root_dir/$ffi_library" \
+        flutter test --no-pub test/fleet_ffi_smoke_test.dart
+    )
   fi
 fi
 

@@ -1,0 +1,37 @@
+# 能力清单
+
+本文件是阶段 0 的交付基线：把每个公开 FFI 模块的**交付状态**、**用户入口**、**降级方式**和**覆盖测试**写清楚，让后续功能开发有对照，不再用「有导出」当成「已交付」。
+
+规则来源是 `docs/plans/mgcs-development-plan-2026-10-10.md` 阶段 0。状态取值：
+
+- **已交付**：主要工作流有实际 UI 入口，成功/失败/超时/断链都有定义，且有对应测试。
+- **部分接入**：模块内一部分能力已进 UI，其余仍是内部接口或仅测试覆盖。
+- **待接入**：能力已在 FFI 暴露且有原生实现，但尚未提供 UI 入口，登记为后续工作。
+- **内部能力**：只服务开发、离线分析或原生测试，刻意不进入业务 UI。
+
+下表由 `python3 tools/check_ffi_contract.py` 从公开头文件和 Flutter 绑定推导，状态与说明在脚本的 `CAPABILITY_METADATA` 中人工维护。计数一旦与实际不符，preflight 会失败并要求重跑 `--write-catalog`。
+
+<!-- capabilities:start -->
+| 模块 | 公开导出 | 已接入前端 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `ffi_api_configuration.h` | 38 | 5 | 部分接入 | 连接与校准子集已进入配置页；电调/舵机执行器、参数组描述符仍为 FFI 内部能力；7 个 PX4 便捷封装（执行器/模式槽/安全/调参）定位为内部能力、无独立 UI 计划——通用参数页配合 `px4` 描述符 profile 已覆盖同一批参数，见 `bridge/ffi/API_CATALOG.md` 的「已定性的内部公开导出」一节与 docs/features/px4-parity.md S5。 |
+| `ffi_api_connection.h` | 30 | 17 | 已交付 | 串口/UDP/TCP 连接、断开、链路状态与本地回环由连接面板和状态栏消费。 |
+| `ffi_api_core.h` | 14 | 6 | 已交付 | 生命周期、版本、错误信息与整机快照由前端启动路径消费。 |
+| `ffi_api_environment.h` | 7 | 4 | 部分接入 | SITL 启停只服务开发与离线分析；地形缓存与剖面查询（`mg_terrain_query*`、`mg_terrain_cache_*`）已接前端 backend 与在线 provider（open-elevation），但尚未接入页面，前端入口待定，见 docs/features/survey-and-terrain.md。 |
+| `ffi_api_firmware.h` | 5 | 3 | 部分接入 | 固件识别接在连接流程；刷写与校验保持 FFI 内部能力，未接 UI。 |
+| `ffi_api_flight.h` | 34 | 3 | 部分接入 | 生产入口是 submit/poll 与 get_modes/get_mode_mapping；同步 arm/set_mode/rtl 等仅作内部与测试用途。 |
+| `ffi_api_geofence.h` | 14 | 1 | 部分接入 | 围栏读写进入任务面板；Rally 点集合仍为 FFI 内部能力。 |
+| `ffi_api_logging.h` | 25 | 18 | 部分接入 | 机载 DataFlash 日志列表/下载/擦除（「机载日志」页）、链路 `.tlog` 录制/离线回放（「飞行记录」页）与 `mg_fs_*` 通用 MAVLink FTP 文件浏览/收发（「机载文件」页）均已接入；仍未接入的是事件日志服务与会话文件日志（`mg_event_*`/`mg_session_log_*`），见 docs/features/flight-logging-and-replay.md。 |
+| `ffi_api_mission.h` | 53 | 33 | 已交付 | 任务规划、上传、围栏/Rally 下发与航点编辑走任务面板与地图；survey/corridor 生成（`mg_survey_generate*`）接入配置工作区「测绘规划」页，见 docs/features/survey-and-terrain.md。 |
+| `ffi_api_params.h` | 21 | 7 | 部分接入 | 参数读写、文件导入导出接入配置页；批量下载进度与描述符映射部分留在 FFI 内部。 |
+| `ffi_api_payload.h` | 17 | 0 | 待接入 | 相机、云台与视频流控制尚无 UI 入口，登记为待接入能力。 |
+| `ffi_api_telemetry.h` | 47 | 15 | 部分接入 | 遥测快照、姿态、GPS、电池进入顶栏/仪表盘；波形与部分导航量仍为 FFI 内部能力。 |
+| **合计** | **305** | **112** | — | 其余 193 个公开导出尚未被前端绑定。 |
+<!-- capabilities:end -->
+
+## 说明
+
+- 「已接入前端」按 Dart 绑定是否出现该符号统计，只代表存在调用路径，不等于该路径已覆盖全部成功与失败分支；行为契约由 `tests/test_ffi_response_contract.cc` 和各模块的 sim/合约测试保证。
+- `ffi_api_logging.h` 已部分接入（配置工作区「机载日志」「飞行记录」「机载文件」三页：机载日志列表/下载/取消/擦除、`.tlog` 录制/回放、MAVLink FTP 文件浏览/收发）。**待接入**的 `ffi_api_payload.h` 属于已实现但无入口的能力。它的公开导出保留在 ABI 中，按阶段 3 的功能简报逐个补齐 UI，补齐前不得在界面上声称「已支持」。
+- `ffi_api_environment.h` 部分接入：SITL 启停只服务开发与离线分析；地形缓存与剖面查询已接前端 backend 与在线 provider（open-elevation），但**尚未接入页面**（前端入口待定），补齐前不得在界面上声称「已支持」，见 `docs/features/survey-and-terrain.md`。
+- 公开导出的完整签名、Dart 绑定位置与所有权规则见 `bridge/ffi/API_CATALOG.md`；本文件只回答「交付到哪一层」。
