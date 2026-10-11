@@ -3,12 +3,13 @@
  * Survey planning FFI entrypoints.
  */
 #include "ffi_internal.h"
-#include "json_serializers.h"
+#include "core/telemetry/json_serializers.h"
 #include "mission_json_serializers.h"
 #include "core/mission/survey_calculator.h"
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 namespace {
 
@@ -32,15 +33,15 @@ void append_camera_spec_from_json(cJSON* root, mg::core::mission::CameraSpec& ca
 
 char* survey_result_json(const mg::core::mission::SurveyResult& result) {
     if (!result.valid) {
-        mg::bridge::JsonBuilder err;
+        mg::core::telemetry::JsonBuilder err;
         err.begin_object();
         err.field("valid", false);
-        err.field("error", result.error);
+        err.field("message", result.error);
         err.end_object();
         return to_cstr(err.str());
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("valid", true);
     jb.field("waypoint_count", result.waypoint_count);
@@ -50,7 +51,7 @@ char* survey_result_json(const mg::core::mission::SurveyResult& result) {
     jb.field("area_m2", result.area_m2);
     jb.field("photo_count", result.photo_count);
 
-    mg::bridge::JsonBuilder arr;
+    mg::core::telemetry::JsonBuilder arr;
     arr.begin_array();
     for (const auto& item : result.items) {
         arr.append_json(mg::bridge::mission_item_json(item));
@@ -96,10 +97,10 @@ mg::core::mission::SurveyConfig parse_survey_config(cJSON* json) {
 MGCORE_API char* mg_survey_generate(mg_core_t* core, const char* json_config) {
     CHECK_CORE(core);
     if (!json_config || json_config[0] == '\0')
-        return to_cstr(R"({"valid":false,"error":"empty config"})");
+        return to_cstr(R"({"valid":false,"message":"empty config"})");
 
-    cJSON* root = cJSON_Parse(json_config);
-    if (!root) return to_cstr(R"({"valid":false,"error":"invalid JSON"})");
+    cJSON* root = mg::core::json::parse(json_config);
+    if (!root) return to_cstr(R"({"valid":false,"message":"invalid JSON"})");
 
     auto cfg = parse_survey_config(root);
     cJSON_Delete(root);
@@ -109,10 +110,10 @@ MGCORE_API char* mg_survey_generate(mg_core_t* core, const char* json_config) {
 MGCORE_API char* mg_survey_generate_corridor(mg_core_t* core, const char* json_config) {
     CHECK_CORE(core);
     if (!json_config || json_config[0] == '\0')
-        return to_cstr(R"({"valid":false,"error":"empty config"})");
+        return to_cstr(R"({"valid":false,"message":"empty config"})");
 
-    cJSON* root = cJSON_Parse(json_config);
-    if (!root) return to_cstr(R"({"valid":false,"error":"invalid JSON"})");
+    cJSON* root = mg::core::json::parse(json_config);
+    if (!root) return to_cstr(R"({"valid":false,"message":"invalid JSON"})");
 
     mg::core::mission::CorridorConfig cfg;
     auto get_d = [&](const char* key, double def) -> double {
