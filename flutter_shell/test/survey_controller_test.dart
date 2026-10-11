@@ -86,10 +86,10 @@ void main() {
   test('missionFrameLabel / kMissionFrameChoices 覆盖相对高度与地形跟随', () {
     expect(missionFrameLabel(kMissionFrameTerrainAlt), contains('AGL'));
     expect(missionFrameLabel(kMissionFrameRelativeAlt), contains('Home'));
-    expect(
-      kMissionFrameChoices.map((choice) => choice.$1),
-      [kMissionFrameRelativeAlt, kMissionFrameTerrainAlt],
-    );
+    expect(kMissionFrameChoices.map((choice) => choice.$1), [
+      kMissionFrameRelativeAlt,
+      kMissionFrameTerrainAlt,
+    ]);
   });
 
   test('命令目录缺少匹配项时回退 waypoint，不让未知命令变成死条目', () async {

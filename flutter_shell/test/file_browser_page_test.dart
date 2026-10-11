@@ -84,7 +84,10 @@ void main() {
     addTearDown(controller.dispose);
 
     await _pumpPage(tester, controller);
-    await _pumpUntil(tester, () => find.text('cached.bin').evaluate().isNotEmpty);
+    await _pumpUntil(
+      tester,
+      () => find.text('cached.bin').evaluate().isNotEmpty,
+    );
 
     backend.connected = false;
     await controller.refreshList();
@@ -104,10 +107,7 @@ void main() {
     addTearDown(controller.dispose);
 
     await _pumpPage(tester, controller);
-    await _pumpUntil(
-      tester,
-      () => find.text('读取目录中').evaluate().isNotEmpty,
-    );
+    await _pumpUntil(tester, () => find.text('读取目录中').evaluate().isNotEmpty);
 
     expect(find.byType(ProgressBar), findsOneWidget);
     expect(find.text('取消'), findsOneWidget);

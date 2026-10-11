@@ -6,14 +6,8 @@ import 'support/terrain_backend_fake.dart';
 
 /// 一条 0.1° 长、11 个采样点的剖面：每个采样点落在不同的 0.01° 网格里，
 /// 因此首次取数时 11 个点全部缺值。
-Future<TerrainProfileResult> _load(TerrainController controller) =>
-    controller.loadProfile(
-      lat1: 39.9,
-      lon1: 116.4,
-      lat2: 40.0,
-      lon2: 116.5,
-      samples: 11,
-    );
+Future<TerrainProfileResult> _load(TerrainController controller) => controller
+    .loadProfile(lat1: 39.9, lon1: 116.4, lat2: 40.0, lon2: 116.5, samples: 11);
 
 void main() {
   late FakeTerrainBackend backend;
@@ -84,7 +78,10 @@ void main() {
   });
 
   test('单点：allowNetwork=false 只读缓存，allowNetwork=true 回填', () async {
-    expect(await controller.elevationAt(39.9, 116.4, allowNetwork: false), isNull);
+    expect(
+      await controller.elevationAt(39.9, 116.4, allowNetwork: false),
+      isNull,
+    );
 
     final point = await controller.elevationAt(39.9, 116.4);
     expect(point, isNotNull);

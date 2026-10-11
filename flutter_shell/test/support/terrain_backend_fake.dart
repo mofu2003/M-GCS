@@ -85,13 +85,15 @@ class FakeElevationProvider implements ElevationProvider {
   Object? error;
 
   /// 按坐标给出高程；默认是可预测的线性函数。
-  double? Function(double lat, double lon) elevationFor =
-      (lat, lon) => 100 + lat + lon;
+  double? Function(double lat, double lon) elevationFor = (lat, lon) =>
+      100 + lat + lon;
 
   int get callCount => calls.length;
 
   @override
-  Future<List<TerrainSample>> fetchElevations(List<TerrainSample> coords) async {
+  Future<List<TerrainSample>> fetchElevations(
+    List<TerrainSample> coords,
+  ) async {
     calls.add(coords);
     final failure = error;
     if (failure != null) throw failure;

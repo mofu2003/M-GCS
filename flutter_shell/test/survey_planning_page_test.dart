@@ -21,9 +21,7 @@ void main() {
           typography: MgTypography.macos(Brightness.light),
         ),
         child: MaterialApp(
-          home: Scaffold(
-            body: SurveyPlanningPage(controller: controller),
-          ),
+          home: Scaffold(body: SurveyPlanningPage(controller: controller)),
         ),
       ),
     );
@@ -62,9 +60,7 @@ void main() {
           typography: MgTypography.macos(Brightness.light),
         ),
         child: MaterialApp(
-          home: Scaffold(
-            body: SurveyPlanningPage(controller: controller),
-          ),
+          home: Scaffold(body: SurveyPlanningPage(controller: controller)),
         ),
       ),
     );

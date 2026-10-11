@@ -84,10 +84,7 @@ void main() {
           'id': 'plan-item-1',
           'command': 16,
           'altitudeMode': 1,
-          'extensions': {
-            'altitudeMode': 1,
-            'AMSLAltAboveTerrain': 120,
-          },
+          'extensions': {'altitudeMode': 1, 'AMSLAltAboveTerrain': 120},
         },
       ],
     });
@@ -95,13 +92,14 @@ void main() {
     expect(document.complexItems, hasLength(1));
     expect(document.complexItems.single.itemType, 'Survey');
     expect(document.complexItems.single.entityInsertIndex, 1);
-    expect(document.extensions['qgc_plan.mission_fields'], {
-      'hoverSpeed': 4.5,
-    });
+    expect(document.extensions['qgc_plan.mission_fields'], {'hoverSpeed': 4.5});
     expect(document.entities.single.extensions['AMSLAltAboveTerrain'], 120);
 
     final restored = MissionDocument.fromJson(document.toJson());
-    expect(restored.complexItems.single.toJson(), document.complexItems.single.toJson());
+    expect(
+      restored.complexItems.single.toJson(),
+      document.complexItems.single.toJson(),
+    );
     expect(restored.extensions['qgc_plan.root_fields'], {
       'customTopLevel': true,
     });
@@ -508,35 +506,40 @@ void main() {
     );
     expect(has(kept, 21), isTrue);
 
-    expect(filterCommandCatalogForVehicle(catalog, null).length, catalog.length);
-  });
-
-  test('mission document controller forwards interchange export format', () async {
-    final backend = FakeMissionBackend();
-    final controller = MissionDocumentController(backend: backend)
-      ..bindSession(1);
-    await controller.initialize();
-    await controller.addEntity(
-      const MissionEntity(
-        type: 'waypoint',
-        latitude: 31.2,
-        longitude: 121.4,
-        altitudeMeters: 50,
-      ),
+    expect(
+      filterCommandCatalogForVehicle(catalog, null).length,
+      catalog.length,
     );
-
-    final dirtyBefore = controller.dirty;
-    final revisionBefore = controller.document?.revision;
-    final exported = await controller.exportInterchange('plan');
-    expect(exported.format, 'plan');
-    expect(exported.itemCount, 1);
-    expect(exported.text, backend.interchangeText);
-    expect(backend.lastInterchangeFormat, 'plan');
-
-    // 导出不得改动文档、dirty 或 revision。
-    expect(controller.document?.entities, hasLength(1));
-    expect(controller.document?.revision, revisionBefore);
-    expect(controller.dirty, dirtyBefore);
   });
 
+  test(
+    'mission document controller forwards interchange export format',
+    () async {
+      final backend = FakeMissionBackend();
+      final controller = MissionDocumentController(backend: backend)
+        ..bindSession(1);
+      await controller.initialize();
+      await controller.addEntity(
+        const MissionEntity(
+          type: 'waypoint',
+          latitude: 31.2,
+          longitude: 121.4,
+          altitudeMeters: 50,
+        ),
+      );
+
+      final dirtyBefore = controller.dirty;
+      final revisionBefore = controller.document?.revision;
+      final exported = await controller.exportInterchange('plan');
+      expect(exported.format, 'plan');
+      expect(exported.itemCount, 1);
+      expect(exported.text, backend.interchangeText);
+      expect(backend.lastInterchangeFormat, 'plan');
+
+      // 导出不得改动文档、dirty 或 revision。
+      expect(controller.document?.entities, hasLength(1));
+      expect(controller.document?.revision, revisionBefore);
+      expect(controller.dirty, dirtyBefore);
+    },
+  );
 }

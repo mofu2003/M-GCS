@@ -72,10 +72,7 @@ void main() {
     expect(controller!.listing, isFalse);
     expect(controller!.listError, isNull);
     expect(controller!.entriesFromCache, isFalse);
-    expect(
-      controller!.entries.map((e) => e.name),
-      ['LOGS', 'a.txt', 'b.bin'],
-    );
+    expect(controller!.entries.map((e) => e.name), ['LOGS', 'a.txt', 'b.bin']);
     // 索引落到磁盘，另一个 store 实例也能读到。
     final persisted = await store().load();
     expect(persisted.directory(FileController.defaultPath), isNotNull);
@@ -111,9 +108,7 @@ void main() {
     );
     await controller!.refreshList();
 
-    backend.statusQueue.add(
-      fileStatus('failed', message: '目录不存在'),
-    );
+    backend.statusQueue.add(fileStatus('failed', message: '目录不存在'));
     await controller!.refreshList();
 
     expect(controller!.listing, isFalse);
@@ -332,7 +327,10 @@ void main() {
 
     final loaded = await store().load();
 
-    expect(loaded.directory(FileController.defaultPath)!.entries.single.name, 'a.bin');
+    expect(
+      loaded.directory(FileController.defaultPath)!.entries.single.name,
+      'a.bin',
+    );
     expect(loaded.download(_remoteBin)!.localPath, '/tmp/a.bin');
     expect(loaded.download(_remoteBin)!.sizeBytes, 8);
   });
@@ -341,7 +339,10 @@ void main() {
     expect(fileTaskFromName('list'), FileTaskKind.list);
     expect(fileTaskFromName('upload'), FileTaskKind.upload);
     expect(fileTaskFromName('nope'), FileTaskKind.idle);
-    expect(fileTransferPhaseFromState('cancelling'), FileTransferPhase.cancelling);
+    expect(
+      fileTransferPhaseFromState('cancelling'),
+      FileTransferPhase.cancelling,
+    );
     expect(fileTransferPhaseFromState('failed'), FileTransferPhase.failed);
     expect(fileTransferPhaseFromState('unknown'), FileTransferPhase.idle);
   });

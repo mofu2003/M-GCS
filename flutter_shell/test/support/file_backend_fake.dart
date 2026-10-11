@@ -109,10 +109,11 @@ Map<String, Object?> fileOk([Map<String, Object?> extra = const {}]) => {
   ...extra,
 };
 
-Map<String, Object?> fileError(String name, String message, {int code = -1}) => {
-  'success': false,
-  'error': {'code': code, 'name': name, 'message': message},
-};
+Map<String, Object?> fileError(String name, String message, {int code = -1}) =>
+    {
+      'success': false,
+      'error': {'code': code, 'name': name, 'message': message},
+    };
 
 Map<String, Object?> fileStatus(
   String state, {

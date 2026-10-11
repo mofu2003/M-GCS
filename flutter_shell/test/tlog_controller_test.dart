@@ -211,11 +211,7 @@ void main() {
       reason: '轮询未刷新字节数',
     );
 
-    backend.statusResponse = _ok({
-      'recording': false,
-      'file': '',
-      'bytes': 0,
-    });
+    backend.statusResponse = _ok({'recording': false, 'file': '', 'bytes': 0});
     await controller!.stopRecording();
     expect(backend.stopCalls, 1);
     expect(controller!.isRecording, isFalse);
@@ -237,7 +233,13 @@ void main() {
     backend.openResponse = _openInfo(file: '/tmp/a.tlog', bytes: 100);
     backend.stepQueue
       ..add(_batch(messages: [_msg(1, 'HEARTBEAT')], progress: 0.5))
-      ..add(_batch(messages: [_msg(33, 'GLOBAL_POSITION_INT')], progress: 1, eof: true));
+      ..add(
+        _batch(
+          messages: [_msg(33, 'GLOBAL_POSITION_INT')],
+          progress: 1,
+          eof: true,
+        ),
+      );
 
     await controller!.openReplay('/tmp/a.tlog');
     // openReplay 打开后自动取一批。
@@ -272,10 +274,9 @@ void main() {
     expect(controller!.visibleMessages.length, 3);
 
     controller!.setFilter('gps');
-    expect(
-      controller!.visibleMessages.map((m) => m.name).toList(),
-      ['GPS_RAW_INT'],
-    );
+    expect(controller!.visibleMessages.map((m) => m.name).toList(), [
+      'GPS_RAW_INT',
+    ]);
 
     controller!.setFilter('33');
     expect(controller!.visibleMessages.map((m) => m.msgid).toList(), [33]);
@@ -300,7 +301,9 @@ void main() {
 
   test('文件尾部截断会透传到状态', () async {
     backend.openResponse = _openInfo(file: '/tmp/a.tlog', truncated: true);
-    backend.stepQueue.add(_batch(messages: const [], eof: true, truncated: true));
+    backend.stepQueue.add(
+      _batch(messages: const [], eof: true, truncated: true),
+    );
     await controller!.openReplay('/tmp/a.tlog');
     expect(controller!.truncated, isTrue);
   });

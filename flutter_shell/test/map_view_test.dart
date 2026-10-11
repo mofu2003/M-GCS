@@ -29,10 +29,7 @@ void main() {
     });
 
     test('falls back to the standard basemap until a template is set', () {
-      expect(
-        mapStyleLabel(MapStyle.custom),
-        contains('未配置'),
-      );
+      expect(mapStyleLabel(MapStyle.custom), contains('未配置'));
       expect(
         mapStyleLabel(
           MapStyle.custom,
@@ -81,7 +78,10 @@ void main() {
 
   group('flight action visibility', () {
     test('shows only takeoff on the ground', () {
-      final visibility = flightActionVisibility(flying: false, fixedWing: false);
+      final visibility = flightActionVisibility(
+        flying: false,
+        fixedWing: false,
+      );
       expect(visibility.takeoff, isTrue);
       expect(visibility.land, isFalse);
       expect(visibility.rtl, isFalse);
