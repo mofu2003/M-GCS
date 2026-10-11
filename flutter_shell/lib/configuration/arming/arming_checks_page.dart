@@ -63,12 +63,14 @@ List<_ArmingCheck> _armingChecksFor(VehicleControlProfile profile) {
   ];
 }
 
-/// 新固件优先用 ARMING_SKIPCHK，旧固件回退到 ARMING_CHECK。
+/// 新固件优先用角色 `arming.skip_check`（ARMING_SKIPCHK），
+/// 旧固件回退到 `arming.check`（ARMING_CHECK）。参数名由后端角色表提供
+/// （safety.md S6），前端只判断哪个角色在当前固件里真的存在。
 String? _armingParameterName(ConnectionController controller) {
-  if (controller.parameters.containsKey('ARMING_SKIPCHK')) {
-    return 'ARMING_SKIPCHK';
-  }
-  if (controller.parameters.containsKey('ARMING_CHECK')) return 'ARMING_CHECK';
+  final skip = controller.roleParam('arming.skip_check');
+  if (skip != null && controller.parameters.containsKey(skip)) return skip;
+  final check = controller.roleParam('arming.check');
+  if (check != null && controller.parameters.containsKey(check)) return check;
   return null;
 }
 
@@ -116,7 +118,11 @@ class _ArmingChecksPageState extends State<ArmingChecksPage> {
     builder: (context, _) {
       final controller = widget.controller;
       final parameterName = _armingParameterName(controller);
-      final inverted = parameterName == 'ARMING_SKIPCHK';
+      // 置位语义随固件而变：SKIPCHK 置位=跳过、CHECK 置位=执行。
+      // 命中的究竟是哪个角色，决定了开关是否需要取反。
+      final inverted =
+          parameterName != null &&
+          parameterName == controller.roleParam('arming.skip_check');
       final mask = parameterName == null
           ? 0
           : controller.parameters[parameterName]?.value.round() ?? 0;

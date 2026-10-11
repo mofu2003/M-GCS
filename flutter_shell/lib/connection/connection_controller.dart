@@ -994,6 +994,13 @@ final class ConnectionController extends ChangeNotifier {
   bool _telemetryGroupsStale = false;
   VehicleControlProfile? _lastPublishedControlProfile;
 
+  /// 语义角色 → 固件参数名（safety.md S6）。角色名由前端定义、与固件和机型
+  /// 无关；参数名只由后端插件按当前 profile 提供。空表表示尚未加载。
+  final Map<String, String> _paramRoles = <String, String>{};
+  String _paramRolesProfile = '';
+  bool _paramRolesLoaded = false;
+  Future<void>? _paramRolesLoad;
+
   bool get busy => _busy;
   bool get isConnected => phase == SerialConnectionPhase.connected;
   bool get hasSession => sessionId != null;
@@ -1023,10 +1030,15 @@ final class ConnectionController extends ChangeNotifier {
     if (vehicle == 'copter') return VehicleControlProfile.copter;
     if (vehicle == 'vtol') return VehicleControlProfile.planeVtol;
     if (vehicle == 'fixedwing' || vehicle == 'plane') {
-      final qEnable = parameters['Q_ENABLE']?.value ?? 0;
-      final tailsitter = parameters['Q_TAILSIT_ENABLE']?.value ?? 0;
-      final tilt = parameters['Q_TILT_ENABLE']?.value ?? 0;
-      return qEnable != 0 || tailsitter != 0 || tilt != 0
+      double read(String role) {
+        final name = roleParam(role);
+        return name == null ? 0 : (parameters[name]?.value ?? 0);
+      }
+
+      final quadplane = read('frame.quadplane_enable');
+      final tailsitter = read('frame.tailsitter_enable');
+      final tilt = read('frame.tilt_enable');
+      return quadplane != 0 || tailsitter != 0 || tilt != 0
           ? VehicleControlProfile.planeVtol
           : VehicleControlProfile.fixedWing;
     }
@@ -1065,12 +1077,15 @@ final class ConnectionController extends ChangeNotifier {
 
   /// QGC `APMFirmwarePlugin::minimumTakeoffAltitudeMeters` 的等价实现。
   ///
-  /// VTOL 依次读 `Q_PILOT_TKO_ALT_M`（4.7+，米）→ `Q_PILOT_TKOFF_ALT`（旧版，厘米）
-  /// → `Q_RTL_ALT`；多旋翼读 `PILOT_TKO_ALT_M` → `PILOT_TKOFF_ALT`（厘米）。
+  /// VTOL 依次读 `takeoff.vtol_alt_m`（4.7+，米）→ `takeoff.vtol_alt_cm_legacy`
+  /// （旧版，厘米）→ `takeoff.vtol_alt_fallback_m`；多旋翼读 `takeoff.alt_m` →
+  /// `takeoff.alt_cm_legacy`（厘米）。具体固件参数名由后端角色表提供，
+  /// 前端只引用语义角色（safety.md S6）。
   /// 用户在界面上填的高度只会把它抬高，不会降低（QGC 同）。
   double get minimumTakeoffAltitudeMeters {
-    double? read(String name) {
-      final value = parameters[name]?.value;
+    double? read(String role) {
+      final name = roleParam(role);
+      final value = name == null ? null : parameters[name]?.value;
       return value != null && value > 0 ? value : null;
     }
 
@@ -1086,21 +1101,21 @@ final class ConnectionController extends ChangeNotifier {
     }
 
     if (controlProfile == VehicleControlProfile.planeVtol) {
-      return read('Q_PILOT_TKO_ALT_M') ??
-          (read('Q_PILOT_TKOFF_ALT') != null
-              ? read('Q_PILOT_TKOFF_ALT')! / 100.0
+      return read('takeoff.vtol_alt_m') ??
+          (read('takeoff.vtol_alt_cm_legacy') != null
+              ? read('takeoff.vtol_alt_cm_legacy')! / 100.0
               : null) ??
-          read('Q_RTL_ALT') ??
+          read('takeoff.vtol_alt_fallback_m') ??
           0;
     }
-    return read('PILOT_TKO_ALT_M') ??
-        (read('PILOT_TKOFF_ALT') != null
-            ? read('PILOT_TKOFF_ALT')! / 100.0
+    return read('takeoff.alt_m') ??
+        (read('takeoff.alt_cm_legacy') != null
+            ? read('takeoff.alt_cm_legacy')! / 100.0
             : null) ??
         0;
   }
 
-  /// 固定翼盘旋半径（米），来自飞控参数 `WP_LOITER_RAD`。
+  /// 固定翼盘旋半径（米），来自角色 `loiter.radius`（固件为 `WP_LOITER_RAD`）。
   ///
   /// ArduPilot 的 `WP_LOITER_RAD`（`ArduPlane/Parameters.cpp`）定义固定翼盘旋时
   /// 距航点中心的距离，**负值表示逆时针**。我们的 `DO_REPOSITION` 里 param3 传 0，
@@ -1108,13 +1123,18 @@ final class ConnectionController extends ChangeNotifier {
   ///
   /// 参数还没下载到、或飞控没给这个参数时返回 null（多旋翼也不需要）。
   double? get loiterRadiusMeters {
-    final value = parameters['WP_LOITER_RAD']?.value;
+    final name = roleParam('loiter.radius');
+    final value = name == null ? null : parameters[name]?.value;
     if (value == null || value == 0) return null;
     return value.abs();
   }
 
-  /// 盘旋方向：`WP_LOITER_RAD` 为正（或缺失）是顺时针，为负是逆时针。
-  bool get loiterClockwise => (parameters['WP_LOITER_RAD']?.value ?? 1) >= 0;
+  /// 盘旋方向：`loiter.radius` 为正（或缺失）是顺时针，为负是逆时针。
+  bool get loiterClockwise {
+    final name = roleParam('loiter.radius');
+    final value = name == null ? null : parameters[name]?.value;
+    return (value ?? 1) >= 0;
+  }
 
   /// 是否处于"按固定翼方式飞"的状态。
   ///
@@ -1370,10 +1390,85 @@ final class ConnectionController extends ChangeNotifier {
   String _friendlyError(Object error) =>
       error.toString().replaceFirst('Bad state: ', '');
 
-  bool _isProfileParameter(String name) =>
-      name == 'Q_ENABLE' ||
-      name == 'Q_TAILSIT_ENABLE' ||
-      name == 'Q_TILT_ENABLE';
+  /// 解析语义角色到当前固件的参数名（safety.md S6）。
+  ///
+  /// [index] 用于带序号占位符的角色（`{n}`），例如 `rc.channel_option` 配
+  /// [index]=6 → `RC6_OPTION`。角色表未加载、或该固件没有这个角色时返回 null，
+  /// 调用方据此退回缺省行为，而不是猜一个固件参数名。
+  String? roleParam(String role, {int? index}) {
+    final template = _paramRoles[role];
+    if (template == null) return null;
+    if (index == null) return template;
+    return template.replaceAll('{n}', '$index');
+  }
+
+  /// 当前固件的完整语义角色表（只读视图，便于诊断与测试）。
+  Map<String, String> get paramRoles => Map.unmodifiable(_paramRoles);
+  String get paramRolesProfile => _paramRolesProfile;
+  bool get paramRolesLoaded => _paramRolesLoaded;
+
+  /// 拉取当前 profile 的语义角色表（safety.md S6）。
+  ///
+  /// 角色名由前端定义、与固件和机型无关；参数名只由后端插件提供。绑定
+  /// `_sessionGeneration` 与 [sessionId]，结果只落在发起时的会话上，避免切换
+  /// 飞控后旧角色表串台。没有角色表的固件（或还没识别出机型）视为“暂无角色
+  /// 表”，保持未加载状态，连接稳定后由轮询重试。
+  Future<void> ensureParamRoles({bool force = false}) {
+    if (_disposed || !isConnected || sessionId == null) {
+      return Future<void>.value();
+    }
+    if (_paramRolesLoaded && !force) return Future<void>.value();
+    final pending = _paramRolesLoad;
+    if (pending != null) return pending;
+
+    final generation = _sessionGeneration;
+    final targetSession = sessionId;
+    late final Future<void> future;
+    future = Future<void>.sync(() {
+      try {
+        final result = parameterBackend.paramRoles();
+        if (_disposed ||
+            generation != _sessionGeneration ||
+            sessionId != targetSession) {
+          return;
+        }
+        final profile = result['profile']?.toString() ?? '';
+        final roles = result['roles'];
+        if (profile.isEmpty || roles is! Map) {
+          // 还没有机型/角色表：保持未加载，等下一次心跳后重试。
+          return;
+        }
+        _paramRoles.clear();
+        for (final entry in roles.entries) {
+          final role = entry.key?.toString() ?? '';
+          final name = entry.value?.toString() ?? '';
+          if (role.isNotEmpty && name.isNotEmpty) _paramRoles[role] = name;
+        }
+        _paramRolesProfile = profile;
+        _paramRolesLoaded = true;
+        _notifyProfileChanges();
+        _notifyParameterChanges();
+        notifyListeners();
+      } on Object {
+        // 角色表不可用时保持未加载；页面退回缺省行为，不挡住参数页。
+      }
+    }).whenComplete(() {
+      if (identical(_paramRolesLoad, future)) _paramRolesLoad = null;
+    });
+    _paramRolesLoad = future;
+    return future;
+  }
+
+  bool _isProfileParameter(String name) {
+    for (final role in const [
+      'frame.quadplane_enable',
+      'frame.tailsitter_enable',
+      'frame.tilt_enable',
+    ]) {
+      if (roleParam(role) == name) return true;
+    }
+    return false;
+  }
 
   void _recordParameterWriteError(String name, String message) {
     _parameterWriteErrors.remove(name);
@@ -1931,6 +2026,8 @@ final class ConnectionController extends ChangeNotifier {
       _stopSessionPolling();
       _calibrationTimer?.cancel();
       _sessionGeneration++;
+      // 角色表跟随飞控 profile；切机时先清空，避免旧机型参数名串到新会话。
+      _resetParamRoles();
       final snapshot = _runtimeSnapshots.remove(target);
       sessionId = target;
       if (snapshot == null) {
@@ -3030,6 +3127,8 @@ final class ConnectionController extends ChangeNotifier {
             parameterError == null) {
           requestParameters();
         }
+        // 角色表与参数下载并行：连接稳定后拉取一次，页面的参数名全部由它解析。
+        unawaited(ensureParamRoles());
         _pollParameterDownload();
       }
       if (phase != previousPhase || message != previousMessage) {
@@ -3938,7 +4037,15 @@ final class ConnectionController extends ChangeNotifier {
 
   /// Reset only the per-vehicle state. Session and mission binding are handled
   /// by the caller so a target switch can restore its own snapshot afterward.
+  void _resetParamRoles() {
+    _paramRoles.clear();
+    _paramRolesProfile = '';
+    _paramRolesLoaded = false;
+    _paramRolesLoad = null;
+  }
+
   void _resetRuntimeState() {
+    _resetParamRoles();
     telemetryError = null;
     flightMessages = const [];
     _lastMessageSeq = 0;

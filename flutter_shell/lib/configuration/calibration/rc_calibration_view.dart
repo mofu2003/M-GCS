@@ -12,15 +12,20 @@ import 'package:mgcs_frontend/widgets/mac_panel.dart';
 import 'package:mgcs_frontend/widgets/mg_confirm.dart';
 import 'package:mgcs_frontend/widgets/mg_motor_output_bar.dart';
 
-/// 按 RCMAP_* 找到通道当前承担的功能，用于给主通道加中文标注。
+/// 按角色 `rc.map.*` 找到通道当前承担的功能，用于给主通道加中文标注。
+///
+/// 实际固件参数名（`RCMAP_ROLL` 等）由后端按机型下发，前端只引用语义角色
+/// （safety.md S6）。角色表异步到位，角色缺失时返回 null，等重建后再标注。
 String? _rcChannelFunction(ConnectionController controller, int channel) {
   const functions = [
-    ('RCMAP_ROLL', '横滚'),
-    ('RCMAP_PITCH', '俯仰'),
-    ('RCMAP_THROTTLE', '油门'),
-    ('RCMAP_YAW', '偏航'),
+    ('rc.map.roll', '横滚'),
+    ('rc.map.pitch', '俯仰'),
+    ('rc.map.throttle', '油门'),
+    ('rc.map.yaw', '偏航'),
   ];
-  for (final (name, label) in functions) {
+  for (final (role, label) in functions) {
+    final name = controller.roleParam(role);
+    if (name == null) continue;
     final value = controller.parameters[name]?.value;
     if (value != null && value.round() == channel) return label;
   }
@@ -94,7 +99,10 @@ class RcCalibrationView extends StatelessWidget {
                       controlSize: ControlSize.regular,
                       onPressed: controller.isConnected && !status.active
                           ? () => unawaited(
-                              _confirmStartRadioCalibration(context, controller),
+                              _confirmStartRadioCalibration(
+                                context,
+                                controller,
+                              ),
                             )
                           : null,
                       child: const Text('开始校准'),
@@ -128,7 +136,8 @@ Future<void> _confirmStartRadioCalibration(
   final confirmed = await showMgConfirmDialog(
     context,
     title: '开始 RC 校准？',
-    message: '飞控会进入遥控校准流程，需要按提示拨动并回中所有摇杆与开关。'
+    message:
+        '飞控会进入遥控校准流程，需要按提示拨动并回中所有摇杆与开关。'
         '中途可取消，取消会等待飞控确认后才停止。',
     confirmLabel: '开始校准',
   );

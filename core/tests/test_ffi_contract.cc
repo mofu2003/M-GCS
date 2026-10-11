@@ -386,6 +386,31 @@ int main() {
         mg_destroy(core);
     }
 
+    // 9b. Semantic parameter roles (S6) resolve per profile and degrade safely.
+    fprintf(stderr, "[Group] Semantic parameter roles FFI\n");
+    {
+        char* null_roles = mg_config_get_param_roles(nullptr);
+        CHECK(json_valid_envelope(null_roles), "param roles null core returns JSON");
+        mg_free_string((char*)null_roles);
+
+        mg_core_t* core = mg_create();
+        char* roles = mg_config_get_param_roles(core);
+        CHECK(json_valid_envelope(roles), "param roles returns JSON envelope");
+        CHECK(json_has(roles, "profile"), "param roles has profile field");
+        CHECK(json_has(roles, "roles"), "param roles has roles field");
+        CHECK(json_has(roles, "\"profile\":\"\""),
+              "disconnected param roles report an empty profile");
+        mg_free_string(roles);
+
+        char* resumed = mg_config_get_param_roles(core);
+        CHECK(json_has(resumed, "\"roles\":{}"),
+              "disconnected param roles is an empty table, not an error");
+        CHECK(!json_has(resumed, "\"error\""),
+              "disconnected param roles is not an error envelope");
+        mg_free_string(resumed);
+        mg_destroy(core);
+    }
+
     // 10. Industrial hardening APIs are safe while disconnected
     fprintf(stderr, "[Group] Backend hardening API disconnected safety\n");
     {

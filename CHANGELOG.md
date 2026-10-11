@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Semantic parameter roles (safety.md S6, KD-42 closed): the front end no longer hard-codes
+  firmware parameter names. The plugin now ships a role table
+  (`core/src/config/ParameterDescriptors.json` `roles` section; `ardupilot` base plus
+  `copter`/`plane`/`vtol`/`rover`/`sub`/`tracker` profiles inheriting through `extends`) that maps
+  firmware-independent roles such as `pid.rate.roll.p`, `rc.map.yaw`, `rc.channel_option`,
+  `flight_mode.slot`, `arming.skip_check`, `compass.cal_fit`, `takeoff.vtol_alt_m`,
+  `loiter.radius` and `tecs.time_const` to the actual names for the connected build. It is exposed
+  as `mg_config_get_param_roles` (`bridge/ffi/ffi_api_configuration.h`), bound to Dart as
+  `ParameterFfiBackend.paramRoles()` and resolved in
+  `ConnectionController.roleParam(role, {index})`; the PID, calibration, compass, flight-mode, RC
+  calibration and arming-check pages read parameters through roles, and a missing role degrades to
+  a disabled control instead of a guessed name. `tools/check_firmware_literals.py` keeps its
+  non-empty baseline mechanism as the S6 gate, and `tools/firmware_literals_baseline.json` is
+  now `{}` — the 34 ArduPilot literals inherited from `origin/main` are gone.
 - Asynchronous MAVLink FTP: `mg_fs_list_directory` / `mg_fs_download_file` / `mg_fs_upload_file`
   now start a background transfer and return immediately instead of running the whole transfer on
   the FFI calling thread. `mg_fs_transfer_status` polls `task`/`state`/`active`/`completed`/
@@ -282,7 +296,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed unused legacy Flutter entry points for the standalone flight-mode panel, attitude indicator and configuration workspace alias; callers now use the current modules directly.
 - Removed unused Arimo configuration, redundant GPS fixture assignments and obsolete test placeholders (KD-28, KD-29, KD-34).
 - Restored the generated FFI catalog and added checks for Dart bindings, all native exports and the loaded library version (KD-41); full preflight also runs the native FFI smoke tests.
-- S6 frontend firmware-literal gate: `tools/check_firmware_literals.py` scans `flutter_shell/lib` for parameter names owned by the firmware plugins (`core/src/config/ParameterDescriptors.json`, `PX4ParameterMetaData.json`) and fails on new literals outside the recorded baseline (`tools/firmware_literals_baseline.json`). The 34 pre-existing literals in 8 files are registered as KD-42 (待修复); the baseline is only allowed to shrink. Preflight runs the gate with the frontend checks, and a parameter-descriptor change reruns it even when the full Flutter suite is not in scope.
+- S6 frontend firmware-literal gate: `tools/check_firmware_literals.py` scans `flutter_shell/lib` for parameter names owned by the firmware plugins (`core/src/config/ParameterDescriptors.json`, `PX4ParameterMetaData.json`) and fails on new literals outside the recorded baseline (`tools/firmware_literals_baseline.json`). The baseline is only allowed to shrink; the 34 pre-existing literals it once registered are gone and the baseline is now empty (KD-42 closed). Preflight runs the gate with the frontend checks, and a parameter-descriptor change reruns it even when the full Flutter suite is not in scope.
 - Stage 1A started: fleet/session summaries now expose `heartbeat_fresh`; stale vehicles are excluded from batch flight-command targets, while the core session status and v2 telemetry response expose the same freshness signal.
 - Release metadata is required and validated before edits; release/preflight now understand bracketed CHANGELOG version headings (KD-38).
 - Mission upload: accept `MISSION_ACK` only from the transfer target (sysid/compid) and only while a

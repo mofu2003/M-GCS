@@ -18,7 +18,11 @@ class PidGainTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = MacosTheme.of(context);
-    final parameter = controller.parameters[field.parameterName];
+    // 语义角色 → 当前固件参数名；角色表未就绪时先渲染空控件。
+    final parameterName = controller.roleParam(field.role);
+    final parameter = parameterName == null
+        ? null
+        : controller.parameters[parameterName];
     // 外层已经是卡片，这里只排标签和输入框，避免卡片套卡片。
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

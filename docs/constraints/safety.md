@@ -38,6 +38,7 @@
 模式号、参数名、命令编码、校准流程只能由 ArduPilot 或 PX4 插件提供。通用代码中不得出现这些值的字面量。
 - 违反后果：更换或升级固件后行为错误。
 - 验证：静态检查通用代码路径中是否出现已知模式号和参数名字面量。
+- 参数名的落地方式：插件在 `core/src/config/ParameterDescriptors.json` 的 `roles` 段按机型 profile 提供「语义角色 → 固件参数名」，经 `mg_config_get_param_roles` 下发；前端只写语义角色（如 `pid.rate.roll.p`、`rc.map.yaw`），用 `ConnectionController.roleParam()` 解析。门禁 `tools/check_firmware_literals.py` 挡住新增字面量，`tools/firmware_literals_baseline.json` 保留为空表示已清零。
 
 **S7 任务文件不静默覆盖**
 `MissionDocument` 是唯一内部状态，上传飞控前从它编译 `MissionPlan`。不得改写用户原始文件，也不得在用户不知情时替换其内容。

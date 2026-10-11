@@ -24,7 +24,11 @@ class MagnetometerCalibrationCard extends StatelessWidget {
     final calibrating =
         status.active && status.type == CalibrationType.magnetometer;
     final instances = controller.waveformMagInstances;
-    final tolerance = controller.parameter('COMPASS_CAL_FIT');
+    // 容差等级参数名由后端角色表提供（safety.md S6），角色缺失时下拉先置灰。
+    final toleranceName = controller.roleParam('compass.cal_fit');
+    final tolerance = toleranceName == null
+        ? null
+        : controller.parameter(toleranceName);
     // 失败原因优先用控制器里的一次性错误，其次用飞控回传的原因。
     final failure = controller.calibrationError ?? status.failureReason;
     return MacPanel(
@@ -39,15 +43,16 @@ class MagnetometerCalibrationCard extends StatelessWidget {
               const SizedBox(width: 10),
               SizedBox(
                 width: 150,
-                // 容差等级就是 COMPASS_CAL_FIT：4 = 最严、8 = 严格、16 = 默认、32 = 宽松。
-                // 选项同样来自飞控描述库，与 MP 的 mavlinkComboBoxfitness 一致。
+                // 容差等级角色为 `compass.cal_fit`（固件参数 COMPASS_CAL_FIT）：
+                // 4 = 最严、8 = 严格、16 = 默认、32 = 宽松。选项同样来自飞控描述库，
+                // 与 MP 的 mavlinkComboBoxfitness 一致。
                 child: AdaptivePopupButton<int>(
                   value: tolerance?.value.round() ?? 16,
                   options: enumOptionsFor(tolerance, const [4, 8, 16, 32]),
                   labelOf: (value) => enumLabelFor(tolerance, value),
-                  onChanged: controller.isConnected
+                  onChanged: controller.isConnected && toleranceName != null
                       ? (value) => controller.setParameter(
-                          'COMPASS_CAL_FIT',
+                          toleranceName,
                           value.toDouble(),
                         )
                       : null,

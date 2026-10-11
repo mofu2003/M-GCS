@@ -121,6 +121,12 @@ public:
     ParamCoverage coverage(const std::string& profile,
                            const std::vector<std::string>& parameter_names) const;
 
+    /// 语义角色 → 固件参数名（S6）：角色名由前端定义、与固件和机型无关，
+    /// 参数名只由插件（`ParameterDescriptors.json` 的 `roles` 段）提供。
+    /// 返回解析 `extends` 链后的完整角色表；`{n}` 是序号占位符模板，
+    /// 由调用方替换（如 `RC{n}_OPTION`）。没有角色表的 profile 返回空表。
+    std::map<std::string, std::string> roles(const std::string& profile) const;
+
 private:
     bool loaded_ = false;
     std::map<std::string, ParamDescriptor> descriptors_;
@@ -128,6 +134,10 @@ private:
     std::map<std::string, std::map<std::string, ParamDescriptor>> profile_descriptors_;
     std::map<std::string, std::map<std::string, GroupDescriptor>> profile_groups_;
     std::map<std::string, std::string> profile_extends_;
+    /// Semantic role -> firmware parameter name, per profile (before `extends`).
+    std::map<std::string, std::map<std::string, std::string>> role_sets_;
+    /// Role-table inheritance, separate from ParameterDescriptor `extends`.
+    std::map<std::string, std::string> role_extends_;
     /// Profiles whose metadata is a complete snapshot of the firmware's own
     /// parameter set (currently only PX4). Unknown parameters in these profiles
     /// must not inherit the ArduPilot default descriptors: that would show
@@ -148,6 +158,8 @@ private:
                                  std::map<std::string, GroupDescriptor>& groups);
     void apply_param_translation(cJSON* param_obj,
                                  std::map<std::string, ParamDescriptor>& descriptors);
+    /// Load the optional `roles` section (semantic role -> firmware parameter name).
+    void load_roles(cJSON* root);
     std::string find_json_file() const;
     std::string find_translation_file() const;
     /// Locate a data file next to the main descriptor JSON, then in the standard

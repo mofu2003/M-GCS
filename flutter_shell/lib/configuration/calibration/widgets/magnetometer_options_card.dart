@@ -17,9 +17,19 @@ class MagnetometerOptionsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final orientation = controller.parameter('COMPASS_ORIENT');
+    // 参数名只由后端角色表提供（safety.md S6）：角色标异步到位，缺失时控件先置灰。
+    final orientName = controller.roleParam('compass.orient');
+    final autoRotName = controller.roleParam('compass.auto_rot');
+    final autoDecName = controller.roleParam('compass.auto_dec');
+    final orientation = orientName == null
+        ? null
+        : controller.parameter(orientName);
     final autoRotation =
-        parameterNumeric(controller, 'COMPASS_AUTO_ROT', fallback: 0) != 0;
+        autoRotName != null &&
+        (controller.parameter(autoRotName)?.value ?? 0) != 0;
+    final autoDec =
+        autoDecName != null &&
+        (controller.parameter(autoDecName)?.value ?? 0) != 0;
     return MacPanel(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Row(
@@ -27,18 +37,10 @@ class MagnetometerOptionsCard extends StatelessWidget {
           Expanded(
             child: _MagnetometerToggle(
               label: '自动磁偏角',
-              value:
-                  parameterNumeric(
-                    controller,
-                    'COMPASS_AUTODEC',
-                    fallback: 0,
-                  ) !=
-                  0,
-              onChanged: controller.isConnected
-                  ? (value) => controller.setParameter(
-                      'COMPASS_AUTODEC',
-                      value ? 1 : 0,
-                    )
+              value: autoDec,
+              onChanged: controller.isConnected && autoDecName != null
+                  ? (value) =>
+                        controller.setParameter(autoDecName, value ? 1 : 0)
                   : null,
             ),
           ),
@@ -47,11 +49,9 @@ class MagnetometerOptionsCard extends StatelessWidget {
             child: _MagnetometerToggle(
               label: '自动检测安装方向',
               value: autoRotation,
-              onChanged: controller.isConnected
-                  ? (value) => controller.setParameter(
-                      'COMPASS_AUTO_ROT',
-                      value ? 1 : 0,
-                    )
+              onChanged: controller.isConnected && autoRotName != null
+                  ? (value) =>
+                        controller.setParameter(autoRotName, value ? 1 : 0)
                   : null,
             ),
           ),
@@ -62,14 +62,13 @@ class MagnetometerOptionsCard extends StatelessWidget {
               value: orientation?.value.round() ?? 0,
               options: enumOptionsFor(orientation, const [0]),
               labelOf: (value) => enumLabelFor(orientation, value),
-              // 自动检测安装方向打开时飞控会自己改写 COMPASS_ORIENT，
+              // 自动检测安装方向打开时飞控会自己改写安装方向参数，
               // 手动选择没有意义，所以置灰。
-              onChanged: autoRotation || !controller.isConnected
+              onChanged:
+                  autoRotation || !controller.isConnected || orientName == null
                   ? null
-                  : (value) => controller.setParameter(
-                      'COMPASS_ORIENT',
-                      value.toDouble(),
-                    ),
+                  : (value) =>
+                        controller.setParameter(orientName, value.toDouble()),
             ),
           ),
         ],

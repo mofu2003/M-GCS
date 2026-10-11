@@ -28,17 +28,35 @@ class _CalibrationPageState extends State<CalibrationPage> {
     length: _pageCount,
   );
 
+  /// 磁力计页两个枚举下拉用到的语义角色；实际参数名由后端角色表解析。
+  static const _metadataRoles = ['compass.orient', 'compass.cal_fit'];
+
+  final Set<String> _registeredMetadata = <String>{};
+
   @override
   void initState() {
     super.initState();
     _tabs.addListener(_handleTabChanged);
     _syncWaveformPolling();
-    // 磁力计标签页的两个下拉（安装方向、容差等级）选项来自飞控描述库，
-    // 不登记元数据的话下拉里连一个选项都没有。
-    widget.controller.loadParameterMetadata([
-      'COMPASS_ORIENT',
-      'COMPASS_CAL_FIT',
-    ]);
+    widget.controller.ensureParamRoles();
+    // 角色表异步到位：先登记一次，角色/机型变化时再补登记。
+    widget.controller.profileChanges.addListener(_registerMetadata);
+    _registerMetadata();
+  }
+
+  /// 磁力计标签页的两个下拉（安装方向、容差等级）选项来自飞控描述库，
+  /// 不登记元数据的话下拉里连一个选项都没有。参数名经角色表解析（safety.md S6）。
+  void _registerMetadata() {
+    if (!mounted) return;
+    final names = <String>{};
+    for (final role in _metadataRoles) {
+      final name = widget.controller.roleParam(role);
+      if (name != null) names.add(name);
+    }
+    final added = names.difference(_registeredMetadata);
+    if (added.isEmpty) return;
+    _registeredMetadata.addAll(added);
+    widget.controller.loadParameterMetadata(added);
   }
 
   void _handleTabChanged() {
@@ -56,6 +74,7 @@ class _CalibrationPageState extends State<CalibrationPage> {
 
   @override
   void dispose() {
+    widget.controller.profileChanges.removeListener(_registerMetadata);
     _tabs.removeListener(_handleTabChanged);
     widget.controller.setWaveformActive(false);
     _tabs.dispose();

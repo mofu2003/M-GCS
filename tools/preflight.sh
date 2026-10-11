@@ -21,7 +21,7 @@ usage() {
 默认执行：
   1. git diff --check HEAD
   2. UI 设计 token 扫描
-  3. 前端固件参数字面量守卫（S6 / KD-42）
+  3. 前端固件参数字面量守卫（S6）
   4. Flutter analyze + test
   5. 编译 build_check 并运行后端口禁
   6. macOS 上执行 flutter build macos --debug
@@ -278,7 +278,7 @@ fi
 echo "[preflight] 编译并发：${build_jobs}（可用 MGCORE_BUILD_JOBS 覆盖）"
 
 if [[ "$run_frontend" -eq 1 || "$want_firmware_literals" -eq 1 ]]; then
-  echo "[preflight] 检查前端固件参数字面量（S6 / KD-42）"
+  echo "[preflight] 检查前端固件参数字面量（S6）"
   "${PYTHON_BIN:-python3}" tools/check_firmware_literals.py
 fi
 

@@ -257,12 +257,80 @@ static void test_px4_metadata() {
           !db.get("px4", "BATT_MONITOR").found);
 }
 
+
+static void test_param_roles() {
+    fprintf(stderr, "\n[Group] Semantic parameter roles (S6)\n");
+
+    ParamDescriptors db(descriptor_path());
+    CHECK("role database loaded", db.is_loaded());
+
+    const auto copter = db.roles("copter");
+    CHECK("copter role table is populated", copter.size() >= 40);
+    CHECK("copter rc.map.roll",
+          copter.count("rc.map.roll") && copter.at("rc.map.roll") == "RCMAP_ROLL");
+    CHECK("copter flight_mode.slot template",
+          copter.count("flight_mode.slot") && copter.at("flight_mode.slot") == "FLTMODE{n}");
+    CHECK("copter rc.channel_option template",
+          copter.count("rc.channel_option") &&
+              copter.at("rc.channel_option") == "RC{n}_OPTION");
+    CHECK("copter pid.rate.roll.p",
+          copter.count("pid.rate.roll.p") && copter.at("pid.rate.roll.p") == "ATC_RAT_RLL_P");
+    CHECK("copter takeoff.alt_m",
+          copter.count("takeoff.alt_m") && copter.at("takeoff.alt_m") == "PILOT_TKO_ALT_M");
+    CHECK("copter legacy takeoff cm name is registered",
+          copter.count("takeoff.alt_cm_legacy") &&
+              copter.at("takeoff.alt_cm_legacy") == "PILOT_TKOFF_ALT");
+    CHECK("copter pos.ne.pos_p",
+          copter.count("pos.ne.pos_p") && copter.at("pos.ne.pos_p") == "PSC_NE_POS_P");
+    CHECK("copter inherits ardupilot arming.check",
+          copter.count("arming.check") && copter.at("arming.check") == "ARMING_CHECK");
+    CHECK("copter does not leak fixed-wing roles", copter.count("fixedwing.rate.roll.p") == 0);
+
+    const auto plane = db.roles("plane");
+    CHECK("plane role table is populated", plane.size() >= 90);
+    CHECK("plane frame.quadplane_enable",
+          plane.count("frame.quadplane_enable") &&
+              plane.at("frame.quadplane_enable") == "Q_ENABLE");
+    CHECK("plane fixedwing.rate.roll.p",
+          plane.count("fixedwing.rate.roll.p") &&
+              plane.at("fixedwing.rate.roll.p") == "RLL_RATE_P");
+    CHECK("plane QuadPlane hover PID",
+          plane.count("pid.rate.roll.p") && plane.at("pid.rate.roll.p") == "Q_A_RAT_RLL_P");
+    CHECK("plane loiter.radius",
+          plane.count("loiter.radius") && plane.at("loiter.radius") == "WP_LOITER_RAD");
+    CHECK("plane tecs.speed_weight",
+          plane.count("tecs.speed_weight") && plane.at("tecs.speed_weight") == "TECS_SPDWEIGHT");
+    CHECK("plane VTOL takeoff altitude (m)",
+          plane.count("takeoff.vtol_alt_m") &&
+              plane.at("takeoff.vtol_alt_m") == "Q_PILOT_TKO_ALT_M");
+    CHECK("plane VTOL takeoff fallback (cm legacy)",
+          plane.count("takeoff.vtol_alt_cm_legacy") &&
+              plane.at("takeoff.vtol_alt_cm_legacy") == "Q_PILOT_TKOFF_ALT");
+    CHECK("plane inherits ardupilot rc.map.roll",
+          plane.count("rc.map.roll") && plane.at("rc.map.roll") == "RCMAP_ROLL");
+    CHECK("plane does not leak copter-only roles", plane.count("takeoff.alt_m") == 0);
+
+    const auto vtol = db.roles("vtol");
+    CHECK("vtol inherits plane roles",
+          vtol.count("fixedwing.rate.roll.p") && vtol.at("fixedwing.rate.roll.p") == "RLL_RATE_P");
+    CHECK("vtol keeps QuadPlane hover PID",
+          vtol.count("pid.angle.roll.p") && vtol.at("pid.angle.roll.p") == "Q_A_ANG_RLL_P");
+    CHECK("vtol role count matches plane", vtol.size() == plane.size());
+
+    CHECK("rover inherits only the ardupilot base roles",
+          db.roles("rover").size() == db.roles("ardupilot").size());
+
+    CHECK("PX4 profile has no role table", db.roles("px4").empty());
+    CHECK("unknown profile has no role table", db.roles("does-not-exist").empty());
+}
+
 int main() {
     fprintf(stderr, "=== Parameter Descriptor Tests ===\n");
 
     test_ardupilot_profiles();
     test_chinese_translation_overlay();
     test_px4_metadata();
+    test_param_roles();
 
     fprintf(stderr, "\n=== Results: %d/%d passed ===\n", g_passed, g_passed + g_failed);
     return g_failed > 0 ? 1 : 0;

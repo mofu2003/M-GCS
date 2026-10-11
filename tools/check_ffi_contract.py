@@ -17,7 +17,7 @@ CAPABILITY_END = "<!-- capabilities:end -->"
 # 状态与说明在此处人工维护；两者一旦不一致，preflight 会让本文件失效并要求重跑
 # --write-catalog。取值：已交付 / 部分接入 / 待接入 / 内部能力。
 CAPABILITY_METADATA = {
-    "ffi_api_configuration.h": ("部分接入", "连接与校准子集已进入配置页；电调/舵机执行器、参数组描述符仍为 FFI 内部能力；7 个 PX4 便捷封装（执行器/模式槽/安全/调参）定位为内部能力、无独立 UI 计划——通用参数页配合 `px4` 描述符 profile 已覆盖同一批参数，见 `bridge/ffi/API_CATALOG.md` 的「已定性的内部公开导出」一节与 docs/features/px4-parity.md S5。"),
+    "ffi_api_configuration.h": ("部分接入", "连接与校准子集已进入配置页；参数组描述符（`mg_config_get_param_roles` 语义角色表）经 Dart 绑定进入 PID、校准、飞行模式与解锁检查等配置页，由前端按语义角色取固件参数名（safety.md S6）；电调/舵机执行器仍为 FFI 内部能力；7 个 PX4 便捷封装（执行器/模式槽/安全/调参）定位为内部能力、无独立 UI 计划——通用参数页配合 `px4` 描述符 profile 已覆盖同一批参数，见 `bridge/ffi/API_CATALOG.md` 的「已定性的内部公开导出」一节与 docs/features/px4-parity.md S5。"),
     "ffi_api_connection.h": ("已交付", "串口/UDP/TCP 连接、断开、链路状态与本地回环由连接面板和状态栏消费。"),
     "ffi_api_core.h": ("已交付", "生命周期、版本、错误信息与整机快照由前端启动路径消费。"),
     "ffi_api_environment.h": ("部分接入", "SITL 启停只服务开发与离线分析；地形缓存与剖面查询（`mg_terrain_query*`、`mg_terrain_cache_*`）已接前端 backend 与在线 provider（open-elevation），但尚未接入页面，前端入口待定，见 docs/features/survey-and-terrain.md。"),

@@ -10,6 +10,10 @@ extern "C" {
 MGCORE_API char* mg_config_get_groups(mg_core_t* core);
 MGCORE_API char* mg_config_get_group_descriptor(mg_core_t* core, const char* group_name);
 MGCORE_API char* mg_config_read_group(mg_core_t* core, const char* group_name);
+/// 语义角色 → 固件参数名。角色名由前端定义（与固件、机型无关），参数名只由
+/// 插件提供（safety.md S6）。返回 {"profile":"...","roles":{...}}；值里的
+/// `{n}` 是序号占位符，由调用方替换。没有角色表的固件返回空 roles，不是错误。
+MGCORE_API char* mg_config_get_param_roles(mg_core_t* core);
 MGCORE_API char* mg_config_validate_param(mg_core_t* core, const char* param_name, float value);
 MGCORE_API char* mg_config_get_presets(mg_core_t* core);
 MGCORE_API char* mg_config_apply_preset(mg_core_t* core, const char* preset_name);

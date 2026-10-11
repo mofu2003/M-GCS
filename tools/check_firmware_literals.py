@@ -7,12 +7,14 @@
 `core/src/config/PX4ParameterMetaData.json`（PX4）；前端直接写这些名字，
 换固件或升级参数表后就会出现「页面按旧名字读写、飞控里根本没有该参数」。
 
-历史遗留（KD-42）尚未清零，因此脚本带一份基线
-`tools/firmware_literals_baseline.json`：
+脚本带一份基线 `tools/firmware_literals_baseline.json`，用于记录「暂缓清理」的
+字面量：
 
 * 基线内已登记的字面量不阻断；
 * 基线外新出现的字面量直接失败，不新增欠账；
 * 基线内已消失的条目提示清理，用 `--update-baseline` 收缩基线。
+
+历史遗留 KD-42 已清零，基线为空 `{}`；基线机制保留，供以后按需登记新的暂缓项。
 
 用法：
     python3 tools/check_firmware_literals.py
@@ -84,7 +86,7 @@ def main() -> int:
     parser.add_argument(
         "--update-baseline",
         action="store_true",
-        help="把当前扫描结果写回基线（只应在 KD-42 收缩后使用）",
+        help="把当前扫描结果写回基线（只应在基线收缩后使用）",
     )
     args = parser.parse_args()
 
@@ -125,10 +127,13 @@ def main() -> int:
         )
         return 1
 
-    print(
-        f"[firmware-literals] 未新增固件参数字面量；"
-        f"KD-42 欠账 {len(current)} 个文件 / {total} 处"
-    )
+    if total == 0:
+        print("[firmware-literals] 通过：通用前端代码中没有固件专属参数字面量。")
+    else:
+        print(
+            f"[firmware-literals] 未新增固件参数字面量；"
+            f"基线内暂缓项 {len(current)} 个文件 / {total} 处"
+        )
     return 0
 
 

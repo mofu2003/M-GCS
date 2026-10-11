@@ -11,7 +11,7 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 任务上传的即时响应表示传输启动，最终结果需读取 operation 状态。
 符号检查不等于完整的参数类型或行为验证；真实交互另由 FFI smoke 和合约测试覆盖。
 
-公开函数：309；Flutter 绑定：131。
+公开函数：310；Flutter 绑定：132。
 
 ## ffi_api_configuration.h
 
@@ -32,6 +32,7 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `char* mg_config_apply_preset(mg_core_t* core, const char* preset_name);` | — |
 | `char* mg_config_get_group_descriptor(mg_core_t* core, const char* group_name);` | — |
 | `char* mg_config_get_groups(mg_core_t* core);` | — |
+| `char* mg_config_get_param_roles(mg_core_t* core);` | `flutter_shell/lib/connection/parameter_ffi_backend.dart` |
 | `char* mg_config_get_presets(mg_core_t* core);` | — |
 | `char* mg_config_read_group(mg_core_t* core, const char* group_name);` | — |
 | `char* mg_config_validate_param(mg_core_t* core, const char* param_name, float value);` | — |

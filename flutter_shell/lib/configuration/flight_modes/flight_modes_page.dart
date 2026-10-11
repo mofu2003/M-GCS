@@ -52,7 +52,10 @@ class _FlightModesPageState extends State<FlightModesPage> {
   /// 当前模式通道的实时 PWM；通道未知或没有遥控数据时返回 null。
   int? _modeChannelPwm(ConnectionController controller) {
     if (!controller.rcChannelsValid) return null;
-    final channel = controller.parameter('FLTMODE_CH')?.value.round();
+    final name = controller.roleParam('flight_mode.channel');
+    final channel = name == null
+        ? null
+        : controller.parameter(name)?.value.round();
     if (channel == null || channel < 1) return null;
     if (channel > controller.rcChannels.length) return null;
     return controller.rcChannels[channel - 1];
@@ -74,14 +77,42 @@ class _FlightModesPageState extends State<FlightModesPage> {
     return -1;
   }
 
+  final Set<String> _registeredMetadata = <String>{};
+
   @override
   void initState() {
     super.initState();
-    widget.controller.loadParameterMetadata([
-      'FLTMODE_CH',
-      for (var position = 1; position <= 6; position++) 'FLTMODE$position',
-      for (var channel = 5; channel <= 16; channel++) 'RC${channel}_OPTION',
-    ]);
+    widget.controller.ensureParamRoles();
+    // 枚举下拉的元数据要按角色解析后的真实参数名登记（safety.md S6）。
+    // 角色表异步到位，所以初始化登记一次，角色/机型变化时再补登记。
+    widget.controller.profileChanges.addListener(_registerMetadata);
+    _registerMetadata();
+  }
+
+  void _registerMetadata() {
+    if (!mounted) return;
+    final names = <String>{};
+    void add(String? name) {
+      if (name != null) names.add(name);
+    }
+
+    add(widget.controller.roleParam('flight_mode.channel'));
+    for (var position = 1; position <= 6; position++) {
+      add(widget.controller.roleParam('flight_mode.slot', index: position));
+    }
+    for (var channel = 5; channel <= 16; channel++) {
+      add(widget.controller.roleParam('rc.channel_option', index: channel));
+    }
+    final added = names.difference(_registeredMetadata);
+    if (added.isEmpty) return;
+    _registeredMetadata.addAll(added);
+    widget.controller.loadParameterMetadata(added);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.profileChanges.removeListener(_registerMetadata);
+    super.dispose();
   }
 
   @override
@@ -127,7 +158,10 @@ class _FlightModesPageState extends State<FlightModesPage> {
                         label: '模式通道',
                         labelWidth: 64,
                         child: ParameterValueControl(
-                          parameter: widget.controller.parameters['FLTMODE_CH'],
+                          parameter:
+                              widget.controller.parameters[widget.controller
+                                      .roleParam('flight_mode.channel') ??
+                                  ''],
                           controller: widget.controller,
                           popupWidth: fieldWidth < 300 ? 150 : 180,
                         ),
@@ -156,7 +190,12 @@ class _FlightModesPageState extends State<FlightModesPage> {
                   position: position,
                   pwmRange: pwmRanges[index].label,
                   active: index == activeIndex,
-                  parameter: widget.controller.parameters['FLTMODE$position'],
+                  parameter:
+                      widget.controller.parameters[widget.controller.roleParam(
+                            'flight_mode.slot',
+                            index: position,
+                          ) ??
+                          ''],
                   controller: widget.controller,
                 );
               },
@@ -185,7 +224,11 @@ class _FlightModesPageState extends State<FlightModesPage> {
                 return _AuxChannelCard(
                   channel: channel,
                   parameter:
-                      widget.controller.parameters['RC${channel}_OPTION'],
+                      widget.controller.parameters[widget.controller.roleParam(
+                            'rc.channel_option',
+                            index: channel,
+                          ) ??
+                          ''],
                   controller: widget.controller,
                   dividerColor: colors.divider,
                   active: rcSwitchActive(widget.controller, channel),

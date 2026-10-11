@@ -156,39 +156,42 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  test(
-    'PID model preserves Copter, fixed-wing and VTOL parameter namespaces',
-    () {
-      List<String> names(
-        VehicleControlProfile profile,
-        bool vtol,
-        PidLevel level,
-      ) => [
-        for (final section in pidSections(profile, vtol, level))
-          for (final card in section.cards)
-            for (final field in card.fields) field.parameterName,
-      ];
-      final copter = names(VehicleControlProfile.copter, false, PidLevel.basic);
-      final vtol = names(VehicleControlProfile.planeVtol, true, PidLevel.basic);
-      final plane = names(
-        VehicleControlProfile.fixedWing,
-        false,
-        PidLevel.basic,
-      );
-      expect(copter, containsAll(['ATC_ANG_RLL_P', 'ATC_RAT_PIT_I']));
-      expect(vtol, containsAll(['Q_A_ANG_RLL_P', 'Q_A_RAT_PIT_I']));
-      expect(plane, containsAll(['RLL_RATE_P', 'PTCH_RATE_I', 'YAW_RATE_D']));
-      expect(plane.any((name) => name.startsWith('ATC_')), isFalse);
-      expect(
-        names(VehicleControlProfile.fixedWing, false, PidLevel.extended),
-        contains('TECS_TIME_CONST'),
-      );
-      expect(
-        names(VehicleControlProfile.unknown, false, PidLevel.basic),
-        isEmpty,
-      );
-    },
-  );
+  test('PID model uses firmware-independent semantic roles', () {
+    // 模型里存的是语义角色，不是固件参数名：固件名只在后端角色表里出现
+    // （safety.md S6）。因此这里断言角色，而不是 `ATC_*`/`Q_A_*`/`RLL_RATE_*`。
+    List<String> roles(
+      VehicleControlProfile profile,
+      bool vtol,
+      PidLevel level,
+    ) => [
+      for (final section in pidSections(profile, vtol, level))
+        for (final card in section.cards)
+          for (final field in card.fields) field.role,
+    ];
+    final copter = roles(VehicleControlProfile.copter, false, PidLevel.basic);
+    final vtol = roles(VehicleControlProfile.planeVtol, true, PidLevel.basic);
+    final plane = roles(VehicleControlProfile.fixedWing, false, PidLevel.basic);
+    expect(copter, containsAll(['pid.angle.roll.p', 'pid.rate.pitch.i']));
+    // VTOL 的悬停侧与多旋翼引用同一组角色，固件差异由角色表消化。
+    expect(vtol, orderedEquals(copter));
+    expect(
+      plane,
+      containsAll([
+        'fixedwing.rate.roll.p',
+        'fixedwing.rate.pitch.i',
+        'fixedwing.rate.yaw.d',
+      ]),
+    );
+    expect(plane.any((role) => role.startsWith('pid.')), isFalse);
+    expect(
+      roles(VehicleControlProfile.fixedWing, false, PidLevel.extended),
+      contains('tecs.time_const'),
+    );
+    expect(
+      roles(VehicleControlProfile.unknown, false, PidLevel.basic),
+      isEmpty,
+    );
+  });
 
   test(
     'parameter helpers preserve metadata fallback and numeric formatting',

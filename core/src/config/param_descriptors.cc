@@ -368,8 +368,79 @@ bool ParamDescriptors::load_json(const std::string& path) {
         }
     }
 
+    load_roles(root);
+
     cJSON_Delete(root);
     return true;
+}
+
+/// 读取 `roles` 段：角色名由前端定义（与固件无关），参数名由插件提供（S6）。
+///
+/// 结构：
+///   "roles": { "profiles": { "ardupilot": {"roles": {...}},
+///                            "copter": {"extends": "ardupilot", "roles": {...}} } }
+/// 缺失该段不是错误：没有角色表的固件继续用其它已登记接口。
+void ParamDescriptors::load_roles(cJSON* root) {
+    if (!root) return;
+    cJSON* roles = cJSON_GetObjectItem(root, "roles");
+    if (!roles || !cJSON_IsObject(roles)) return;
+
+    cJSON* profiles = cJSON_GetObjectItem(roles, "profiles");
+    if (!profiles || !cJSON_IsObject(profiles)) return;
+
+    cJSON* profile_iter = nullptr;
+    cJSON_ArrayForEach(profile_iter, profiles) {
+        if (!profile_iter || !cJSON_IsObject(profile_iter) || !profile_iter->string) continue;
+        const auto profile_key = normalize_profile(profile_iter->string);
+
+        // `extends` 只在角色表内部解析，与描述符的 `profiles.<p>.extends`
+        // 相互独立（如 ardupilot 这一层在描述符里并不存在）。
+        cJSON* extends = cJSON_GetObjectItem(profile_iter, "extends");
+        if (extends && cJSON_IsString(extends) && extends->valuestring) {
+            role_extends_[profile_key] = normalize_profile(extends->valuestring);
+        }
+
+        cJSON* profile_roles = cJSON_GetObjectItem(profile_iter, "roles");
+        if (!profile_roles || !cJSON_IsObject(profile_roles)) continue;
+
+        auto& target = role_sets_[profile_key];
+        cJSON* role_iter = nullptr;
+        cJSON_ArrayForEach(role_iter, profile_roles) {
+            if (!role_iter || !role_iter->string) continue;
+            if (!cJSON_IsString(role_iter) || !role_iter->valuestring) continue;
+            if (role_iter->string[0] == '\0') continue;
+            target[role_iter->string] = role_iter->valuestring;
+        }
+    }
+
+    size_t total = 0;
+    for (const auto& entry : role_sets_) total += entry.second.size();
+    if (total > 0) {
+        MGC_LOG_INFO("[ParamDesc] Loaded %zu parameter roles across %zu profiles",
+                     total, role_sets_.size());
+    }
+}
+
+std::map<std::string, std::string> ParamDescriptors::roles(const std::string& profile) const {
+    // 从叶子沿 `extends` 冒泡到根，再自根向叶子合并：子 profile 覆盖父 profile。
+    std::vector<std::string> chain;
+    std::set<std::string> seen;
+    std::string current = normalize_profile(profile);
+    for (int depth = 0; depth < 8 && !current.empty(); depth++) {
+        if (!seen.insert(current).second) break;  // 配置里的环：到此为止
+        chain.push_back(current);
+        auto extends = role_extends_.find(current);
+        if (extends == role_extends_.end()) break;
+        current = extends->second;
+    }
+
+    std::map<std::string, std::string> merged;
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        auto own = role_sets_.find(*it);
+        if (own == role_sets_.end()) continue;
+        for (const auto& role : own->second) merged[role.first] = role.second;
+    }
+    return merged;
 }
 
 bool ParamDescriptors::load_translation_json(const std::string& path) {

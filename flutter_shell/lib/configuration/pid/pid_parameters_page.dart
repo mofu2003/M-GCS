@@ -37,11 +37,16 @@ class _PidParametersPageState extends State<PidParametersPage> {
 
   PidLevel get _level => _levelIndex == 0 ? PidLevel.basic : PidLevel.extended;
 
+  final Set<String> _registeredNames = <String>{};
+
   @override
   void initState() {
     super.initState();
     _levels.addListener(_handleLevelChanged);
-    _loadVisibleParameters();
+    widget.controller.ensureParamRoles();
+    widget.controller.parameterChanges.addListener(_syncVisibleParameters);
+    widget.controller.profileChanges.addListener(_syncVisibleParameters);
+    _syncVisibleParameters();
   }
 
   void _handleLevelChanged() {
@@ -52,6 +57,8 @@ class _PidParametersPageState extends State<PidParametersPage> {
 
   @override
   void dispose() {
+    widget.controller.parameterChanges.removeListener(_syncVisibleParameters);
+    widget.controller.profileChanges.removeListener(_syncVisibleParameters);
     _levels.removeListener(_handleLevelChanged);
     _levels.dispose();
     _scrollController.dispose();
@@ -61,21 +68,39 @@ class _PidParametersPageState extends State<PidParametersPage> {
   @override
   void didUpdateWidget(covariant PidParametersPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.parameterChanges.removeListener(_syncVisibleParameters);
+      oldWidget.controller.profileChanges.removeListener(_syncVisibleParameters);
+      widget.controller.parameterChanges.addListener(_syncVisibleParameters);
+      widget.controller.profileChanges.addListener(_syncVisibleParameters);
+      _registeredNames.clear();
+      widget.controller.ensureParamRoles();
+    }
     if (oldWidget.profile != widget.profile || oldWidget.vtol != widget.vtol) {
-      _loadVisibleParameters();
+      _syncVisibleParameters();
     }
   }
 
   /// 两个层级一次全部登记，切换档位时不再往返后端补元数据。
-  void _loadVisibleParameters() {
-    final names = <String>{
-      for (final level in PidLevel.values)
-        for (final section in pidSections(widget.profile, widget.vtol, level))
-          for (final card in section.cards)
-            for (final field in card.fields) field.parameterName,
-    }.toList(growable: false);
-    if (names.isEmpty) return;
-    widget.controller.loadParameterMetadata(names);
+  ///
+  /// 参数名要先经角色表解析：角色表异步到位，所以既在初始化时登记一次，
+  /// 也在角色表/机型变化时把新出现的名字补登记。
+  void _syncVisibleParameters() {
+    final resolved = <String>{};
+    for (final level in PidLevel.values) {
+      for (final section in pidSections(widget.profile, widget.vtol, level)) {
+        for (final card in section.cards) {
+          for (final field in card.fields) {
+            final name = widget.controller.roleParam(field.role);
+            if (name != null) resolved.add(name);
+          }
+        }
+      }
+    }
+    final added = resolved.difference(_registeredNames);
+    if (added.isEmpty) return;
+    _registeredNames.addAll(added);
+    widget.controller.loadParameterMetadata(added);
   }
 
   @override

@@ -18,6 +18,7 @@ final class ParameterFfiBackend {
     _getByName = _lookup2('mg_params_get_by_name');
     _getWriteStatus = _lookup1('mg_params_get_write_status');
     _readDescriptor = _lookup2('mg_config_read_param');
+    _getParamRoles = _lookup1('mg_config_get_param_roles');
     _write = _lookupWrite('mg_config_write_param');
   }
 
@@ -32,6 +33,7 @@ final class ParameterFfiBackend {
   late final Pointer<Utf8> Function(Pointer<Void>) _getWriteStatus;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _readDescriptor;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getParamRoles;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, double)
   _write;
 
@@ -92,6 +94,13 @@ final class ParameterFfiBackend {
   }
 
   Map<String, Object?> writeStatus() => _read(_getWriteStatus(_core));
+
+  /// 语义角色 → 固件参数名（`mg_config_get_param_roles`）。
+  ///
+  /// 角色名由前端定义、与固件和机型无关；参数名只由后端插件提供。返回值形如
+  /// `{"profile":"plane","roles":{"rc.map.roll":"RCMAP_ROLL",...}}`，值里的
+  /// `{n}` 是序号占位符，由调用方替换。没有角色表的固件返回空 roles。
+  Map<String, Object?> paramRoles() => _read(_getParamRoles(_core));
 
   Map<String, Object?> descriptor(String name) {
     final nativeName = name.toNativeUtf8();
