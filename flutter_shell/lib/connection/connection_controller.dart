@@ -997,7 +997,6 @@ final class ConnectionController extends ChangeNotifier {
   /// 语义角色 → 固件参数名（safety.md S6）。角色名由前端定义、与固件和机型
   /// 无关；参数名只由后端插件按当前 profile 提供。空表表示尚未加载。
   final Map<String, String> _paramRoles = <String, String>{};
-  String _paramRolesProfile = '';
   bool _paramRolesLoaded = false;
   Future<void>? _paramRolesLoad;
 
@@ -1402,11 +1401,6 @@ final class ConnectionController extends ChangeNotifier {
     return template.replaceAll('{n}', '$index');
   }
 
-  /// 当前固件的完整语义角色表（只读视图，便于诊断与测试）。
-  Map<String, String> get paramRoles => Map.unmodifiable(_paramRoles);
-  String get paramRolesProfile => _paramRolesProfile;
-  bool get paramRolesLoaded => _paramRolesLoaded;
-
   /// 拉取当前 profile 的语义角色表（safety.md S6）。
   ///
   /// 角色名由前端定义、与固件和机型无关；参数名只由后端插件提供。绑定
@@ -1424,37 +1418,37 @@ final class ConnectionController extends ChangeNotifier {
     final generation = _sessionGeneration;
     final targetSession = sessionId;
     late final Future<void> future;
-    future = Future<void>.sync(() {
-      try {
-        final result = parameterBackend.paramRoles();
-        if (_disposed ||
-            generation != _sessionGeneration ||
-            sessionId != targetSession) {
-          return;
-        }
-        final profile = result['profile']?.toString() ?? '';
-        final roles = result['roles'];
-        if (profile.isEmpty || roles is! Map) {
-          // 还没有机型/角色表：保持未加载，等下一次心跳后重试。
-          return;
-        }
-        _paramRoles.clear();
-        for (final entry in roles.entries) {
-          final role = entry.key?.toString() ?? '';
-          final name = entry.value?.toString() ?? '';
-          if (role.isNotEmpty && name.isNotEmpty) _paramRoles[role] = name;
-        }
-        _paramRolesProfile = profile;
-        _paramRolesLoaded = true;
-        _notifyProfileChanges();
-        _notifyParameterChanges();
-        notifyListeners();
-      } on Object {
-        // 角色表不可用时保持未加载；页面退回缺省行为，不挡住参数页。
-      }
-    }).whenComplete(() {
-      if (identical(_paramRolesLoad, future)) _paramRolesLoad = null;
-    });
+    future =
+        Future<void>.sync(() {
+          try {
+            final result = parameterBackend.paramRoles();
+            if (_disposed ||
+                generation != _sessionGeneration ||
+                sessionId != targetSession) {
+              return;
+            }
+            final profile = result['profile']?.toString() ?? '';
+            final roles = result['roles'];
+            if (profile.isEmpty || roles is! Map) {
+              // 还没有机型/角色表：保持未加载，等下一次心跳后重试。
+              return;
+            }
+            _paramRoles.clear();
+            for (final entry in roles.entries) {
+              final role = entry.key?.toString() ?? '';
+              final name = entry.value?.toString() ?? '';
+              if (role.isNotEmpty && name.isNotEmpty) _paramRoles[role] = name;
+            }
+            _paramRolesLoaded = true;
+            _notifyProfileChanges();
+            _notifyParameterChanges();
+            notifyListeners();
+          } on Object {
+            // 角色表不可用时保持未加载；页面退回缺省行为，不挡住参数页。
+          }
+        }).whenComplete(() {
+          if (identical(_paramRolesLoad, future)) _paramRolesLoad = null;
+        });
     _paramRolesLoad = future;
     return future;
   }
@@ -4039,7 +4033,6 @@ final class ConnectionController extends ChangeNotifier {
   /// by the caller so a target switch can restore its own snapshot afterward.
   void _resetParamRoles() {
     _paramRoles.clear();
-    _paramRolesProfile = '';
     _paramRolesLoaded = false;
     _paramRolesLoad = null;
   }
