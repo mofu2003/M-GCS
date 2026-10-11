@@ -112,6 +112,11 @@ public:
 
     bool is_loaded() const { return loaded_; }
 
+    /// True when the PX4 parameter metadata snapshot was loaded (profile `px4`).
+    bool has_px4_metadata() const {
+        return profile_descriptors_.find("px4") != profile_descriptors_.end();
+    }
+
     /// Summarize descriptor coverage for a list of loaded parameter names.
     ParamCoverage coverage(const std::string& profile,
                            const std::vector<std::string>& parameter_names) const;
@@ -123,6 +128,11 @@ private:
     std::map<std::string, std::map<std::string, ParamDescriptor>> profile_descriptors_;
     std::map<std::string, std::map<std::string, GroupDescriptor>> profile_groups_;
     std::map<std::string, std::string> profile_extends_;
+    /// Profiles whose metadata is a complete snapshot of the firmware's own
+    /// parameter set (currently only PX4). Unknown parameters in these profiles
+    /// must not inherit the ArduPilot default descriptors: that would show
+    /// ArduPilot metadata for a PX4 parameter the snapshot does not describe.
+    std::set<std::string> standalone_profiles_;
     std::set<std::string> fallback_translation_profiles_;
     std::map<std::string, std::string> fallback_translation_terms_;
     std::map<std::string, std::string> fallback_option_labels_;
@@ -140,6 +150,13 @@ private:
                                  std::map<std::string, ParamDescriptor>& descriptors);
     std::string find_json_file() const;
     std::string find_translation_file() const;
+    /// Locate a data file next to the main descriptor JSON, then in the standard
+    /// build/runtime locations. Empty string when not found.
+    std::string find_data_path(const std::string& filename,
+                               const std::string& anchor_path) const;
+    /// Load the optional PX4 parameter metadata snapshot into profile `px4`.
+    /// Missing file is not an error (ArduPilot-only installs stay supported).
+    bool load_px4_metadata(const std::string& anchor_path);
     std::string normalize_profile(const std::string& profile) const;
     ParamDescriptor get_from_profile(const std::string& profile,
                                      const std::string& param_name,

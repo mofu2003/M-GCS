@@ -12,7 +12,7 @@
  *   34=Aileron, 35=Elevator, 36=Rudder, ...
  */
 #include "ffi_internal.h"
-#include "json_serializers.h"
+#include "core/telemetry/json_serializers.h"
 
 #define MAX_SERVO_CHANNELS 16
 
@@ -33,7 +33,7 @@ MGCORE_API char* mg_actuator_get_mapping(mg_core_t* core) {
     auto* mav = get_active_mavlink(core);
     if (!mav) return to_cstr("[]");
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
 
     for (int ch = 1; ch <= MAX_SERVO_CHANNELS; ch++) {
@@ -46,7 +46,7 @@ MGCORE_API char* mg_actuator_get_mapping(mg_core_t* core) {
         // Skip channels with no config (function=0 and no min/max)
         if (func == 0 && min_val == 0 && max_val == 0) continue;
 
-        mg::bridge::JsonBuilder obj;
+        mg::core::telemetry::JsonBuilder obj;
         obj.begin_object();
         obj.field("channel", ch);
         obj.field("function_id", (int)func);
@@ -83,7 +83,7 @@ MGCORE_API char* mg_actuator_get_limits(mg_core_t* core, int channel) {
     CHECK_CORE(core);
     if (channel < 1 || channel > MAX_SERVO_CHANNELS) return to_cstr("{}");
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("channel", channel);
     jb.field("min", (int)ffi_get_param(core, ffi_fmt_param(servo_min_param_fmt, channel).c_str()));

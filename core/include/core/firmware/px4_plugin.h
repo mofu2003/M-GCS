@@ -26,18 +26,23 @@ public:
 
     const char* rtl_mode_name()       const override { return "Auto RTL"; }
     const char* land_mode_name()      const override { return "Auto Land"; }
-    const char* guided_mode_name()    const override { return "Offboard"; }
+    // QGC `PX4FirmwarePlugin::gotoFlightMode()` = AUTO_LOITER：PX4 的引导/Go To
+    // 动作保持在 Hold 模式，不是 Offboard（Offboard 只由外部控制程序占用）。
+    const char* guided_mode_name()    const override { return "Auto Loiter"; }
     const char* loiter_mode_name()    const override { return "Auto Loiter"; }
     const char* auto_mode_name()      const override { return "Auto Mission"; }
     const char* smart_rtl_mode_name() const override { return ""; }  // PX4 has no SmartRTL
 
+    // QGC `PX4FirmwarePlugin::isGuidedMode()`：当前模式是 pause/takeoff/land
+    // 三者之一时视为「引导动作进行中」。
     bool is_guided_mode(const std::string& mode_name) const override {
-        return mode_name == "Offboard";
+        return mode_name == "Auto Loiter" ||
+               mode_name == "Auto Takeoff" ||
+               mode_name == "Auto Land";
     }
 
     uint32_t capabilities(VehicleKind vehicle) const override;
     float minimum_takeoff_altitude(VehicleKind vehicle) const override;
-    float default_loiter_radius(VehicleKind vehicle) const override;
 
     std::string remap_param_name(VehicleKind /*vehicle*/, int /*major*/, int /*minor*/, const std::string& name) const override { return name; }
     std::string canonical_param_name(VehicleKind /*vehicle*/, int /*major*/, int /*minor*/, const std::string& name) const override { return name; }

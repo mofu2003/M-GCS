@@ -5,15 +5,16 @@
  * 配置补充：单参数读写（带元数据）、批量写入、任务请求。
  *
  * Implements mg_config_read_param, mg_config_write_param, mg_config_write_params,
- * and mg_mission_request which were declared in ffi_api.h but not yet implemented.
+ * along with configuration extensions.
  */
 #include "ffi_internal.h"
-#include "json_serializers.h"
+#include "core/telemetry/json_serializers.h"
 #include <cstring>
 // get_desc_db() shared via ffi_internal.h
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 
 // ================================================================
@@ -30,7 +31,7 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
     auto* mav = get_active_mavlink(core);
     auto val = mav ? mav->get_param_by_name(param_name) : std::nullopt;
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("param_name", desc.param_name);
     jb.field("display_name", desc.display_name);
@@ -56,10 +57,10 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
         (std::strncmp(param_name, "COM_FLTMODE", 11) == 0 &&
          param_name[11] >= '1' && param_name[11] <= '6' && param_name[12] == '\0');
     if (is_mode_slot) {
-        mg::bridge::JsonBuilder opts;
+        mg::core::telemetry::JsonBuilder opts;
         opts.begin_array();
         for (const auto& entry : get_active_flight_modes(core).mode_entries()) {
-            mg::bridge::JsonBuilder o;
+            mg::core::telemetry::JsonBuilder o;
             o.begin_object();
             o.field("value", static_cast<int>(entry.custom_mode));
             o.field("label", entry.name);
@@ -72,10 +73,10 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
     }
 
     if (!is_mode_slot && !desc.options.empty()) {
-        mg::bridge::JsonBuilder opts;
+        mg::core::telemetry::JsonBuilder opts;
         opts.begin_array();
         for (const auto& opt : desc.options) {
-            mg::bridge::JsonBuilder o;
+            mg::core::telemetry::JsonBuilder o;
             o.begin_object();
             o.field("value", opt.value);
             o.field("label", opt.label);
@@ -108,7 +109,6 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
     jb.end_object();
     return to_cstr(jb.str());
 }
-
 // ================================================================
 // mg_config_write_param - Write a single parameter with validation
 // ================================================================
@@ -119,10 +119,10 @@ MGCORE_API char* mg_config_write_param(mg_core_t* core, const char* param_name, 
     auto& db = get_desc_db();
     auto err = db.validate(ffi_param_profile(core), param_name, value);
     if (!err.empty()) {
-        mg::bridge::JsonBuilder jb;
+        mg::core::telemetry::JsonBuilder jb;
         jb.begin_object();
         jb.field("success", false);
-        jb.field("error", err);
+        write_error(jb, MG_ERROR_INVALID_PARAM, err);
         jb.end_object();
         return to_cstr(jb.str());
     }
@@ -147,7 +147,7 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
     CHECK_CORE(core); if (!get_active_mavlink(core)) return fail(MG_ERROR_NOT_CONNECTED, "no mavlink"); CHECK_CONNECTED(core);
     if (!json || json[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null json");
 
-    cJSON* root = cJSON_Parse(json);
+    cJSON* root = mg::core::json::parse(json);
     if (!root || !cJSON_IsArray(root)) {
         if (root) cJSON_Delete(root);
         return fail(MG_ERROR_INVALID_PARAM, "expected JSON array");
@@ -158,7 +158,7 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
     int failed_count = 0;
     auto& descriptor_db = get_desc_db();
     const auto profile = ffi_param_profile(core);
-    mg::bridge::JsonBuilder errors;
+    mg::core::telemetry::JsonBuilder errors;
     errors.begin_array();
 
     int size = cJSON_GetArraySize(root);
@@ -174,7 +174,7 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
 
         const auto validation_error = descriptor_db.validate(profile, pname, pvalue);
         if (!validation_error.empty()) {
-            mg::bridge::JsonBuilder error;
+            mg::core::telemetry::JsonBuilder error;
             error.begin_object();
             error.field("name", pname);
             error.field("reason", validation_error);
@@ -200,7 +200,7 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
     cJSON_Delete(root);
     errors.end_array();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", failed_count == 0);
     jb.field("written", written);
@@ -208,17 +208,4 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
     jb.raw_field("errors", errors.str());
     jb.end_object();
     return to_cstr(jb.str());
-}
-
-// ================================================================
-// mg_mission_request - Request mission download (alias for download)
-// ================================================================
-MGCORE_API char* mg_mission_request(mg_core_t* core, const char* json_request) {
-    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    (void)json_request;
-    auto* mav = get_active_mavlink(core);
-    if (mav->mission_download(active_target_sys(core), active_target_comp(core))) {
-        return ok();
-    }
-    return fail(MG_ERROR_SEND_FAILED, "mission download request failed to send");
 }

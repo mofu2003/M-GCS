@@ -54,6 +54,8 @@ enum FirmwareCapability : uint32_t {
     CapSetHome          = 1 << 5,  // Supports setting home position
     CapMotorTest        = 1 << 6,  // Supports motor test
     CapCalibration      = 1 << 7,  // Supports sensor calibration via MAVLink
+    CapRoi              = 1 << 8,  // Supports region-of-interest (QGC ROIModeCapability)
+    CapChangeHeading    = 1 << 9,  // Supports changing heading in place (QGC ChangeHeadingCapability)
 };
 
 /// A single available flight mode (name + number + settable flag)
@@ -129,11 +131,9 @@ public:
     // GUIDED Mode Parameters
     // ================================================================
 
-    /// Minimum takeoff altitude in meters (AGL).
+    /// Minimum takeoff altitude in meters (AGL). Exposed to the frontend via
+    /// `mg_firmware_get_type` as `minimum_takeoff_altitude_m`.
     virtual float minimum_takeoff_altitude(VehicleKind vehicle) const = 0;
-
-    /// Default loiter radius in meters.
-    virtual float default_loiter_radius(VehicleKind vehicle) const = 0;
 
     // ================================================================
     // Parameter Name Remapping (QGC FirmwarePlugin::remapParamNameMajorVersionMap_t)

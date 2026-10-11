@@ -14,7 +14,9 @@
 #pragma once
 
 #include "core/core_types.h"
-#include "core/transport/connection_manager.h"
+// A2：firmware 不能依赖 transport。这里只需要指针，前置声明即可，
+// 否则会形成 transport -> mavlink -> firmware -> transport 的模块环（KD-21）。
+namespace mg::core::transport { class ConnectionManager; }
 #include "core/platform/platform_mutex.h"
 #include <string>
 #include <functional>

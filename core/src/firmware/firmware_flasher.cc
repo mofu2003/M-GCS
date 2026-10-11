@@ -57,17 +57,23 @@ std::string FirmwareFlasher::download_firmware(const std::string& url, const std
 bool FirmwareFlasher::flash_firmware(mg::core::transport::ConnectionManager* conn,
                                       const std::string& firmware_path,
                                       FlashProgressCallback progress_cb) {
-    mg::core::platform::LockGuard lk(mtx_);
-    if (flashing_) return false;
-
-    flashing_ = true;
-    cancel_requested_ = false;
-    progress_cb_ = std::move(progress_cb);
+    (void)conn;
+    {
+        mg::core::platform::LockGuard lk(mtx_);
+        if (flashing_) return false;
+        flashing_ = true;
+        cancel_requested_ = false;
+        progress_cb_ = std::move(progress_cb);
+    }
 
     MGC_LOG_INFO("[Firmware] Flash: %s", firmware_path.c_str());
+    // 在锁外上报：report_progress() 自己取锁并复制回调（A3：不在锁内调用外部回调）。
     report_progress(0, "flash not implemented");
 
-    flashing_ = false;
+    {
+        mg::core::platform::LockGuard lk(mtx_);
+        flashing_ = false;
+    }
     return false;
 }
 
@@ -87,13 +93,20 @@ bool FirmwareFlasher::is_flashing() const {
 }
 
 void FirmwareFlasher::report_progress(uint8_t pct, const std::string& status) {
-    if (progress_cb_) {
-        FlashProgress prog;
-        prog.progress_pct = pct;
-        prog.status = status;
-        prog.complete = (pct >= 100);
-        progress_cb_(prog);
+    // 复制回调后立刻释放锁再调用（A3）。以前只有 flash_firmware 持锁调用它，
+    // 而 download_firmware 又不持锁读 progress_cb_，两处都不对。
+    FlashProgressCallback cb;
+    {
+        mg::core::platform::LockGuard lk(mtx_);
+        cb = progress_cb_;
     }
+    if (!cb) return;
+
+    FlashProgress prog;
+    prog.progress_pct = pct;
+    prog.status = status;
+    prog.complete = (pct >= 100);
+    cb(prog);
 }
 
 } // namespace mg::core::firmware

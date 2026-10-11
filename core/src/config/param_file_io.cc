@@ -11,6 +11,7 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 namespace mg::core::config {
 
@@ -146,7 +147,7 @@ std::string ParamFileIO::export_json(const std::vector<ParamEntry>& params) {
 std::vector<ParamEntry> ParamFileIO::import_json(const std::string& content) {
     std::vector<ParamEntry> result;
 
-    cJSON* root = cJSON_Parse(content.c_str());
+    cJSON* root = mg::core::json::parse(content.c_str());
     if (!root) return result;
 
     if (!cJSON_IsArray(root)) {

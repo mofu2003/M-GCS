@@ -82,7 +82,7 @@ static bool wait_params_loaded(mg_core_t* core, int timeout_ms) {
 }
 
 static void show_param(mg_core_t* core, const char* name) {
-    char* p = mg_param_get(core, name);
+    char* p = mg_params_get_by_name(core, name);
     std::fprintf(stderr, "[param:%s] %s\n", name, p ? p : "");
     free_json(p);
 }

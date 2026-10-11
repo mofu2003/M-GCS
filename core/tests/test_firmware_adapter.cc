@@ -1,4 +1,6 @@
 #include "core/firmware/firmware_adapter.h"
+#include "core/firmware/firmware_plugin.h"
+#include "core/firmware/modes/px4_modes.h"
 #include "core/firmware/param_remapping.h"
 
 #include <cstdio>
@@ -13,7 +15,9 @@ static int g_failed = 0;
 } while (0)
 
 using mg::core::firmware::FirmwareAdapter;
+using mg::core::firmware::FirmwareKind;
 using mg::core::firmware::ParamRemapping;
+using mg::core::firmware::create_firmware_plugin;
 
 static void test_ardupilot_vehicle_families() {
     fprintf(stderr, "\n[Group] ArduPilot normalized vehicle families\n");
@@ -179,6 +183,262 @@ static void test_mode_role_resolution() {
           !copter.encode_flight_mode("WarpDrive").has_value());
 }
 
+/// S1：PX4 只允许存在一份模式表。插件（可用模式列表 / 角色反查）与 adapter
+/// （状态栏解码）必须对任意 custom_mode 给出同一个名字，包括兜底串。
+static void test_px4_single_mode_table() {
+    fprintf(stderr, "\n[Group] PX4 single mode table (plugin vs adapter)\n");
+
+    FirmwareAdapter px4;
+    px4.detect(12, 2);  // MAV_AUTOPILOT_PX4, MAV_TYPE_QUADROTOR
+    auto plugin = create_firmware_plugin(FirmwareKind::PX4);
+    CHECK("PX4 plugin factory returns a plugin", plugin != nullptr);
+    if (!plugin) return;
+
+    uint32_t mismatches = 0;
+    uint32_t first_bad = 0;
+    for (uint32_t main = 0; main <= 0xFF; ++main) {
+        for (uint32_t sub = 0; sub <= 0xFF; ++sub) {
+            const uint32_t custom = (main << 16) | (sub << 24);
+            const std::string from_adapter = px4.decode_flight_mode(custom).mode_name;
+            const std::string from_plugin =
+                plugin->decode_flight_mode(px4.vehicle_kind(), custom);
+            if (from_adapter != from_plugin) {
+                if (mismatches == 0) first_bad = custom;
+                ++mismatches;
+            }
+        }
+    }
+    if (mismatches != 0) {
+        fprintf(stderr, "  first mismatch custom_mode=%u (%u total)\n",
+                first_bad, mismatches);
+    }
+    CHECK("every custom_mode decodes identically in plugin and adapter",
+          mismatches == 0);
+
+    // 已删除/保留的取值不再伪装成模式。
+    CHECK("AUTO sub-mode 7 (ex-RTGS) has no table entry",
+          px4.decode_flight_mode((4u << 16) | (7u << 24)).mode_name ==
+              "Mode(" + std::to_string((4u << 16) | (7u << 24)) + ")");
+    CHECK("AUTO sub-mode 0 falls back to a placeholder",
+          px4.decode_flight_mode((4u << 16)).mode_name == "Mode(262144)");
+    CHECK("main mode 0 decodes to a placeholder",
+          px4.decode_flight_mode(0).mode_name == "Mode(0)");
+}
+
+/// S1：PX4 1.14+ 新模式（Altitude Cruise、POSCTL Orbit/Slow、VTOL Takeoff、
+/// Guided Course）必须能编码、解码，且可设置标志符合决策。
+static void test_px4_new_modes() {
+    fprintf(stderr, "\n[Group] PX4 new modes encode/decode\n");
+
+    FirmwareAdapter px4;
+    px4.detect(12, 2);
+    auto plugin = create_firmware_plugin(FirmwareKind::PX4);
+    if (!plugin) {
+        CHECK("PX4 plugin available for new-mode test", false);
+        return;
+    }
+
+    struct Case {
+        uint8_t     main_mode;
+        uint8_t     sub_mode;
+        const char* name;
+        bool        can_be_set;
+    };
+    const Case cases[] = {
+        {11, 0,  "Altitude Cruise",    true },
+        {3,  1,  "Orbit",              false},
+        {3,  2,  "Position Slow",      true },
+        {4,  8,  "Auto Follow",        false},
+        {4,  9,  "Auto Precision Land", true },
+        {4,  10, "VTOL Takeoff",       false},
+        {4,  19, "Auto Guided Course", false},
+        {10, 0,  "Termination",        false},
+    };
+
+    for (const auto& c : cases) {
+        const uint32_t custom =
+            (static_cast<uint32_t>(c.main_mode) << 16) |
+            (static_cast<uint32_t>(c.sub_mode) << 24);
+
+        char label[160];
+        snprintf(label, sizeof(label), "PX4 %u/%u decodes to %s",
+                 c.main_mode, c.sub_mode, c.name);
+        CHECK(label, px4.decode_flight_mode(custom).mode_name == c.name);
+
+        snprintf(label, sizeof(label), "PX4 %s re-encodes to %u", c.name, custom);
+        const auto encoded = px4.encode_flight_mode(c.name);
+        CHECK(label, encoded.has_value() && *encoded == custom);
+
+        snprintf(label, sizeof(label), "PX4 plugin %s re-encodes to %u", c.name, custom);
+        CHECK(label, plugin->encode_flight_mode(px4.vehicle_kind(), c.name) ==
+                         static_cast<int>(custom));
+    }
+
+    // 可设置标志必须和数据表一致（表是唯一来源）。
+    for (const auto& c : cases) {
+        const uint32_t custom =
+            (static_cast<uint32_t>(c.main_mode) << 16) |
+            (static_cast<uint32_t>(c.sub_mode) << 24);
+        bool found = false;
+        bool settable = false;
+        for (const auto& entry : plugin->available_modes(px4.vehicle_kind())) {
+            if (entry.custom_mode == custom) {
+                found = true;
+                settable = entry.can_be_set;
+            }
+        }
+        char label[160];
+        snprintf(label, sizeof(label), "PX4 %s is listed with can_be_set=%s",
+                 c.name, c.can_be_set ? "true" : "false");
+        CHECK(label, found && settable == c.can_be_set);
+    }
+
+    bool has_rtgs = false;
+    for (const auto& entry : plugin->available_modes(px4.vehicle_kind())) {
+        if (entry.name == "Auto RTGS") has_rtgs = true;
+    }
+    CHECK("ex-RTGS is not offered as a mode", !has_rtgs);
+
+    // 既有模式名保持不变（前端与角色反查依赖这些字面量）。
+    CHECK("Auto RTL keeps its name",
+          px4.decode_flight_mode((4u << 16) | (5u << 24)).mode_name == "Auto RTL");
+    CHECK("Auto Land keeps its name",
+          px4.decode_flight_mode((4u << 16) | (6u << 24)).mode_name == "Auto Land");
+    CHECK("Auto Loiter keeps its name",
+          px4.decode_flight_mode((4u << 16) | (3u << 24)).mode_name == "Auto Loiter");
+    CHECK("Offboard keeps its name",
+          plugin->decode_flight_mode(px4.vehicle_kind(), 6u << 16) == "Offboard");
+}
+
+/// S1：COM_FLTMODE1..6 是参数枚举，不是 custom_mode，两张表不能互相反查。
+static void test_px4_fltmode_slot_table() {
+    fprintf(stderr, "\n[Group] PX4 COM_FLTMODE slot table\n");
+
+    using mg::core::firmware::modes::px4_fltmode_slot_name;
+    using mg::core::firmware::modes::px4_mode_table;
+
+    CHECK("slot -1 is Unassigned", std::string(px4_fltmode_slot_name(-1)) == "Unassigned");
+    CHECK("slot 0 is Manual", std::string(px4_fltmode_slot_name(0)) == "Manual");
+    CHECK("slot 7 is Offboard", std::string(px4_fltmode_slot_name(7)) == "Offboard");
+    CHECK("slot 8 is Stabilized", std::string(px4_fltmode_slot_name(8)) == "Stabilized");
+    CHECK("slot 11 is Land", std::string(px4_fltmode_slot_name(11)) == "Land");
+    CHECK("slot 13 is Precision Land",
+          std::string(px4_fltmode_slot_name(13)) == "Precision Land");
+    CHECK("slot 16 is Altitude Cruise",
+          std::string(px4_fltmode_slot_name(16)) == "Altitude Cruise");
+    CHECK("slot 100 is External Mode 1",
+          std::string(px4_fltmode_slot_name(100)) == "External Mode 1");
+    CHECK("unknown slot value has no name",
+          std::string(px4_fltmode_slot_name(99)).empty());
+
+    // custom_mode 的 Offboard 是 6<<16，参数枚举的 Offboard 是 7：必须不同。
+    size_t table_count = 0;
+    (void)px4_mode_table(table_count);
+    CHECK("mode table is non-empty", table_count > 0);
+    CHECK("slot enum and custom_mode enum are different values",
+          std::string(px4_fltmode_slot_name(7)) !=
+              std::string(mg::core::firmware::modes::decode_px4_mode(7)));
+}
+
+/// S2：PX4 引导语义与 capability 按机型细化（对齐 QGC `PX4FirmwarePlugin`）。
+static void test_px4_capabilities_and_guided_semantics() {
+    fprintf(stderr, "\n[Group] PX4 guided semantics + per-vehicle capabilities\n");
+
+    using mg::core::firmware::CapCalibration;
+    using mg::core::firmware::CapChangeHeading;
+    using mg::core::firmware::CapGuidedMode;
+    using mg::core::firmware::CapOrbit;
+    using mg::core::firmware::CapPause;
+    using mg::core::firmware::CapRoi;
+    using mg::core::firmware::CapSetHome;
+    using mg::core::firmware::CapTakeoff;
+    using mg::core::firmware::VehicleKind;
+
+    auto plugin = create_firmware_plugin(FirmwareKind::PX4);
+    CHECK("PX4 plugin created", plugin != nullptr);
+    if (!plugin) return;
+
+    // QGC `PX4FirmwarePlugin::gotoFlightMode()` = AUTO_LOITER；
+    // `isGuidedMode()` = pause/takeoff/land 三者之一。
+    CHECK("PX4 guided mode name is Auto Loiter",
+          std::string(plugin->guided_mode_name()) == "Auto Loiter");
+    CHECK("PX4 is_guided_mode accepts Auto Loiter",
+          plugin->is_guided_mode("Auto Loiter"));
+    CHECK("PX4 is_guided_mode accepts Auto Takeoff",
+          plugin->is_guided_mode("Auto Takeoff"));
+    CHECK("PX4 is_guided_mode accepts Auto Land",
+          plugin->is_guided_mode("Auto Land"));
+    CHECK("PX4 is_guided_mode rejects Offboard",
+          !plugin->is_guided_mode("Offboard"));
+    CHECK("PX4 is_guided_mode rejects Auto Mission",
+          !plugin->is_guided_mode("Auto Mission"));
+
+    // QGC PX4 不覆写基类默认最小起飞高度：10 ft = 3.048 m。
+    const float min_alt = plugin->minimum_takeoff_altitude(VehicleKind::Quadrotor);
+    CHECK("PX4 minimum takeoff altitude is 3.048 m",
+          min_alt > 3.04f && min_alt < 3.05f);
+
+    const uint32_t multi = plugin->capabilities(VehicleKind::Quadrotor);
+    CHECK("PX4 multirotor has guided/pause/calibration",
+          (multi & (CapGuidedMode | CapPause | CapCalibration)) ==
+              (CapGuidedMode | CapPause | CapCalibration));
+    CHECK("PX4 multirotor has takeoff + orbit",
+          (multi & (CapTakeoff | CapOrbit)) == (CapTakeoff | CapOrbit));
+    CHECK("PX4 multirotor has ROI + change heading",
+          (multi & (CapRoi | CapChangeHeading)) == (CapRoi | CapChangeHeading));
+    CHECK("PX4 multirotor exposes set home",
+          (multi & CapSetHome) != 0);
+
+    const uint32_t vtol = plugin->capabilities(VehicleKind::VTOL);
+    CHECK("PX4 VTOL has takeoff + orbit",
+          (vtol & (CapTakeoff | CapOrbit)) == (CapTakeoff | CapOrbit));
+    CHECK("PX4 VTOL has no ROI", (vtol & CapRoi) == 0);
+    CHECK("PX4 VTOL has no change heading", (vtol & CapChangeHeading) == 0);
+
+    const uint32_t fw = plugin->capabilities(VehicleKind::FixedWing);
+    CHECK("PX4 fixed wing has orbit", (fw & CapOrbit) != 0);
+    CHECK("PX4 fixed wing has no guided takeoff", (fw & CapTakeoff) == 0);
+
+    const uint32_t rover = plugin->capabilities(VehicleKind::GroundRover);
+    CHECK("PX4 rover has driven guided mode", (rover & CapGuidedMode) != 0);
+    CHECK("PX4 rover has no orbit", (rover & CapOrbit) == 0);
+    CHECK("PX4 rover has no ROI", (rover & CapRoi) == 0);
+}
+
+/// S2：ArduPilot 侧补上 ROI / ChangeHeading / Orbit 能力位，让 capability JSON
+/// 与地图入口一一对应（QGC `APMFirmwarePlugin::isCapable`）。
+static void test_ardupilot_capability_bits() {
+    fprintf(stderr, "\n[Group] ArduPilot capability bits\n");
+
+    using mg::core::firmware::CapChangeHeading;
+    using mg::core::firmware::CapOrbit;
+    using mg::core::firmware::CapRoi;
+    using mg::core::firmware::CapTakeoff;
+    using mg::core::firmware::VehicleKind;
+
+    auto plugin = create_firmware_plugin(FirmwareKind::ArduPilot);
+    CHECK("ArduPilot plugin created", plugin != nullptr);
+    if (!plugin) return;
+
+    const uint32_t copter = plugin->capabilities(VehicleKind::Quadrotor);
+    CHECK("AP copter has ROI", (copter & CapRoi) != 0);
+    CHECK("AP copter has change heading", (copter & CapChangeHeading) != 0);
+    CHECK("AP copter has orbit", (copter & CapOrbit) != 0);
+
+    const uint32_t plane = plugin->capabilities(VehicleKind::FixedWing);
+    CHECK("AP plane has ROI", (plane & CapRoi) != 0);
+    CHECK("AP plane has orbit", (plane & CapOrbit) != 0);
+    CHECK("AP plane has no change heading", (plane & CapChangeHeading) == 0);
+    CHECK("AP plane has no guided takeoff", (plane & CapTakeoff) == 0);
+
+    const uint32_t vtol = plugin->capabilities(VehicleKind::VTOL);
+    CHECK("AP VTOL has guided takeoff", (vtol & CapTakeoff) != 0);
+
+    const uint32_t sub = plugin->capabilities(VehicleKind::Submarine);
+    CHECK("AP sub has change heading", (sub & CapChangeHeading) != 0);
+    CHECK("AP sub has no orbit", (sub & CapOrbit) == 0);
+}
+
 int main() {
     fprintf(stderr, "=== Firmware Adapter Classification Tests ===\n");
 
@@ -187,6 +447,11 @@ int main() {
     test_ardupilot_parameter_remapping();
     test_mode_tables_match_upstream_enums();
     test_mode_role_resolution();
+    test_px4_single_mode_table();
+    test_px4_new_modes();
+    test_px4_fltmode_slot_table();
+    test_px4_capabilities_and_guided_semantics();
+    test_ardupilot_capability_bits();
 
     fprintf(stderr, "\n=== Results: %d/%d passed ===\n", g_passed, g_passed + g_failed);
     return g_failed > 0 ? 1 : 0;

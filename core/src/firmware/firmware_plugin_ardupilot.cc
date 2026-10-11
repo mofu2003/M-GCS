@@ -229,16 +229,20 @@ uint32_t ArduPilotPlugin::capabilities(VehicleKind vehicle) const {
     // Keep the base capabilities conservative; vehicle-specific behavior is
     // added below. In particular, fixed-wing and rover must not advertise
     // guided takeoff just because the firmware is ArduPilot.
-    uint32_t caps = CapSetHome | CapCalibration;
+    // QGC `APMFirmwarePlugin::isCapable`（APMFirmwarePlugin.cc:65-83）把 ROI 放进
+    // 基础集合，ChangeHeading 只给多旋翼和潜航器。CapOrbit 在 QGC APM 里没有对应
+    // 能力位，但 M-GCS 的环绕走通用 DO_ORBIT，旋翼/固定翼/VTOL 都支持，因此这里
+    // 只在确实支持 DO_ORBIT 的机型上声明，让 capability JSON 与地图入口一致。
+    uint32_t caps = CapSetHome | CapCalibration | CapRoi;
 
     ApVehicle av = classify_ap_vehicle(vehicle);
     switch (av) {
         case ApVehicle::Copter:
             caps |= CapGuidedMode | CapPause | CapTakeoff | CapSmartRTL |
-                    CapMotorTest;
+                    CapMotorTest | CapChangeHeading | CapOrbit;
             break;
         case ApVehicle::Plane: {
-            caps |= CapGuidedMode | CapPause | CapMotorTest;
+            caps |= CapGuidedMode | CapPause | CapMotorTest | CapOrbit;
             const uint8_t mav_type = static_cast<uint8_t>(vehicle);
             if (mav_type >= 19 && mav_type <= 24) {
                 caps |= CapTakeoff;  // VTOL takeoff
@@ -249,7 +253,7 @@ uint32_t ArduPilotPlugin::capabilities(VehicleKind vehicle) const {
             caps |= CapGuidedMode | CapPause | CapSmartRTL;
             break;
         case ApVehicle::Sub:
-            caps |= CapGuidedMode | CapPause;
+            caps |= CapGuidedMode | CapPause | CapChangeHeading;
             break;
         case ApVehicle::Tracker:
             caps |= CapGuidedMode;
@@ -267,13 +271,6 @@ float ArduPilotPlugin::minimum_takeoff_altitude(VehicleKind vehicle) const {
     return 3.048f;
 }
 
-float ArduPilotPlugin::default_loiter_radius(VehicleKind vehicle) const {
-    ApVehicle av = classify_ap_vehicle(vehicle);
-    switch (av) {
-        case ApVehicle::Plane: return 100.0f;  // QGC default for fixed wing
-        default:               return 50.0f;   // QGC default for copter
-    }
-}
 
 
 // ================================================================

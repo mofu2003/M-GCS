@@ -9,7 +9,7 @@
  * mg_config_get_presets, mg_config_apply_preset
  */
 #include "ffi_internal.h"
-#include "json_serializers.h"
+#include "core/telemetry/json_serializers.h"
 #include "core/config/config_descriptors.h"
 
 #include <algorithm>
@@ -74,7 +74,7 @@ mg::core::config::GroupDescriptor other_parameter_group(
 // Helper: serialize a ParamDescriptor to JSON
 // ================================================================
 static std::string param_desc_json(const mg::core::config::ParamDescriptor& desc) {
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("param_name", desc.param_name);
     jb.field("display_name", desc.display_name);
@@ -89,10 +89,10 @@ static std::string param_desc_json(const mg::core::config::ParamDescriptor& desc
     if (desc.increment != 0) jb.field("increment", desc.increment);
 
     if (!desc.options.empty()) {
-        mg::bridge::JsonBuilder opts;
+        mg::core::telemetry::JsonBuilder opts;
         opts.begin_array();
         for (const auto& opt : desc.options) {
-            mg::bridge::JsonBuilder o;
+            mg::core::telemetry::JsonBuilder o;
             o.begin_object();
             o.field("value", opt.value);
             o.field("label", opt.label);
@@ -125,19 +125,19 @@ static std::string config_read_group_json(mg_core_t* core,
     auto& db = get_desc_db();
     const auto profile = ffi_param_profile(core);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("name", group.name);
     jb.field("display_name", group.display_name);
     jb.field("description", group.description);
 
-    mg::bridge::JsonBuilder params;
+    mg::core::telemetry::JsonBuilder params;
     params.begin_array();
     for (const auto& pname : group.param_names) {
         auto desc = db.get(profile, pname);
         auto val = mav->get_param_by_name(pname.c_str());
 
-        mg::bridge::JsonBuilder p;
+        mg::core::telemetry::JsonBuilder p;
         p.begin_object();
         p.field("param_name", pname);
         p.field("display_name", desc.display_name);
@@ -180,11 +180,11 @@ MGCORE_API char* mg_config_get_groups(mg_core_t* core) {
     const auto profile = ffi_param_profile(core);
     auto names = db.get_group_names(profile);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
     for (const auto& n : names) {
         auto g = db.get_group(profile, n);
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("name", g.name);
         item.field("display_name", g.display_name);
@@ -195,7 +195,7 @@ MGCORE_API char* mg_config_get_groups(mg_core_t* core) {
     }
     const auto other = other_parameter_group(core, db, profile);
     if (!other.param_names.empty()) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("name", other.name);
         item.field("display_name", other.display_name);
@@ -218,13 +218,13 @@ MGCORE_API char* mg_config_get_group_descriptor(mg_core_t* core, const char* gro
         ? other_parameter_group(core, db, profile)
         : db.get_group(profile, group_name);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("name", group.name);
     jb.field("display_name", group.display_name);
     jb.field("description", group.description);
 
-    mg::bridge::JsonBuilder params;
+    mg::core::telemetry::JsonBuilder params;
     params.begin_array();
     for (const auto& pname : group.param_names) {
         auto desc = db.get(profile, pname);
@@ -263,16 +263,16 @@ MGCORE_API char* mg_config_read_group(mg_core_t* core, const char* group_name) {
 MGCORE_API char* mg_config_validate_param(mg_core_t* core, const char* param_name, float value) {
     CHECK_CORE(core);
     if (!param_name || param_name[0] == '\0') {
-        return to_cstr(R"({"valid":false,"error":"null param name"})");
+        return to_cstr(R"({"valid":false,"message":"null param name"})");
     }
 
     auto& db = get_desc_db();
     auto err = db.validate(ffi_param_profile(core), param_name, value);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("valid", err.empty());
-    if (!err.empty()) jb.field("error", err);
+    if (!err.empty()) jb.field("message", err);
     jb.end_object();
     return to_cstr(jb.str());
 }
@@ -304,14 +304,14 @@ MGCORE_API char* mg_config_get_metadata_coverage(mg_core_t* core) {
         ? (coverage.described * 100) / coverage.total
         : 0;
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("profile", profile);
     jb.field("total", coverage.total);
     jb.field("described", coverage.described);
     jb.field("fallback", coverage.fallback);
     jb.field("coverage_pct", percent);
-    mg::bridge::JsonBuilder missing;
+    mg::core::telemetry::JsonBuilder missing;
     missing.begin_array();
     for (const auto& name : coverage.missing) missing.append_string(name);
     missing.end_array();
@@ -325,10 +325,10 @@ MGCORE_API char* mg_config_get_presets(mg_core_t* core) {
 
     auto presets = mg::core::config::get_all_presets();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
     for (const auto& p : presets) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("name", p.name);
         item.field("description", p.description);
@@ -367,7 +367,7 @@ MGCORE_API char* mg_config_apply_preset(mg_core_t* core, const char* preset_name
                 }
             }
 
-            mg::bridge::JsonBuilder jb;
+            mg::core::telemetry::JsonBuilder jb;
             jb.begin_object();
             jb.field("success", failed == 0);
             jb.field("written", written);
