@@ -1,10 +1,13 @@
 /**
- * flight_log_replayer.cc - 飞行日志回放器实现
+ * flight_log_replayer.cc - 飞行日志回放器实现（.tlog）
  *
- * 解析 tlog 二进制格式，按时间戳回放 MAVLink 消息。
- * tlog 格式：[uint64_t timestamp_us][uint16_t length][uint8_t payload[length]]
+ * 解析 QGC / Mission Planner 通用 .tlog 格式：
+ *   [uint64 大端 Unix 微秒时间戳][完整 MAVLink 帧字节]
+ * 无长度前缀，逐字节喂给 mavlink_frame_char_buffer 直到组帧完成。
+ * 使用调用方自有的解析缓冲，不占用全局 MAVLINK_COMM_* 通道状态。
  */
 #include "core/log/flight_log_replayer.h"
+#include "core/log/tlog_format.h"
 #include "core/log/logging.h"
 #include <cstring>
 #include <thread>
@@ -30,22 +33,13 @@ bool FlightLogReplayer::open(const std::string& filepath) {
 
     // 获取文件大小
     fseek(file_, 0, SEEK_END);
-    info_.total_bytes = ftell(file_);
+    info_.total_bytes = static_cast<uint64_t>(ftell(file_));
     fseek(file_, 0, SEEK_SET);
 
-    // 扫描文件获取消息数和时间范围
-    uint64_t min_ts = UINT64_MAX, max_ts = 0;
-    uint64_t count = 0;
-    while (true) {
-        uint64_t ts;
-        uint16_t len;
-        if (fread(&ts, sizeof(ts), 1, file_) != 1) break;
-        if (fread(&len, sizeof(len), 1, file_) != 1) break;
-        if (len > 1024) break;  // 防止损坏文件
-
-        uint8_t payload[1024];
-        if (fread(payload, 1, len, file_) != len) break;
-
+    // 扫描以获得消息数与时间范围（使用自有解析缓冲，逐记录读）
+    uint64_t min_ts = UINT64_MAX, max_ts = 0, count = 0;
+    uint64_t ts = 0;
+    while (read_record(ts)) {
         if (ts < min_ts) min_ts = ts;
         if (ts > max_ts) max_ts = ts;
         count++;
@@ -57,9 +51,17 @@ bool FlightLogReplayer::open(const std::string& filepath) {
     info_.duration_us = (max_ts > min_ts) ? (max_ts - min_ts) : 0;
     first_ts_ = info_.first_timestamp;
 
-    // 回到文件开头
+    // 回到文件开头，重置回放状态
     fseek(file_, 0, SEEK_SET);
     header_read_ = false;
+    last_read_ts_ = 0;
+    current_ts_ = 0;
+    current_msg_ = {};
+    has_pending_ = false;
+    pending_ts_ = 0;
+    eof_ = false;
+    // truncated_ 保留上面的扫描结果：文件本身半条记录截断必须让调用方看到，
+    // 在这里清成 false 会把「文件不完整」伪装成正常打开。
 
     MGC_LOG_INFO("[Replayer] Opened %s: %llu messages, %.1f sec",
                  filepath.c_str(), (unsigned long long)count,
@@ -75,41 +77,62 @@ void FlightLogReplayer::close() {
     info_ = {};
     current_msg_ = {};
     current_ts_ = 0;
+    pending_ts_ = 0;
+    has_pending_ = false;
     first_ts_ = 0;
     last_read_ts_ = 0;
     header_read_ = false;
+    eof_ = false;
+    truncated_ = false;
+}
+
+bool FlightLogReplayer::read_record(uint64_t& timestamp_us) {
+    if (!file_) return false;
+
+    uint8_t ts_bytes[tlog::kTimestampBytes];
+    if (fread(ts_bytes, 1, tlog::kTimestampBytes, file_) != tlog::kTimestampBytes) {
+        eof_ = true;  // 正常结束（或末尾残半个时间戳）
+        return false;
+    }
+    timestamp_us = tlog::decode_timestamp(ts_bytes);
+
+    // 记录只含帧字节，没有长度前缀：逐字节解析到完整帧为止。
+    mavlink_message_t rx{};
+    mavlink_status_t rx_status{};
+    mavlink_message_t msg{};
+    mavlink_status_t status{};
+    int c;
+    while ((c = fgetc(file_)) != EOF) {
+        const uint8_t framing =
+            mavlink_frame_char_buffer(&rx, &rx_status, static_cast<uint8_t>(c), &msg, &status);
+        if (framing == MAVLINK_FRAMING_OK) {
+            current_msg_ = msg;
+            current_ts_ = timestamp_us;
+            return true;
+        }
+    }
+
+    // 读到了时间戳却没能组出完整帧：文件在记录中途被截断。
+    truncated_ = true;
+    return false;
 }
 
 bool FlightLogReplayer::next_message() {
     if (!file_) return false;
 
-    // 读取 tlog 记录头
-    uint64_t ts;
-    uint16_t len;
-    if (fread(&ts, sizeof(ts), 1, file_) != 1) return false;
-    if (fread(&len, sizeof(len), 1, file_) != 1) return false;
-    if (len > 1024) return false;
-
-    uint8_t payload[1024];
-    if (fread(payload, 1, len, file_) != len) return false;
-
-    // 解析 MAVLink 消息
-    mavlink_status_t status;
-    mavlink_message_t msg;
-    bool parsed = false;
-    for (uint16_t i = 0; i < len; i++) {
-        if (mavlink_parse_char(MAVLINK_COMM_0, payload[i], &msg, &status)) {
-            parsed = true;
-            break;
-        }
+    uint64_t ts = 0;
+    if (has_pending_) {
+        // seek() 的落点记录：它已经被解析过，这里直接产出，保证 seek 后的
+        // 第一条消息就是落点本身，而不是它后面的一条。
+        has_pending_ = false;
+        ts = pending_ts_;
+        current_msg_ = pending_msg_;
+        current_ts_ = pending_ts_;
+    } else if (!read_record(ts)) {
+        return false;
     }
 
-    if (!parsed) return false;
-
-    current_msg_ = msg;
-    current_ts_ = ts;
-
-    // 时间控制：按 speed_ 倍率等待
+    // 时间控制：按 speed_ 倍率等待（speed_ == 0 表示尽快，不等待）
     if (speed_ > 0 && last_read_ts_ > 0) {
         uint64_t delta_us = ts - last_read_ts_;
         if (delta_us > 0 && delta_us < 10000000) {  // 最多等 10 秒
@@ -136,8 +159,10 @@ bool FlightLogReplayer::next_message() {
 
 float FlightLogReplayer::progress() const {
     if (info_.duration_us == 0) return 0.0f;
+    if (current_ts_ <= first_ts_) return 0.0f;
     uint64_t elapsed = current_ts_ - first_ts_;
-    return static_cast<float>(elapsed) / static_cast<float>(info_.duration_us);
+    float p = static_cast<float>(elapsed) / static_cast<float>(info_.duration_us);
+    return p > 1.0f ? 1.0f : p;
 }
 
 bool FlightLogReplayer::seek(float percent) {
@@ -145,34 +170,51 @@ bool FlightLogReplayer::seek(float percent) {
     if (percent < 0) percent = 0;
     if (percent > 1) percent = 1;
 
-    uint64_t target_pos = static_cast<uint64_t>(info_.total_bytes * percent);
-    // 对齐到记录边界（跳到最近的完整记录）
-    fseek(file_, target_pos, SEEK_SET);
+    const uint64_t target_pos = static_cast<uint64_t>(info_.total_bytes * percent);
+    // 落点必须在文件内；percent == 1.0 指向末尾，没有可读记录。
+    if (target_pos >= info_.total_bytes) return false;
 
-    // 读取并丢弃直到找到有效的记录
-    uint64_t ts;
-    uint16_t len;
-    for (int attempts = 0; attempts < 100; attempts++) {
-        if (fread(&ts, sizeof(ts), 1, file_) != 1) return false;
-        if (fread(&len, sizeof(len), 1, file_) != 1) return false;
-        if (len > 0 && len <= 1024) {
-            // 看起来是有效的记录
-            fseek(file_, -(int)(sizeof(ts) + sizeof(len)), SEEK_CUR);
-            current_ts_ = ts;
-            return true;
+    // .tlog 记录之间没有长度前缀，从任意字节偏移无法可靠重同步（8 字节时间戳
+    // 前缀会被误当成帧字节喂进解析器，落点会随字节内容漂移）。因此按记录边界
+    // 顺序前进，找到第一条起点偏移 >= target_pos 的完整记录作为落点。
+    if (fseek(file_, 0, SEEK_SET) != 0) return false;
+    has_pending_ = false;
+    eof_ = false;
+    truncated_ = false;
+
+    uint64_t ts = 0;
+    bool found = false;
+    while (true) {
+        const long record_start = ftell(file_);
+        if (record_start < 0) return false;
+        if (static_cast<uint64_t>(record_start) >= target_pos) {
+            if (!read_record(ts)) break;  // 落点之前文件就结束了
+            pending_msg_ = current_msg_;
+            pending_ts_ = ts;
+            has_pending_ = true;
+            found = true;
+            break;
         }
-        // 跳过这个字节继续搜索
-        fseek(file_, -(int)(sizeof(ts) + sizeof(len) - 1), SEEK_CUR);
+        if (!read_record(ts)) break;  // 目标偏移超出最后一条记录
     }
-    return false;
+    if (!found) return false;
+
+    current_ts_ = pending_ts_;
+    last_read_ts_ = 0;  // 跨段跳转后不按两段之间的间隔等待
+    header_read_ = false;
+    return true;
 }
 
 void FlightLogReplayer::rewind() {
     if (file_) {
         fseek(file_, 0, SEEK_SET);
         current_ts_ = 0;
+        pending_ts_ = 0;
+        has_pending_ = false;
         last_read_ts_ = 0;
         header_read_ = false;
+        eof_ = false;
+        truncated_ = false;
     }
 }
 

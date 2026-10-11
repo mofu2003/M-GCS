@@ -1,9 +1,9 @@
 /**
- * mavlink_log_writer.h - MAVLink log recording
- * MAVLink 日志 — 录制原始 MAVLink 帧到 .bin 文件，兼容 MP/QGC
+ * mavlink_log_writer.h - MAVLink 遥测日志录制（.tlog）
  *
- * Records raw MAVLink frames to .bin files for offline analysis.
- * Compatible with MissionPlanner and QGC log formats.
+ * 把链路上的原始 MAVLink 帧写成 QGC / Mission Planner 通用的 .tlog 文件，
+ * 每条记录为 `[uint64 大端 Unix 微秒时间戳][完整 MAVLink 帧字节]`。
+ * 格式契约见 core/log/tlog_format.h，回放由 FlightLogReplayer 负责。
  */
 #pragma once
 

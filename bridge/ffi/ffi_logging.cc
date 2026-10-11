@@ -4,7 +4,7 @@
  *
  * 飞行日志：启停记录、事件采集、日志条目查询。
  *
- * mg_log_start, mg_log_stop, mg_log_get_status, mg_log_get_events
+ * mg_event_log_start, mg_event_log_stop, mg_event_log_get_status, mg_event_log_get_events
  *
  * FlightLoggingService captures STATUSTEXT, connection events, and command
  * results as timestamped JSON events for the flight log page.
@@ -12,13 +12,12 @@
  * Event storage lives in mg_core_t::log_events (guarded by core_mtx).
  */
 #include "ffi_internal.h"
-#include "telemetry_bindings.h"
 
 // ================================================================
 // Public FFI Functions
 // ================================================================
 
-MGCORE_API char* mg_log_start(mg_core_t* core) {
+MGCORE_API char* mg_event_log_start(mg_core_t* core) {
     CHECK_CORE(core);
 
     // Set up the write callback to store events in mg_core_t
@@ -41,23 +40,23 @@ MGCORE_API char* mg_log_start(mg_core_t* core) {
     return fail(MG_ERROR_CALIBRATION, "already active");
 }
 
-MGCORE_API char* mg_log_stop(mg_core_t* core) {
+MGCORE_API char* mg_event_log_stop(mg_core_t* core) {
     CHECK_CORE(core);
     get_active_flight_log(core).stop();
     return ok();
 }
 
-MGCORE_API char* mg_log_get_status(mg_core_t* core) {
+MGCORE_API char* mg_event_log_get_status(mg_core_t* core) {
     CHECK_CORE(core);
     return to_cstr(get_active_flight_log(core).status_json());
 }
 
-MGCORE_API char* mg_log_get_events(mg_core_t* core) {
+MGCORE_API char* mg_event_log_get_events(mg_core_t* core) {
     CHECK_CORE(core);
 
     mg::core::platform::LockGuard lk(core->core_mtx);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
     for (const auto& e : core->log_events) {
         jb.append_json(e);

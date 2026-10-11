@@ -1,18 +1,17 @@
 /**
- * mavlink_log_writer.cc - MAVLink log recording implementation
- * MAVLink 日志实现 — 原始帧录制，兼容 MP/QGC 格式
+ * mavlink_log_writer.cc - MAVLink 遥测日志录制实现
  *
- * Writes raw MAVLink frames with file headers compatible with
- * MissionPlanner/QGC log viewers.
+ * 每条记录：[uint64 大端 Unix 微秒时间戳][完整 MAVLink 帧字节]。
+ * 不再写任何文件头：QGC / Mission Planner 的 .tlog 没有 magic 头，直接以
+ * 第一条记录开头；旧版写的 `3E 00 00 00` + uint32 长度前缀既不是 tlog，
+ * 也无法被回放器或 QGC/MP 读取。
  */
 #include "core/settings/mavlink_log_writer.h"
+#include "core/log/tlog_format.h"
 #include "core/log/logging.h"
 #include <cstring>
 
 namespace mg::core::settings {
-
-// MAVLink log file magic bytes (PX4 .ulog compatible header)
-static const uint8_t kLogMagic[] = {0x3E, 0x00, 0x00, 0x00}; // ">"
 
 MavlinkLogWriter::MavlinkLogWriter() = default;
 
@@ -30,16 +29,8 @@ bool MavlinkLogWriter::start_recording(const std::string& filepath) {
         return false;
     }
 
-    // Write file header
-    if (fwrite(kLogMagic, 1, sizeof(kLogMagic), file_) != sizeof(kLogMagic)) {
-        MGC_LOG_ERROR("[MavLog] Failed to write header");
-        fclose(file_);
-        file_ = nullptr;
-        return false;
-    }
-
     filepath_ = filepath;
-    bytes_written_ = sizeof(kLogMagic);
+    bytes_written_ = 0;  // .tlog 无文件头，第一条记录即首帧
 
     MGC_LOG_INFO("[MavLog] Recording to %s", filepath.c_str());
     return true;
@@ -62,24 +53,28 @@ void MavlinkLogWriter::stop_recording_locked() {
 
 void MavlinkLogWriter::write_frame(const uint8_t* data, size_t size) {
     mg::core::platform::LockGuard lk(mtx_);
-    if (!file_) return;
+    if (!file_ || !data || size == 0) return;
 
-    uint32_t len = static_cast<uint32_t>(size);
+    // tlog 记录 = 8 字节大端时间戳 + 完整 MAVLink 帧字节，无长度前缀。
+    const uint64_t timestamp_us = mg::core::log::tlog::now_unix_micros();
+    uint8_t ts_bytes[mg::core::log::tlog::kTimestampBytes];
+    mg::core::log::tlog::encode_timestamp(timestamp_us, ts_bytes);
 
-    // Merge header + payload into single write to reduce syscalls.
-    // Most MAVLink frames are < 300 bytes, so 4KB stack buffer is safe.
+    // 单次写入减少 syscall：绝大多数帧 < 300 字节，4KB 栈缓冲足够。
     bool write_ok = true;
-    if (size <= 4092) {
-        uint8_t buf[4 + 4092];
-        memcpy(buf, &len, 4);
-        memcpy(buf + 4, data, size);
-        write_ok = (fwrite(buf, 1, 4 + size, file_) == 4 + size);
+    if (size <= 4096 - mg::core::log::tlog::kTimestampBytes) {
+        uint8_t buf[4096];
+        memcpy(buf, ts_bytes, mg::core::log::tlog::kTimestampBytes);
+        memcpy(buf + mg::core::log::tlog::kTimestampBytes, data, size);
+        write_ok = (fwrite(buf, 1, mg::core::log::tlog::kTimestampBytes + size, file_) ==
+                    mg::core::log::tlog::kTimestampBytes + size);
     } else {
-        write_ok = (fwrite(&len, 4, 1, file_) == 1) &&
+        write_ok = (fwrite(ts_bytes, 1, mg::core::log::tlog::kTimestampBytes, file_) ==
+                    mg::core::log::tlog::kTimestampBytes) &&
                    (fwrite(data, 1, size, file_) == size);
     }
     if (write_ok) {
-        bytes_written_ += 4 + size;
+        bytes_written_ += mg::core::log::tlog::kTimestampBytes + size;
     } else {
         MGC_LOG_ERROR("[MavLog] Write failed (%zu bytes lost)", size);
     }

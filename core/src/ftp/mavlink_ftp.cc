@@ -49,7 +49,9 @@ MavlinkFtpClient::MavlinkFtpClient(SendFn send_fn)
     : send_fn_(std::move(send_fn)) {}
 
 MavlinkFtpClient::~MavlinkFtpClient() {
-    cancel();
+    // 后台线程必须在成员析构前退出：worker_ 是 joinable 的话，
+    // std::thread 析构会直接 std::terminate。shutdown() 先 cancel 再 join。
+    shutdown();
 }
 
 bool MavlinkFtpClient::send_ftp_request(uint8_t target_sys,
@@ -184,12 +186,142 @@ void MavlinkFtpClient::handle_ftp_message(
 
 void MavlinkFtpClient::cancel() {
     cancelled_ = true;
+    cancel_requested_ = true;
     {
         std::lock_guard<std::mutex> lock(mtx_);
         response_pending_ = false;
     }
     cv_.notify_all();
     state_ = FtpState::Idle;
+}
+
+// ================================================================
+// 异步传输
+// ================================================================
+
+bool MavlinkFtpClient::start_task(FtpTask task, uint8_t target_sys,
+                                  uint8_t target_comp,
+                                  const std::string& remote_path,
+                                  const std::string& local_path) {
+    if (worker_active_.load()) return false;
+    if (remote_path.empty() || remote_path.size() > kMaxReadSize) return false;
+    // 回收上一次已经结束的线程，避免 start_* 反复调用时堆积 joinable 线程。
+    if (worker_.joinable()) worker_.join();
+
+    {
+        std::lock_guard<std::mutex> lock(status_mtx_);
+        status_ = FtpTransferStatus{};
+        status_.task = task;
+        status_.active = true;
+        status_.target_sys = target_sys;
+        status_.target_comp = target_comp;
+        status_.remote_path = remote_path;
+        status_.local_path = local_path;
+    }
+    progress_bytes_ = 0;
+    progress_total_ = 0;
+    // 新传输不继承上一次的取消请求；窗口期取消由 cancel_requested_ 接力。
+    cancel_requested_ = false;
+    // worker_active_ 必须在 spawn 之前置位：start 与 run_task 之间存在窗口，
+    // 否则 is_busy()/transfer_active() 会短暂误报空闲。
+    worker_active_ = true;
+    worker_ = std::thread([this, task, target_sys, target_comp, remote_path,
+                           local_path]() {
+        run_task(task, target_sys, target_comp, remote_path, local_path);
+    });
+    return true;
+}
+
+void MavlinkFtpClient::run_task(FtpTask task, uint8_t target_sys,
+                                uint8_t target_comp,
+                                const std::string& remote_path,
+                                const std::string& local_path) {
+    FtpResult result;
+    std::vector<DirEntry> entries;
+    const auto progress = [this](uint32_t received, uint32_t total) {
+        progress_bytes_ = received;
+        progress_total_ = total;
+    };
+
+    switch (task) {
+        case FtpTask::List:
+            entries = list_directory(target_sys, target_comp, remote_path,
+                                     &result);
+            break;
+        case FtpTask::Download:
+            download_file(target_sys, target_comp, remote_path, local_path,
+                          progress, &result);
+            break;
+        case FtpTask::Upload:
+            upload_file(target_sys, target_comp, local_path, remote_path,
+                        progress, &result);
+            break;
+        case FtpTask::None:
+        default:
+            result.success = false;
+            result.error = "invalid ftp task";
+            break;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(status_mtx_);
+        status_.active = false;
+        status_.finished = true;
+        status_.success = result.success;
+        // 取消是「传输因 cancel() 提前结束」，与超时/被拒要分开，
+        // 否则界面会把用户主动取消显示成故障。
+        status_.cancelled = cancelled_.load();
+        status_.error_code = result.error_code;
+        status_.error = result.error;
+        status_.entries = std::move(entries);
+    }
+    worker_active_ = false;
+    status_cv_.notify_all();
+}
+
+MavlinkFtpClient::FtpTransferStatus MavlinkFtpClient::transfer_status() const {
+    std::lock_guard<std::mutex> lock(status_mtx_);
+    FtpTransferStatus snapshot = status_;
+    // 进度是高频更新的原子量，结果是低频写入的字段：分开取，避免每个
+    // 数据块都去抢 status_mtx_。
+    snapshot.transferred_bytes = progress_bytes_.load();
+    snapshot.total_bytes = progress_total_.load();
+    return snapshot;
+}
+
+bool MavlinkFtpClient::wait_for_completion(int timeout_ms) {
+    std::unique_lock<std::mutex> lock(status_mtx_);
+    return status_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+                               [this]() { return !worker_active_.load(); });
+}
+
+void MavlinkFtpClient::shutdown() {
+    cancel();
+    if (worker_.joinable()) worker_.join();
+}
+
+bool MavlinkFtpClient::start_list_directory(uint8_t target_sys,
+                                            uint8_t target_comp,
+                                            const std::string& path) {
+    return start_task(FtpTask::List, target_sys, target_comp, path, {});
+}
+
+bool MavlinkFtpClient::start_download_file(uint8_t target_sys,
+                                           uint8_t target_comp,
+                                           const std::string& remote_path,
+                                           const std::string& local_path) {
+    if (local_path.empty()) return false;
+    return start_task(FtpTask::Download, target_sys, target_comp, remote_path,
+                      local_path);
+}
+
+bool MavlinkFtpClient::start_upload_file(uint8_t target_sys,
+                                         uint8_t target_comp,
+                                         const std::string& local_path,
+                                         const std::string& remote_path) {
+    if (local_path.empty()) return false;
+    return start_task(FtpTask::Upload, target_sys, target_comp, remote_path,
+                      local_path);
 }
 
 std::vector<DirEntry> MavlinkFtpClient::list_directory(
@@ -208,7 +340,7 @@ std::vector<DirEntry> MavlinkFtpClient::list_directory(
     }
 
     state_ = FtpState::Listing;
-    cancelled_ = false;
+    cancelled_ = cancel_requested_.exchange(false);
     dir_entries_.clear();
 
     auto fail = [&](const std::string& error, uint8_t error_code = 0) {
@@ -307,7 +439,7 @@ bool MavlinkFtpClient::download_file(
     }
 
     state_ = FtpState::Downloading;
-    cancelled_ = false;
+    cancelled_ = cancel_requested_.exchange(false);
     file_data_.clear();
 
     auto finish_failure = [&](const std::string& error,
@@ -451,7 +583,7 @@ bool MavlinkFtpClient::upload_file(
     input.seekg(0, std::ios::beg);
 
     state_ = FtpState::Uploading;
-    cancelled_ = false;
+    cancelled_ = cancel_requested_.exchange(false);
     session_ = 0;
     auto finish_failure = [&](const std::string& error,
                               uint8_t error_code = 0) {
