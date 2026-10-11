@@ -2,12 +2,11 @@
 /**
  * ffi_connection.cc - 生命周期、事件、连接与数据流相关 FFI
  *
- * 生命周期管理、事件回调、连接建立/断开、数据流请求。
+ * 生命周期管理、事件回调、连接建立/断开、数据流间隔设置。
  *
  * mg_create, mg_destroy, mg_set_event_callback,
  * mg_connection_list_ports, mg_connection_connect, mg_connection_disconnect,
- * mg_connection_get_state, mg_stream_request, mg_stream_set_interval,
- * mg_send_heartbeat
+ * mg_connection_get_state, mg_stream_set_interval
  */
 #include "ffi_internal.h"
 #include "core/platform/platform_filesystem.h"
@@ -171,18 +170,6 @@ MGCORE_API char* mg_connection_disconnect(mg_core_t* core) {
 }
 
 
-MGCORE_API char* mg_connection_connect_tcp(mg_core_t* core, const char* endpoint) {
-    CHECK_CORE(core);
-    if (!endpoint || endpoint[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null endpoint");
-
-    std::string uri = "tcp://";
-    uri += endpoint;
-    const int vehicle_id = mg_vehicle_open(core, uri.c_str());
-    if (vehicle_id < 0) return fail(MG_ERROR_SEND_FAILED, "tcp connect failed");
-    core->vehicles.set_active_vehicle(vehicle_id);
-    return ok();
-}
-
 MGCORE_API char* mg_connection_connect_udp(mg_core_t* core, const char* endpoint) {
     CHECK_CORE(core);
     if (!endpoint || endpoint[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null endpoint");
@@ -195,16 +182,6 @@ MGCORE_API char* mg_connection_connect_udp(mg_core_t* core, const char* endpoint
     return ok();
 }
 
-MGCORE_API char* mg_stream_request(mg_core_t* core, int stream_id, int rate_hz) {
-    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
-    if (mav && mav->request_data_stream(active_target_sys(core), active_target_comp(core),
-            static_cast<uint8_t>(stream_id), static_cast<uint16_t>(rate_hz))) {
-        return ok();
-    }
-    return fail(MG_ERROR_SEND_FAILED, "send failed");
-}
-
 MGCORE_API char* mg_stream_set_interval(mg_core_t* core, int msg_id, int interval_us) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     if (msg_id < 0) return fail(MG_ERROR_INVALID_PARAM, "invalid message id");
@@ -214,12 +191,5 @@ MGCORE_API char* mg_stream_set_interval(mg_core_t* core, int msg_id, int interva
             static_cast<uint32_t>(msg_id), static_cast<int32_t>(interval_us))) {
         return ok();
     }
-    return fail(MG_ERROR_SEND_FAILED, "send failed");
-}
-
-MGCORE_API char* mg_send_heartbeat(mg_core_t* core) {
-    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
-    if (mav && mav->send_heartbeat()) return ok();
     return fail(MG_ERROR_SEND_FAILED, "send failed");
 }

@@ -7,7 +7,6 @@
 #define MGCORE_EXPORTS
 #include "ffi_api.h"
 #include "core/mission/survey_calculator.h"
-#include "core/mission/mission_manager.h"
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>

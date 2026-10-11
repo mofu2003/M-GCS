@@ -374,13 +374,16 @@ MGCORE_API char* mg_command_landing_gear(mg_core_t* core, bool deploy) {
         deploy ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
-MGCORE_API char* mg_mission_start(mg_core_t* core) {
+namespace {
+// MAV_CMD_MISSION_START + COMMAND_ACK 等待。同步命令，最长阻塞约 5 s，只在
+// 内部工作流（启动任务、批量启动）里使用；界面线程走
+// mg_command_submit_for_vehicle({"command":"mission_start"}) + poll。
+char* mission_start_and_wait(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     return ffi_cmd_result_queued(core, get_active_mavlink(core), MAV_CMD_MISSION_START,
         active_target_sys(core), active_target_comp(core), 0, 0, 0, 0, 0, 0, 0);
 }
 
-namespace {
 bool response_succeeded(const char* result) {
     if (!result) return false;
     cJSON* object = mg::core::json::parse(result);
@@ -453,7 +456,7 @@ char* start_mission_and_validate(mg_core_t* core, bool arm_if_needed) {
         if (!response_succeeded(result)) return result;
         mg_free_string(result);
     }
-    char* result = mg_mission_start(core);
+    char* result = mission_start_and_wait(core);
     if (!response_succeeded(result)) return result;
     mg_free_string(result);
     return wait_for_vehicle_state(core, auto_mode, true) ? ok()
@@ -550,7 +553,7 @@ MGCORE_API char* mg_command_execute_for_vehicle(mg_core_t* core,
             (arm_if_needed != 0 && arm_if_needed != 1)) result = invalid_args("invalid mission arming policy");
         else result = start_mission_and_validate(core, arm_if_needed != 0);
     } else if (command == "mission_start") {
-        result = mg_mission_start(core);
+        result = mission_start_and_wait(core);
     } else if (command == "guided_pause") {
         result = mg_command_guided_pause(core);
     } else if (command == "change_altitude") {

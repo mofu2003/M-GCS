@@ -134,7 +134,7 @@ set(MGCORE_SOURCES
     core/src/transport/tcp_link.cc
     core/src/transport/udp_link.cc
     # Mission management
-    core/src/mission/mission_manager.cc
+    core/src/mission/mission_item_factory.cc
     core/src/mission/survey_calculator.cc
     core/src/mission/cad/mission_document.cc
     core/src/mission/cad/mission_validation.cc
@@ -188,7 +188,6 @@ set(MGCORE_SOURCES
     bridge/ffi/ffi_preflight_commands.cc
     bridge/ffi/ffi_flight_commands.cc
     bridge/ffi/ffi_flight_mode_state.cc
-    bridge/ffi/ffi_param_file.cc
     bridge/ffi/ffi_calibration.cc
     bridge/ffi/ffi_health.cc
     bridge/ffi/ffi_rc.cc
@@ -208,7 +207,6 @@ set(MGCORE_SOURCES
     bridge/ffi/ffi_survey_commands.cc
     bridge/ffi/ffi_terrain_commands.cc
     bridge/ffi/ffi_vehicle_info.cc
-    bridge/ffi/ffi_mission_management.cc
     bridge/ffi/ffi_vehicle_session.cc
     bridge/ffi/ffi_mission_bridge.cc
     bridge/ffi/ffi_config.cc

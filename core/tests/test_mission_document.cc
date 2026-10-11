@@ -4,7 +4,6 @@
 #include "core/mission/cad/mission_document.h"
 #include "core/mission/cad/mission_interchange.h"
 #include "core/mission/cad/mission_command_catalog.h"
-#include "core/mission/mission_manager.h"
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
@@ -2013,28 +2012,6 @@ static void test_vtol_takeoff_and_land_commands() {
         CHECK(compiled.plan.items[2].command == 85,
               "last item compiles as NAV_VTOL_LAND");
     }
-
-    MissionManager legacy_manager;
-    MissionPlan legacy_plan;
-    legacy_plan.items.resize(2);
-    legacy_plan.items[0].command = 84;
-    legacy_plan.items[1].command = 85;
-    legacy_manager.set_plan(legacy_plan);
-    const auto legacy_validation = legacy_manager.validate();
-    bool legacy_has_first_warning = false;
-    bool legacy_has_last_warning = false;
-    for (const auto& warning : legacy_validation.warnings) {
-        if (warning.find("First item") != std::string::npos) {
-            legacy_has_first_warning = true;
-        }
-        if (warning.find("Last item") != std::string::npos) {
-            legacy_has_last_warning = true;
-        }
-    }
-    CHECK(!legacy_has_first_warning,
-          "legacy MissionManager accepts VTOL takeoff as first item");
-    CHECK(!legacy_has_last_warning,
-          "legacy MissionManager accepts VTOL land as last item");
 }
 
 /// ArduPilot 任务命令能力表：命令 × 机型矩阵、自由函数和文档/计划校验。

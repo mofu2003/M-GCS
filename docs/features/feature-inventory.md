@@ -124,7 +124,6 @@
 | 事件日志状态 | `mg_event_log_get_status` | `bridge/ffi/ffi_logging.cc` | 事件日志服务未接 UI |
 | 会话文件日志 | `mg_session_log_start/stop/status` | `bridge/ffi/ffi_telemetry.cc` | 未接 UI |
 | 遥测 series 记录器 | `mg_telemetry_register_series` 等 6 个 | `bridge/ffi/ffi_telemetry.cc` | 前端波形走 `mg_waveform_*`，series 未用 |
-| 任务模板 | `mg_mission_get_templates` | `bridge/ffi/ffi_mission_management.cc` | 无模板选择 UI |
 | 跳转到航点 | `mg_mission_set_current` | `bridge/ffi/ffi_mission_commands.cc` | 无入口 |
 
 ### 3.2 完全未实现（QGC/MP 有、M-GCS 目前没有）
@@ -139,16 +138,18 @@
 
 ## 4. 未接入前端的 FFI 导出明细
 
-下表按「簇」列出 178 个未绑定导出中需要解释的部分；**已定性的导出（内部能力 17 + 被取代 31）** 的逐符号定位见 `bridge/ffi/API_CATALOG.md` 的「已定性的公开导出」一节（由 `tools/check_ffi_contract.py` 生成）。仅测试覆盖的 110 个不逐一列出，它们通过测试保持契约。
+当前公开导出 280 个、前端已绑定 136 个，未绑定 144 个 = **17 个内部能力**（逐符号定位见 `bridge/ffi/API_CATALOG.md` 的「已定性的公开导出」一节，由 `tools/check_ffi_contract.py` 生成）+ **108 个仅测试引用**（通过合约测试保持契约，不逐一列出）+ **19 个剩余债务**（4.3）。
 
-处置方式（沿用 KD-45，四选一，**不删除导出**）：
+处置方式（沿用 KD-45）：
 
 - **绑定 UI**：真正需要用户入口的能力，进入待办（3.1）。
 - **补测试引用**：有原生价值但无 UI 需求，用合约测试固定契约。
 - **定性为内部能力**：只服务开发/离线/原生测试，登记进 `INTERNAL_SYMBOL_NOTES`。
-- **登记退役**：被更新接口取代的旧路径，登记进 `SUPERSEDED_SYMBOL_NOTES`。
+- **删除旧路径**：被更新接口取代、且确认无未来用途的历史导出，直接删除并登记进 `RETIRED_SYMBOLS`，防止误恢复。
 
-### 4.1 被取代的历史路径（31 个，已登记退役候选）
+### 4.1 已删除的旧路径（本轮清理记录）
+
+以下历史导出已确认无调用方、无后续用途，**已从源码与本轮 ABI 中物理删除**（详见 CHANGELOG）。
 
 | 簇 | 导出 | 取代者 |
 | --- | --- | --- |
@@ -161,8 +162,6 @@
 | 参数变化项 | `mg_params_get_changed` | 前端按描述符默认值比较 |
 | 参数文件读写 | `mg_params_save_to_file`、`mg_params_load_from_file` | `mg_params_get_all` + `mg_param_file_export` + Dart 文件写入；`mg_param_file_import` + `mg_params_commit_change_set` |
 
-> 旧任务管理路径的文件头注释（`bridge/ffi/ffi_mission_management.cc`）明确写了并发调用会 lost-update、调用方必须串行——这正是文档模型 `mg_mission_doc_*` 取代它的原因。
-
 ### 4.2 内部能力（17 个，无 UI 计划）
 
 - **PX4 便捷封装（7）**：`mg_px4_actuator_*`/`flight_mode_get_config`/`safety_*`/`tuning_*`；通用参数页配合 `px4` 描述符 profile 已覆盖同一批参数。
@@ -171,13 +170,13 @@
 - **参数预校验（1）**：`mg_config_validate_param`；前端按描述符范围/枚举本地校验。
 - **ABI 基础设施（1）**：`mg_error_string`（错误码→字符串常量）。
 
-### 4.3 剩余未定性债务（20 个）
+### 4.3 剩余未定性债务（19 个）
 
-`tools/ffi_unbound_baseline.json` 当前固化 20 个「无绑定、无定性、无测试引用」的导出，主要是 3.1 里的待接入能力（参数文件内容变换、事件/会话日志、遥测 series、任务模板/跳转、空速校准、预设、设备发现）。门禁只允许基线缩小：新增未定性导出会失败，被绑定/被测试引用/被定性后仍留在基线的符号也会失败。
+`tools/ffi_unbound_baseline.json` 当前固化 19 个「无绑定、无定性、无测试引用」的导出，主要是 3.1 里的待接入能力（参数文件内容变换、事件/会话日志、遥测 series、跳转到航点、空速校准、预设、设备发现）。门禁只允许基线缩小：新增未定性导出会失败，被绑定/被测试引用/被定性后仍留在基线的符号也会失败。
 
 ## 5. 维护规则
 
-- 改 `CAPABILITY_METADATA`、`INTERNAL_SYMBOL_NOTES` 或 `SUPERSEDED_SYMBOL_NOTES` 后，跑
+- 改 `CAPABILITY_METADATA`、`INTERNAL_SYMBOL_NOTES`、`SUPERSEDED_SYMBOL_NOTES` 或 `RETIRED_SYMBOLS` 后，跑
   `python3 tools/check_ffi_contract.py --write-catalog` 与 `--write-baseline` 再提交。
 - 新增公开导出必须同时给出绑定、测试引用或定性，否则 `tools/preflight.sh` 会失败。
 - 本文件是人工维护的功能视图；模块级的机器校验以 `docs/capabilities.md` 与 `bridge/ffi/API_CATALOG.md` 为准。

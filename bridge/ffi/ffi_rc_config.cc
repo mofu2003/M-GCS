@@ -135,62 +135,6 @@ MGCORE_API char* mg_rc_get_calibration(mg_core_t* core) {
     return to_cstr(jb.str());
 }
 
-MGCORE_API char* mg_rc_calibrate_start(mg_core_t* core) {
-    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
-    // MAV_CMD_DO_RC_CALIBRATION (211)
-    bool sent = mav->send_command_long(
-        active_target_sys(core), active_target_comp(core),
-        211, 0,
-        0, 0, 0, 0, 0, 0, 0);
-    return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "rc calibrate send failed");
-}
-
-MGCORE_API char* mg_rc_calibrate_status(mg_core_t* core) {
-    CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
-    if (!mav) return to_cstr(R"({"active":false})");
-
-    auto ack = mav->latest_command_ack();
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    if (ack.has_value() && ack->command == 211) {
-        jb.field("active", ack->result == 5);  // MAV_RESULT_IN_PROGRESS
-        jb.field("result", (int)ack->result);
-        jb.field("progress", (int)ack->progress);
-    } else {
-        jb.field("active", false);
-        jb.field("result", -1);
-        jb.field("progress", 0);
-    }
-    jb.end_object();
-    return to_cstr(jb.str());
-}
-
-MGCORE_API char* mg_rc_calibrate_save(mg_core_t* core) {
-    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    // ArduPilot 与 PX4 都是在 RC 校准结束时由飞控自己写入 RCn_MIN/TRIM/MAX，
-    // 没有独立的“保存”命令。以前这里无条件返回 success，等于掩盖了
-    // “校准还没结束”的情况，现在显式区分。
-    const auto ack = get_active_mavlink(core)->latest_command_ack();
-    if (ack.has_value() && ack->command == 211 /* MAV_CMD_DO_RC_CALIBRATION */ &&
-        ack->result == 5 /* MAV_RESULT_IN_PROGRESS */) {
-        return fail(MG_ERROR_INVALID_STATE,
-                    "RC calibration is still in progress; the flight controller "
-                    "saves the ranges when it finishes");
-    }
-
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("success", true);
-    jb.field("saved_by_flight_controller", true);
-    jb.field("message",
-             "RC calibration ranges are persisted by the flight controller; "
-             "there is no separate save command");
-    jb.end_object();
-    return to_cstr(jb.str());
-}
-
 MGCORE_API char* mg_rc_get_failsafe(mg_core_t* core) {
     CHECK_CORE(core);
     auto* mav = get_active_mavlink(core);

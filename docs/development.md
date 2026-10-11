@@ -155,7 +155,7 @@ tools/install-hooks.sh
 
 维护现有功能为主时，每轮动手前按下面的信号做一次低成本扫描；有问题的按性质处理，不为指标而改代码：
 
-- **无引用/未定性导出**：`python3 tools/check_ffi_contract.py` 会打印 `unbound/untested export debt: N`，并与 `tools/ffi_unbound_baseline.json` 比对，基线只允许缩小（KD-45）。定性分「内部能力」（`INTERNAL_SYMBOL_NOTES`）与「被取代」（`SUPERSEDED_SYMBOL_NOTES`）两类；逐簇说明见 `docs/features/feature-inventory.md`。
+- **无引用/未定性导出**：`python3 tools/check_ffi_contract.py` 会打印 `unbound/untested export debt: N`，并与 `tools/ffi_unbound_baseline.json` 比对，基线只允许缩小（KD-45）。定性分「内部能力」（`INTERNAL_SYMBOL_NOTES`）与「被取代」（`SUPERSEDED_SYMBOL_NOTES`，当前为空）两类；确认无未来用途的旧导出直接删除并登记进 `RETIRED_SYMBOLS`（若重新出现在声明或 Dart 绑定里，门禁报错）。逐簇说明见 `docs/features/feature-inventory.md`。
 - **单一实现的抽象 / 纯转发层**：抽出的接口要有至少两个真实使用方，或有当前的变更原因。Dart 的 `*_backend.dart` 与 C++ 的 `ILink`、`IFirmwarePlugin`、`ICalibrationStrategy` 都已有多个实现；不要再为「将来可能扩展」加空接口（A7）。
 - **大文件**：按变更耦合判断，不按行数。拆之前先用 `git log --follow` 加逐块共变统计，并登记到 `docs/constraints/known-deviations.md` 再决定（KD-43、KD-44、KD-46 是既有结论）。
 - **重复逻辑**：形态相似的 JSON 映射、各自的领域模型不算重复，不要为消除相似强抽公共 helper（KD-47）。

@@ -5,7 +5,7 @@
  * Uses Haversine distance and trigonometry for accurate grid generation.
  */
 #include "core/mission/survey_calculator.h"
-#include "core/mission/mission_manager.h"
+#include "core/mission/mission_item_factory.h"
 #include <cmath>
 #include <algorithm>
 
@@ -74,15 +74,15 @@ SurveyResult SurveyCalculator::generate_grid(const SurveyConfig& config) {
         // Add waypoints for this flight line
         if (i % 2 == 0) {
             // Forward pass
-            waypoints.push_back(MissionManager::create_waypoint(
+            waypoints.push_back(MissionItemFactory::create_waypoint(
                 start_lat, start_lon, config.altitude_m, 0.0f, 5.0f));
-            waypoints.push_back(MissionManager::create_waypoint(
+            waypoints.push_back(MissionItemFactory::create_waypoint(
                 end_lat, end_lon, config.altitude_m, 0.0f, 5.0f));
         } else {
             // Reverse pass (for efficient coverage)
-            waypoints.push_back(MissionManager::create_waypoint(
+            waypoints.push_back(MissionItemFactory::create_waypoint(
                 end_lat, end_lon, config.altitude_m, 0.0f, 5.0f));
-            waypoints.push_back(MissionManager::create_waypoint(
+            waypoints.push_back(MissionItemFactory::create_waypoint(
                 start_lat, start_lon, config.altitude_m, 0.0f, 5.0f));
         }
     }
@@ -99,7 +99,7 @@ SurveyResult SurveyCalculator::generate_grid(const SurveyConfig& config) {
         double lon1 = waypoints[i-1].y / 1e7;
         double lat2 = waypoints[i].x / 1e7;
         double lon2 = waypoints[i].y / 1e7;
-        total_dist += MissionManager::haversine_distance(lat1, lon1, lat2, lon2);
+        total_dist += MissionItemFactory::haversine_distance(lat1, lon1, lat2, lon2);
     }
     result.total_distance_m = total_dist;
 
@@ -117,10 +117,10 @@ SurveyResult SurveyCalculator::generate_grid(const SurveyConfig& config) {
     std::vector<MissionItem> mission_items;
 
     // Camera trigger distance command at start
-    mission_items.push_back(MissionManager::create_camera_trigger(trigger_dist));
+    mission_items.push_back(MissionItemFactory::create_camera_trigger(trigger_dist));
 
     // Speed command
-    mission_items.push_back(MissionManager::create_speed_change(config.speed_ms));
+    mission_items.push_back(MissionItemFactory::create_speed_change(config.speed_ms));
 
     // All waypoints
     for (auto& wp : waypoints) {
@@ -129,7 +129,7 @@ SurveyResult SurveyCalculator::generate_grid(const SurveyConfig& config) {
 
     // RTL if requested
     if (config.return_to_start) {
-        mission_items.push_back(MissionManager::create_rtl());
+        mission_items.push_back(MissionItemFactory::create_rtl());
     }
 
     // Re-sequence
@@ -169,7 +169,7 @@ SurveyResult SurveyCalculator::generate_cross_grid(const SurveyConfig& config) {
 
     // Add RTL at end
     if (config.return_to_start) {
-        auto rtl = MissionManager::create_rtl();
+        auto rtl = MissionItemFactory::create_rtl();
         rtl.seq = static_cast<uint16_t>(combined.items.size());
         combined.items.push_back(rtl);
     }
@@ -242,14 +242,14 @@ SurveyResult SurveyCalculator::generate_corridor_scan(const CorridorConfig& conf
 
         // Alternate direction for efficient flight (boustrophedon)
         if (i % 2 == 0) {
-            waypoints.push_back(MissionManager::create_waypoint(
+            waypoints.push_back(MissionItemFactory::create_waypoint(
                 start_lat, start_lon, config.altitude_m, 0.0f, 5.0f));
-            waypoints.push_back(MissionManager::create_waypoint(
+            waypoints.push_back(MissionItemFactory::create_waypoint(
                 end_lat, end_lon, config.altitude_m, 0.0f, 5.0f));
         } else {
-            waypoints.push_back(MissionManager::create_waypoint(
+            waypoints.push_back(MissionItemFactory::create_waypoint(
                 end_lat, end_lon, config.altitude_m, 0.0f, 5.0f));
-            waypoints.push_back(MissionManager::create_waypoint(
+            waypoints.push_back(MissionItemFactory::create_waypoint(
                 start_lat, start_lon, config.altitude_m, 0.0f, 5.0f));
         }
     }
@@ -266,7 +266,7 @@ SurveyResult SurveyCalculator::generate_corridor_scan(const CorridorConfig& conf
         double lon1 = waypoints[i-1].y / 1e7;
         double lat2 = waypoints[i].x / 1e7;
         double lon2 = waypoints[i].y / 1e7;
-        total_dist += MissionManager::haversine_distance(lat1, lon1, lat2, lon2);
+        total_dist += MissionItemFactory::haversine_distance(lat1, lon1, lat2, lon2);
     }
     result.total_distance_m = total_dist;
 
@@ -284,15 +284,15 @@ SurveyResult SurveyCalculator::generate_corridor_scan(const CorridorConfig& conf
 
     // Build mission items: camera trigger + speed + waypoints + optional RTL
     std::vector<MissionItem> mission_items;
-    mission_items.push_back(MissionManager::create_camera_trigger(trigger_dist));
-    mission_items.push_back(MissionManager::create_speed_change(config.speed_ms));
+    mission_items.push_back(MissionItemFactory::create_camera_trigger(trigger_dist));
+    mission_items.push_back(MissionItemFactory::create_speed_change(config.speed_ms));
 
     for (auto& wp : waypoints) {
         mission_items.push_back(wp);
     }
 
     if (config.return_to_start) {
-        mission_items.push_back(MissionManager::create_rtl());
+        mission_items.push_back(MissionItemFactory::create_rtl());
     }
 
     // Re-sequence

@@ -6,7 +6,6 @@
     "mg_config_get_presets",
     "mg_discover_devices",
     "mg_event_log_get_status",
-    "mg_mission_get_templates",
     "mg_mission_set_current",
     "mg_param_file_export",
     "mg_param_file_export_csv",

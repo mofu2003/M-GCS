@@ -431,34 +431,3 @@ MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_p
     output.end_object();
     return to_cstr(output.str());
 }
-
-// ================================================================
-// Parameter diff — return all params (frontend compares against defaults)
-// ================================================================
-
-MGCORE_API char* mg_params_get_changed(mg_core_t* core) {
-    CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
-    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
-
-    auto all_params = mav->all_params();
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("success", true);
-    jb.begin_array();;
-    // Since we don't have default values stored, return all params
-    // The frontend can compare against ParameterDescriptors.json defaults
-    for (const auto& p : all_params) {
-        mg::core::telemetry::JsonBuilder item;
-        item.begin_object();
-        item.field("name", p.name);
-        item.field("value", static_cast<double>(p.value));
-        item.field("type", static_cast<int>(p.type));
-        item.end_object();
-        jb.append_json(item.str());
-    }
-    jb.end_array();
-    jb.field("count", static_cast<int>(all_params.size()));
-    jb.end_object();
-    return to_cstr(jb.str());
-}

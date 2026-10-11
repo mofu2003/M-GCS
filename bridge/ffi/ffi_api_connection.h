@@ -63,14 +63,11 @@ MGCORE_API char* mg_connection_list_ports(mg_core_t* core);
 /// it as the active command target.
 MGCORE_API char* mg_connection_connect(mg_core_t* core, const char* port, int baud);
 MGCORE_API char* mg_connection_disconnect(mg_core_t* core);
-MGCORE_API char* mg_connection_connect_tcp(mg_core_t* core, const char* endpoint);
 MGCORE_API char* mg_connection_connect_udp(mg_core_t* core, const char* endpoint);
 MGCORE_API char* mg_connection_get_state(mg_core_t* core);
 MGCORE_API char* mg_connection_get_diagnostics(mg_core_t* core);
 
-MGCORE_API char* mg_stream_request(mg_core_t* core, int stream_id, int rate_hz);
 MGCORE_API char* mg_stream_set_interval(mg_core_t* core, int msg_id, int interval_us);
-MGCORE_API char* mg_send_heartbeat(mg_core_t* core);
 
 MGCORE_API char* mg_connection_get_heartbeat_age(mg_core_t* core);
 MGCORE_API char* mg_connection_check_heartbeat(mg_core_t* core, int timeout_ms);

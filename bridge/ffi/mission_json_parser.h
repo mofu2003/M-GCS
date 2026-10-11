@@ -10,7 +10,7 @@
  * Format is auto-detected: if "lat" key exists, use human-readable;
  * otherwise use raw x/y/z.
  *
- * Used by both ffi_commands.cc and ffi_mission_management.cc.
+ * Used by ffi_mission_commands.cc.
  */
 #pragma once
 

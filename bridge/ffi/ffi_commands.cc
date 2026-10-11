@@ -7,7 +7,6 @@
  *
  * 从早期大文件中按职责拆分而来：
  *   飞行命令      -> ffi_flight_commands.cc
- *   参数文件读写  -> ffi_param_file.cc
  *
  * Mission JSON parsing uses cJSON consistently across the bridge.
  */
@@ -62,13 +61,6 @@ MGCORE_API char* mg_rally_get_plan(mg_core_t* core) {
     });
 }
 
-MGCORE_API char* mg_rally_clear(mg_core_t* core) {
-    return send_active_request(core, "rally clear send failed",
-        [](auto& mav, uint8_t sys, uint8_t comp) {
-            return mav.rally_clear(sys, comp);
-        });
-}
-
 // ================================================================
 // Geofence Protocol (MAVLink MISSION_TYPE_FENCE)
 // ================================================================
@@ -84,13 +76,6 @@ MGCORE_API char* mg_fence_get_plan(mg_core_t* core) {
     return export_connected_plan_json(core, [](auto& mav) {
         return mav.fence_get_plan();
     });
-}
-
-MGCORE_API char* mg_fence_clear(mg_core_t* core) {
-    return send_active_request(core, "fence clear send failed",
-        [](auto& mav, uint8_t sys, uint8_t comp) {
-            return mav.fence_clear(sys, comp);
-        });
 }
 
 MGCORE_API char* mg_fence_enable(mg_core_t* core, int enable) {

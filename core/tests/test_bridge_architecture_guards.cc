@@ -126,24 +126,6 @@ static void test_vehicle_ffi_is_split_by_domain() {
           "ffi_vehicle.cc stays below the vehicle catch-all size budget");
 }
 
-static void test_mission_management_stays_focused_on_mission_editing() {
-    fprintf(stderr, "\n[Group] mission management locality\n");
-    const auto mission_management = read_file(repo_root() / "bridge/ffi/ffi_mission_management.cc");
-
-    CHECK(mission_management.find("MGCORE_API char* mg_flight_get_available_modes") == std::string::npos,
-          "flight mode availability entrypoint is not implemented in ffi_mission_management.cc");
-    CHECK(mission_management.find("MGCORE_API char* mg_flight_get_mode_status") == std::string::npos,
-          "flight mode status entrypoint is not implemented in ffi_mission_management.cc");
-    CHECK(mission_management.find("MGCORE_API char* mg_flight_get_mode_history") == std::string::npos,
-          "flight mode history entrypoint is not implemented in ffi_mission_management.cc");
-    CHECK(mission_management.find("MGCORE_API char* mg_flight_get_takeoff_altitude") == std::string::npos,
-          "flight takeoff altitude entrypoint is not implemented in ffi_mission_management.cc");
-    CHECK(mission_management.find("MGCORE_API char* mg_flight_get_loiter_radius") == std::string::npos,
-          "flight loiter radius entrypoint is not implemented in ffi_mission_management.cc");
-    CHECK(mission_management.size() < 11000,
-          "ffi_mission_management.cc stays below the mission editing size budget");
-}
-
 static void test_telemetry_cache_delegates_freshness_tracking() {
     fprintf(stderr, "\n[Group] telemetry cache locality\n");
     // 实体已下沉到 core；bridge 下只剩转发头，所以这里必须读 core 路径，
@@ -372,7 +354,6 @@ int main() {
     test_catch_all_commands_file_keeps_shrinking();
     test_response_wrappers_are_grouped_by_telemetry_domain();
     test_vehicle_ffi_is_split_by_domain();
-    test_mission_management_stays_focused_on_mission_editing();
     test_telemetry_cache_delegates_freshness_tracking();
     test_json_serializers_stay_focused_on_telemetry_shapes();
     test_ffi_api_is_an_umbrella_not_a_grab_bag();

@@ -566,30 +566,6 @@ void test_flight_log_captures_statustext() {
     if (stop) mg_free_string(stop);
 }
 
-void test_rc_calibrate_save_is_honest() {
-    fprintf(stderr, "\n[Group] mg_rc_calibrate_save\n");
-    TestEnv env;
-    env.connect();
-
-    char* idle = mg_rc_calibrate_save(env.core);
-    CHECK(json_has(idle, "\"success\":true"), "save succeeds when no calibration is running");
-    CHECK(json_has(idle, "saved_by_flight_controller"),
-          "save explains the flight controller owns persistence");
-    if (idle) mg_free_string(idle);
-
-    // 校准进行中（ACK = IN_PROGRESS）时不得谎报保存成功。
-    env.mock->set_cmd_no_response(false);
-    env.mock->set_next_cmd_result(5 /* MAV_RESULT_IN_PROGRESS */);
-    char* start = mg_rc_calibrate_start(env.core);
-    if (start) mg_free_string(start);
-    env.tick(50);
-
-    char* in_progress = mg_rc_calibrate_save(env.core);
-    CHECK(json_has(in_progress, "\"success\":false"),
-          "save refuses while RC calibration is in progress");
-    if (in_progress) mg_free_string(in_progress);
-}
-
 void test_mission_request_propagates_send_failure() {
     fprintf(stderr, "\n[Group] mg_mission_download\n");
     TestEnv env;
@@ -1156,7 +1132,6 @@ int main() {
     test_log_download_truncation_is_reported();
     test_log_download_unknown_size_is_unverified();
     test_log_erase_gating();
-    test_rc_calibrate_save_is_honest();
     test_mission_request_propagates_send_failure();
     test_serial_get_uart_names();
     test_fs_transfer_async_ffi();

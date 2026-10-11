@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   classification tables, `INTERNAL_SYMBOL_NOTES` (internal capability) and the new
   `SUPERSEDED_SYMBOL_NOTES` (superseded legacy path, decommission candidate); `--write-baseline`
   writes atomically. This pass classified 48 exports (17 internal + 31 superseded), dropping the
-  debt from 58 to 20 of 314 exports (KD-45).
+  debt from 58 to 20 exports (KD-45).
 - `docs/features/feature-inventory.md`: feature inventory split into implemented, partial,
   unimplemented and not-yet-wired-to-frontend, with a cluster-by-cluster explanation of the 178
   unbound FFI exports and their disposition.
@@ -30,6 +30,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as-is) and KD-47 (`JsonMap` typedef placement accepted), tightened the A7 verification note,
   and documented the maintenance-time review signals in `docs/development.md`. `__pycache__/` is
   now git-ignored.
+
+### Removed
+
+- Dead-code cleanup: deleted historical FFI exports that had no caller and no future use,
+  shrinking the public ABI from 314 to 280 declarations (KD-45, `docs/features/feature-inventory.md`).
+  Removed: the old `MissionManager` read-modify-transfer path (`mg_mission_add_item`/`update_item`/
+  `remove_item`/`move_item`/`validate`/`get_stats`/`export_json`/`import_json`/`export_csv`/
+  `import_csv`, plus `mg_mission_start` and `mg_mission_get_templates`), the old Geofence/Rally
+  direct-edit exports (`mg_geofence_add_point`/`remove_point`/`get_points`/`validate`/`set_config`/
+  `import_json`/`export_json`/`export_kml`, `mg_fence_clear`, `mg_rally_clear`), the old connection
+  entries (`mg_connection_connect_tcp`, `mg_send_heartbeat`, `mg_stream_request`), the old serial
+  config exports (`mg_serial_get_config`/`set_baud`/`set_protocol`), the old RC-specific calibration
+  exports (`mg_rc_calibrate_start`/`status`/`save`), and `mg_params_get_changed` with
+  `mg_params_save_to_file`/`load_from_file`. All 34 names are frozen in `RETIRED_SYMBOLS` so they
+  cannot silently return; `tools/ffi_unbound_baseline.json` shrank from 20 to 19 and
+  `tools/check_ffi_contract.py` `SUPERSEDED_SYMBOL_NOTES` is now empty. Files deleted:
+  `bridge/ffi/ffi_mission_management.cc`, `bridge/ffi/ffi_param_file.cc`,
+  `core/mission/mission_manager.{h,cc}`, and the `mg_rc_calibrate_save` test; the still-used
+  mission-item builders were extracted to `core/mission/mission_item_factory.{h,cc}`.
 
 ## [0.2.0] - 2026-10-11
 

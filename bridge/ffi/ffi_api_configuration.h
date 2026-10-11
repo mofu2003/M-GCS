@@ -20,9 +20,6 @@ MGCORE_API char* mg_config_apply_preset(mg_core_t* core, const char* preset_name
 
 MGCORE_API char* mg_serial_get_configs(mg_core_t* core);
 MGCORE_API char* mg_serial_get_uart_names(mg_core_t* core);
-MGCORE_API char* mg_serial_get_config(mg_core_t* core, const char* port_name);
-MGCORE_API char* mg_serial_set_baud(mg_core_t* core, const char* port_name, int baud);
-MGCORE_API char* mg_serial_set_protocol(mg_core_t* core, const char* port_name, int protocol);
 
 MGCORE_API char* mg_actuator_get_mapping(mg_core_t* core);
 MGCORE_API char* mg_actuator_set_function(mg_core_t* core, int channel, int function_id);
@@ -33,9 +30,6 @@ MGCORE_API char* mg_actuator_motor_test(mg_core_t* core, int motor, float thrott
 MGCORE_API char* mg_rc_get_mapping(mg_core_t* core);
 MGCORE_API char* mg_rc_set_mapping(mg_core_t* core, const char* function, int channel);
 MGCORE_API char* mg_rc_get_calibration(mg_core_t* core);
-MGCORE_API char* mg_rc_calibrate_start(mg_core_t* core);
-MGCORE_API char* mg_rc_calibrate_status(mg_core_t* core);
-MGCORE_API char* mg_rc_calibrate_save(mg_core_t* core);
 MGCORE_API char* mg_rc_get_failsafe(mg_core_t* core);
 MGCORE_API char* mg_rc_set_failsafe(mg_core_t* core, int mode, int threshold);
 
