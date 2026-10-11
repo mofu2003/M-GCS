@@ -248,7 +248,7 @@ MP README 详细列出固件站点、更新 CDN、参数/日志元数据、地�
 ### M-GCS
 
 - 规则与当前偏差：[safety.md](/Users/fansicheng/Projects/M-GCS/docs/constraints/safety.md:12)、[known-deviations.md](/Users/fansicheng/Projects/M-GCS/docs/constraints/known-deviations.md:12)、[parity.md](/Users/fansicheng/Projects/M-GCS/docs/constraints/parity.md:1)。
-- 多 Vehicle command submit/poll：[ffi_flight_commands.cc](/Users/fansicheng/Projects/M-GCS/bridge/ffi/ffi_flight_commands.cc:588)、[connection_controller.dart](/Users/fansicheng/Projects/M-GCS/flutter_shell/lib/connection/connection_controller.dart:830)。
+- 多 Vehicle command submit/poll：[ffi_flight_commands.cc](/Users/fansicheng/Projects/M-GCS/bridge/ffi/ffi_flight_commands.cc) 的 `mg_command_submit_for_vehicle`/`mg_command_poll`、[flight_command_ffi_backend.dart](/Users/fansicheng/Projects/M-GCS/flutter_shell/lib/connection/flight_command_ffi_backend.dart) 的 submit/poll 绑定与 ticket 轮询。
 - Mission ACK 目标校验和失败处理：[mavlink_adapter_mission.cc](/Users/fansicheng/Projects/M-GCS/core/src/mavlink/mavlink_adapter_mission.cc:268)、[mission_transfer.h](/Users/fansicheng/Projects/M-GCS/core/src/mavlink/mission_transfer.h:66)。
 - Firmware flashing 占位：[firmware_flasher.cc](/Users/fansicheng/Projects/M-GCS/core/src/firmware/firmware_flasher.cc:52)。
 - FFI 目录、绑定和本机库版本核对：[API_CATALOG.md](/Users/fansicheng/Projects/M-GCS/bridge/ffi/API_CATALOG.md:1)、[check_ffi_contract.py](/Users/fansicheng/Projects/M-GCS/tools/check_ffi_contract.py:1)。

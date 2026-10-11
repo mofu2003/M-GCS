@@ -239,6 +239,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `int`-truncated byte counters, missing erase/index/integrity checks, and a missing
   `CHECK_CONNECTED` in `mg_onboard_log_get_entries`.
 ### Changed
+- Documentation code references are symbol-and-file based instead of line numbers, so they no
+  longer break on refactors: `docs/constraints/parity.md`,
+  `docs/features/px4-parity.md`, `docs/plans/mgcs-development-plan-2026-10-10.md`,
+  `docs/comparisons/ground-station-comparison-2026-10-10.md` and
+  `docs/constraints/known-deviations.md` now point at `isGuidedGotoFlightMode`,
+  `guidedTakeoff`, `minimumTakeoffAltitudeMeters`, `_uploadToVehicle`/`_clearVehicleMission`,
+  `_FenceRallyCard` and `mg_command_submit_for_vehicle`/`mg_command_poll` instead of the
+  pre-KD-43/KD-44 line numbers.
 - Extracted the mission transfer section out of the planning panel:
   `flutter_shell/lib/mission/mission_transfer_section.dart` now owns the action bar
   (read / clear / export / upload / start), the transfer progress and verification/diagnostic

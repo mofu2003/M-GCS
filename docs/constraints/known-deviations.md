@@ -29,7 +29,7 @@
 | KD-04 | S1 | 删除 core 里只发送、不等 ACK 且无调用者的 `arm`/`disarm`/`set_mode` 等；Dart 侧处于目标状态时不再重复下发，并给出提示。 |
 | KD-05 | S1 | 串口读线程创建失败时关闭端口并返回失败，不再出现「链路已打开但没有读线程」。 |
 | KD-06 | S1 | 目标注册失败记录带 route/sysid/compid 的错误日志，不再静默丢弃。 |
-| KD-08 | S3（建议） | 任务上传与围栏/Rally 下发改用全应用统一的确认组件，取消则不下发（`mission_planning_panel.dart:597`、`:886`）。 |
+| KD-08 | S3（建议） | 任务上传与围栏/Rally 下发改用全应用统一的确认组件，取消则不下发（上传/清除在 `mission_transfer_section.dart` 的 `_uploadToVehicle`/`_clearVehicleMission`，围栏/Rally 在 `mission_planning_panel.dart` 的 `_FenceRallyCard`）。 |
 | KD-10 | S3（建议） | RC 校准启动前先确认（`rc_calibration_view.dart:97,124`）。 |
 | KD-11 | S3（建议） | 「保存并应用密钥」与「下发 SETUP_SIGNING」前先确认（`gcs_configuration_workspace.dart:240,280`）。 |
 | KD-15 | S5 | 车辆状态改为与传输层状态同源，断链/心跳丢失后不再残留 `Connected`。 |
