@@ -10,6 +10,7 @@ import '../widgets/mg_inline_notice.dart';
 import 'payload_controller.dart';
 import 'payload_models.dart';
 import 'video_preview.dart';
+import 'video_storage.dart';
 
 /// 相机与云台页：列出已发现的相机/云台，显示状态并下发拍摄与指向命令。
 ///
@@ -25,10 +26,15 @@ class CameraGimbalPage extends StatefulWidget {
     super.key,
     required this.controller,
     this.scrollController,
+    this.storageLoader = VideoStorageSettings.load,
   });
 
   final PayloadController controller;
   final ScrollController? scrollController;
+
+  /// 读取本地录制设置的入口。默认读应用支持目录；Widget 测试可注入同步实现，
+  /// 避免依赖平台通道。
+  final Future<VideoStorageSettings> Function() storageLoader;
 
   @override
   State<CameraGimbalPage> createState() => _CameraGimbalPageState();
@@ -39,6 +45,13 @@ class _CameraGimbalPageState extends State<CameraGimbalPage> {
   late final TextEditingController _pitch;
   late final TextEditingController _yaw;
   late final TextEditingController _videoUri;
+  late final TextEditingController _recordingDir;
+  late final TextEditingController _limitMb;
+
+  /// 落盘设置是否已从磁盘读入；读入前录制控件不显示，避免用过期的空目录发起录制。
+  bool _storageLoaded = false;
+  bool _limitEnabled = false;
+  bool _storageSaved = false;
 
   @override
   void initState() {
@@ -48,6 +61,9 @@ class _CameraGimbalPageState extends State<CameraGimbalPage> {
     _pitch = TextEditingController(text: '0');
     _yaw = TextEditingController(text: '0');
     _videoUri = TextEditingController();
+    _recordingDir = TextEditingController();
+    _limitMb = TextEditingController();
+    _loadStorage();
     // 进入页面即读一次；断链时控制器给出确定错误，而不是停在空白。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.controller.refresh();
@@ -61,6 +77,8 @@ class _CameraGimbalPageState extends State<CameraGimbalPage> {
     _pitch.dispose();
     _yaw.dispose();
     _videoUri.dispose();
+    _recordingDir.dispose();
+    _limitMb.dispose();
     super.dispose();
   }
 
@@ -476,6 +494,10 @@ class _CameraGimbalPageState extends State<CameraGimbalPage> {
               ],
             ),
           ),
+          if (backendAvailable) ...[
+            const SizedBox(height: 12),
+            _recordingSection(context, colors),
+          ],
           const SizedBox(height: 10),
           if (streams.isEmpty && !(status?.available ?? false))
             _emptyHint(
@@ -493,6 +515,211 @@ class _CameraGimbalPageState extends State<CameraGimbalPage> {
         ],
       ),
     );
+  }
+
+  /// 当前输入框里的落盘设置（未保存也用于发起录制，避免"改了目录却没保存"的歧义）。
+  VideoStorageSettings get _currentStorage => VideoStorageSettings(
+    directory: _recordingDir.text.trim(),
+    limitEnabled: _limitEnabled,
+    maxMegabytes: clampVideoLimit(
+      int.tryParse(_limitMb.text.trim()) ?? kDefaultVideoLimitMegabytes,
+    ),
+  );
+
+  Future<void> _loadStorage() async {
+    final settings = await widget.storageLoader();
+    if (!mounted) return;
+    setState(() {
+      _recordingDir.text = settings.directory;
+      _limitMb.text = settings.maxMegabytes.toString();
+      _limitEnabled = settings.limitEnabled;
+      _storageLoaded = true;
+    });
+  }
+
+  Future<void> _saveStorage() async {
+    final settings = _currentStorage;
+    await settings.save();
+    if (!mounted) return;
+    setState(() {
+      // 把上限回填成规范化后的值，让"保存"有可见结果。
+      _limitMb.text = settings.maxMegabytes.toString();
+      _storageSaved = true;
+    });
+  }
+
+  /// 本地录制与截图：把正在播放的码流写进本地文件，按需做容量清理。
+  ///
+  /// 这些是本机操作，不依赖飞控连接；只要求编译进了解码后端。
+  Widget _recordingSection(BuildContext context, MgColors colors) {
+    final controller = widget.controller;
+    final status = controller.recordingStatus;
+    final recording = controller.isRecording;
+    final ready = _storageLoaded && !controller.busy;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Container(height: 1, color: colors.divider),
+        ),
+        _readout(
+          context,
+          '本地录制',
+          recording
+              ? '录制中 · ${_formatDuration(status?.durationUs ?? 0)} · '
+                    '${_formatBytes(status?.bytes ?? 0)}'
+              : '未录制',
+        ),
+        if (recording && (status?.path.isNotEmpty ?? false))
+          _readout(context, '文件', status!.path),
+        if (!recording && (status?.error.isNotEmpty ?? false))
+          _readout(context, '上次错误', status!.error),
+        const SizedBox(height: 8),
+        AlignedFieldRow(
+          label: '录制目录',
+          labelWidth: 72,
+          child: Row(
+            children: [
+              Expanded(
+                child: MacosTextField(
+                  controller: _recordingDir,
+                  placeholder: '录制与截图的保存目录',
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  onChanged: (_) {
+                    if (_storageSaved) setState(() => _storageSaved = false);
+                  },
+                  style: MgTypography.sans(
+                    MgTypography.body.copyWith(color: colors.textPrimary),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              PushButton(
+                controlSize: ControlSize.regular,
+                onPressed: _storageLoaded ? _saveStorage : null,
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        AlignedFieldRow(
+          label: '容量上限',
+          labelWidth: 72,
+          child: Row(
+            children: [
+              MacosCheckbox(
+                value: _limitEnabled,
+                onChanged: _storageLoaded
+                    ? (value) => setState(() {
+                        _limitEnabled = value;
+                        _storageSaved = false;
+                      })
+                    : null,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '超出时删除最旧的录制',
+                style: MgTypography.sans(
+                  MgTypography.body.copyWith(color: colors.textSecondary),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 84,
+                child: MacosTextField(
+                  controller: _limitMb,
+                  placeholder: '$kDefaultVideoLimitMegabytes',
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  onChanged: (_) {
+                    if (_storageSaved) setState(() => _storageSaved = false);
+                  },
+                  style: MgTypography.sans(
+                    MgTypography.body.copyWith(color: colors.textPrimary),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'MB',
+                style: MgTypography.sans(
+                  MgTypography.body.copyWith(color: colors.textSecondary),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_storageSaved)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: MgInlineNotice(
+              icon: CupertinoIcons.checkmark_circle,
+              color: colors.success,
+              text: '已保存录制设置',
+            ),
+          ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            PushButton(
+              controlSize: ControlSize.regular,
+              onPressed: ready && !recording
+                  ? () => controller.startLocalRecording(_currentStorage)
+                  : null,
+              child: const Text('开始录制'),
+            ),
+            PushButton(
+              controlSize: ControlSize.regular,
+              onPressed: ready && recording
+                  ? controller.stopLocalRecording
+                  : null,
+              child: const Text('停止录制'),
+            ),
+            PushButton(
+              controlSize: ControlSize.regular,
+              onPressed: ready
+                  ? () => controller.captureLocalFrame(_currentStorage)
+                  : null,
+              child: const Text('截图'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// `mm:ss`（超过一小时显示 `h:mm:ss`）。
+  static String _formatDuration(int microseconds) {
+    final totalSeconds = microseconds <= 0 ? 0 : microseconds ~/ 1000000;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+    String two(int value) => value.toString().padLeft(2, '0');
+    return hours > 0
+        ? '$hours:${two(minutes)}:${two(seconds)}'
+        : '${two(minutes)}:${two(seconds)}';
+  }
+
+  /// 人类可读的文件大小（KB/MB/GB，保留一位小数）。
+  static String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    var value = bytes / 1024;
+    var unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    return '${value.toStringAsFixed(1)} ${units[unit]}';
   }
 
   Widget _readout(BuildContext context, String label, String value) => Padding(

@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs_frontend/payload/payload_controller.dart';
+import 'package:mgcs_frontend/payload/video_storage.dart';
 
 import 'support/payload_backend_fake.dart';
 
@@ -247,5 +250,96 @@ void main() {
     await controller.gimbalControl(pitchDeg: -15, yawDeg: 60);
     expect(backend.lastGimbalControl?.pitch, -15);
     expect(backend.lastGimbalControl?.yaw, 60);
+  });
+  group('本地录制与截图', () {
+    late Directory temp;
+
+    setUp(() => temp = Directory.systemTemp.createTempSync('mgcs-rec-'));
+    tearDown(() {
+      if (temp.existsSync()) temp.deleteSync(recursive: true);
+    });
+
+    VideoStorageSettings settings({bool limit = false, int maxMb = 10240}) =>
+        VideoStorageSettings(
+          directory: temp.path,
+          limitEnabled: limit,
+          maxMegabytes: maxMb,
+        );
+
+    test('开始录制在设置目录下生成文件路径并读回状态', () async {
+      backend.onRecordingStatus = () => recordingStatusResponse(
+        available: true,
+        recording: true,
+        path: backend.lastRecordingPath ?? '',
+        bytes: 4096,
+        durationUs: 3000000,
+      );
+
+      await controller.startLocalRecording(settings());
+
+      expect(backend.calls, contains('videoStartRecording'));
+      expect(backend.lastRecordingPath, startsWith('${temp.path}/mgcs-'));
+      expect(backend.lastRecordingPath, endsWith('.mkv'));
+      expect(controller.isRecording, isTrue);
+      expect(controller.recordingStatus?.bytes, 4096);
+      expect(controller.actionMessage, contains('已开始本地录制'));
+    });
+
+    test('空目录直接拒绝，不调用后端', () async {
+      await controller.startLocalRecording(
+        const VideoStorageSettings(directory: '   '),
+      );
+
+      expect(controller.actionError, '请先设置录制目录');
+      expect(backend.calls, isNot(contains('videoStartRecording')));
+    });
+
+    test('本机录制不依赖飞控连接', () async {
+      backend.connected = false;
+
+      await controller.startLocalRecording(settings());
+
+      expect(backend.calls, contains('videoStartRecording'));
+      expect(controller.actionError, isNull);
+    });
+
+    test('停止录制读回最终状态', () async {
+      await controller.stopLocalRecording();
+
+      expect(backend.calls, contains('videoStopRecording'));
+      expect(controller.isRecording, isFalse);
+      expect(controller.actionMessage, contains('已停止本地录制'));
+    });
+
+    test('截图生成 png 路径并交给后端', () async {
+      await controller.captureLocalFrame(settings());
+
+      expect(backend.lastCapturePath, startsWith('${temp.path}/mgcs-'));
+      expect(backend.lastCapturePath, endsWith('.png'));
+      expect(controller.actionMessage, contains('已保存截图'));
+    });
+
+    test('启用容量上限时，开始录制前清理最旧的录制', () async {
+      for (final name in ['a.mkv', 'b.mkv', 'c.mkv']) {
+        File(
+          '${temp.path}/$name',
+        ).writeAsBytesSync(List<int>.filled(1024 * 1024, 0));
+      }
+
+      await controller.startLocalRecording(settings(limit: true, maxMb: 2));
+
+      expect(File('${temp.path}/a.mkv').existsSync(), isFalse);
+      expect(File('${temp.path}/b.mkv').existsSync(), isTrue);
+      expect(File('${temp.path}/c.mkv').existsSync(), isTrue);
+    });
+
+    test('后端失败时给出错误提示，不谎报录制中', () async {
+      backend.commandResponse = payloadError('NOT_SUPPORTED', code: -4);
+
+      await controller.startLocalRecording(settings());
+
+      expect(controller.actionError, isNotNull);
+      expect(controller.isRecording, isFalse);
+    });
   });
 }

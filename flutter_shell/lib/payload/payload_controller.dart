@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../ffi_response.dart';
 import 'payload_backend.dart';
 import 'payload_models.dart';
+import 'video_storage.dart';
 
 /// 相机 / 云台 / 视频源页的状态机。
 ///
@@ -27,6 +28,7 @@ class PayloadController extends ChangeNotifier {
   VideoStatus? _videoStatus;
   List<VideoStreamInfo> _videoStreams = const [];
   VideoRendererStatus? _rendererStatus;
+  VideoRecordingStatus? _recordingStatus;
 
   /// 当前查看的相机组件 id；null 表示「第一台 / 活动目标」。
   int? _selectedCameraId;
@@ -51,6 +53,12 @@ class PayloadController extends ChangeNotifier {
 
   /// 本机解码后端状态（不是飞控能力）。未连接时也照常读取。
   VideoRendererStatus? get videoRendererStatus => _rendererStatus;
+
+  /// 本机录制状态（不是飞控能力）。未连接时也照常读取。
+  VideoRecordingStatus? get recordingStatus => _recordingStatus;
+
+  /// 是否正在把本地码流写入文件。
+  bool get isRecording => _recordingStatus?.recording ?? false;
 
   int? get selectedCameraId => _selectedCameraId;
   int? get selectedGimbalId => _selectedGimbalId;
@@ -81,6 +89,7 @@ class PayloadController extends ChangeNotifier {
     _videoStatus = null;
     _videoStreams = const [];
     _rendererStatus = null;
+    _recordingStatus = null;
     _selectedCameraId = null;
     _selectedGimbalId = null;
     _listError = null;
@@ -121,8 +130,9 @@ class PayloadController extends ChangeNotifier {
     notifyListeners();
 
     final errors = <String>[];
-    // 本机解码后端与飞控连接无关：即使未连接也要如实报告「本平台有没有解码后端」。
+    // 本机解码/录制与飞控连接无关：即使未连接也要如实报告「本平台有没有解码后端」。
     _readRenderer(errors);
+    _readRecording(errors);
 
     if (!backend.isConnected) {
       _cameraStatus = null;
@@ -160,6 +170,20 @@ class PayloadController extends ChangeNotifier {
       _rendererStatus = VideoRendererStatus.fromJson(response);
     } on Object catch (error) {
       errors.add('读取本地视频解码状态失败：$error');
+    }
+  }
+
+  /// 读取本机录制状态。它是一个「本机后端」状态，未连接飞控时也照常读取。
+  void _readRecording(List<String> errors) {
+    try {
+      final response = backend.videoRecordingStatus();
+      if (!ffiSucceeded(response)) {
+        errors.add(ffiErrorText(response, '读取本地录制状态失败'));
+        return;
+      }
+      _recordingStatus = VideoRecordingStatus.fromJson(response);
+    } on Object catch (error) {
+      errors.add('读取本地录制状态失败：$error');
     }
   }
 
@@ -290,8 +314,10 @@ class PayloadController extends ChangeNotifier {
   Future<void> gimbalRecenter() =>
       _send(() => backend.gimbalRecenter(), '已发送云台回中指令');
 
-  /// 启动视频源。没有编译进解码后端时 native 返回 `NOT_SUPPORTED`；
+  /// 启动本地视频源。没有编译进解码后端时 native 返回 `NOT_SUPPORTED`；
   /// 这里不吞掉这个结果，错误会照实显示为「本地解码未支持」。
+  ///
+  /// 这是本机操作，不依赖飞控连接（与相机命令不同），所以不走 [requiresVehicle] 检查。
   Future<void> startVideo(String uri) async {
     final trimmed = uri.trim();
     if (trimmed.isEmpty) {
@@ -299,13 +325,90 @@ class PayloadController extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    await _send(() => backend.videoStart(trimmed), '已请求启动视频源');
+    await _send(
+      () => backend.videoStart(trimmed),
+      '已请求启动本地视频源',
+      requiresVehicle: false,
+    );
     _refreshRendererQuietly();
   }
 
   Future<void> stopVideo() async {
-    await _send(() => backend.videoStop(), '已请求停止视频源');
+    await _send(() => backend.videoStop(), '已停止本地视频源', requiresVehicle: false);
     _refreshRendererQuietly();
+  }
+
+  /// 开始本地录制：把正在播放的码流写进 [settings] 目录下的一个新文件。
+  ///
+  /// 这是本机操作，不需要飞控连接；但需要本地视频源已经在跑，否则 native 会返回
+  /// `INVALID_STATE`。启用容量上限时，先把目录按「越旧越先删」压回上限内。
+  Future<void> startLocalRecording(VideoStorageSettings settings) async {
+    if (_disposed) return;
+    if (isRecording) {
+      noteInvalidInput('已在录制中，请先停止当前录制');
+      return;
+    }
+    final directory = settings.directory.trim();
+    if (directory.isEmpty) {
+      noteInvalidInput('请先设置录制目录');
+      return;
+    }
+    final dirError = await ensureDirectory(directory);
+    if (dirError != null) {
+      noteInvalidInput(dirError);
+      return;
+    }
+    if (settings.limitEnabled) {
+      await pruneOldRecordings(
+        directory: directory,
+        maxMegabytes: settings.maxMegabytes,
+      );
+    }
+    final path = '$directory/${recordingFileName(DateTime.now())}';
+    await _send(
+      () => backend.videoStartRecording(path),
+      '已开始本地录制：$path',
+      requiresVehicle: false,
+    );
+    await refreshRecordingStatus();
+  }
+
+  /// 停止本地录制并读回最终状态（文件大小/时长）。
+  Future<void> stopLocalRecording() async {
+    await _send(
+      () => backend.videoStopRecording(),
+      '已停止本地录制',
+      requiresVehicle: false,
+    );
+    await refreshRecordingStatus();
+  }
+
+  /// 把当前帧存成截图。同样是本机操作，与飞控连接无关。
+  Future<void> captureLocalFrame(VideoStorageSettings settings) async {
+    if (_disposed) return;
+    final directory = settings.directory.trim();
+    if (directory.isEmpty) {
+      noteInvalidInput('请先设置录制目录');
+      return;
+    }
+    final dirError = await ensureDirectory(directory);
+    if (dirError != null) {
+      noteInvalidInput(dirError);
+      return;
+    }
+    final path = '$directory/${snapshotFileName(DateTime.now())}';
+    await _send(
+      () => backend.videoCaptureFrame(path),
+      '已保存截图：$path',
+      requiresVehicle: false,
+    );
+  }
+
+  /// 只刷新本机录制状态，不影响设备列表。
+  Future<void> refreshRecordingStatus() async {
+    if (_disposed) return;
+    _readRecording(<String>[]);
+    notifyListeners();
   }
 
   /// 取本机解码器的最新一帧；没有新帧或没有后端时返回 null。
@@ -321,10 +424,11 @@ class PayloadController extends ChangeNotifier {
 
   Future<void> _send(
     Map<String, Object?> Function() action,
-    String okMessage,
-  ) async {
+    String okMessage, {
+    bool requiresVehicle = true,
+  }) async {
     if (_disposed) return;
-    if (!backend.isConnected) {
+    if (requiresVehicle && !backend.isConnected) {
       _actionError = '未连接飞控，无法发送指令';
       notifyListeners();
       return;

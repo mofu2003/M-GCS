@@ -450,3 +450,36 @@ final class VideoRendererStatus {
     sequence: (json['sequence'] as num?)?.toInt() ?? 0,
   );
 }
+
+/// 本机录制状态（`mg_video_recording_status` / start/stop 的返回体）。
+///
+/// 与飞控无关：它描述的是本机解码器把码流写进本地文件的状态。
+/// `available:false` 表示这个构建没有编译进解码后端，是合法能力状态而非错误。
+final class VideoRecordingStatus {
+  const VideoRecordingStatus({
+    required this.available,
+    this.recording = false,
+    this.path = '',
+    this.error = '',
+    this.bytes = 0,
+    this.durationUs = 0,
+  });
+
+  final bool available;
+  final bool recording;
+  final String path;
+
+  /// 最近一次录制失败的说明；正常停止后为空。录制中通常也为空。
+  final String error;
+  final int bytes;
+  final int durationUs;
+
+  factory VideoRecordingStatus.fromJson(JsonMap json) => VideoRecordingStatus(
+    available: json['available'] == true,
+    recording: json['recording'] == true,
+    path: json['path'] as String? ?? '',
+    error: json['error'] as String? ?? '',
+    bytes: (json['bytes'] as num?)?.toInt() ?? 0,
+    durationUs: (json['duration_us'] as num?)?.toInt() ?? 0,
+  );
+}

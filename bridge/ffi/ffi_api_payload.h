@@ -43,6 +43,20 @@ MGCORE_API int mg_video_poll_frame(mg_core_t* core, unsigned char* dst, int dst_
                                    int* out_width, int* out_height, long long* out_pts_us,
                                    unsigned long long* out_sequence);
 
+// 本地视频录制（码流复制，不重新编码，ADR-0008）。容器由扩展名决定
+// （.mkv/.mov/.mp4）。没有后端时返回 MG_ERROR_NOT_SUPPORTED。
+// 错误码约定：INVALID_PARAM 路径为空；BUSY 已在录制；INVALID_STATE 没有正在播放
+// 的本地视频源；SEND_FAILED 打开文件或写文件头失败。
+MGCORE_API char* mg_video_start_recording(mg_core_t* core, const char* path);
+// 停止录制并写完文件尾；未在录制时也返回 success:true（幂等）。返回最终状态。
+MGCORE_API char* mg_video_stop_recording(mg_core_t* core);
+// 录制状态快照（可在未录制时查询，保留最后一次的结果）。
+MGCORE_API char* mg_video_recording_status(mg_core_t* core);
+
+// 把本地视频源的最近一帧写成图片（.png / .jpg / .jpeg）。没有后端时返回
+// MG_ERROR_NOT_SUPPORTED；尚无帧时返回 MG_ERROR_INVALID_STATE。
+MGCORE_API char* mg_video_capture_frame(mg_core_t* core, const char* path);
+
 #ifdef __cplusplus
 }
 #endif

@@ -21,6 +21,7 @@ class FakePayloadBackend implements PayloadBackend {
   Map<String, Object?> Function()? onVideoStatus;
   Map<String, Object?> Function()? onVideoStreams;
   Map<String, Object?> Function()? onRendererStatus;
+  Map<String, Object?> Function()? onRecordingStatus;
 
   /// 每次 [pollFrame] 依次弹出的帧；耗尽后返回 null（模拟「无新帧」）。
   final List<VideoFrameData> pollFrames = [];
@@ -38,6 +39,8 @@ class FakePayloadBackend implements PayloadBackend {
   int? lastMode;
   ({double pitch, double yaw})? lastGimbalControl;
   String? lastVideoUri;
+  String? lastRecordingPath;
+  String? lastCapturePath;
 
   Map<String, Object?> _command(String name) {
     calls.add(name);
@@ -144,6 +147,27 @@ class FakePayloadBackend implements PayloadBackend {
 
   @override
   Map<String, Object?> videoStop() => _command('videoStop');
+
+  @override
+  Map<String, Object?> videoStartRecording(String path) {
+    lastRecordingPath = path;
+    return _command('videoStartRecording');
+  }
+
+  @override
+  Map<String, Object?> videoStopRecording() => _command('videoStopRecording');
+
+  @override
+  Map<String, Object?> videoRecordingStatus() {
+    calls.add('videoRecordingStatus');
+    return onRecordingStatus?.call() ?? recordingStatusResponse();
+  }
+
+  @override
+  Map<String, Object?> videoCaptureFrame(String path) {
+    lastCapturePath = path;
+    return _command('videoCaptureFrame');
+  }
 
   @override
   Map<String, Object?> rendererStatus() {
@@ -419,6 +443,24 @@ Map<String, Object?> rendererStatusResponse({
   'height': height,
   'pts_us': ptsUs,
   'sequence': sequence,
+};
+
+/// `mg_video_recording_status` 的响应。默认「没有可用后端、未在录制」。
+Map<String, Object?> recordingStatusResponse({
+  bool available = false,
+  bool recording = false,
+  String path = '',
+  String error = '',
+  int bytes = 0,
+  int durationUs = 0,
+}) => {
+  'success': true,
+  'available': available,
+  'recording': recording,
+  'path': path,
+  'error': error,
+  'bytes': bytes,
+  'duration_us': durationUs,
 };
 
 /// 一帧合成 RGBA8888（纯色），供控制器/预览测试驱动，不依赖真实解码后端。

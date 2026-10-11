@@ -22,6 +22,7 @@
 #include "core/mavlink/mavlink_adapter.h"
 #include "core/log/tlog_format.h"
 #include "core/settings/mavlink_log_writer.h"
+#include "core/video/video_decoder.h"
 
 static int g_pass = 0, g_fail = 0;
 #define CHECK(cond, msg) do { \
@@ -369,20 +370,22 @@ static void test_video_ffi() {
     mg_core_t* core = mg_create();
     CHECK(core != nullptr, "mg_create");
 
-    // mg_video_start 需要 uri；空 uri 是参数错误，非空 uri 在本构建（无 FFmpeg 后端）下是
-    // NOT_SUPPORTED。关键回归点：它绝不能再退化成「让相机开始录像」。
-    // 注意：这里断言 NOT_SUPPORTED 只在 MGCORE_HAS_FFMPEG=OFF 的构建成立；若将来构建机启用
-    // FFmpeg，本组应改为验证「无真实流时打不开」的 SEND_FAILED 路径（ADR-0008 退出条件）。
+    // mg_video_start 需要 uri；空 uri 是参数错误；非空但不可达的 uri 无论是否编译解码后端
+    // 都必须失败。关键回归点：它绝不能再退化成「让相机开始录像」。
+    const bool video_has_backend = mg::core::video::VideoDecoder::backend_available();
     char* r = mg_video_start(core, "");
     CHECK(r != nullptr, "video_start(empty) returns non-null");
     CHECK(json_has(r, "\"error\""), "video_start(empty) returns error");
     CHECK(json_has(r, "INVALID_PARAM"), "video_start(empty) is INVALID_PARAM");
     if (r) mg_free_string(r);
 
-    r = mg_video_start(core, "rtsp://192.168.1.10:8554/main");
+    r = mg_video_start(core, "rtsp://example.invalid/main");
     CHECK(r != nullptr, "video_start(uri) returns non-null");
-    CHECK(json_has(r, "\"error\""), "video_start(uri) returns error (no FFmpeg backend in this build)");
-    CHECK(json_has(r, "NOT_SUPPORTED"), "video_start(uri) is NOT_SUPPORTED, not camera recording");
+    CHECK(json_has(r, "\"error\""), "video_start(uri) returns error on an unreachable source");
+    if (video_has_backend)
+        CHECK(json_has(r, "SEND_FAILED"), "video_start(uri) is SEND_FAILED when the source cannot open");
+    else
+        CHECK(json_has(r, "NOT_SUPPORTED"), "video_start(uri) is NOT_SUPPORTED without a backend");
     if (r) mg_free_string(r);
 
     // video_stop 是幂等的「停止本地视频源」：没有后端或未运行时是无害的 no-op，

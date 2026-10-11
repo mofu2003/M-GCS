@@ -523,3 +523,90 @@ MGCORE_API char* mg_video_get_streams(mg_core_t* core) {
     jb.end_object();
     return to_cstr(jb.str());
 }
+
+// ================================================================
+// 本地视频录制与截图（ADR-0008，S4）
+// ================================================================
+
+namespace {
+
+/// 录制状态 → JSON 字段，供 start/stop/status 三个入口共用。
+void fill_recording_fields(mg::core::telemetry::JsonBuilder& jb,
+                           const mg::core::video::RecordingStatus& st) {
+    jb.field("available", mg::core::video::VideoDecoder::backend_available());
+    jb.field("recording", st.recording);
+    jb.field("path", st.path);
+    jb.field("error", st.error);
+    jb.field("bytes", static_cast<long long>(st.bytes));
+    jb.field("duration_us", static_cast<long long>(st.duration_us));
+}
+
+} // namespace
+
+MGCORE_API char* mg_video_start_recording(mg_core_t* core, const char* path) {
+    CHECK_CORE(core);
+    if (!path || path[0] == '\0')
+        return fail(MG_ERROR_INVALID_PARAM, "recording path is required");
+    if (!mg::core::video::VideoDecoder::backend_available())
+        return fail(MG_ERROR_NOT_SUPPORTED,
+                    "local video recording backend unavailable in this build");
+    if (core->video_decoder.recording_status().recording)
+        return fail(MG_ERROR_BUSY, "already recording");
+    if (!core->video_decoder.running())
+        return fail(MG_ERROR_INVALID_STATE, "no local video source is running");
+    std::string error;
+    if (!core->video_decoder.start_recording(path, error))
+        return fail(MG_ERROR_SEND_FAILED, error.c_str());
+    mg::core::telemetry::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    fill_recording_fields(jb, core->video_decoder.recording_status());
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
+MGCORE_API char* mg_video_stop_recording(mg_core_t* core) {
+    CHECK_CORE(core);
+    core->video_decoder.stop_recording();
+    mg::core::telemetry::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    fill_recording_fields(jb, core->video_decoder.recording_status());
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
+MGCORE_API char* mg_video_recording_status(mg_core_t* core) {
+    CHECK_CORE(core);
+    mg::core::telemetry::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    fill_recording_fields(jb, core->video_decoder.recording_status());
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
+MGCORE_API char* mg_video_capture_frame(mg_core_t* core, const char* path) {
+    CHECK_CORE(core);
+    if (!path || path[0] == '\0')
+        return fail(MG_ERROR_INVALID_PARAM, "capture path is required");
+    if (!mg::core::video::VideoDecoder::backend_available())
+        return fail(MG_ERROR_NOT_SUPPORTED,
+                    "local video capture backend unavailable in this build");
+    if (!core->video_decoder.frames().has_frame())
+        return fail(MG_ERROR_INVALID_STATE, "no frame available to capture");
+    std::string error;
+    if (!core->video_decoder.capture_frame(path, error))
+        return fail(MG_ERROR_SEND_FAILED, error.c_str());
+    const mg::core::video::VideoFrameBuffer::Snapshot snap =
+        core->video_decoder.frames().latest();
+    mg::core::telemetry::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("path", std::string(path));
+    jb.field("width", snap.width);
+    jb.field("height", snap.height);
+    jb.field("pts_us", static_cast<long long>(snap.pts_us));
+    jb.end_object();
+    return to_cstr(jb.str());
+}

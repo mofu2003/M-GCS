@@ -34,6 +34,8 @@ final class PayloadFfiBackend implements PayloadBackend {
     _videoGetStreams = _lookup1('mg_video_get_streams');
     _videoStop = _lookup1('mg_video_stop');
     _videoRendererStatus = _lookup1('mg_video_renderer_status');
+    _videoStopRecording = _lookup1('mg_video_stop_recording');
+    _videoRecordingStatus = _lookup1('mg_video_recording_status');
     _videoPollFrame = _library
         .lookup<
           NativeFunction<
@@ -64,11 +66,9 @@ final class PayloadFfiBackend implements PayloadBackend {
           NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Float, Float)>
         >('mg_command_gimbal_control')
         .asFunction();
-    _videoStart = _library
-        .lookup<
-          NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
-        >('mg_video_start')
-        .asFunction();
+    _videoStart = _lookupPath('mg_video_start');
+    _videoStartRecording = _lookupPath('mg_video_start_recording');
+    _videoCaptureFrame = _lookupPath('mg_video_capture_frame');
   }
 
   final DynamicLibrary _library;
@@ -95,6 +95,12 @@ final class PayloadFfiBackend implements PayloadBackend {
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _videoStart;
   late final Pointer<Utf8> Function(Pointer<Void>) _videoStop;
   late final Pointer<Utf8> Function(Pointer<Void>) _videoRendererStatus;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _videoStartRecording;
+  late final Pointer<Utf8> Function(Pointer<Void>) _videoStopRecording;
+  late final Pointer<Utf8> Function(Pointer<Void>) _videoRecordingStatus;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _videoCaptureFrame;
   late final int Function(
     Pointer<Void>,
     Pointer<Uint8>,
@@ -121,6 +127,15 @@ final class PayloadFfiBackend implements PayloadBackend {
 
   Pointer<Utf8> Function(Pointer<Void>) _lookup1(String symbol) => _library
       .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(symbol)
+      .asFunction();
+
+  /// 取「core + 一个 UTF-8 路径参数」的导出（视频源/录制/截图共用同一签名）。
+  Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _lookupPath(
+    String symbol,
+  ) => _library
+      .lookup<
+        NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+      >(symbol)
       .asFunction();
 
   @override
@@ -183,17 +198,44 @@ final class PayloadFfiBackend implements PayloadBackend {
   Map<String, Object?> videoStreams() => _read(_videoGetStreams(_core));
 
   @override
-  Map<String, Object?> videoStart(String uri) {
-    final nativeUri = uri.toNativeUtf8();
+  Map<String, Object?> videoStart(String uri) =>
+      _withNativePath(uri, (native) => _read(_videoStart(_core, native)));
+
+  /// 把 Dart 字符串转成 UTF-8 指针执行 [body]，无论成功与否都释放。
+  Map<String, Object?> _withNativePath(
+    String text,
+    Map<String, Object?> Function(Pointer<Utf8>) body,
+  ) {
+    final native = text.toNativeUtf8();
     try {
-      return _read(_videoStart(_core, nativeUri));
+      return body(native);
     } finally {
-      malloc.free(nativeUri);
+      malloc.free(native);
     }
   }
 
   @override
   Map<String, Object?> videoStop() => _read(_videoStop(_core));
+
+  @override
+  Map<String, Object?> videoStartRecording(String path) => _withNativePath(
+    path,
+    (native) => _read(_videoStartRecording(_core, native)),
+  );
+
+  @override
+  Map<String, Object?> videoStopRecording() =>
+      _read(_videoStopRecording(_core));
+
+  @override
+  Map<String, Object?> videoRecordingStatus() =>
+      _read(_videoRecordingStatus(_core));
+
+  @override
+  Map<String, Object?> videoCaptureFrame(String path) => _withNativePath(
+    path,
+    (native) => _read(_videoCaptureFrame(_core, native)),
+  );
 
   @override
   Map<String, Object?> rendererStatus() => _read(_videoRendererStatus(_core));

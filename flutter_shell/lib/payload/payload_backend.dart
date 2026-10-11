@@ -47,6 +47,21 @@ abstract interface class PayloadBackend {
   /// 它描述的是本机后端，不是飞控能力。
   Map<String, Object?> rendererStatus();
 
+  /// 开始把正在播放的本地码流写入 [path]（码流复制，不重编码）。没有解码后端
+  /// 返回 `NOT_SUPPORTED`，没有正在运行的本地源返回 `INVALID_STATE`，
+  /// 已在录制返回 `BUSY`，打开文件失败返回 `SEND_FAILED`。
+  Map<String, Object?> videoStartRecording(String path);
+
+  /// 停止本地录制并返回最终状态快照。未在录制时是无害的成功 no-op。
+  Map<String, Object?> videoStopRecording();
+
+  /// 本机录制状态（`mg_video_recording_status`）。始终是可读的成功信封。
+  Map<String, Object?> videoRecordingStatus();
+
+  /// 把最新一帧存成图片（`.png`/`.jpg`）。没有解码后端返回 `NOT_SUPPORTED`，
+  /// 还没有解码出帧返回 `INVALID_STATE`，写文件失败返回 `SEND_FAILED`。
+  Map<String, Object?> videoCaptureFrame(String path);
+
   /// 取本机解码器的最新一帧（RGBA8888）。没有新帧或没有可用后端时返回 null，
   /// 不阻塞、不抛异常。像素已拷进 Dart 侧的 [VideoFrameData.rgba]。
   VideoFrameData? pollFrame();
@@ -140,6 +155,15 @@ final class PayloadUnavailableBackend implements PayloadBackend {
   @override
   Map<String, Object?> videoStop() => _fail();
 
+  @override
+  Map<String, Object?> videoStartRecording(String path) => _fail();
+
+  @override
+  Map<String, Object?> videoStopRecording() => _fail();
+
+  @override
+  Map<String, Object?> videoCaptureFrame(String path) => _fail();
+
   /// 原生库不可用时，本机解码后端同样「不可用」——这是一个合法的能力状态，
   /// 不是错误，所以返回 `available:false` 而不是失败对象，避免污染页面错误区。
   @override
@@ -154,6 +178,18 @@ final class PayloadUnavailableBackend implements PayloadBackend {
     'height': 0,
     'pts_us': 0,
     'sequence': 0,
+  };
+
+  /// 同理，录制能力也随解码后端一起缺失；返回可读的空状态而不是错误。
+  @override
+  Map<String, Object?> videoRecordingStatus() => const {
+    'success': true,
+    'available': false,
+    'recording': false,
+    'path': '',
+    'error': '',
+    'bytes': 0,
+    'duration_us': 0,
   };
 
   @override

@@ -4,6 +4,7 @@ import 'package:macos_ui/macos_ui.dart';
 import 'package:mgcs_frontend/payload/camera_gimbal_page.dart';
 import 'package:mgcs_frontend/payload/payload_backend.dart';
 import 'package:mgcs_frontend/payload/payload_controller.dart';
+import 'package:mgcs_frontend/payload/video_storage.dart';
 import 'package:mgcs_frontend/theme/mg_typography.dart';
 
 import 'support/payload_backend_fake.dart';
@@ -12,6 +13,7 @@ Future<void> _pumpPage(
   WidgetTester tester,
   PayloadController controller, {
   bool settle = true,
+  Future<VideoStorageSettings> Function()? storageLoader,
 }) async {
   tester.view.physicalSize = const Size(1400, 1600);
   tester.view.devicePixelRatio = 1;
@@ -23,7 +25,15 @@ Future<void> _pumpPage(
         typography: MgTypography.macos(Brightness.light),
       ),
       child: MaterialApp(
-        home: Scaffold(body: CameraGimbalPage(controller: controller)),
+        home: Scaffold(
+          body: CameraGimbalPage(
+            controller: controller,
+            // Widget 测试里没有平台通道；注入同步 loader，不依赖 path_provider。
+            storageLoader:
+                storageLoader ??
+                () async => const VideoStorageSettings(directory: '/tmp/mgcs'),
+          ),
+        ),
       ),
     ),
   );
@@ -169,6 +179,40 @@ void main() {
 
     // 卸载页面必须取消轮询定时器。
     await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('后端可用时提供录制/截图控件，开始录制走控制器', (tester) async {
+    final backend = FakePayloadBackend();
+    backend.onRendererStatus = () =>
+        rendererStatusResponse(available: true, backend: 'ffmpeg');
+    final controller = PayloadController(backend: backend);
+    addTearDown(controller.dispose);
+
+    await _pumpPage(tester, controller);
+
+    expect(find.text('录制目录'), findsOneWidget);
+    expect(find.text('容量上限'), findsOneWidget);
+    expect(find.text('截图'), findsOneWidget);
+
+    // 录制面板在页面下方，先滚动到可见再点击，否则点击会落在视口外。
+    await tester.ensureVisible(find.text('开始录制'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始录制'));
+    await tester.pump();
+
+    expect(backend.calls, contains('videoStartRecording'));
+    expect(controller.actionMessage, contains('已开始本地录制'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('未启用解码后端时不画录制控件', (tester) async {
+    final controller = PayloadController(backend: FakePayloadBackend());
+    addTearDown(controller.dispose);
+
+    await _pumpPage(tester, controller);
+
+    expect(find.text('录制目录'), findsNothing);
+    expect(find.text('开始录制'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

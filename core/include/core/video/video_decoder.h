@@ -57,6 +57,18 @@ private:
     uint64_t sequence_ = 0;
 };
 
+/// 一次录制的状态快照。
+///
+/// `bytes`/`duration_us` 是「到目前为止」的值；停止后保留最后一次结果，方便界面
+/// 显示「已保存 N MB」而不是回到空白。`error` 空表示没有失败。
+struct RecordingStatus {
+    bool recording = false;
+    std::string path;
+    std::string error;
+    int64_t bytes = 0;
+    int64_t duration_us = 0;
+};
+
 /// 本地视频源解码器。同一时刻最多一个源；再次 start 会替换上一个。
 class VideoDecoder {
 public:
@@ -78,10 +90,26 @@ public:
     VideoFrameBuffer& frames() { return frames_; }
     const VideoFrameBuffer& frames() const { return frames_; }
 
-private:
-    void decode_loop();
+    /// 把当前视频源的码流复制到 `path`（不重新编码）。容器由扩展名决定
+    /// （mkv/mov/mp4）。需要后端可用且正在播放；失败时 `error` 给出原因，
+    /// 并且不会留下半个「正在录制」的状态。
+    bool start_recording(const std::string& path, std::string& error);
+    /// 停止录制并写完文件尾；未在录制时为 no-op。重复调用安全。
+    void stop_recording();
+    /// 录制状态快照；可从任意线程调用。
+    RecordingStatus recording_status() const;
 
+    /// 把最近一帧写成图片文件，格式由扩展名决定（.png / .jpg / .jpeg）。
+    /// 需要后端可用且已有帧；失败时 `error` 给出原因。
+    bool capture_frame(const std::string& path, std::string& error);
+
+private:
     struct Impl;
+
+    void decode_loop();
+    /// 打开输入流并准备解码器（仅 FFmpeg 后端实现）。声明在这里是为了让它
+    /// 能访问私有嵌套类型 Impl，同时不把 FFmpeg 类型带进头文件。
+    static bool open_input_impl(Impl& impl, const std::string& uri);
     std::unique_ptr<Impl> impl_;
     VideoFrameBuffer frames_;
     std::thread thread_;
