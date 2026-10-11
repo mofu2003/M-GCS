@@ -221,7 +221,7 @@ class FleetController extends ChangeNotifier {
     _requireAlive();
     refresh();
     final vehicles = selectedVehicles
-        .where((vehicle) => vehicle.connected && vehicle.identified)
+        .where((vehicle) => vehicle.stateFresh && vehicle.identified)
         .toList(growable: false);
     if (vehicles.isEmpty) {
       throw StateError('请先选择至少一架已连接并完成识别的飞机');
@@ -323,8 +323,8 @@ class FleetController extends ChangeNotifier {
     }
   }
 
-  /// Revalidate before every legacy active-focus native command, including
-  /// the next step of an async takeoff/arm sequence after an await.
+  /// Revalidate before every active-focus native command, including the
+  /// next step of an async takeoff/arm sequence after an await.
   void validatePinnedTarget() {
     final target = _pinnedTarget;
     if (target != null) validateTarget(target);

@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import 'connection/connection_controller.dart';
-import 'configuration_workspace.dart';
+import 'configuration/configuration_workspace.dart';
 import 'fleet/fleet_models.dart';
 import 'gcs_configuration_workspace.dart';
 import 'map/amap_map_view.dart';
@@ -63,11 +63,17 @@ class _MapPageState extends State<MapPage> {
 
   /// 地图样式的唯一真源：设置页写，地图页读并持久化。
   final _mapStyle = ValueNotifier<MapStyle>(MapStyle.amap);
+
+  /// 自定义瓦片源地址（KD-37）。地图页读完偏好后会把持久化的值写回来。
+  final _customTileUrl = ValueNotifier<String>('');
   late final ConnectionController _connectionController =
       ConnectionController();
   final _connectionPanelRequest = ValueNotifier<int>(0);
   final _flightMessagePanelRequest = ValueNotifier<int>(0);
   final _missionPlanningRequest = ValueNotifier<int>(0);
+
+  /// 设置菜单直接跳到配置工作区的某个页面（如「机载日志」）。
+  final _configurationPageRequest = ValueNotifier<String?>(null);
   final _pendingCommand = ValueNotifier<MgCommandConfirmation?>(null);
 
   FleetTarget? _pendingTarget;
@@ -213,7 +219,9 @@ class _MapPageState extends State<MapPage> {
   /// 解锁/上锁只进入悬浮长按确认，成功不弹窗；失败由统一命令错误处理弹窗。
   void _requestArmConfirmation() {
     final controller = _connectionController;
-    if (!controller.isConnected || controller.vehicleFlying) return;
+    // S5：动作名（解锁/上锁）取决于当前 armed，过期状态不能用来决定动作。
+    if (!controller.isConnected || !controller.vehicleStateFresh) return;
+    if (controller.vehicleFlying) return;
     final armed = controller.vehicleArmed;
     _requestCommandConfirmation(
       MgCommandConfirmation(
@@ -226,7 +234,13 @@ class _MapPageState extends State<MapPage> {
   /// 急停不走 [_requestArmConfirmation]：常规上锁在飞行中被禁用，急停必须仍可触达。
   void _requestEmergencyStopConfirmation() {
     final controller = _connectionController;
-    if (!controller.isConnected || !controller.vehicleArmed) return;
+    // 急停只在确认为“已解锁”时出现；过期帧可能停在解锁前的状态（S5）。
+    // 命令入口对新鲜度还有一道校验，这里只是不给出基于过期状态的入口。
+    if (!controller.isConnected ||
+        !controller.vehicleStateFresh ||
+        !controller.vehicleArmed) {
+      return;
+    }
     _requestCommandConfirmation(
       MgCommandConfirmation(
         label: '急停',
@@ -237,11 +251,32 @@ class _MapPageState extends State<MapPage> {
   }
 
   Future<void> _executeArm(bool armed) async {
-    if (armed) {
-      await _connectionController.disarmVehicle();
-    } else {
-      await _connectionController.armVehicle();
+    final changed = armed
+        ? await _connectionController.disarmVehicle()
+        : await _connectionController.armVehicle();
+    // 飞控已经处于目标状态时没有下发任何命令；这不是错误，但必须让操作者
+    // 知道“什么都没发生”，不能按了长按确认却毫无反馈（S1）。
+    if (!changed && mounted) {
+      await _showAlreadyInState(armed ? '上锁' : '解锁');
     }
+  }
+
+  Future<void> _showAlreadyInState(String action) {
+    return showMgAlertDialog<void>(
+      context: context,
+      builder: (dialogContext) => MacosAlertDialog(
+        appIcon: const Icon(Icons.info_outline, size: 48),
+        title: Text('无需$action'),
+        message: Text(
+          action == '解锁' ? '飞控当前已经处于解锁状态，未重复下发命令。' : '飞控当前已经处于上锁状态，未重复下发命令。',
+        ),
+        primaryButton: PushButton(
+          controlSize: ControlSize.large,
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('知道了'),
+        ),
+      ),
+    );
   }
 
   Future<void> _openSettings(BuildContext settingsContext) async {
@@ -262,6 +297,22 @@ class _MapPageState extends State<MapPage> {
       case MgSettingsDestination.missionPlanning:
         _cancelCommandConfirmation();
         _missionPlanningRequest.value++;
+      case MgSettingsDestination.survey:
+        _cancelCommandConfirmation();
+        _configurationPageRequest.value = 'survey';
+        setState(() => _showConfiguration = true);
+      case MgSettingsDestination.logs:
+        _cancelCommandConfirmation();
+        _configurationPageRequest.value = 'logs';
+        setState(() => _showConfiguration = true);
+      case MgSettingsDestination.flightLog:
+        _cancelCommandConfirmation();
+        _configurationPageRequest.value = 'flightLog';
+        setState(() => _showConfiguration = true);
+      case MgSettingsDestination.files:
+        _cancelCommandConfirmation();
+        _configurationPageRequest.value = 'files';
+        setState(() => _showConfiguration = true);
       case MgSettingsDestination.gcs:
         _cancelCommandConfirmation();
         setState(() => _showGcsConfiguration = true);
@@ -310,12 +361,14 @@ class _MapPageState extends State<MapPage> {
     if (_showConfiguration) {
       return ConfigurationWorkspace(
         connectionController: _connectionController,
+        requestedPage: _configurationPageRequest,
         onReturnToMap: () => setState(() => _showConfiguration = false),
       );
     }
     if (_showGcsConfiguration) {
       return GcsConfigurationWorkspace(
         mapStyle: _mapStyle,
+        customTileUrl: _customTileUrl,
         connectionController: _connectionController,
         onReturnToMap: () => setState(() => _showGcsConfiguration = false),
       );
@@ -359,6 +412,7 @@ class _MapPageState extends State<MapPage> {
                         builder: (context, _) => AMapMapView(
                           connectionController: _connectionController,
                           mapStyle: _mapStyle,
+                          customTileUrl: _customTileUrl,
                           connectionPanelRequest: _connectionPanelRequest,
                           flightMessagePanelRequest: _flightMessagePanelRequest,
                           missionPlanningRequest: _missionPlanningRequest,
@@ -389,9 +443,11 @@ class _MapPageState extends State<MapPage> {
       _connectionController.fleet.removeListener(_handleFleetFocusChange);
     }
     _mapStyle.dispose();
+    _customTileUrl.dispose();
     _connectionPanelRequest.dispose();
     _flightMessagePanelRequest.dispose();
     _missionPlanningRequest.dispose();
+    _configurationPageRequest.dispose();
     _pendingCommand.dispose();
     _connectionController.dispose();
     super.dispose();

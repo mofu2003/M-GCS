@@ -3,6 +3,7 @@ import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 
+import '../ffi_response.dart';
 import 'mission_document_backend.dart';
 import 'mission_document_models.dart';
 
@@ -32,6 +33,7 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     _missionDocVerify = _lookupVerify('mg_mission_doc_verify');
     _missionCommandCatalog = _lookup1('mg_mission_get_command_catalog');
     _missionDocExport = _lookup1('mg_mission_doc_export');
+    _missionDocExportFormat = _lookup2('mg_mission_doc_export_format');
     _missionDocImport = _lookup2('mg_mission_doc_import');
     _missionDocSave = _lookup2('mg_mission_doc_save');
     _missionDocLoad = _lookup2('mg_mission_doc_load');
@@ -88,6 +90,8 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   late final Pointer<Utf8> Function(Pointer<Void>, double) _missionDocVerify;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionCommandCatalog;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDocExport;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+  _missionDocExportFormat;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _missionDocImport;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
@@ -389,6 +393,21 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
       _readString(_missionDocExport(_core));
 
   @override
+  Future<MissionInterchangeExport> exportMissionInterchange(
+    String format,
+  ) async {
+    final nativeFormat = format.toNativeUtf8();
+    try {
+      final json = _readJson(_missionDocExportFormat(_core, nativeFormat));
+      if (json is! Map) throw const FormatException('导出响应格式无效');
+      _requireSuccess(Map<String, Object?>.from(json));
+      return MissionInterchangeExport.fromJson(Map<String, Object?>.from(json));
+    } finally {
+      malloc.free(nativeFormat);
+    }
+  }
+
+  @override
   Future<void> saveMissionDocument(String filePath) async {
     final nativePath = filePath.toNativeUtf8();
     try {
@@ -444,8 +463,8 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   }
 
   void _requireSuccess(JsonMap response) {
-    if (response['success'] == true) return;
-    final message = response['error']?.toString() ?? '任务后端操作失败';
+    if (ffiSucceeded(response)) return;
+    final message = ffiErrorText(response, '任务后端操作失败');
     final revision = response['revision'];
     throw StateError(
       revision == null ? message : '$message（当前 revision $revision）',

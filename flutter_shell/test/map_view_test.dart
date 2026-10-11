@@ -1,7 +1,61 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs_frontend/map/amap_map_view.dart';
+import 'package:mgcs_frontend/map/map_preferences.dart';
 
 void main() {
+  group('custom tile source (KD-37)', () {
+    test('accepts an https template with z/x/y placeholders', () {
+      expect(
+        validateCustomTileUrl('https://tiles.example.com/{z}/{x}/{y}.png'),
+        isNull,
+      );
+      expect(
+        isCustomTileUrlUsable('http://127.0.0.1:8080/tiles/{z}/{x}/{y}.png'),
+        isTrue,
+      );
+    });
+
+    test('rejects empty, non-http and missing-placeholder templates', () {
+      expect(validateCustomTileUrl('   '), isNotNull);
+      expect(validateCustomTileUrl('file:///tmp/{z}/{x}/{y}.png'), isNotNull);
+      expect(
+        validateCustomTileUrl('https://tiles.example.com/{z}/{x}.png'),
+        isNotNull,
+      );
+      expect(
+        validateCustomTileUrl('https://tiles.example.com/{z}/{y}.png'),
+        isNotNull,
+      );
+    });
+
+    test('falls back to the standard basemap until a template is set', () {
+      expect(
+        mapStyleLabel(MapStyle.custom),
+        contains('未配置'),
+      );
+      expect(
+        mapStyleLabel(
+          MapStyle.custom,
+          customTileUrl: 'https://tiles.example.com/{z}/{x}/{y}.png',
+        ),
+        '自定义瓦片源',
+      );
+      expect(
+        mapStyleAttribution(
+          MapStyle.custom,
+          customTileUrl: 'https://tiles.example.com/{z}/{x}/{y}.png',
+        ),
+        contains('自定义地址'),
+      );
+    });
+
+    test('presets keep their own labels after adding the custom entry', () {
+      expect(mapStyleLabel(MapStyle.amap), '高德标准地图');
+      expect(MapStyle.values.first.name, 'standard');
+      expect(MapStyle.values.last, MapStyle.custom);
+    });
+  });
+
   group('vehicle camera', () {
     test('follows while enabled even after the first centering', () {
       expect(

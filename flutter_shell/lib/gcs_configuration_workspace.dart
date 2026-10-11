@@ -4,11 +4,13 @@ import 'package:macos_ui/macos_ui.dart';
 
 import 'map/amap_map_view.dart'
     show MapStyle, mapStyleAttribution, mapStyleLabel;
+import 'map/map_preferences.dart' show validateCustomTileUrl;
 import 'connection/connection_controller.dart';
 import 'connection/signing_key_store.dart';
 import 'theme/mg_colors.dart';
 import 'theme/mg_typography.dart';
 import 'widgets/app_workspace_shell.dart';
+import 'widgets/mg_confirm.dart';
 
 /// 地面站配置。
 ///
@@ -19,12 +21,16 @@ class GcsConfigurationWorkspace extends StatefulWidget {
   const GcsConfigurationWorkspace({
     super.key,
     required this.mapStyle,
+    required this.customTileUrl,
     required this.connectionController,
     required this.onReturnToMap,
   });
 
   /// 地图样式的唯一真源，地图页监听它切换图层并持久化。
   final ValueNotifier<MapStyle> mapStyle;
+
+  /// 自定义瓦片源地址模板（KD-37），与地图页共享同一个真源。
+  final ValueNotifier<String> customTileUrl;
   final ConnectionController connectionController;
   final VoidCallback onReturnToMap;
 
@@ -57,6 +63,7 @@ class _GcsConfigurationWorkspaceState extends State<GcsConfigurationWorkspace> {
       _ => _MapSettingsPage(
         scrollController: scrollController,
         mapStyle: widget.mapStyle,
+        customTileUrl: widget.customTileUrl,
       ),
     },
   );
@@ -66,10 +73,12 @@ class _MapSettingsPage extends StatelessWidget {
   const _MapSettingsPage({
     required this.scrollController,
     required this.mapStyle,
+    required this.customTileUrl,
   });
 
   final ScrollController scrollController;
   final ValueNotifier<MapStyle> mapStyle;
+  final ValueNotifier<String> customTileUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -97,6 +106,7 @@ class _MapSettingsPage extends StatelessWidget {
           child: ValueListenableBuilder<MapStyle>(
             valueListenable: mapStyle,
             builder: (context, selected, _) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 for (final style in MapStyle.values)
                   _MapStyleRow(
@@ -104,6 +114,8 @@ class _MapSettingsPage extends StatelessWidget {
                     selected: style == selected,
                     onSelected: () => mapStyle.value = style,
                   ),
+                if (selected == MapStyle.custom)
+                  _CustomTileUrlField(customTileUrl: customTileUrl),
               ],
             ),
           ),
@@ -114,7 +126,10 @@ class _MapSettingsPage extends StatelessWidget {
           child: ValueListenableBuilder<MapStyle>(
             valueListenable: mapStyle,
             builder: (context, selected, _) {
-              final attribution = mapStyleAttribution(selected);
+              final attribution = mapStyleAttribution(
+                selected,
+                customTileUrl: customTileUrl.value,
+              );
               return Padding(
                 padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
                 child: Text(
@@ -222,6 +237,14 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
       setState(() => _error = '密钥必须是 64 位十六进制字符（32 字节）。');
       return;
     }
+    final saveConfirmed = await showMgConfirmDialog(
+      context,
+      title: '保存并应用密钥？',
+      message: '密钥会保存到本地并应用到当前飞控。若与飞控已配置的密钥不一致，'
+          '签名校验会使 GCS 与飞控失联。',
+      confirmLabel: '保存并应用',
+    );
+    if (!saveConfirmed) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -254,6 +277,14 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
       setState(() => _error = '密钥必须是 64 位十六进制字符（32 字节）。');
       return;
     }
+    final sendConfirmed = await showMgConfirmDialog(
+      context,
+      title: '下发签名密钥到飞控？',
+      message: 'SETUP_SIGNING 会改变飞控的链路信任状态。密钥不一致会让 GCS 与飞控'
+          '失联，只能在飞控本地恢复。',
+      confirmLabel: '下发密钥',
+    );
+    if (!sendConfirmed) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -608,6 +639,92 @@ class _SigningKeyRow extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 自定义瓦片源地址输入（KD-37）。
+///
+/// 只在选中「自定义瓦片源」时出现：模板带 `{z}/{x}/{y}` 占位符，校验通过才写入
+/// 真源；地址非法时给出原因，地图继续用当前可用源，不会白屏。
+class _CustomTileUrlField extends StatefulWidget {
+  const _CustomTileUrlField({required this.customTileUrl});
+
+  final ValueNotifier<String> customTileUrl;
+
+  @override
+  State<_CustomTileUrlField> createState() => _CustomTileUrlFieldState();
+}
+
+class _CustomTileUrlFieldState extends State<_CustomTileUrlField> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.customTileUrl.value,
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit(String raw) {
+    final error = validateCustomTileUrl(raw);
+    setState(() => _error = error);
+    if (error != null) return;
+    widget.customTileUrl.value = raw.trim();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '瓦片地址模板',
+            style: MgTypography.sans(
+              MgTypography.caption.copyWith(color: colors.textSecondary),
+            ),
+          ),
+          const SizedBox(height: 6),
+          MacosTextField(
+            controller: _controller,
+            placeholder: 'https://tiles.example.com/{z}/{x}/{y}.png',
+            onSubmitted: _submit,
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _error ??
+                '必须包含 {z}/{x}/{y}，只能填 http/https 的自建或第三方瓦片服务地址；'
+                    '坐标系按 WGS-84 处理。',
+            style: MgTypography.sans(
+              MgTypography.caption.copyWith(
+                color: _error == null ? colors.textSecondary : colors.danger,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              onPressed: () => _submit(_controller.text),
+              child: Text(
+                '应用地址',
+                style: MgTypography.sans(
+                  MgTypography.body.copyWith(color: colors.accent),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

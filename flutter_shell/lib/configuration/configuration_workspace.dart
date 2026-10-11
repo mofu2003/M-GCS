@@ -1,6 +1,10 @@
 import 'package:flutter/cupertino.dart';
 
 import 'package:mgcs_frontend/connection/connection_controller.dart';
+import 'package:mgcs_frontend/logging/file_browser_page.dart';
+import 'package:mgcs_frontend/logging/flight_log_page.dart';
+import 'package:mgcs_frontend/logging/onboard_log_page.dart';
+import 'package:mgcs_frontend/survey/survey_planning_page.dart';
 import 'package:mgcs_frontend/widgets/app_workspace_shell.dart';
 
 import 'arming/arming_checks_page.dart';
@@ -19,10 +23,14 @@ class ConfigurationWorkspace extends StatefulWidget {
     super.key,
     required this.onReturnToMap,
     required this.connectionController,
+    this.requestedPage,
   });
 
   final VoidCallback onReturnToMap;
   final ConnectionController connectionController;
+
+  /// 打开配置工作区时希望直接选中的页面 id（如设置菜单里的「机载日志」）。
+  final ValueNotifier<String?>? requestedPage;
 
   @override
   State<ConfigurationWorkspace> createState() => _ConfigurationWorkspaceState();
@@ -43,9 +51,36 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
     _ConfigPageInfo('battery', '电池配置', CupertinoIcons.battery_100),
     _ConfigPageInfo('arming', '解锁检查', CupertinoIcons.checkmark_shield),
     _ConfigPageInfo('allParameters', '全部参数', CupertinoIcons.list_number),
+    _ConfigPageInfo('survey', '测绘规划', CupertinoIcons.map_pin_ellipse),
+    _ConfigPageInfo('logs', '机载日志', CupertinoIcons.doc_text),
+    _ConfigPageInfo('flightLog', '飞行记录', CupertinoIcons.stopwatch),
+    _ConfigPageInfo('files', '机载文件', CupertinoIcons.folder),
   ];
 
   String _selectedPageId = 'motors';
+
+  @override
+  void initState() {
+    super.initState();
+    final requested = widget.requestedPage?.value;
+    if (requested != null && _basePages.any((page) => page.id == requested)) {
+      _selectedPageId = requested;
+    }
+    widget.requestedPage?.addListener(_handlePageRequest);
+  }
+
+  @override
+  void dispose() {
+    widget.requestedPage?.removeListener(_handlePageRequest);
+    super.dispose();
+  }
+
+  void _handlePageRequest() {
+    final requested = widget.requestedPage?.value;
+    if (requested == null || requested == _selectedPageId) return;
+    if (!_basePages.any((page) => page.id == requested)) return;
+    setState(() => _selectedPageId = requested);
+  }
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -107,6 +142,19 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
     ),
     'system' => SystemStatusPage(controller: widget.connectionController),
     'calibration' => CalibrationPage(controller: widget.connectionController),
+    'survey' => SurveyPlanningPage(
+      controller: widget.connectionController,
+      scrollController: scrollController,
+    ),
+    'logs' => OnboardLogPage(
+      controller: widget.connectionController.logController,
+    ),
+    'flightLog' => FlightLogPage(
+      controller: widget.connectionController.tlogController,
+    ),
+    'files' => FileBrowserPage(
+      controller: widget.connectionController.fileController,
+    ),
     _ => AllParametersPage(
       scrollController: scrollController,
       controller: widget.connectionController,

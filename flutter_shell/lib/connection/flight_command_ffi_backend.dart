@@ -7,7 +7,7 @@ import 'package:ffi/ffi.dart';
 /// 飞行命令 FFI 适配层。
 ///
 /// 所有命令统一经过非阻塞的 submit/poll FFI；native 侧使用显式 vehicle_id 和线程局部
-/// 目标覆盖，不修改 UI active focus。现有旧命令 ABI 仍保留兼容。
+/// 目标覆盖，不修改 UI active focus。同步 FFI 命令入口只供测试与 core 能力使用。
 final class FlightCommandFfiBackend {
   FlightCommandFfiBackend(
     DynamicLibrary library,

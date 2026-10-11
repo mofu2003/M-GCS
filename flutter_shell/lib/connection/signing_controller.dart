@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import '../ffi_response.dart';
 import 'native_core.dart';
 import 'signing_key_store.dart';
 import 'vehicle_signing_bindings.dart';
@@ -183,7 +184,7 @@ class SigningController extends ChangeNotifier {
     if (sessionId() == null || !_ready()) return;
     final response = _requireNative().clearSigningKey(sessionId()!);
     if (response is! Map || response['success'] != true) {
-      throw StateError(nativeErrorText(response, '清除 MAVLink 签名失败'));
+      throw StateError(ffiErrorText(response, '清除 MAVLink 签名失败'));
     }
     if (sessionId() case final int id) _signingBindings.invalidate(id);
   }
@@ -280,7 +281,7 @@ class SigningController extends ChangeNotifier {
     }
     final response = _requireNative().sendSetupSigning(id, normalized, initialTimestampTicks);
     if (response is! Map || response['success'] != true) {
-      throw StateError(nativeErrorText(response, '下发 SETUP_SIGNING 失败'));
+      throw StateError(ffiErrorText(response, '下发 SETUP_SIGNING 失败'));
     }
     notifyListeners();
   }
@@ -300,7 +301,7 @@ class SigningController extends ChangeNotifier {
       ]);
       final response = _requireNative().setSigningCandidates(id, candidates);
       if (response is! Map || response['success'] != true) {
-        throw StateError(nativeErrorText(response, '配置 MAVLink 签名候选密钥失败'));
+        throw StateError(ffiErrorText(response, '配置 MAVLink 签名候选密钥失败'));
       }
       _signingCandidatesVehicleId = id;
     }
@@ -325,7 +326,7 @@ class SigningController extends ChangeNotifier {
       preference.lastTimestampTicks,
     );
     if (response is! Map || response['success'] != true) {
-      throw StateError(nativeErrorText(response, '应用 MAVLink 签名失败'));
+      throw StateError(ffiErrorText(response, '应用 MAVLink 签名失败'));
     }
     _signingBindings.markApplied(id, fingerprint);
   }

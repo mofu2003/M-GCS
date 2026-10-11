@@ -21,6 +21,14 @@ final class MissionDocumentController extends ChangeNotifier {
   MissionVerificationResult? fenceVerification;
   MissionVerificationResult? rallyVerification;
   List<MissionCommandDescriptor> commandCatalog = const [];
+
+  /// 连接飞控的机型/固件上下文，由 UI 在连接变化时写入。
+  ///
+  /// 新建任务文档时把它写进 metadata，让文档级校验的机型门禁使用真实机型；
+  /// 机型未知或非 ArduPilot 时保持原值，不影响上传前的运行时门禁。
+  String? vehicleClass;
+  String? firmwareProfile;
+
   String? status;
   String? error;
   bool busy = false;
@@ -105,9 +113,30 @@ final class MissionDocumentController extends ChangeNotifier {
     );
   }
 
+  /// 记录当前飞控的机型/固件；用于新建文档时写入 metadata。
+  void setVehicleContext({String? vehicleClass, String? firmwareProfile}) {
+    this.vehicleClass = vehicleClass;
+    this.firmwareProfile = firmwareProfile;
+  }
+
+  JsonMap _createConfig(JsonMap config) {
+    final metadata = <String, Object?>{
+      if (firmwareProfile != null && firmwareProfile!.isNotEmpty)
+        'firmware_profile': firmwareProfile,
+      if (vehicleClass != null && vehicleClass!.isNotEmpty)
+        'vehicle_type': vehicleClass,
+    };
+    final existing = config['metadata'];
+    if (existing is Map) {
+      existing.forEach((key, value) => metadata['$key'] = value);
+    }
+    if (metadata.isEmpty) return config;
+    return {...config, 'metadata': metadata};
+  }
+
   Future<void> create([JsonMap config = const {}]) =>
       _run('正在创建任务文档…', () async {
-        document = await backend.createMissionDocument(config);
+        document = await backend.createMissionDocument(_createConfig(config));
         validation = null;
         compileResult = null;
         estimate = null;
@@ -469,6 +498,10 @@ final class MissionDocumentController extends ChangeNotifier {
   });
 
   Future<String> exportJson() => backend.exportMissionDocument();
+
+  /// 按交换格式导出任务（`waypoints` / `plan`）；不改动文档，不标记 dirty。
+  Future<MissionInterchangeExport> exportInterchange(String format) =>
+      backend.exportMissionInterchange(format);
 
   Future<void> save(String filePath) =>
       _run('正在保存任务…', () => backend.saveMissionDocument(filePath));

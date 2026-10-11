@@ -12,6 +12,28 @@ const kDefaultMapZoom = 11.0;
 const kMinMapZoom = 3.0;
 const kMaxMapZoom = 19.0;
 
+/// 自定义瓦片地址的校验规则（KD-37）。
+///
+/// 返回 null 表示可用，否则返回给使用者看的原因。设置页与地图共用这一条规则，
+/// 免得出现「设置页接受、地图加载不了」的不一致。
+String? validateCustomTileUrl(String raw) {
+  final url = raw.trim();
+  if (url.isEmpty) return '请输入瓦片地址模板';
+  final uri = Uri.tryParse(url);
+  if (uri == null) return '地址格式无法解析';
+  if (uri.scheme != 'http' && uri.scheme != 'https') {
+    return '地址必须以 http:// 或 https:// 开头';
+  }
+  if (uri.host.isEmpty) return '地址缺少主机名';
+  for (final token in const ['{z}', '{x}', '{y}']) {
+    if (!url.contains(token)) return '地址缺少 $token 占位符';
+  }
+  return null;
+}
+
+/// 自定义瓦片地址是否可用。
+bool isCustomTileUrlUsable(String raw) => validateCustomTileUrl(raw) == null;
+
 /// 地图界面偏好：上次选的地图源、缩放级别和中心点。
 ///
 /// 存成应用支持目录下的一个 JSON 文件。macOS 沙盒下该目录落在应用容器里，
@@ -21,6 +43,7 @@ class MapPreferences {
     required this.styleName,
     required this.zoom,
     required this.center,
+    this.customTileUrl = '',
   });
 
   /// 地图源的名字（`MapStyle.name`）。存名字而不是序号，
@@ -28,6 +51,10 @@ class MapPreferences {
   final String styleName;
   final double zoom;
   final LatLng center;
+
+  /// 自定义瓦片源的地址模板（只在 `styleName == 'custom'` 时使用）。
+  /// 空字符串表示还没配置，地图会暂时退回标准底图。
+  final String customTileUrl;
 
   static const _fileName = 'map_preferences.json';
 
@@ -54,6 +81,7 @@ class MapPreferences {
         center: latitude == null || longitude == null
             ? fallback.center
             : LatLng(latitude, longitude),
+        customTileUrl: json['custom_url'] as String? ?? fallback.customTileUrl,
       );
     } on Object {
       // 偏好读失败就用默认值，不打扰使用者。
@@ -70,6 +98,7 @@ class MapPreferences {
           'zoom': zoom,
           'lat': center.latitude,
           'lng': center.longitude,
+          'custom_url': customTileUrl,
         }),
       );
     } on Object {

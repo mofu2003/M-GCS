@@ -16,6 +16,7 @@ final class ParameterFfiBackend {
     _getAll = _lookup1('mg_params_get_all');
     _getProgress = _lookup1('mg_params_get_progress');
     _getByName = _lookup2('mg_params_get_by_name');
+    _getWriteStatus = _lookup1('mg_params_get_write_status');
     _readDescriptor = _lookup2('mg_config_read_param');
     _write = _lookupWrite('mg_config_write_param');
   }
@@ -28,6 +29,7 @@ final class ParameterFfiBackend {
   late final Pointer<Utf8> Function(Pointer<Void>) _getAll;
   late final Pointer<Utf8> Function(Pointer<Void>) _getProgress;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _getByName;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getWriteStatus;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _readDescriptor;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, double)
@@ -71,6 +73,25 @@ final class ParameterFfiBackend {
       malloc.free(nativeName);
     }
   }
+
+  /// 参数写入事务记录（id / name / requested_value / actual_value / type /
+  /// state / error / requested_at_ms / completed_at_ms）。
+  ///
+  /// [state] 取 `pending`、`confirmed`、`failed`；`failed` 记录带飞控拒绝
+  /// （PARAM_ERROR）或超时的原因。写入口（[write]）只表示“已交给发送层”，
+  /// 调用方必须用本列表或回读参数值确认写入结果。
+  List<Map<String, Object?>> writes() {
+    final data = writeStatus()['data'];
+    if (data is! Map) return const [];
+    final list = data['writes'];
+    if (list is! List) return const [];
+    return list
+        .whereType<Map<Object?, Object?>>()
+        .map(Map<String, Object?>.from)
+        .toList(growable: false);
+  }
+
+  Map<String, Object?> writeStatus() => _read(_getWriteStatus(_core));
 
   Map<String, Object?> descriptor(String name) {
     final nativeName = name.toNativeUtf8();

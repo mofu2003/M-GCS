@@ -385,6 +385,26 @@ void main() {
     expect(result.results.map((item) => item.vehicleId), [a, b]);
   });
 
+  test('stale heartbeat vehicles cannot become batch command targets', () {
+    final staleFleet = FleetController(backend);
+    addTearDown(staleFleet.dispose);
+    final id = staleFleet.openLink(FleetConnectionSpec('udp://0.0.0.0:14550'));
+    final current = backend.vehicles[id]!;
+    backend.vehicles[id] = FleetVehicleSummary(
+      id: current.id,
+      systemId: current.systemId,
+      endpoint: current.endpoint,
+      connected: true,
+      heartbeatFresh: false,
+    );
+    staleFleet.refresh();
+    staleFleet.toggleVehicleSelection(id);
+    expect(
+      () => staleFleet.captureBatchTarget(FleetBatchAction.returnToLaunch),
+      throwsStateError,
+    );
+  });
+
   test(
     'batch result keeps per-vehicle rejection instead of global success',
     () async {

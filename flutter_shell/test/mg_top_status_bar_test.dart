@@ -78,6 +78,7 @@ void main() {
     WidgetTester tester,
     MgTopStatusData data, {
     VoidCallback? onToggleArm,
+    VoidCallback? onEmergencyStop,
   }) async {
     tester.view.physicalSize = const Size(1200, 600);
     tester.view.devicePixelRatio = 1;
@@ -89,7 +90,11 @@ void main() {
         data: MacosThemeData.light(),
         child: MaterialApp(
           home: Scaffold(
-            body: MgTopStatusBar(data: data, onToggleArm: onToggleArm),
+            body: MgTopStatusBar(
+              data: data,
+              onToggleArm: onToggleArm,
+              onEmergencyStop: onEmergencyStop,
+            ),
           ),
         ),
       ),
@@ -119,6 +124,38 @@ void main() {
 
     expect(find.text('未连接'), findsNWidgets(2));
     expect(find.text('—'), findsNWidgets(3));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('stale armed state cannot expose arm or emergency stop', (
+    tester,
+  ) async {
+    var invoked = 0;
+    await show(
+      tester,
+      const MgTopStatusData(
+        connected: true,
+        armed: true,
+        flying: false,
+        flightMode: 'AUTO',
+        vtolState: 0,
+        gpsFixType: 3,
+        satellitesVisible: 12,
+        batteryRemainingPercent: 80,
+        batteryVoltage: 12,
+        transportLabel: 'UDP',
+        messageCount: 0,
+        stale: true,
+      ),
+      onToggleArm: () => invoked++,
+      onEmergencyStop: () => invoked++,
+    );
+    expect(find.text('已解锁'), findsNothing);
+    expect(find.text('上锁'), findsNothing);
+    expect(find.text('解锁'), findsNothing);
+    expect(find.text('急停'), findsNothing);
+    expect(find.text('数据过期'), findsWidgets);
+    expect(invoked, 0);
     expect(tester.takeException(), isNull);
   });
 

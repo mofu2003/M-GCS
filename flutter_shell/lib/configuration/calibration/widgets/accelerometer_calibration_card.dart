@@ -132,7 +132,9 @@ class AccelerometerCalibrationCard extends StatelessWidget {
                       PushButton(
                         controlSize: ControlSize.large,
                         secondary: true,
-                        onPressed: () => controller.cancelCalibration(),
+                        onPressed: status.cancelling
+                            ? null
+                            : () => controller.cancelCalibration(),
                         child: const Text('取消'),
                       ),
                     ],

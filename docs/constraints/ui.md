@@ -17,9 +17,10 @@ Windows、macOS、Android 的页面结构、组件和文字层级相同。平台
 - 验证：CI 三端构建通过；合并前人工截图比对（见 U7）。
 
 **U3 设计系统单点定义**
-字号只取自 `MgTypography`，颜色只取自 `MgColors`，尺寸只取自 `MgMetrics`，字体族只在 `MgFonts` 中定义。业务页面中不得出现字面量数值或字体族名。字体族统一为 MiSans。
+字号只取自 `MgTypography`，颜色只取自 `MgColors`，尺寸只取自 `MgMetrics`，字体族只在 `MgFonts` 中定义。业务页面中不得出现字面量数值或字体族名。界面统一使用 MiSans。
+- `MgFonts` 内部的平台回退链（macOS `PingFang SC`、Windows `Microsoft YaHei UI`、Android `Noto Sans SC`）是允许的例外：它只用于 MiSans 缺失的生僻字与符号，属于 U2 允许的原生平台差异，且只出现在 `MgFonts` 内部。业务页面仍只能引用 `MgFonts`，不得自行指定回退。
 - 违反后果：风格分裂，换主题的成本变高。
-- 验证：`tools/check_ui_tokens.dart`。当前覆盖范围不足，需要扩大（见 KD-33）。
+- 验证：`tools/check_ui_tokens.dart`（覆盖裸色值、裸字重、裸字号、硬编码字体族、裸圆角与行高）。开发者画廊 `lib/demo/component_gallery_demo.dart` 是唯一豁免文件：它并排对照 `macos_ui` 原始色板与字号，不属于业务页面。
 
 **U4 只有标题加粗**
 页面标题、区块标题、卡片标题、表头以外的文字一律使用 `w400`。

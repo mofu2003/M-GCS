@@ -3,6 +3,7 @@ import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 
+import '../ffi_response.dart';
 import 'fleet_backend.dart';
 import 'fleet_models.dart';
 
@@ -75,11 +76,8 @@ final class FleetFfiBackend implements FleetBackend {
   }
 
   void _check(Object? response) {
-    if (response is Map && response['success'] == true) return;
-    final error = response is Map ? response['error'] : null;
-    throw StateError(
-      error is Map ? '${error['message']}' : '${error ?? '多机操作失败'}',
-    );
+    if (ffiSucceeded(response)) return;
+    throw StateError(ffiErrorText(response, '多机操作失败'));
   }
 
   @override
@@ -155,6 +153,9 @@ final class FleetFfiBackend implements FleetBackend {
       final telemetry = status is Map && status['success'] == true
           ? status['data'] as Map<Object?, Object?>?
           : null;
+      final heartbeatFresh =
+          item['heartbeat_fresh'] == true ||
+          telemetry?['heartbeat_fresh'] == true;
       vehicles.add(
         FleetVehicleSummary(
           id: id,
@@ -166,6 +167,7 @@ final class FleetFfiBackend implements FleetBackend {
           connected: connected,
           state: connected ? 'connected' : 'waiting_heartbeat',
           armed: item['armed'] == true,
+          heartbeatFresh: heartbeatFresh,
           flightMode: item['flight_mode'] as String? ?? '',
           batteryRemainingPercent:
               (telemetry?['battery_remaining_pct'] as num?)?.toInt() ??

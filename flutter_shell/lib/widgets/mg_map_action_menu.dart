@@ -22,11 +22,15 @@ mapActionVisibility({
   required bool homeReady,
   required bool missionActive,
   required bool hasGpsSensor,
+  required bool supportsOrbit,
+  required bool supportsRoi,
   required bool supportsChangeHeading,
 }) => (
   gotoLocation: guidedEnabled && flying,
-  orbit: guidedEnabled && flying && homeReady && !missionActive,
-  roi: guidedEnabled && flying,
+  // QGC `GuidedActionsController.qml:138` 的 showOrbit 用能力位，不是 guidedMode。
+  orbit: supportsOrbit && flying && homeReady && !missionActive,
+  // QGC `GuidedActionsController.qml:139` 的 showROI 同样只看能力位。
+  roi: supportsRoi && flying,
   setHome: guidedEnabled,
   // QGC 只在没有 GPS 传感器时才给室内定位用的估计原点入口。
   setEstimatorOrigin: !hasGpsSensor,

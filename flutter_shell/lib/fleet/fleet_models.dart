@@ -193,6 +193,7 @@ class FleetVehicleSummary {
     this.vehicleType = '',
     this.state = 'waiting_heartbeat',
     this.armed = false,
+    this.heartbeatFresh = true,
     this.flightMode = '',
     this.batteryRemainingPercent,
     this.gpsFixType,
@@ -226,6 +227,7 @@ class FleetVehicleSummary {
   final bool connected;
   final String state;
   final bool armed;
+  final bool heartbeatFresh;
   final String flightMode;
   final int? batteryRemainingPercent;
   final int? gpsFixType;
@@ -250,6 +252,7 @@ class FleetVehicleSummary {
   final List<FleetMissionPoint> missionPoints;
 
   bool get identified => systemId > 0;
+  bool get stateFresh => connected && heartbeatFresh;
 
   @override
   bool operator ==(Object other) =>
@@ -263,6 +266,7 @@ class FleetVehicleSummary {
       connected == other.connected &&
       state == other.state &&
       armed == other.armed &&
+      heartbeatFresh == other.heartbeatFresh &&
       flightMode == other.flightMode &&
       batteryRemainingPercent == other.batteryRemainingPercent &&
       gpsFixType == other.gpsFixType &&
@@ -297,6 +301,7 @@ class FleetVehicleSummary {
     connected,
     state,
     armed,
+    heartbeatFresh,
     flightMode,
     batteryRemainingPercent,
     gpsFixType,

@@ -28,13 +28,22 @@ import 'gcj_coordinates.dart';
 import 'vehicle_marker_icon.dart';
 import 'map_preferences.dart';
 
-enum MapStyle { standard, terrain, amap, amapSatellite, amapSatelliteHybrid }
+enum MapStyle {
+  standard,
+  terrain,
+  amap,
+  amapSatellite,
+  amapSatelliteHybrid,
+  custom,
+}
 
 /// 地图源显示名（地面站配置页也要用，所以公开）。
-String mapStyleLabel(MapStyle style) => _sourceFor(style).label;
+String mapStyleLabel(MapStyle style, {String customTileUrl = ''}) =>
+    _sourceFor(style, customTileUrl: customTileUrl).label;
 
 /// 地图源署名要求（原先是地图右下角“?”里的内容，现在搬到配置页）。
-String mapStyleAttribution(MapStyle style) => _sourceFor(style).attribution;
+String mapStyleAttribution(MapStyle style, {String customTileUrl = ''}) =>
+    _sourceFor(style, customTileUrl: customTileUrl).attribution;
 
 class _MapSource {
   const _MapSource({
@@ -60,7 +69,30 @@ class _MapSource {
   final bool gcj02;
 }
 
-_MapSource _sourceFor(MapStyle style) => switch (style) {
+/// 自定义瓦片源（KD-37）：地址由使用者在设置页填写，支持 `{z}/{x}/{y}` 占位符。
+///
+/// 坐标按 WGS-84 处理——自定义地址无法自动判断坐标系，填高德一类的 GCJ-02 源
+/// 会出现偏移；地址还没配好时退回标准底图，保证地图不会白屏。
+_MapSource _customSource(String raw) {
+  if (!isCustomTileUrlUsable(raw)) {
+    return const _MapSource(
+      label: '自定义瓦片源（未配置，暂用标准底图）',
+      url: 'https://b.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+      fallbackUrl: 'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+      maxNativeZoom: 19,
+      attribution: '© OpenStreetMap contributors | HOT',
+    );
+  }
+  return _MapSource(
+    label: '自定义瓦片源',
+    url: raw.trim(),
+    maxNativeZoom: 19,
+    attribution: '瓦片由自定义地址提供；署名与使用条款由使用者负责。',
+  );
+}
+
+_MapSource _sourceFor(MapStyle style, {String customTileUrl = ''}) =>
+    switch (style) {
   MapStyle.standard => const _MapSource(
     label: 'OpenStreetMap 标准地图',
     url: 'https://b.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
@@ -108,6 +140,7 @@ _MapSource _sourceFor(MapStyle style) => switch (style) {
       attribution: '',
     ),
   ),
+  MapStyle.custom => _customSource(customTileUrl),
 };
 
 class AMapMapView extends StatefulWidget {
@@ -115,6 +148,7 @@ class AMapMapView extends StatefulWidget {
     super.key,
     required this.connectionController,
     this.mapStyle,
+    this.customTileUrl,
     this.connectionPanelRequest,
     this.flightMessagePanelRequest,
     this.missionPlanningRequest,
@@ -125,6 +159,9 @@ class AMapMapView extends StatefulWidget {
 
   /// 地图样式的唯一真源：设置页写、地图页读并持久化。
   final ValueNotifier<MapStyle>? mapStyle;
+
+  /// 自定义瓦片源地址模板（KD-37）；设置页改这里，地图跟着换图层。
+  final ValueNotifier<String>? customTileUrl;
   final ValueListenable<int>? connectionPanelRequest;
   final ValueListenable<int>? flightMessagePanelRequest;
   final ValueListenable<int>? missionPlanningRequest;
@@ -150,6 +187,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   final _controller = MapController();
   final _mapKey = GlobalKey();
   MapStyle _style = MapStyle.amap;
+  String _customTileUrl = '';
   double _zoom = kDefaultMapZoom;
   LatLng _center = kDefaultMapCenter;
 
@@ -197,6 +235,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     super.initState();
     widget.connectionController.addListener(_handleVehicleUpdate);
     widget.mapStyle?.addListener(_handleExternalStyleChange);
+    widget.customTileUrl?.addListener(_handleExternalCustomUrlChange);
     widget.connectionPanelRequest?.addListener(_handleConnectionPanelRequest);
     widget.flightMessagePanelRequest?.addListener(
       _handleFlightMessagePanelRequest,
@@ -336,7 +375,9 @@ class _AMapMapViewState extends State<AMapMapView> {
         (value) => value.name == preferences.styleName,
         orElse: () => MapStyle.amap,
       );
+      _customTileUrl = preferences.customTileUrl;
       widget.mapStyle?.value = _style;
+      widget.customTileUrl?.value = _customTileUrl;
     });
     // 地图可能已经用默认中心建好了，读完偏好再挪一次。
     // `_center` 存的是 WGS-84，落位时要转到当前瓦片的坐标系。
@@ -355,6 +396,7 @@ class _AMapMapViewState extends State<AMapMapView> {
           styleName: _style.name,
           zoom: _zoom,
           center: _center,
+          customTileUrl: _customTileUrl,
         ).save(),
       );
     });
@@ -365,6 +407,22 @@ class _AMapMapViewState extends State<AMapMapView> {
     final style = widget.mapStyle?.value;
     if (style == null || style == _style) return;
     _selectStyle(style);
+  }
+
+  /// 设置页改了自定义瓦片地址：跟着换源并持久化。
+  void _handleExternalCustomUrlChange() {
+    final url = widget.customTileUrl?.value ?? '';
+    if (url == _customTileUrl) return;
+    setState(() => _customTileUrl = url);
+    if (!_preferencesLoaded) return;
+    unawaited(
+      MapPreferences(
+        styleName: _style.name,
+        zoom: _zoom,
+        center: _center,
+        customTileUrl: _customTileUrl,
+      ).save(),
+    );
   }
 
   void _selectStyle(MapStyle style) {
@@ -378,6 +436,7 @@ class _AMapMapViewState extends State<AMapMapView> {
         styleName: style.name,
         zoom: _zoom,
         center: _center,
+        customTileUrl: _customTileUrl,
       ).save(),
     );
   }
@@ -386,6 +445,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   void dispose() {
     widget.connectionController.removeListener(_handleVehicleUpdate);
     widget.mapStyle?.removeListener(_handleExternalStyleChange);
+    widget.customTileUrl?.removeListener(_handleExternalCustomUrlChange);
     widget.connectionPanelRequest?.removeListener(
       _handleConnectionPanelRequest,
     );
@@ -539,6 +599,8 @@ class _AMapMapViewState extends State<AMapMapView> {
         'AUTO',
       ),
       hasGpsSensor: controller.hasGpsSensor,
+      supportsOrbit: controller.supportsOrbit,
+      supportsRoi: controller.supportsRoi,
       supportsChangeHeading: controller.supportsChangeHeading,
     );
 
@@ -575,8 +637,10 @@ class _AMapMapViewState extends State<AMapMapView> {
       if (visibility.setEstimatorOrigin)
         MgMapAction(
           label: '设置估计原点',
-          onSelected: () =>
-              requestConfirmation('设置估计原点', () => _mapSetEstimatorOrigin(target)),
+          onSelected: () => requestConfirmation(
+            '设置估计原点',
+            () => _mapSetEstimatorOrigin(target),
+          ),
         ),
       if (visibility.changeHeading)
         MgMapAction(
@@ -698,7 +762,9 @@ class _AMapMapViewState extends State<AMapMapView> {
   }
 
   LatLng _toTileFrame(double latitude, double longitude) {
-    if (!_sourceFor(_style).gcj02) return LatLng(latitude, longitude);
+    if (!_sourceFor(_style, customTileUrl: _customTileUrl).gcj02) {
+      return LatLng(latitude, longitude);
+    }
     final (lat, lon) = GcjCoordinates.wgs84ToGcj02(latitude, longitude);
     return LatLng(lat, lon);
   }
@@ -707,7 +773,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   ///
   /// 相机中心始终按 WGS-84 保存，这样切换地图源、重启后恢复视图都不会平移。
   LatLng _toWgs84(LatLng point) {
-    if (!_sourceFor(_style).gcj02) return point;
+    if (!_sourceFor(_style, customTileUrl: _customTileUrl).gcj02) return point;
     final (lat, lon) = GcjCoordinates.gcj02ToWgs84(
       point.latitude,
       point.longitude,
@@ -1323,7 +1389,7 @@ class _AMapMapViewState extends State<AMapMapView> {
 
   @override
   Widget build(BuildContext context) {
-    final source = _sourceFor(_style);
+    final source = _sourceFor(_style, customTileUrl: _customTileUrl);
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -1820,11 +1886,11 @@ class _FlightActionButtons extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = MgColors.of(context);
     final visibility = flightActionVisibility(
-      flying: controller.vehicleFlying,
+      flying: controller.vehicleStateFresh && controller.vehicleFlying,
       fixedWing: controller.vehicleType == 1,
     );
     final guidedReady =
-        controller.isConnected &&
+        controller.vehicleStateFresh &&
         controller.vehicleArmed &&
         controller.supportsGuidedMode;
     final buttons = <Widget>[
@@ -1833,7 +1899,8 @@ class _FlightActionButtons extends StatelessWidget {
           icon: CupertinoIcons.arrow_up_circle_fill,
           label: '起飞',
           color: colors.success,
-          enabled: controller.isConnected && controller.supportsGuidedTakeoff,
+          enabled:
+              controller.vehicleStateFresh && controller.supportsGuidedTakeoff,
           onPressed: () => onAction('起飞'),
         ),
       if (visibility.land)

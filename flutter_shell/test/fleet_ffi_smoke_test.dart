@@ -1,6 +1,6 @@
 // Actual FleetFfiBackend + FleetController against two isolated loopback UDP
 // sessions. No flight command, user port, SITL or hardware is touched.
-// MGCS_FLEET_LIBRARY=/absolute/path/to/mgcore.dylib flutter test --no-pub test/fleet_ffi_smoke_test.dart
+// MGCS_FLEET_LIBRARY=/absolute/path/to/libmgcore.dylib flutter test --no-pub test/fleet_ffi_smoke_test.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';

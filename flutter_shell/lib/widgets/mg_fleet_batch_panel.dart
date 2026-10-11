@@ -75,7 +75,7 @@ class MgFleetBatchPanel extends StatelessWidget {
           .where((vehicle) => selected.contains(vehicle.id))
           .toList(growable: false);
       final connectedSelected = selectedVehicles
-          .where((vehicle) => vehicle.connected && vehicle.identified)
+          .where((vehicle) => vehicle.stateFresh && vehicle.identified)
           .toList(growable: false);
       final allSelected =
           vehicles.isNotEmpty && selected.length == vehicles.length;

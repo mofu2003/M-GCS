@@ -76,6 +76,9 @@ abstract interface class MissionDocumentBackend {
 
   Future<String> exportMissionDocument();
 
+  /// 按交换格式导出任务：`waypoints`（QGC WPL 110 文本）或 `plan`（QGC JSON）。
+  Future<MissionInterchangeExport> exportMissionInterchange(String format);
+
   Future<void> saveMissionDocument(String filePath);
 
   Future<MissionDocument> loadMissionDocument(String filePath);

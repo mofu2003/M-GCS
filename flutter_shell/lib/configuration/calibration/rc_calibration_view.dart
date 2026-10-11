@@ -9,6 +9,7 @@ import 'package:mgcs_frontend/connection/connection_controller.dart';
 import 'package:mgcs_frontend/theme/mg_colors.dart';
 import 'package:mgcs_frontend/theme/mg_typography.dart';
 import 'package:mgcs_frontend/widgets/mac_panel.dart';
+import 'package:mgcs_frontend/widgets/mg_confirm.dart';
 import 'package:mgcs_frontend/widgets/mg_motor_output_bar.dart';
 
 /// 按 RCMAP_* 找到通道当前承担的功能，用于给主通道加中文标注。
@@ -83,8 +84,9 @@ class RcCalibrationView extends StatelessWidget {
                   if (radioActive)
                     PushButton(
                       controlSize: ControlSize.regular,
-                      onPressed: () =>
-                          unawaited(controller.cancelCalibration()),
+                      onPressed: status.cancelling
+                          ? null
+                          : () => unawaited(controller.cancelCalibration()),
                       child: const Text('取消'),
                     )
                   else
@@ -92,9 +94,7 @@ class RcCalibrationView extends StatelessWidget {
                       controlSize: ControlSize.regular,
                       onPressed: controller.isConnected && !status.active
                           ? () => unawaited(
-                              controller.startCalibration(
-                                CalibrationType.radio,
-                              ),
+                              _confirmStartRadioCalibration(context, controller),
                             )
                           : null,
                       child: const Text('开始校准'),
@@ -118,6 +118,22 @@ class RcCalibrationView extends StatelessWidget {
       );
     },
   );
+}
+
+/// RC 校准启动确认（KD-10）：startCalibration 会让飞控进入校准流程。
+Future<void> _confirmStartRadioCalibration(
+  BuildContext context,
+  ConnectionController controller,
+) async {
+  final confirmed = await showMgConfirmDialog(
+    context,
+    title: '开始 RC 校准？',
+    message: '飞控会进入遥控校准流程，需要按提示拨动并回中所有摇杆与开关。'
+        '中途可取消，取消会等待飞控确认后才停止。',
+    confirmLabel: '开始校准',
+  );
+  if (!confirmed || !context.mounted) return;
+  await controller.startCalibration(CalibrationType.radio);
 }
 
 class _RcChannelGrid extends StatelessWidget {

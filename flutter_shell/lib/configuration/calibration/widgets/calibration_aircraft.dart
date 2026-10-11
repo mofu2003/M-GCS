@@ -53,10 +53,7 @@ class CalibrationAircraft extends StatelessWidget {
           label,
           textAlign: TextAlign.center,
           style: MgTypography.sans(
-            MgTypography.title.copyWith(
-              color: colors.accent,
-              fontWeight: FontWeight.w700,
-            ),
+            MgTypography.title.copyWith(color: colors.accent),
           ),
         ),
       ),

@@ -85,7 +85,7 @@ class MagnetometerCalibrationCard extends StatelessWidget {
                   PushButton(
                     controlSize: ControlSize.large,
                     secondary: true,
-                    onPressed: calibrating
+                    onPressed: calibrating && !status.cancelling
                         ? () => controller.cancelCalibration()
                         : null,
                     child: const Text('取消'),

@@ -12,6 +12,8 @@ void main() {
         homeReady: true,
         missionActive: false,
         hasGpsSensor: true,
+        supportsOrbit: true,
+        supportsRoi: true,
         supportsChangeHeading: true,
       );
       expect(visibility.gotoLocation, isFalse);
@@ -28,6 +30,8 @@ void main() {
         homeReady: true,
         missionActive: false,
         hasGpsSensor: true,
+        supportsOrbit: true,
+        supportsRoi: true,
         supportsChangeHeading: true,
       );
       expect(visibility.gotoLocation, isTrue);
@@ -45,11 +49,44 @@ void main() {
         homeReady: true,
         missionActive: false,
         hasGpsSensor: true,
+        supportsOrbit: true,
+        supportsRoi: true,
         supportsChangeHeading: false, // VTOL 不在 QGC 的 ChangeHeading 名单里
       );
       expect(visibility.gotoLocation, isTrue);
       expect(visibility.roi, isTrue);
       expect(visibility.changeHeading, isFalse);
+    });
+
+    test('orbit and ROI follow the firmware capability, not guided mode', () {
+      // 固件声明支持引导但没给 orbit/roi（例如 PX4 固定翼只给 orbit）时，
+      // 地图上不应该出现飞控不执行的入口。
+      final fixedWing = mapActionVisibility(
+        guidedEnabled: true,
+        flying: true,
+        homeReady: true,
+        missionActive: false,
+        hasGpsSensor: true,
+        supportsOrbit: true,
+        supportsRoi: false,
+        supportsChangeHeading: false,
+      );
+      expect(fixedWing.gotoLocation, isTrue);
+      expect(fixedWing.orbit, isTrue);
+      expect(fixedWing.roi, isFalse);
+
+      final noOrbit = mapActionVisibility(
+        guidedEnabled: true,
+        flying: true,
+        homeReady: true,
+        missionActive: false,
+        hasGpsSensor: true,
+        supportsOrbit: false,
+        supportsRoi: true,
+        supportsChangeHeading: false,
+      );
+      expect(noOrbit.orbit, isFalse);
+      expect(noOrbit.roi, isTrue);
     });
 
     test('orbit is hidden while a mission is active', () {
@@ -59,6 +96,8 @@ void main() {
         homeReady: true,
         missionActive: true,
         hasGpsSensor: true,
+        supportsOrbit: true,
+        supportsRoi: true,
         supportsChangeHeading: true,
       );
       expect(visibility.orbit, isFalse);
@@ -72,6 +111,8 @@ void main() {
         homeReady: false,
         missionActive: false,
         hasGpsSensor: true,
+        supportsOrbit: false,
+        supportsRoi: false,
         supportsChangeHeading: false,
       );
       expect(withGps.setEstimatorOrigin, isFalse);
@@ -82,6 +123,8 @@ void main() {
         homeReady: false,
         missionActive: false,
         hasGpsSensor: false,
+        supportsOrbit: false,
+        supportsRoi: false,
         supportsChangeHeading: false,
       );
       expect(noGps.setEstimatorOrigin, isTrue);

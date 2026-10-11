@@ -1,13 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mgcs_frontend/mission/mission_document_backend.dart';
 import 'package:mgcs_frontend/mission/mission_document_controller.dart';
 import 'package:mgcs_frontend/mission/mission_document_models.dart';
+
+import 'support/mission_backend_fake.dart';
 
 void main() {
   test(
     'mission document controller edits and validates through backend',
     () async {
-      final backend = _FakeMissionBackend();
+      final backend = FakeMissionBackend();
       final controller = MissionDocumentController(backend: backend)
         ..bindSession(1);
 
@@ -59,6 +60,55 @@ void main() {
     expect(restored.command, 22);
     expect(restored.altitudeMeters, 30);
     expect(restored.params, [15, 0, 0, 0]);
+  });
+
+  test('mission document models keep opaque QGC fields on round-trip', () {
+    final document = MissionDocument.fromJson({
+      'schema_version': 1,
+      'metadata': {'name': 'QGC import'},
+      'defaults': {'frame': 3, 'altitude_m': 50, 'speed_ms': 12},
+      'complex_items': [
+        {
+          'id': 'plan-complex-item-1',
+          'item_type': 'Survey',
+          'json': '{"type":"ComplexItem","complexItemType":"Survey"}',
+          'entity_insert_index': 1,
+        },
+      ],
+      'extensions': {
+        'qgc_plan.root_fields': {'customTopLevel': true},
+        'qgc_plan.mission_fields': {'hoverSpeed': 4.5},
+      },
+      'entities': [
+        {
+          'id': 'plan-item-1',
+          'command': 16,
+          'altitudeMode': 1,
+          'extensions': {
+            'altitudeMode': 1,
+            'AMSLAltAboveTerrain': 120,
+          },
+        },
+      ],
+    });
+
+    expect(document.complexItems, hasLength(1));
+    expect(document.complexItems.single.itemType, 'Survey');
+    expect(document.complexItems.single.entityInsertIndex, 1);
+    expect(document.extensions['qgc_plan.mission_fields'], {
+      'hoverSpeed': 4.5,
+    });
+    expect(document.entities.single.extensions['AMSLAltAboveTerrain'], 120);
+
+    final restored = MissionDocument.fromJson(document.toJson());
+    expect(restored.complexItems.single.toJson(), document.complexItems.single.toJson());
+    expect(restored.extensions['qgc_plan.root_fields'], {
+      'customTopLevel': true,
+    });
+    expect(restored.entities.single.extensions, {
+      'altitudeMode': 1,
+      'AMSLAltAboveTerrain': 120,
+    });
   });
 
   test('transfer progress exposes retry and failure state', () {
@@ -130,7 +180,7 @@ void main() {
   test(
     'upload performs readback verification and clears dirty state',
     () async {
-      final backend = _FakeMissionBackend();
+      final backend = FakeMissionBackend();
       final controller = MissionDocumentController(backend: backend)
         ..bindSession(1);
 
@@ -157,7 +207,7 @@ void main() {
   test(
     'changing vehicle session blocks upload until task reconciliation',
     () async {
-      final backend = _FakeMissionBackend();
+      final backend = FakeMissionBackend();
       final controller = MissionDocumentController(backend: backend)
         ..bindSession(1);
 
@@ -184,7 +234,7 @@ void main() {
   test(
     'download from vehicle replaces the draft and clears dirty state',
     () async {
-      final backend = _FakeMissionBackend();
+      final backend = FakeMissionBackend();
       final controller = MissionDocumentController(backend: backend)
         ..bindSession(1);
 
@@ -210,7 +260,7 @@ void main() {
   test(
     'cancel aborts an active upload without clearing local changes',
     () async {
-      final backend = _FakeMissionBackend()..transferCompletionPolls = 100;
+      final backend = FakeMissionBackend()..transferCompletionPolls = 100;
       final controller = MissionDocumentController(backend: backend)
         ..bindSession(1);
 
@@ -239,7 +289,7 @@ void main() {
   );
 
   test('readback mismatch keeps the local mission dirty', () async {
-    final backend = _FakeMissionBackend()
+    final backend = FakeMissionBackend()
       ..verificationResult = const MissionVerificationResult(
         differenceCount: 1,
         expectedCount: 1,
@@ -268,7 +318,7 @@ void main() {
   test(
     'adopting the downloaded vehicle mission clears the local mismatch',
     () async {
-      final backend = _FakeMissionBackend()
+      final backend = FakeMissionBackend()
         ..verificationResult = const MissionVerificationResult(
           differenceCount: 1,
           expectedCount: 1,
@@ -298,7 +348,7 @@ void main() {
   );
 
   test('fence and rally flows upload, read back and verify', () async {
-    final backend = _FakeMissionBackend();
+    final backend = FakeMissionBackend();
     final controller = MissionDocumentController(backend: backend)
       ..bindSession(1);
 
@@ -335,7 +385,7 @@ void main() {
   });
 
   test('mission execution progress polls vehicle feedback', () async {
-    final backend = _FakeMissionBackend();
+    final backend = FakeMissionBackend();
     final controller = MissionDocumentController(backend: backend)
       ..bindSession(1);
 
@@ -361,7 +411,7 @@ void main() {
   test(
     'clearing the vehicle mission leaves the local document alone',
     () async {
-      final backend = _FakeMissionBackend();
+      final backend = FakeMissionBackend();
       final controller = MissionDocumentController(backend: backend)
         ..bindSession(1);
 
@@ -382,294 +432,111 @@ void main() {
       expect(controller.document?.entities, hasLength(1));
     },
   );
-}
+  test('command catalog filters by connected vehicle', () {
+    const catalog = [
+      MissionCommandDescriptor(
+        command: 16,
+        name: 'NAV_WAYPOINT',
+        label: '航点',
+        entityType: 'waypoint',
+        category: 'navigation',
+        description: '',
+        requiresPosition: true,
+        requiresAltitude: true,
+        parameters: [],
+        vehicles: ['copter', 'plane', 'vtol', 'rover'],
+      ),
+      MissionCommandDescriptor(
+        command: 21,
+        name: 'NAV_LAND',
+        label: '降落',
+        entityType: 'land',
+        category: 'navigation',
+        description: '',
+        requiresPosition: true,
+        requiresAltitude: true,
+        parameters: [],
+        vehicles: ['copter', 'plane', 'vtol'],
+      ),
+      MissionCommandDescriptor(
+        command: 84,
+        name: 'NAV_VTOL_TAKEOFF',
+        label: '垂直起飞',
+        entityType: 'vtol_takeoff',
+        category: 'navigation',
+        description: '',
+        requiresPosition: true,
+        requiresAltitude: true,
+        parameters: [],
+        vehicles: ['vtol'],
+      ),
+      MissionCommandDescriptor(
+        command: 99,
+        name: 'UNANNOTATED',
+        label: '未标注机型',
+        entityType: 'command',
+        category: 'command',
+        description: '',
+        requiresPosition: false,
+        requiresAltitude: false,
+        parameters: [],
+        vehicles: [],
+      ),
+    ];
 
-final class _FakeMissionBackend implements MissionDocumentBackend {
-  MissionDocument _document = const MissionDocument(
-    metadata: MissionDocumentMetadata(id: 'fake-mission'),
-  );
-  MissionTransferProgress _transfer = const MissionTransferProgress();
-  int _transferPolls = 0;
-  int transferCompletionPolls = 2;
-  int downloadStarts = 0;
-  bool cancelCalled = false;
-  int fenceDownloadStarts = 0;
-  int fenceClears = 0;
-  int rallyDownloadStarts = 0;
-  int rallyClears = 0;
-  MissionVerificationResult fenceVerificationResult =
-      const MissionVerificationResult(matches: true);
-  MissionVerificationResult rallyVerificationResult =
-      const MissionVerificationResult(matches: true);
-  final MissionTransferProgress _fenceTransfer =
-      const MissionTransferProgress();
-  final MissionTransferProgress _rallyTransfer =
-      const MissionTransferProgress();
-  MissionVerificationResult verificationResult =
-      const MissionVerificationResult(
-        matches: true,
-        expectedCount: 1,
-        vehicleCount: 1,
-      );
+    expect(normalizeMissionVehicleClass('FixedWing'), 'plane');
+    expect(normalizeMissionVehicleClass('Rover'), 'rover');
+    expect(normalizeMissionVehicleClass('unknown'), isNull);
+    expect(normalizeMissionVehicleClass(null), isNull);
 
-  void _startTransfer(MissionTransferState state) {
-    _transferPolls = 0;
-    _transfer = MissionTransferProgress(
-      state: state,
-      total: 1,
-      cancellable: true,
+    bool has(List<MissionCommandDescriptor> list, int command) =>
+        list.any((descriptor) => descriptor.command == command);
+
+    final rover = filterCommandCatalogForVehicle(catalog, 'Rover');
+    expect(has(rover, 16), isTrue);
+    expect(has(rover, 21), isFalse);
+    expect(has(rover, 84), isFalse);
+    expect(has(rover, 99), isTrue, reason: '未标注机型的命令始终保留');
+
+    final vtol = filterCommandCatalogForVehicle(catalog, 'vtol');
+    expect(has(vtol, 84), isTrue);
+
+    final kept = filterCommandCatalogForVehicle(
+      catalog,
+      'rover',
+      keepCommands: const [21],
     );
-  }
+    expect(has(kept, 21), isTrue);
 
-  @override
-  Future<MissionCompileResult> compileMissionDocument() async =>
-      MissionCompileResult(
-        valid: true,
-        documentRevision: _document.revision,
-        plan: {'valid': true, 'count': _document.entities.length},
-        sourceEntityIds: [for (final entity in _document.entities) entity.id],
-        report: const MissionValidationReport(valid: true),
-      );
+    expect(filterCommandCatalogForVehicle(catalog, null).length, catalog.length);
+  });
 
-  @override
-  Future<MissionDocument> createMissionDocument([
-    JsonMap config = const {},
-  ]) async {
-    _document = MissionDocument(
-      metadata: MissionDocumentMetadata.fromJson(
-        config['metadata'] as JsonMap? ?? const {},
+  test('mission document controller forwards interchange export format', () async {
+    final backend = FakeMissionBackend();
+    final controller = MissionDocumentController(backend: backend)
+      ..bindSession(1);
+    await controller.initialize();
+    await controller.addEntity(
+      const MissionEntity(
+        type: 'waypoint',
+        latitude: 31.2,
+        longitude: 121.4,
+        altitudeMeters: 50,
       ),
     );
-    return _document;
-  }
 
-  @override
-  Future<MissionEstimate> estimateMissionDocument() async => MissionEstimate(
-    enabledEntityCount: _document.entities.length,
-    waypointCount: _document.entities.length,
-    totalDistanceMeters: 100,
-  );
+    final dirtyBefore = controller.dirty;
+    final revisionBefore = controller.document?.revision;
+    final exported = await controller.exportInterchange('plan');
+    expect(exported.format, 'plan');
+    expect(exported.itemCount, 1);
+    expect(exported.text, backend.interchangeText);
+    expect(backend.lastInterchangeFormat, 'plan');
 
-  @override
-  Future<String> exportMissionDocument() async => '{"schema_version":1}';
+    // 导出不得改动文档、dirty 或 revision。
+    expect(controller.document?.entities, hasLength(1));
+    expect(controller.document?.revision, revisionBefore);
+    expect(controller.dirty, dirtyBefore);
+  });
 
-  @override
-  Future<List<MissionCommandDescriptor>> getMissionCommandCatalog() async =>
-      const [
-        MissionCommandDescriptor(
-          command: 16,
-          name: 'NAV_WAYPOINT',
-          label: '航点',
-          entityType: 'waypoint',
-          category: 'navigation',
-          description: 'Fly to a position',
-          requiresPosition: true,
-          requiresAltitude: true,
-          parameters: [],
-        ),
-      ];
-
-  @override
-  Future<MissionDocument> getMissionDocument() async => _document;
-
-  @override
-  Future<MissionDocument> importMissionDocument(String json) async {
-    _document = const MissionDocument();
-    return _document;
-  }
-
-  @override
-  Future<MissionDocument> importMissionDocumentFromVehicle() async => _document;
-
-  @override
-  Future<MissionDocument> loadMissionDocument(String filePath) async =>
-      _document;
-
-  @override
-  Future<MissionDocumentOperationResult> redoMissionDocument() async {
-    _document = MissionDocument(
-      revision: _document.revision + 1,
-      entities: const [
-        MissionEntity(
-          id: 'entity-1',
-          latitude: 31.2,
-          longitude: 121.4,
-          altitudeMeters: 50,
-        ),
-      ],
-    );
-    return MissionDocumentOperationResult(
-      document: _document,
-      revision: _document.revision,
-    );
-  }
-
-  @override
-  Future<void> saveMissionDocument(String filePath) async {}
-
-  @override
-  Future<MissionDocumentOperationResult> undoMissionDocument() async {
-    _document = MissionDocument(revision: _document.revision + 1);
-    return MissionDocumentOperationResult(
-      document: _document,
-      revision: _document.revision,
-    );
-  }
-
-  @override
-  Future<JsonMap> uploadMissionDocument(int expectedRevision) async {
-    _startTransfer(MissionTransferState.uploading);
-    return {
-      'success': true,
-      'revision': expectedRevision,
-      'state': 'uploading',
-    };
-  }
-
-  @override
-  Future<MissionValidationReport> validateMissionDocument() async =>
-      const MissionValidationReport(valid: true);
-
-  @override
-  Future<MissionVerificationResult> verifyMissionDocument({
-    double toleranceMeters = 1.0,
-  }) async => verificationResult;
-
-  @override
-  Future<void> startMissionDownload() async {
-    downloadStarts++;
-    _startTransfer(MissionTransferState.downloading);
-  }
-
-  @override
-  Future<JsonMap> compileFencePlan() async => const {
-    'success': true,
-    'item_count': 0,
-  };
-
-  @override
-  Future<JsonMap> uploadFence(int expectedRevision) async => {
-    'success': true,
-    'revision': expectedRevision,
-    'state': 'uploading',
-  };
-
-  @override
-  Future<void> startFenceDownload() async {
-    fenceDownloadStarts++;
-  }
-
-  @override
-  Future<MissionTransferProgress> getFenceTransferProgress() async =>
-      _fenceTransfer;
-
-  @override
-  Future<MissionDocument> importFenceFromVehicle() async => _document;
-
-  @override
-  Future<MissionVerificationResult> verifyFence({
-    double toleranceMeters = 1.0,
-  }) async => fenceVerificationResult;
-
-  @override
-  Future<void> clearFence() async {
-    fenceClears++;
-  }
-
-  @override
-  Future<JsonMap> compileRallyPlan() async => const {
-    'success': true,
-    'item_count': 0,
-  };
-
-  @override
-  Future<JsonMap> uploadRally(int expectedRevision) async => {
-    'success': true,
-    'revision': expectedRevision,
-    'state': 'uploading',
-  };
-
-  @override
-  Future<void> startRallyDownload() async {
-    rallyDownloadStarts++;
-  }
-
-  @override
-  Future<MissionTransferProgress> getRallyTransferProgress() async =>
-      _rallyTransfer;
-
-  @override
-  Future<MissionDocument> importRallyFromVehicle() async => _document;
-
-  @override
-  Future<MissionVerificationResult> verifyRally({
-    double toleranceMeters = 1.0,
-  }) async => rallyVerificationResult;
-
-  @override
-  Future<void> clearRally() async {
-    rallyClears++;
-  }
-
-  @override
-  Future<MissionExecutionProgress> getMissionExecutionProgress() async =>
-      executionProgress;
-
-  @override
-  Future<void> clearVehicleMission() async {
-    vehicleMissionClears++;
-  }
-
-  int vehicleMissionClears = 0;
-
-  MissionExecutionProgress executionProgress = const MissionExecutionProgress(
-    valid: true,
-    total: 3,
-  );
-
-  @override
-  Future<MissionTransferProgress> getMissionTransferProgress() async {
-    if (_transfer.active) {
-      _transferPolls++;
-      if (_transferPolls >= transferCompletionPolls) {
-        _transfer = MissionTransferProgress(
-          progressPercent: 100,
-          total: _transfer.total,
-          received: _transfer.total,
-          sent: _transfer.total,
-        );
-      }
-    }
-    return _transfer;
-  }
-
-  @override
-  Future<void> cancelMissionTransfer() async {
-    cancelCalled = true;
-    _transfer = const MissionTransferProgress(
-      result: 15,
-      cancelled: true,
-      error: 'mission transfer cancelled',
-    );
-  }
-
-  @override
-  Future<MissionDocumentOperationResult> applyMissionDocumentCommand(
-    JsonMap command,
-  ) async {
-    if (command['operation'] == 'add') {
-      final entity = MissionEntity.fromJson(command['entity'] as JsonMap);
-      _document = MissionDocument(
-        revision: _document.revision + 1,
-        entities: [
-          ..._document.entities,
-          entity.copyWith(id: 'entity-${_document.entities.length + 1}'),
-        ],
-      );
-    }
-    return MissionDocumentOperationResult(
-      document: _document,
-      revision: _document.revision,
-    );
-  }
 }

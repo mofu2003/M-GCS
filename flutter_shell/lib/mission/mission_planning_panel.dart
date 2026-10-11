@@ -10,11 +10,14 @@ import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import '../widgets/adaptive_popup_button.dart';
 import '../widgets/mg_command_confirmation.dart';
+import '../widgets/mg_confirm.dart';
 import '../widgets/mg_dialog.dart';
 import '../widgets/mg_floating_panel.dart';
+import '../widgets/mg_inline_notice.dart';
 import '../widgets/mac_panel.dart';
 import 'mission_document_controller.dart';
 import 'mission_document_models.dart';
+import 'mission_export.dart';
 import 'mission_geo.dart';
 
 /// 面板宽度：贴地图右边缘悬浮，折叠后只剩一个箭头按钮。
@@ -59,6 +62,9 @@ class _MissionPlanningFloatingPanelState
   );
 
   bool _collapsed = false;
+
+  /// 最近一次导出的结果提示（成功导出一条后显示）。
+  String? _exportNotice;
   String? _lastSelectedEntityId;
   final Map<String, GlobalKey> _entityKeys = {};
   Timer? _executionTimer;
@@ -123,8 +129,18 @@ class _MissionPlanningFloatingPanelState
 
   void _toggleCollapsed() => setState(() => _collapsed = !_collapsed);
 
+  /// 把当前飞控的机型/固件告诉任务文档控制器，新建文档时写进 metadata。
+  void _syncVehicleContext() {
+    final firmware = widget.controller.firmwareInfo;
+    _mission.setVehicleContext(
+      vehicleClass: firmware?['vehicle_type'] as String?,
+      firmwareProfile: firmware?['firmware'] as String?,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    _syncVehicleContext();
     if (_collapsed) {
       // 折叠态：整块面板收起成一个箭头按钮，仍然贴在同一个边缘。
       return Align(
@@ -248,7 +264,7 @@ class _MissionPlanningFloatingPanelState
                             selected: _mission.selectedEntityIndex == index,
                             enabled: enabled,
                             entity: entity,
-                            catalog: _mission.commandCatalog,
+                            catalog: _catalogForEntity(entity),
                             distanceLabel: _distanceFromPrevious(
                               entities,
                               index,
@@ -372,6 +388,21 @@ class _MissionPlanningFloatingPanelState
                 ],
               ),
             ),
+            PushButton(
+              controlSize: ControlSize.regular,
+              secondary: true,
+              onPressed: busy || transferring || document == null
+                  ? null
+                  : _exportMission,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  MacosIcon(CupertinoIcons.square_stack_3d_up, size: 13),
+                  SizedBox(width: 6),
+                  Text('导出文件'),
+                ],
+              ),
+            ),
             MacosTooltip(
               message: _mission.dirty ? '请先上传任务' : '解锁并开始任务',
               child: PushButton(
@@ -434,6 +465,17 @@ class _MissionPlanningFloatingPanelState
             style: MacosTheme.of(
               context,
             ).typography.caption1.copyWith(color: colors.textSecondary),
+          ),
+        ],
+        if (_exportNotice != null) ...[
+          const SizedBox(height: 6),
+          MgInlineNotice(
+            icon: CupertinoIcons.checkmark_circle,
+            color: colors.success,
+            text: _exportNotice!,
+            trailing: MgDismissButton(
+              onPressed: () => setState(() => _exportNotice = null),
+            ),
           ),
         ],
         if (verification != null &&
@@ -539,6 +581,14 @@ class _MissionPlanningFloatingPanelState
     _ => field,
   };
 
+  /// 当前飞控机型下的命令目录；保留 [entity] 自身命令，避免下拉错位。
+  List<MissionCommandDescriptor> _catalogForEntity(MissionEntity? entity) =>
+      filterCommandCatalogForVehicle(
+        _mission.commandCatalog,
+        widget.controller.firmwareInfo?['vehicle_type'] as String?,
+        keepCommands: [if (entity != null) entity.command],
+      );
+
   String _typeForCommand(int command) {
     for (final descriptor in _mission.commandCatalog) {
       if (descriptor.command == command) return descriptor.entityType;
@@ -592,7 +642,30 @@ class _MissionPlanningFloatingPanelState
     await _mutate(_mission.clearVehicleMission);
   }
 
+  /// 导出当前任务文档到文件（`waypoints` / `plan`），不改动本地文档与飞控。
+  Future<void> _exportMission() async {
+    final result = await showMissionExportSheet(
+      context: context,
+      controller: _mission,
+    );
+    if (result == null || !mounted) return;
+    final warnings = result.warnings.isEmpty
+        ? ''
+        : '（${result.warnings.length} 条提示）';
+    setState(() {
+      _exportNotice = '已导出 ${result.itemCount} 条到 ${result.path}$warnings';
+    });
+  }
+
+  /// 上传任务到飞控：会覆盖飞控上已保存的任务，先确认（KD-08）。
   Future<void> _uploadToVehicle() async {
+    final confirmed = await confirmMissionAction(
+      context,
+      title: '上传任务到飞控？',
+      message: '这会把本地任务写入飞控，覆盖飞控上已保存的任务。上传完成后需再单独“执行任务”。',
+      confirmLabel: '上传任务',
+    );
+    if (!confirmed) return;
     await _mutate(() async {
       await _mission.upload();
     });
@@ -853,7 +926,7 @@ class _FenceRallyCard extends StatelessWidget {
             label: '围栏',
             hint: '围栏是独立的 MAVLink mission type，不随任务上传',
             onRead: mission.readFenceFromVehicle,
-            onUpload: mission.uploadFence,
+            onUpload: () => _confirmUpload(context, '围栏', mission.uploadFence),
             onClear: mission.clearFence,
             labelColor: colors.warning,
           ),
@@ -864,13 +937,29 @@ class _FenceRallyCard extends StatelessWidget {
             label: 'Rally',
             hint: 'Rally 点同样是独立 mission type，不随任务上传',
             onRead: mission.readRallyFromVehicle,
-            onUpload: mission.uploadRally,
+            onUpload: () => _confirmUpload(context, 'Rally', mission.uploadRally),
             onClear: mission.clearRally,
             labelColor: colors.accent,
           ),
         ],
       ),
     );
+  }
+
+  /// 围栏 / Rally 下发同样会覆盖飞控上的同类数据，先确认（KD-08）。
+  Future<Object?> _confirmUpload(
+    BuildContext context,
+    String label,
+    Future<Object?> Function() upload,
+  ) async {
+    final confirmed = await confirmMissionAction(
+      context,
+      title: '下发$label到飞控？',
+      message: '这会把本地$label写入飞控，覆盖飞控上的同类数据，下发后会自动回读核对。',
+      confirmLabel: '下发$label',
+    );
+    if (!confirmed) return null;
+    return upload();
   }
 
   Widget _row(
@@ -1318,6 +1407,7 @@ class _MissionDefaultsFormState extends State<_MissionDefaultsForm> {
   late final TextEditingController _speed = TextEditingController(
     text: widget.defaults.speedMetersPerSecond.toStringAsFixed(1),
   );
+  late int _frame = widget.defaults.frame;
 
   @override
   void dispose() {
@@ -1332,7 +1422,7 @@ class _MissionDefaultsFormState extends State<_MissionDefaultsForm> {
     if (altitude == null || speed == null) return;
     await widget.onSubmit(
       MissionDefaults(
-        frame: widget.defaults.frame,
+        frame: _frame,
         altitudeMeters: altitude,
         speedMetersPerSecond: speed,
       ),
@@ -1343,6 +1433,18 @@ class _MissionDefaultsFormState extends State<_MissionDefaultsForm> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
+      _LabeledField(
+        label: '默认高度基准',
+        child: AdaptivePopupButton<int>(
+          value: _frame,
+          options: [for (final choice in kMissionFrameChoices) choice.$1],
+          labelOf: missionFrameLabel,
+          onChanged: widget.enabled
+              ? (frame) => setState(() => _frame = frame)
+              : null,
+        ),
+      ),
+      const SizedBox(height: 10),
       _LabeledField(
         label: '默认高度 (m)',
         child: MacosTextField(
@@ -1784,38 +1886,18 @@ class _NumberFieldState extends State<_NumberField> {
   );
 }
 
-/// 统一的确认弹窗，返回用户是否点了确认。
+/// 任务面板的确认弹窗，委托给全应用统一的 [showMgConfirmDialog]。
 Future<bool> confirmMissionAction(
   BuildContext context, {
   required String title,
   required String message,
   required String confirmLabel,
-}) async {
-  final result = await showMgAlertDialog<bool>(
-    context: context,
-    builder: (dialogContext) => MacosAlertDialog(
-      appIcon: MacosIcon(
-        CupertinoIcons.exclamationmark_triangle,
-        size: 44,
-        color: dialogContext.mgColors.warning,
-      ),
-      title: Text(title),
-      message: Text(message),
-      primaryButton: PushButton(
-        controlSize: ControlSize.large,
-        onPressed: () => Navigator.of(dialogContext).pop(true),
-        child: Text(confirmLabel),
-      ),
-      secondaryButton: PushButton(
-        controlSize: ControlSize.large,
-        secondary: true,
-        onPressed: () => Navigator.of(dialogContext).pop(false),
-        child: const Text('取消'),
-      ),
-    ),
-  );
-  return result ?? false;
-}
+}) => showMgConfirmDialog(
+  context,
+  title: title,
+  message: message,
+  confirmLabel: confirmLabel,
+);
 
 /// 编辑 / 新增任务项：命令类型、位置、高度，以及命令目录定义的参数。
 Future<void> showMissionEntityDialog(
@@ -1830,12 +1912,21 @@ Future<void> showMissionEntityDialog(
   final mission = controller.missionPlanning;
   await mission.initialize();
   if (!context.mounted) return;
+  final fullCatalog = mission.commandCatalog.isEmpty
+      ? catalog
+      : mission.commandCatalog;
+  // 命令目录按当前飞控机型过滤；已有实体自身的命令始终保留，避免编辑一个
+  // 当前机型不支持的项时下拉落到别的命令上。
+  final vehicleCatalog = filterCommandCatalogForVehicle(
+    fullCatalog,
+    controller.firmwareInfo?['vehicle_type'] as String?,
+    keepCommands: [if (entity != null) entity.command],
+  );
+  if (vehicleCatalog.isEmpty) return;
   await _showFadeDialog<void>(
     context: context,
     builder: (dialogContext) => _MissionEntitySheet(
-      catalog: mission.commandCatalog.isEmpty
-          ? catalog
-          : mission.commandCatalog,
+      catalog: vehicleCatalog,
       defaults: mission.document?.defaults ?? const MissionDefaults(),
       entity: entity,
       initialPosition: initialPosition,
@@ -1888,6 +1979,8 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
     text: _initialAltitude(),
   );
   final Map<int, TextEditingController> _parameterFields = {};
+  /// 高度基准：沿用既有实体的帧，新建时取任务默认帧。
+  late int _frame = widget.entity?.frame ?? widget.defaults.frame;
   String? _error;
 
   MissionCommandDescriptor _descriptorFor(int command) =>
@@ -1979,6 +2072,7 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
       type: _descriptor.entityType,
       command: _descriptor.command,
       autocontinue: 1,
+      frame: _descriptor.requiresAltitude ? _frame : base.frame,
       latitude: latitude,
       longitude: longitude,
       altitudeMeters: altitude,
@@ -2070,7 +2164,9 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
                       if (_descriptor.requiresAltitude)
                         Expanded(
                           child: _LabeledField(
-                            label: '高度 (m)',
+                            label: _frame == kMissionFrameTerrainAlt
+                                ? '高度 (m, AGL)'
+                                : '高度 (m)',
                             child: MacosTextField(
                               controller: _altitude,
                               padding: _fieldPadding,
@@ -2079,6 +2175,32 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
                         ),
                     ],
                   ),
+                ],
+                if (_descriptor.requiresAltitude) ...[
+                  const SizedBox(height: 8),
+                  _LabeledField(
+                    label: '高度基准',
+                    child: AdaptivePopupButton<int>(
+                      value: _frame,
+                      options: [
+                        for (final choice in kMissionFrameChoices) choice.$1,
+                      ],
+                      labelOf: missionFrameLabel,
+                      onChanged: (frame) => setState(() => _frame = frame),
+                    ),
+                  ),
+                  if (_frame == kMissionFrameTerrainAlt) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      '地形跟随由飞控按地形数据执行，需要飞控载有该区域的地形数据；'
+                      '否则该航点不能按 AGL 高度执行。',
+                      style: MgTypography.sans(
+                        MgTypography.caption.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
                 if (isVtolTakeoff) ...[
                   const SizedBox(height: 8),
@@ -2636,8 +2758,9 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
   List<_GuidedAction> _actions() {
     final controller = widget.controller;
     final connected = controller.isConnected;
-    final armed = controller.vehicleArmed;
-    final flying = controller.vehicleFlying;
+    final stateFresh = controller.vehicleStateFresh;
+    final armed = stateFresh && controller.vehicleArmed;
+    final flying = stateFresh && controller.vehicleFlying;
     // MAV_TYPE_FIXED_WING = 1：QGC 不给固定翼显示“降落”。
     final fixedWing = controller.vehicleType == 1;
     final mode = controller.vehicleFlightMode.toUpperCase();
@@ -2662,6 +2785,7 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
         label: '移动到此处',
         disabledReason: firstDisabled([
           if (!connected) '未连接飞控',
+          if (connected && !stateFresh) '飞控状态已过期',
           if (!guidedSupported) '当前飞控未声明支持引导模式',
           if (!flying) '飞机尚未起飞',
           // QGC `guidedModeGotoLocation` 在高度未知时直接拒发；这里同样门控。
@@ -2686,6 +2810,7 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
         label: '返航 (RTL)',
         disabledReason: firstDisabled([
           if (!connected) '未连接飞控',
+          if (connected && !stateFresh) '飞控状态已过期',
           if (!guidedSupported) '当前飞控未声明支持引导模式',
           if (!armed) '飞控未解锁',
           if (!flying) '飞机尚未起飞',
@@ -2699,6 +2824,7 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
         label: '降落',
         disabledReason: firstDisabled([
           if (!connected) '未连接飞控',
+          if (connected && !stateFresh) '飞控状态已过期',
           if (!guidedSupported) '当前飞控未声明支持引导模式',
           if (!armed) '飞控未解锁',
           // QGC `GuidedActionsController.qml`：Land 只在飞行中出现，地面不给。
@@ -2714,6 +2840,7 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
         label: '起飞',
         disabledReason: firstDisabled([
           if (!connected) '未连接飞控',
+          if (connected && !stateFresh) '飞控状态已过期',
           if (!controller.supportsGuidedTakeoff) '当前机型不支持引导起飞',
           if (flying) '飞机已经在空中',
         ]),
@@ -2726,6 +2853,7 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
         label: '暂停/继续',
         disabledReason: firstDisabled([
           if (!connected) '未连接飞控',
+          if (connected && !stateFresh) '飞控状态已过期',
           if (!guidedSupported) '当前飞控未声明支持引导模式',
           if (!pauseSupported) '当前飞控不支持暂停',
           if (!armed) '飞控未解锁',
@@ -2739,6 +2867,7 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
         label: '环绕飞行',
         disabledReason: firstDisabled([
           if (!connected) '未连接飞控',
+          if (connected && !stateFresh) '飞控状态已过期',
           if (!guidedSupported) '当前飞控未声明支持引导模式',
           if (!flying) '飞机尚未起飞',
           if (!homeReady) '需要有效的 Home 点和高度',

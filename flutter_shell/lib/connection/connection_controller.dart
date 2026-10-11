@@ -4,13 +4,30 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../ffi_response.dart';
 import '../fleet/fleet_controller.dart';
 import '../fleet/fleet_ffi_backend.dart';
 import '../fleet/fleet_models.dart';
+import '../logging/file_backend.dart';
+import '../logging/file_controller.dart';
+import '../logging/file_ffi_backend.dart';
+import '../logging/log_backend.dart';
+import '../logging/log_controller.dart';
+import '../logging/log_ffi_backend.dart';
+import '../logging/tlog_backend.dart';
+import '../logging/tlog_controller.dart';
+import '../logging/tlog_ffi_backend.dart';
 import '../mission/mission_document_controller.dart';
 import '../mission/mission_geo.dart';
 import '../mission/mission_document_ffi_backend.dart';
 import '../mission/mission_document_models.dart';
+import '../terrain/elevation_provider.dart';
+import '../terrain/terrain_backend.dart';
+import '../terrain/terrain_controller.dart';
+import '../terrain/terrain_ffi_backend.dart';
+import '../survey/survey_backend.dart';
+import '../survey/survey_controller.dart';
+import '../survey/survey_ffi_backend.dart';
 import 'telemetry_ffi_backend.dart';
 import 'parameter_ffi_backend.dart';
 import 'calibration_ffi_backend.dart';
@@ -47,6 +64,7 @@ enum AccelerometerCalibrationMode { sixFace, level, simple }
 final class CalibrationStatus {
   const CalibrationStatus({
     this.active = false,
+    this.cancelling = false,
     this.type = CalibrationType.gyroscope,
     this.stage = 'idle',
     this.progress = 0,
@@ -59,6 +77,11 @@ final class CalibrationStatus {
   });
 
   final bool active;
+
+  /// 取消请求已发出、正在等 native 返回。此时 [active] 仍为 true：在飞控
+  /// 确认停止之前界面不得显示“已停止”（safety.md 的 S8）。
+  final bool cancelling;
+
   final CalibrationType type;
   final String stage;
   final int progress;
@@ -78,6 +101,7 @@ final class CalibrationStatus {
 
   Map<String, Object?> toJson() => {
     'active': active,
+    'cancelling': cancelling,
     'type': type.name,
     'stage': stage,
     'progress': progress,
@@ -506,6 +530,17 @@ final class ConnectionController extends ChangeNotifier {
   ParameterFfiBackend? _parameterBackend;
   CalibrationFfiBackend? _calibrationBackend;
   FlightCommandFfiBackend? _flightCommandBackend;
+  LogBackend? _logBackend;
+  LogController? _logController;
+  TlogBackend? _tlogBackend;
+  TlogController? _tlogController;
+  FileBackend? _fileBackend;
+  FileController? _fileController;
+  TerrainBackend? _terrainBackend;
+  TerrainController? _terrainController;
+  ElevationProvider? _elevationProvider;
+  SurveyBackend? _surveyBackend;
+  SurveyController? _surveyController;
 
   MissionDocumentController get missionPlanning {
     final id = sessionId;
@@ -540,21 +575,21 @@ final class ConnectionController extends ChangeNotifier {
         ),
       );
 
-  TelemetryFfiBackend get telemetryBackend =>
-      _telemetryBackend ??= TelemetryFfiBackend(_requireNative().library, _requireNative().handle);
+  TelemetryFfiBackend get telemetryBackend => _telemetryBackend ??=
+      TelemetryFfiBackend(_requireNative().library, _requireNative().handle);
 
-  ParameterFfiBackend get parameterBackend =>
-      _parameterBackend ??= ParameterFfiBackend(_requireNative().library, _requireNative().handle);
+  ParameterFfiBackend get parameterBackend => _parameterBackend ??=
+      ParameterFfiBackend(_requireNative().library, _requireNative().handle);
 
-  CalibrationFfiBackend get calibrationBackend =>
-      _calibrationBackend ??= CalibrationFfiBackend(_requireNative().library, _requireNative().handle);
+  CalibrationFfiBackend get calibrationBackend => _calibrationBackend ??=
+      CalibrationFfiBackend(_requireNative().library, _requireNative().handle);
 
   FlightCommandFfiBackend get flightCommandBackend =>
       _flightCommandBackend ??= FlightCommandFfiBackend(
         _requireNative().library,
         _requireNative().handle,
         beforeCommand: () {
-          _requireConnected('发送指令');
+          _requireFreshVehicleState('发送指令');
           fleet.refresh();
           if (fleet.snapshot.activeVehicleId != sessionId) {
             throw StateError('当前飞机焦点与连接会话不一致，拒绝发送指令');
@@ -567,6 +602,115 @@ final class ConnectionController extends ChangeNotifier {
           return id == sessionId ? id : null;
         },
       );
+
+  /// 机载日志页的控制器。按当前连接会话绑定；会话切换或断开会丢弃
+  /// 旧列表与下载状态，避免把上一架飞机的日志结果写回界面。
+  LogController get logController {
+    final controller = _logController ??= LogController(
+      backend: _logBackend ??= _makeLogBackend(),
+    );
+    controller.bindSession(sessionId);
+    return controller;
+  }
+
+  LogBackend _makeLogBackend() {
+    final native = _native;
+    if (native == null) {
+      // 原生库不可用时也要让页面渲染骨架并给出确定的错误，而不是构建期抛异常。
+      return const LogUnavailableBackend();
+    }
+    return LogFfiBackend(
+      native.library,
+      native.handle,
+      isConnected: () => isConnected && sessionId != null,
+    );
+  }
+
+  /// 「飞行记录」页的控制器：链路 `.tlog` 录制 + 本地离线回放。
+  ///
+  /// 回放只读本地文件、与连接无关，所以这里不做会话绑定；录制挂在活动车辆上，
+  /// 由页面在进入时读取 `mg_tlog_status` 并对未连接状态禁用开始按钮。
+  TlogController get tlogController =>
+      _tlogController ??= TlogController(backend: _tlogBackend ??= _makeTlogBackend());
+
+  TlogBackend _makeTlogBackend() {
+    final native = _native;
+    if (native == null) {
+      return const TlogUnavailableBackend();
+    }
+    return TlogFfiBackend(
+      native.library,
+      native.handle,
+      isConnected: () => isConnected && sessionId != null,
+    );
+  }
+
+  /// 「机载文件」页的控制器：MAVLink FTP 目录浏览、下载与上传。
+  ///
+  /// 与机载日志一样按当前连接会话绑定；换飞机或断开会丢弃列表与传输状态，
+  /// 避免把上一架飞机的文件结果写回界面。
+  FileController get fileController {
+    final controller = _fileController ??= FileController(
+      backend: _fileBackend ??= _makeFileBackend(),
+    );
+    controller.bindSession(sessionId);
+    return controller;
+  }
+
+  FileBackend _makeFileBackend() {
+    final native = _native;
+    if (native == null) {
+      // 原生库不可用时页面仍要能渲染骨架并给出确定的错误。
+      return const FileUnavailableBackend();
+    }
+    return FileFfiBackend(
+      native.library,
+      native.handle,
+      isConnected: () => isConnected && sessionId != null,
+    );
+  }
+
+  /// 地形高程控制器：native 缓存 + 在线 provider。
+  ///
+  /// S1 只交付取数能力（缓存命中/回填），尚未接入具体页面——前端入口待
+  /// docs/features/survey-and-terrain.md 的 D7 决策。provider 默认 open-elevation，
+  /// 可替换为自建端点。
+  TerrainController get terrainController =>
+      _terrainController ??= TerrainController(
+        backend: _terrainBackend ??= _makeTerrainBackend(),
+        provider: _elevationProvider ??= OpenElevationProvider(),
+      );
+
+  TerrainBackend _makeTerrainBackend() {
+    final native = _native;
+    if (native == null) {
+      return const TerrainUnavailableBackend();
+    }
+    return TerrainFfiBackend(native.library, native.handle);
+  }
+
+  /// 测绘规划控制器：native 纯计算生成航线，前端负责配置与并入任务。
+  ///
+  /// 生成不需要连接飞控；并把结果并入任务文档由 [SurveyController] 处理，
+  /// 上传仍走任务面板。入口见 docs/constraints/ui-pages.md 的「测绘规划」。
+  SurveyController get surveyController =>
+      _surveyController ??= SurveyController(
+        backend: _surveyBackend ??= _makeSurveyBackend(),
+      );
+
+  SurveyBackend _makeSurveyBackend() {
+    final native = _native;
+    if (native == null) {
+      return const SurveyUnavailableBackend();
+    }
+    return SurveyFfiBackend(native.library, native.handle);
+  }
+
+  /// 会话切换/断开时把日志控制器绑到新会话；`null` 表示当前无会话。
+  void _bindLogSession(int? id) {
+    _logController?.bindSession(id);
+    _fileController?.bindSession(id);
+  }
 
   final List<SerialPortInfo> ports = [];
   final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
@@ -812,8 +956,10 @@ final class ConnectionController extends ChangeNotifier {
   bool _firmwareVersionRequested = false;
   bool _parameterRequestStarted = false;
   bool _loadingParameterMetadata = false;
+
   /// 本次会话是否收到过遥测（用于区分"还没连上"与"连上后掉线"）。
   bool _telemetrySnapshotValid = false;
+
   /// 链路仍在，但 core 报告的 heartbeat age 已超过新鲜度阈值。
   bool _telemetryGroupsStale = false;
   VehicleControlProfile? _lastPublishedControlProfile;
@@ -829,6 +975,11 @@ final class ConnectionController extends ChangeNotifier {
   /// 标记为过期，不能继续当成当前值展示，否则操作者会照着冻结的高度/电压/模式判断。
   bool get telemetryStale =>
       _telemetrySnapshotValid && (!isConnected || _telemetryGroupsStale);
+
+  /// Safety-sensitive flight state is usable only while the heartbeat-backed
+  /// telemetry snapshot is fresh.
+  bool get vehicleStateFresh =>
+      isConnected && _telemetrySnapshotValid && !_telemetryGroupsStale;
   int? get activeLinkId => _activeLinkId;
   SigningController get signing => _signing;
   List<FleetLinkSummary> get fleetLinks => fleetSnapshot.links;
@@ -858,13 +1009,29 @@ final class ConnectionController extends ChangeNotifier {
   bool get supportsGuidedMode => _firmwareCapability('guided_mode');
   bool get supportsPause => _firmwareCapability('pause');
 
-  /// QGC `APMFirmwarePlugin::_guidedModeTakeoff` only enables takeoff for
-  /// multirotor and VTOL vehicles. Fixed-wing aircraft need a runway takeoff
-  /// and are handled by the mission/AUTO flow instead.
-  bool get supportsGuidedTakeoff => const {
-    2, 3, 4, 13, 14, 15, // MAV_TYPE multirotor family
-    19, 20, 21, 22, 23, 24, // MAV_TYPE VTOL family
-  }.contains(vehicleType);
+  /// 地图菜单“环绕飞行”入口的开关，来自固件插件（QGC `OrbitModeCapability`）。
+  ///
+  /// QGC `GuidedActionsController.qml:138` 的 `showOrbit` 就是按 `orbitMode`
+  /// 能力位门控的，不再靠 `guidedMode` 顺带打开，避免地图上出现飞控其实
+  /// 不执行的入口。
+  bool get supportsOrbit => _firmwareCapability('orbit');
+
+  /// 地图菜单“在此外设置兴趣点”入口的开关（QGC `ROIModeCapability`）。
+  bool get supportsRoi => _firmwareCapability('roi');
+
+  /// QGC `_guidedModeTakeoff`：多旋翼和 VTOL 支持引导起飞，固定翼需要跑道起飞，
+  /// 交给任务/AUTO 流程。以固件插件给的能力位为准。
+  ///
+  /// 刚连上、固件信息还没拉到时（`firmwareInfo == null`）退回按 MAV_TYPE 判断，
+  /// 避免起飞按钮在遥测到达前抖动。
+  bool get supportsGuidedTakeoff {
+    final capabilities = firmwareInfo?['capabilities'];
+    if (capabilities is Map) return capabilities['takeoff'] == true;
+    return const {
+      2, 3, 4, 13, 14, 15, // MAV_TYPE multirotor family
+      19, 20, 21, 22, 23, 24, // MAV_TYPE VTOL family
+    }.contains(vehicleType);
+  }
 
   /// QGC `APMFirmwarePlugin::minimumTakeoffAltitudeMeters` 的等价实现。
   ///
@@ -875,6 +1042,16 @@ final class ConnectionController extends ChangeNotifier {
     double? read(String name) {
       final value = parameters[name]?.value;
       return value != null && value > 0 ? value : null;
+    }
+
+    // PX4 没有 ArduPilot 那套 `PILOT_TKO_ALT_M` 参数：QGC 的 PX4 插件直接用
+    // `FirmwarePlugin::minimumTakeoffAltitudeMeters` 基类默认值（10 ft = 3.048 m）。
+    // core 固件插件把它经 `mg_firmware_get_type` 的 `minimum_takeoff_altitude_m`
+    // 暴露出来，这里优先采用。
+    final firmware = firmwareInfo?['firmware']?.toString().toLowerCase();
+    if (firmware == 'px4') {
+      return (firmwareInfo?['minimum_takeoff_altitude_m'] as num?)?.toDouble() ??
+          0;
     }
 
     if (controlProfile == VehicleControlProfile.planeVtol) {
@@ -921,10 +1098,14 @@ final class ConnectionController extends ChangeNotifier {
   ///
   /// QGC `APMFirmwarePlugin::_isCapable` 只给多旋翼和潜航器
   /// `ChangeHeadingCapability`，固定翼和 VTOL 都不给，所以这里保持一致。
-  bool get supportsChangeHeading => const {
-    2, 3, 4, 13, 14, 15, // MAV_TYPE multirotor family
-    12, // MAV_TYPE_SUBMARINE
-  }.contains(vehicleType);
+  bool get supportsChangeHeading {
+    final capabilities = firmwareInfo?['capabilities'];
+    if (capabilities is Map) return capabilities['change_heading'] == true;
+    return const {
+      2, 3, 4, 13, 14, 15, // MAV_TYPE multirotor family
+      12, // MAV_TYPE_SUBMARINE
+    }.contains(vehicleType);
+  }
 
   /// 飞控是否上报了 GPS 传感器。
   ///
@@ -994,7 +1175,7 @@ final class ConnectionController extends ChangeNotifier {
     try {
       final result = calibrationBackend.start(1, nativeMode);
       if (result['success'] != true) {
-        throw StateError(nativeErrorText(result, '启动加速度计校准失败'));
+        throw StateError(ffiErrorText(result, '启动加速度计校准失败'));
       }
       _startCalibrationPolling();
       await _pollCalibrationStatus();
@@ -1023,7 +1204,7 @@ final class ConnectionController extends ChangeNotifier {
       };
       final result = calibrationBackend.start(nativeType, 1);
       if (result['success'] != true) {
-        throw StateError(nativeErrorText(result, '启动校准失败'));
+        throw StateError(ffiErrorText(result, '启动校准失败'));
       }
       _startCalibrationPolling();
       await _pollCalibrationStatus();
@@ -1039,7 +1220,7 @@ final class ConnectionController extends ChangeNotifier {
     try {
       final result = calibrationBackend.confirmAccelerometerPosition(position);
       if (result['success'] != true) {
-        throw StateError(nativeErrorText(result, '确认姿态失败'));
+        throw StateError(ffiErrorText(result, '确认姿态失败'));
       }
       await _pollCalibrationStatus();
     } on Object catch (error) {
@@ -1050,15 +1231,20 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   Future<void> cancelCalibration() async {
-    if (!calibrationStatus.active) return;
+    if (!calibrationStatus.active || calibrationStatus.cancelling) return;
     final requestedType = calibrationStatus.type;
-    _calibrationTimer?.cancel();
+    // S8：先把状态标成“取消中”并保持轮询。以前这里一进来就把界面写成
+    // “已取消”并停掉轮询，而飞控可能还在采样。
     calibrationStatus = CalibrationStatus(
-      active: false,
+      active: true,
+      cancelling: true,
       type: requestedType,
-      stage: 'cancelled',
+      stage: calibrationStatus.stage,
       progress: calibrationStatus.progress,
-      message: '已取消校准',
+      currentStep: calibrationStatus.currentStep,
+      totalSteps: calibrationStatus.totalSteps,
+      message: '正在取消校准…',
+      accelerometerMode: calibrationStatus.accelerometerMode,
       compassProgress: calibrationStatus.compassProgress,
     );
     calibrationError = null;
@@ -1069,7 +1255,7 @@ final class ConnectionController extends ChangeNotifier {
     try {
       final result = calibrationBackend.cancel();
       if (result['success'] != true) {
-        final message = nativeErrorText(result, '取消校准失败');
+        final message = ffiErrorText(result, '取消校准失败');
         // A stale UI snapshot can outlive the native calibration state. In
         // that case the local clear above is already the correct end state.
         if (!message.contains('no calibration in progress')) {
@@ -1079,11 +1265,12 @@ final class ConnectionController extends ChangeNotifier {
     } on Object catch (error) {
       cancellationError = error;
     }
-    // Always refresh after a cancellation attempt. The native service stops
-    // its local state even when the MAVLink cancel frame could not be sent;
-    // leaving the UI stuck in "calibrating" is worse than showing the send
-    // error after the state has already returned to idle/cancelled.
+    if (_disposed) return;
+    // native 会停掉本地校准状态（即使取消帧没发出去也会），这里读回真实状态：
+    // 可能是 idle/cancelled，也可能是仍在进行的原状态。停在“取消中”不动会让
+    // 界面永远卡住，所以一定要读回一次。
     await _pollCalibrationStatus();
+    if (_disposed) return;
     if (cancellationError != null) {
       calibrationError = _friendlyError(cancellationError);
       _notifyCalibrationChanges();
@@ -1107,6 +1294,7 @@ final class ConnectionController extends ChangeNotifier {
       if (_disposed || sessionId != id) return;
       final next = CalibrationStatus(
         active: raw['active'] == true,
+        cancelling: calibrationStatus.cancelling && raw['active'] == true,
         type: _calibrationType(raw['type']?.toString()),
         stage: raw['stage']?.toString() ?? 'idle',
         progress: (raw['progress'] as num?)?.toInt() ?? 0,
@@ -1263,12 +1451,7 @@ final class ConnectionController extends ChangeNotifier {
     try {
       final result = parameterBackend.requestAll();
       if (result['success'] != true) {
-        final error = result['error'];
-        throw StateError(
-          error is Map<String, Object?>
-              ? error['message'] as String? ?? '无法请求飞控参数'
-              : '无法请求飞控参数',
-        );
+        throw StateError(ffiErrorText(result, '无法请求飞控参数'));
       }
       _parameterRequestStarted = true;
     } on Object catch (error) {
@@ -1291,8 +1474,7 @@ final class ConnectionController extends ChangeNotifier {
     await Future<void>.delayed(Duration.zero);
     if (_disposed || generation != _sessionGeneration) return;
     try {
-      final result =
-          _native!.serialUartNames() as Map<String, Object?>;
+      final result = _native!.serialUartNames() as Map<String, Object?>;
       final items = result['items'] as List<Object?>? ?? const [];
       serialHardwareMappings
         ..clear()
@@ -1308,7 +1490,7 @@ final class ConnectionController extends ChangeNotifier {
               }),
         );
       if (result['success'] != true) {
-        serialHardwareMappingError = result['error'] as String?;
+        serialHardwareMappingError = ffiErrorText(result, '读取串口硬件映射失败');
       }
     } on Object catch (error) {
       serialHardwareMappings.clear();
@@ -1432,20 +1614,20 @@ final class ConnectionController extends ChangeNotifier {
 
       for (var attempt = 0; attempt < 3; attempt++) {
         _ensureWriteSession(requestedSessionId, name);
+        final writeBaseline = _latestParameterWriteId();
         final result = parameterBackend.write(name, value);
         if (result['success'] != true) {
-          final error = result['error'];
-          throw StateError(
-            error is Map<String, Object?>
-                ? error['message'] as String? ?? '参数写入失败'
-                : error as String? ?? '参数写入失败',
-          );
+          throw StateError(ffiErrorText(result, '参数写入失败'));
         }
 
         final acknowledgementTimer = Stopwatch()..start();
         while (acknowledgementTimer.elapsed < const Duration(seconds: 1)) {
           await Future<void>.delayed(const Duration(milliseconds: 100));
           _ensureWriteSession(requestedSessionId, name);
+          final rejection = _parameterWriteRejection(name, writeBaseline);
+          if (rejection != null) {
+            throw StateError(rejection);
+          }
           final acknowledgedValue = _readParameterValue(name);
           if (acknowledgedValue != null &&
               _parameterValuesMatch(
@@ -1496,6 +1678,33 @@ final class ConnectionController extends ChangeNotifier {
       notifyListeners();
     }
     return !_parameterWriteErrors.containsKey(name);
+  }
+
+  /// 发送前记录当前最大写入记录 id；之后只认这次写入新产生的终态，避免把
+  /// 同名参数的历史失败记录误判成本次结果（阶段 1D 的 generation 语义）。
+  int _latestParameterWriteId() {
+    var maxId = 0;
+    for (final record in parameterBackend.writes()) {
+      final id = record['id'];
+      if (id is num && id.toInt() > maxId) maxId = id.toInt();
+    }
+    return maxId;
+  }
+
+  /// 飞控用 PARAM_ERROR 明确拒绝时必须立即失败，并带上飞控给出的原因，
+  /// 不再等到回读超时后显示笼统的“未确认”。仍处于 pending 的写入返回
+  /// null，继续靠回读参数值确认。
+  String? _parameterWriteRejection(String name, int baselineId) {
+    const rejectedPrefix = 'parameter write rejected: ';
+    for (final record in parameterBackend.writes()) {
+      final id = record['id'];
+      if (id is! num || id.toInt() <= baselineId) continue;
+      if (record['name'] != name || record['state'] != 'failed') continue;
+      final reason = record['error'];
+      if (reason is! String || !reason.startsWith(rejectedPrefix)) continue;
+      return '飞控拒绝写入参数 $name：${reason.substring(rejectedPrefix.length)}';
+    }
+    return null;
   }
 
   void _ensureWriteSession(int expectedSessionId, String name) {
@@ -1648,6 +1857,7 @@ final class ConnectionController extends ChangeNotifier {
         _stopSessionPolling();
         _calibrationTimer?.cancel();
         sessionId = null;
+        _bindLogSession(null);
         _resetRuntimeState();
         final waitingLink = _activeLinkId == null
             ? null
@@ -1713,6 +1923,7 @@ final class ConnectionController extends ChangeNotifier {
           : SerialConnectionPhase.waitingForHeartbeat;
       _pollTelemetry(target); // Fresh native cache before publishing UI state.
       missionPlanning.bindSession(target);
+      _bindLogSession(target);
       _startSessionPolling();
       unawaited(_signing.applyIfNeeded());
       _lastPublishedControlProfile = null;
@@ -1942,6 +2153,13 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
+  void _requireFreshVehicleState(String action) {
+    _requireConnected(action);
+    if (!vehicleStateFresh) {
+      throw StateError('飞控状态尚未刷新，无法$action');
+    }
+  }
+
   /// 增量拉取飞控消息（只取 seq 比上次大的），追加到本地列表。
   ///
   /// 后端保留最近 200 条，这里同样限长，避免长时间连接后无限增长。
@@ -1951,8 +2169,7 @@ final class ConnectionController extends ChangeNotifier {
     if (id == null) return;
     try {
       final response =
-          _native!.messages(_lastMessageSeq)
-              as Map<String, Object?>;
+          _native!.messages(_lastMessageSeq) as Map<String, Object?>;
       if (_disposed || sessionId != id) return;
       if (response['success'] != true) return;
       final items = (response['messages'] as List<Object?>? ?? const [])
@@ -2008,8 +2225,7 @@ final class ConnectionController extends ChangeNotifier {
     final id = sessionId;
     if (id == null) return;
     try {
-      final response =
-          _native!.flightModes() as Map<String, Object?>;
+      final response = _native!.flightModes() as Map<String, Object?>;
       if (_disposed || sessionId != id) return;
       if (response['success'] != true) return;
       final options = (response['modes'] as List<Object?>? ?? const [])
@@ -2026,7 +2242,10 @@ final class ConnectionController extends ChangeNotifier {
       flightModesAvailable = response['available'] == true;
       flightModeOptions = options;
       final current = response['current_mode'] as String? ?? '';
-      if (current.isNotEmpty) vehicleFlightMode = current;
+      // S5：心跳过期时最后一帧模式不是当前值，宁可保留旧值让界面标记过期。
+      if (current.isNotEmpty && response['heartbeat_fresh'] == true) {
+        vehicleFlightMode = current;
+      }
       notifyListeners();
     } on Object {
       // 轮询失败保持上一次结果，不打断其它遥测。
@@ -2035,7 +2254,7 @@ final class ConnectionController extends ChangeNotifier {
 
   /// 按名字切换飞行模式（MP 的 setMode(name) / QGC 的 flightMode 属性写法）。
   Future<void> setFlightMode(String name) async {
-    _requireConnected('切换飞行模式');
+    _requireFreshVehicleState('切换飞行模式');
     final options = flightModeOptions.where(
       (mode) => mode.name == name && mode.settable,
     );
@@ -2053,14 +2272,31 @@ final class ConnectionController extends ChangeNotifier {
     });
   }
 
-  void _requireCommandSuccess(Object? raw, String action) {
-    if (raw is! JsonMap) throw const FormatException('指令响应格式无效');
-    if (raw['success'] == true) return;
-    final reason = nativeErrorText(
+  /// 飞控明确拒绝的 MAV_RESULT 字符串，与 bridge/ffi/ffi_flight_commands.cc 一致。
+  static const _rejectedAckResults = {
+    'temporarily_rejected',
+    'denied',
+    'unsupported',
+    'failed',
+    'in_progress',
+  };
+
+  /// 失败原因文案：飞控明确拒绝时用本地化说明，否则用规范错误 message。
+  String _commandFailureText(JsonMap raw) {
+    final result = raw['result_str'];
+    if (result is String && _rejectedAckResults.contains(result)) {
+      return _commandAckReason(raw);
+    }
+    return ffiErrorText(
       raw,
       raw['result_text'] as String? ?? _commandAckReason(raw),
     );
-    throw StateError('$action失败：$reason');
+  }
+
+  void _requireCommandSuccess(Object? raw, String action) {
+    if (raw is! JsonMap) throw const FormatException('指令响应格式无效');
+    if (raw['success'] == true) return;
+    throw StateError('$action失败：${_commandFailureText(raw)}');
   }
 
   /// MV6 批量动作的显式目标执行器。每个目标都经
@@ -2080,7 +2316,7 @@ final class ConnectionController extends ChangeNotifier {
     }
     fleet.refresh();
     final current = fleet.snapshot.vehicle(vehicle.id);
-    if (current == null || !current.connected || !current.identified) {
+    if (current == null || !current.stateFresh || !current.identified) {
       return FleetBatchCommandResult.failure(
         vehicleId: vehicle.id,
         systemId: vehicle.systemId,
@@ -2128,36 +2364,17 @@ final class ConnectionController extends ChangeNotifier {
 
   FleetBatchCommandStatus _fleetBatchFailureStatus(JsonMap raw) {
     final result = raw['result_str'];
-    if (result is String &&
-        const {
-          'temporarily_rejected',
-          'denied',
-          'unsupported',
-          'failed',
-          'in_progress',
-        }.contains(result)) {
+    if (result is String && _rejectedAckResults.contains(result)) {
       return FleetBatchCommandStatus.rejected;
     }
-    final error = raw['error'];
-    final code = error is Map ? error['code'] : null;
-    if (code == -6 ||
-        error.toString().toLowerCase().contains('timeout') ||
+    if (ffiErrorCode(raw) == -6 ||
         raw['result_text'].toString().toLowerCase().contains('timeout')) {
       return FleetBatchCommandStatus.timeout;
     }
     return FleetBatchCommandStatus.error;
   }
 
-  String _fleetBatchFailureText(JsonMap raw) {
-    final error = raw['error'];
-    if (error is Map) {
-      final message = error['message'];
-      if (message is String && message.isNotEmpty) return message;
-    }
-    final resultText = raw['result_text'];
-    if (resultText is String && resultText.isNotEmpty) return resultText;
-    return _commandAckReason(raw);
-  }
+  String _fleetBatchFailureText(JsonMap raw) => _commandFailureText(raw);
 
   String _commandAckReason(JsonMap raw) {
     return switch (raw['result_str']) {
@@ -2176,7 +2393,7 @@ final class ConnectionController extends ChangeNotifier {
     double longitude,
     double altitudeMeters,
   ) async {
-    _requireConnected('移动到此处');
+    _requireFreshVehicleState('移动到此处');
     // QGC `APMFirmwarePlugin::guidedModeGotoLocation` 在高度未知时直接返回、不发指令。
     // DO_REPOSITION 走 MAV_FRAME_GLOBAL，高度必须是 AMSL 绝对值；这里如果拿到 0
     // 或非有限值就拒发——否则等于命令飞机飞向地面高度。
@@ -2208,25 +2425,27 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   Future<void> guidedReturnToLaunch() async {
-    _requireConnected('返航');
+    _requireFreshVehicleState('返航');
     _requireCommandSuccess(await flightCommandBackend.rtl(), '返航');
   }
 
   Future<void> guidedLand() async {
-    _requireConnected('降落');
+    _requireFreshVehicleState('降落');
     _requireCommandSuccess(await flightCommandBackend.land(), '降落');
   }
 
   Future<void> guidedTakeoff(double altitudeMeters) async {
-    _requireConnected('起飞');
+    _requireFreshVehicleState('起飞');
     if (vehicleFlying) {
       throw StateError('起飞失败：飞机已经在空中');
     }
     if (!supportsGuidedTakeoff) {
       throw StateError('起飞失败：当前机型不支持引导起飞');
     }
-    // QGC `_guidedModeTakeoff` 在 `altitudeAMSL` 为 NaN 时直接拒绝。
-    if (absoluteAltitudeMeters == null) {
+    // QGC `_guidedModeTakeoff` 在 `altitudeAMSL` 为 NaN 时直接拒绝。PX4 把
+    // 相对高度换算成 AMSL 后才能发命令，所以还要求位置有效（bridge 侧也会拒绝）。
+    if (absoluteAltitudeMeters == null ||
+        (vehicleAutopilotType == 12 && !vehiclePositionValid)) {
       throw StateError('起飞失败：飞机位置未知');
     }
     // QGC：起飞高度取 `max(飞控最小起飞高度, 用户值)`，用户不可能把它调低。
@@ -2259,7 +2478,7 @@ final class ConnectionController extends ChangeNotifier {
   /// QGC APM: Plane/VTOL AUTO before arm; Copter GUIDED before arm.
   /// PX4 uses AUTO_MISSION. Worker validates ACK and heartbeat state.
   Future<void> startMission() async {
-    _requireConnected('启动任务');
+    _requireFreshVehicleState('启动任务');
     _requireCommandSuccess(await flightCommandBackend.startMission(), '启动任务');
   }
 
@@ -2288,15 +2507,19 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   /// 解锁。安全敏感动作，调用方（界面）必须先确认。
-  Future<void> armVehicle() async {
-    _requireConnected('解锁');
-    await _armVehicleAndValidate();
+  ///
+  /// 返回 true 表示确实下发了命令并已被飞控确认；返回 false 表示飞控已经处于
+  /// 解锁状态、没有下发任何命令。调用方必须区分这两种结果：以前这里静默返回，
+  /// 界面在“已经解锁”时按了长按确认会什么都不发生也不提示（S1）。
+  Future<bool> armVehicle() async {
+    _requireFreshVehicleState('解锁');
+    return _armVehicleAndValidate();
   }
 
-  /// 上锁。飞行中上锁会掉飞机，界面必须确认。
-  Future<void> disarmVehicle() async {
-    _requireConnected('上锁');
-    await _disarmVehicleAndValidate();
+  /// 上锁。飞行中上锁会掉飞机，界面必须确认。返回值语义同 [armVehicle]。
+  Future<bool> disarmVehicle() async {
+    _requireFreshVehicleState('上锁');
+    return _disarmVehicleAndValidate();
   }
 
   /// 急停：强制上锁（COMPONENT_ARM_DISARM，param2=21196）。
@@ -2304,39 +2527,42 @@ final class ConnectionController extends ChangeNotifier {
   /// 与 [disarmVehicle] 的区别是它让飞控跳过解锁前检查，用于常规上锁被飞控拒绝
   /// 的场合——`safety.md` 的 S3 里列的"急停"就是这一条，可恢复（可以再解锁）。
   /// 它**不是**终止飞行（DO_FLIGHTTERMINATION，不可撤销），两者在界面上必须分开。
-  Future<void> emergencyDisarmVehicle() async {
-    _requireConnected('急停');
-    if (!vehicleArmed) return;
+  /// 返回 true 表示下发了强制上锁；false 表示飞控本来就未解锁，无需急停。
+  Future<bool> emergencyDisarmVehicle() async {
+    _requireFreshVehicleState('急停');
+    if (!vehicleArmed) return false;
     _requireCommandSuccess(await flightCommandBackend.disarm(1), '急停');
     if (await _waitForVehicleState(
       armed: false,
       timeout: _armValidationWindow,
     )) {
-      return;
+      return true;
     }
     throw StateError('急停失败：飞控仍报告 armed=true');
   }
 
-  Future<void> _armVehicleAndValidate() async {
-    if (vehicleArmed) return;
+  /// 返回是否真的下发了命令。已经解锁时返回 false，不当作失败（S1）。
+  Future<bool> _armVehicleAndValidate() async {
+    if (vehicleArmed) return false;
     _requireCommandSuccess(await flightCommandBackend.arm(0), '解锁');
     if (await _waitForVehicleState(
       armed: true,
       timeout: _armValidationWindow,
     )) {
-      return;
+      return true;
     }
     throw StateError('解锁失败：飞控未报告 armed=true');
   }
 
-  Future<void> _disarmVehicleAndValidate() async {
-    if (!vehicleArmed) return;
+  /// 返回是否真的下发了命令。已经上锁时返回 false，不当作失败（S1）。
+  Future<bool> _disarmVehicleAndValidate() async {
+    if (!vehicleArmed) return false;
     _requireCommandSuccess(await flightCommandBackend.disarm(0), '上锁');
     if (await _waitForVehicleState(
       armed: false,
       timeout: _armValidationWindow,
     )) {
-      return;
+      return true;
     }
     throw StateError('上锁失败：飞控仍报告 armed=true');
   }
@@ -2372,6 +2598,9 @@ final class ConnectionController extends ChangeNotifier {
     try {
       final envelope = telemetryBackend.vehicleSummary();
       final data = envelope['data'] as Map<String, Object?>? ?? const {};
+      // S5/S2：只有新鲜心跳才能用来确认命令结果。过期帧可能仍停在命令前的
+      // armed/mode，用它判断会把“命令没生效”误判成“已生效”。
+      if (data['heartbeat_fresh'] != true) return false;
       vehicleArmed = data['armed'] == true;
       vehicleFlightMode = data['flight_mode'] as String? ?? '';
       vehicleType = data['vehicle_type'] as int? ?? vehicleType;
@@ -2397,7 +2626,7 @@ final class ConnectionController extends ChangeNotifier {
   /// 目标高度是**相对 Home** 的高度；先切 GUIDED，再发 `LOCAL_OFFSET_NED` 的
   /// 高度偏移（只动 z）。偏差小于 1 cm 时直接返回，避免无意义地切模式。
   Future<void> guidedChangeAltitude(double targetAltitudeAboveHome) async {
-    _requireConnected('改变高度');
+    _requireFreshVehicleState('改变高度');
     final current = relativeAltitudeMeters;
     if (!vehiclePositionValid || current == null) {
       throw StateError('改变高度失败：飞机高度未知');
@@ -2412,7 +2641,7 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   Future<void> guidedPause() async {
-    _requireConnected('暂停');
+    _requireFreshVehicleState('暂停');
     // ArduPilot's guided pause is a flight-mode change, not just a zero
     // velocity target. A one-shot velocity command can expire and silently
     // let the mission continue.
@@ -2441,7 +2670,7 @@ final class ConnectionController extends ChangeNotifier {
     double velocityMetersPerSecond = 5,
     double altitudeMeters = 50,
   }) async {
-    _requireConnected('环绕飞行');
+    _requireFreshVehicleState('环绕飞行');
     _requireCommandSuccess(
       await flightCommandBackend.orbit(
         latitude: latitude,
@@ -2533,7 +2762,6 @@ final class ConnectionController extends ChangeNotifier {
       '设置估计原点',
     );
   }
-
 
   Future<void> refreshPorts() async {
     if (initializationError != null || _busy) return;
@@ -2722,6 +2950,7 @@ final class ConnectionController extends ChangeNotifier {
           _stopSessionPolling();
           _calibrationTimer?.cancel();
           sessionId = null;
+          _bindLogSession(null);
           phase = SerialConnectionPhase.disconnected;
           message = previousPhase == SerialConnectionPhase.waitingForHeartbeat
               ? '未收到飞控心跳，连接已关闭。请检查所选设备、波特率或数据链路。'
@@ -2868,6 +3097,7 @@ final class ConnectionController extends ChangeNotifier {
           _stopSessionPolling();
           _calibrationTimer?.cancel();
           sessionId = null;
+          _bindLogSession(null);
           _resetRuntimeState();
           final waitingLink = _activeLinkId == null
               ? null
@@ -2954,6 +3184,7 @@ final class ConnectionController extends ChangeNotifier {
           _stopSessionPolling();
           _calibrationTimer?.cancel();
           sessionId = null;
+          _bindLogSession(null);
           _resetRuntimeState();
           final waitingLink = _activeLinkId == null
               ? null
@@ -3014,7 +3245,6 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
-
   void _pollTelemetry(int id) {
     if (!isConnected || sessionId != id || _disposed) return;
     if (fleet.snapshot.activeVehicleId != id) return;
@@ -3027,10 +3257,7 @@ final class ConnectionController extends ChangeNotifier {
     try {
       final envelope = telemetryBackend.sessionStatus(id);
       if (envelope['success'] != true) {
-        final error = envelope['error'];
-        telemetryError = error is Map<String, Object?>
-            ? error['message'] as String?
-            : '读取飞控遥测失败';
+        telemetryError = ffiErrorText(envelope, '读取飞控遥测失败');
         _clearTelemetryValues();
         if (previousError != telemetryError ||
             previousSatellites != satellitesVisible ||
@@ -3242,9 +3469,7 @@ final class ConnectionController extends ChangeNotifier {
         instance: instance,
       );
       if (written > 0) {
-        final view = _native!.waveformView(
-          written * _waveformFloatsPerPoint,
-        );
+        final view = _native!.waveformView(written * _waveformFloatsPerPoint);
         waveformPoints(kind).setRange(0, view.length, view);
         count = written;
         if (kind == WaveformInstanceKind.mag) {
@@ -3270,8 +3495,7 @@ final class ConnectionController extends ChangeNotifier {
   /// 刷新后端识别到的实例清单，并把选中实例收敛到仍然存在的实例上。
   void _refreshWaveformInstances() {
     try {
-      final payload =
-          _native!.waveformInstances() as Map<String, Object?>;
+      final payload = _native!.waveformInstances() as Map<String, Object?>;
       final imu = _parseWaveformInstances(payload['imu']);
       final mag = _parseWaveformInstances(payload['mag']);
       if (listEquals(imu, waveformImuInstances) &&
@@ -3555,6 +3779,7 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   bool _pollSystemStatus() {
+    final oldStateFresh = vehicleStateFresh;
     final oldFirmware = jsonEncode(firmwareInfo);
     final oldGuidedTargetValid = guidedTargetValid;
     final oldIdentity = jsonEncode(vehicleIdentity);
@@ -3613,7 +3838,8 @@ final class ConnectionController extends ChangeNotifier {
       // Keep the last valid snapshot. A single failed poll must not make a
       // connected vehicle look disarmed or change its profile transiently.
     }
-    return oldFirmware != jsonEncode(firmwareInfo) ||
+    return oldStateFresh != vehicleStateFresh ||
+        oldFirmware != jsonEncode(firmwareInfo) ||
         oldIdentity != jsonEncode(vehicleIdentity) ||
         oldVersion != jsonEncode(firmwareVersionInfo) ||
         oldSensors != jsonEncode(sensorHealth) ||
@@ -3771,6 +3997,9 @@ final class ConnectionController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _flightCommandBackend?.dispose();
+    _logController?.dispose();
+    _tlogController?.dispose();
+    _fileController?.dispose();
     _fleet?.removeListener(_handleFleetChanged);
     _fleetTimer?.cancel();
     _fleet?.dispose();

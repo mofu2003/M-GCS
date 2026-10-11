@@ -20,6 +20,11 @@ const _ffiAllowlist = <String>{
   'connection/telemetry_ffi_backend.dart',
   'fleet/fleet_ffi_backend.dart',
   'mission/mission_document_ffi_backend.dart',
+  'logging/file_ffi_backend.dart',
+  'logging/log_ffi_backend.dart',
+  'logging/tlog_ffi_backend.dart',
+  'terrain/terrain_ffi_backend.dart',
+  'survey/survey_ffi_backend.dart',
 };
 
 /// 原生句柄的痕迹。出现在非白名单文件里即为 A5 违规。
@@ -44,7 +49,8 @@ void main() {
       if (entity is! File || !entity.path.endsWith('.dart')) continue;
       final relative = entity.path.replaceFirst(RegExp(r'^lib/'), '');
       final source = entity.readAsStringSync();
-      final usesFfi = source.contains("import 'dart:ffi'") ||
+      final usesFfi =
+          source.contains("import 'dart:ffi'") ||
           source.contains("import 'package:ffi");
       if (!usesFfi) continue;
       actual.add(relative);
@@ -56,7 +62,7 @@ void main() {
     expect(violations, isEmpty, reason: violations.join('\n'));
 
     // 白名单只允许收紧或平移：被删掉的文件必须同步从名单移除，避免名单腐化。
-    final stale = actual.difference(_ffiAllowlist);
+    final stale = _ffiAllowlist.difference(actual);
     expect(stale, isEmpty, reason: '白名单里有不再导入 dart:ffi 的文件：$stale');
   });
 

@@ -13,19 +13,17 @@ import 'package:mgcs_frontend/configuration/pid/pid_tuning_page.dart';
 import 'package:mgcs_frontend/configuration/ports/ports_configuration_page.dart';
 import 'package:mgcs_frontend/configuration/system/system_status_page.dart';
 import 'package:mgcs_frontend/configuration/widgets/mac_tab_surface.dart';
-import 'package:mgcs_frontend/configuration_workspace.dart' as legacy;
-import 'package:mgcs_frontend/configuration/configuration_workspace.dart'
-    as split;
+import 'package:mgcs_frontend/configuration/configuration_workspace.dart';
 import 'package:mgcs_frontend/connection/connection_controller.dart';
+import 'package:mgcs_frontend/logging/file_browser_page.dart';
+import 'package:mgcs_frontend/logging/flight_log_page.dart';
+import 'package:mgcs_frontend/logging/onboard_log_page.dart';
+import 'package:mgcs_frontend/survey/survey_planning_page.dart';
 import 'package:mgcs_frontend/theme/mg_typography.dart';
 import 'package:mgcs_frontend/widgets/app_workspace_shell.dart';
 
 void main() {
-  test('legacy import exports the identical workspace type', () {
-    expect(legacy.ConfigurationWorkspace, split.ConfigurationWorkspace);
-  });
-
-  testWidgets('all nine routes preserve disconnected page skeletons', (
+  testWidgets('all thirteen routes preserve disconnected page skeletons', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1600, 1000);
@@ -48,7 +46,7 @@ void main() {
           typography: MgTypography.macos(Brightness.light),
         ),
         child: MaterialApp(
-          home: legacy.ConfigurationWorkspace(
+          home: ConfigurationWorkspace(
             connectionController: controller,
             onReturnToMap: () => returnedToMap = true,
           ),
@@ -67,6 +65,10 @@ void main() {
       'battery': BatteryConfigurationPage,
       'arming': ArmingChecksPage,
       'allParameters': AllParametersPage,
+      'survey': SurveyPlanningPage,
+      'logs': OnboardLogPage,
+      'flightLog': FlightLogPage,
+      'files': FileBrowserPage,
     };
     expect(
       tester

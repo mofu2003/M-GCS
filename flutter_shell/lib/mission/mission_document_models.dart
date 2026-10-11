@@ -4,6 +4,28 @@ const int kMavCmdNavTakeoff = 22;
 const int kMavCmdNavVtolTakeoff = 84;
 const int kMavCmdNavVtolLand = 85;
 
+/// MAV_FRAME_GLOBAL_RELATIVE_ALT：高度相对 Home。任务项的默认高度基准。
+const int kMissionFrameRelativeAlt = 3;
+
+/// MAV_FRAME_GLOBAL_TERRAIN_ALT：高度相对地形（AGL），由飞控做地形跟随。
+///
+/// 与 QGC 的 `AltitudeFrameTerrain` 对应（`SimpleMissionItem.cc` 把该枚举映射到
+/// `MAV_FRAME_GLOBAL_TERRAIN_ALT`）。写入这个帧时高度数值是离地高度；飞控需要有
+/// 对应区域的地形数据才能按地形跟随执行。
+const int kMissionFrameTerrainAlt = 10;
+
+/// 高度基准的展示标签，供任务编辑与测绘页共用。
+String missionFrameLabel(int frame) => switch (frame) {
+  kMissionFrameTerrainAlt => '地形跟随 (AGL)',
+  _ => '相对高度 (Home)',
+};
+
+/// 高度基准选择项（帧值 + 标签），顺序即界面顺序。
+const List<(int, String)> kMissionFrameChoices = [
+  (kMissionFrameRelativeAlt, '相对高度 (Home)'),
+  (kMissionFrameTerrainAlt, '地形跟随 (AGL)'),
+];
+
 final class MissionDocumentMetadata {
   const MissionDocumentMetadata({
     this.id = '',
@@ -249,6 +271,7 @@ final class MissionEntity {
     this.altitudeMeters,
     this.params = const [0, 0, 0, 0],
     this.notes = '',
+    this.extensions = const {},
   });
 
   final String id;
@@ -264,6 +287,10 @@ final class MissionEntity {
   final double? altitudeMeters;
   final List<double> params;
   final String notes;
+
+  /// 原生格式不认识的源字段（例如 QGC 的 `altitudeMode` /
+  /// `AMSLAltAboveTerrain`），按原样透传，编辑后导出不丢用户数据。
+  final JsonMap extensions;
 
   bool get isTakeoff => command == kMavCmdNavTakeoff;
   bool get isVtolTakeoff => command == kMavCmdNavVtolTakeoff;
@@ -283,6 +310,7 @@ final class MissionEntity {
     altitudeMeters: (json['alt_m'] as num?)?.toDouble(),
     params: _doubleList(json['params'], fallback: const [0, 0, 0, 0]),
     notes: json['notes'] as String? ?? '',
+    extensions: _map(json['extensions']),
   );
 
   MissionEntity copyWith({
@@ -299,6 +327,7 @@ final class MissionEntity {
     double? altitudeMeters,
     List<double>? params,
     String? notes,
+    JsonMap? extensions,
   }) => MissionEntity(
     id: id ?? this.id,
     type: type ?? this.type,
@@ -313,6 +342,7 @@ final class MissionEntity {
     altitudeMeters: altitudeMeters ?? this.altitudeMeters,
     params: params ?? this.params,
     notes: notes ?? this.notes,
+    extensions: extensions ?? this.extensions,
   );
 
   JsonMap toJson() => {
@@ -329,8 +359,45 @@ final class MissionEntity {
     if (altitudeMeters != null) 'alt_m': altitudeMeters,
     'params': params,
     if (notes.isNotEmpty) 'notes': notes,
+    if (extensions.isNotEmpty) 'extensions': extensions,
   };
 }
+
+/// QGC ComplexItem（Survey / CorridorScan 等）原样保留。
+///
+/// M-GCS 不解码其内部结构，只按原文透传：`json` 是源任务项的紧凑 JSON
+/// 字符串，`entityInsertIndex` 记录它在简单实体之间的位置。
+final class MissionComplexItem {
+  const MissionComplexItem({
+    this.id = '',
+    this.itemType = '',
+    this.json = '',
+    this.entityInsertIndex = kComplexItemAppendAtEnd,
+  });
+
+  final String id;
+  final String itemType;
+  final String json;
+  final int entityInsertIndex;
+
+  factory MissionComplexItem.fromJson(JsonMap json) => MissionComplexItem(
+    id: json['id'] as String? ?? '',
+    itemType: json['item_type'] as String? ?? '',
+    json: json['json'] as String? ?? '',
+    entityInsertIndex:
+        json['entity_insert_index'] as int? ?? kComplexItemAppendAtEnd,
+  );
+
+  JsonMap toJson() => {
+    'id': id,
+    'item_type': itemType,
+    'json': json,
+    'entity_insert_index': entityInsertIndex,
+  };
+}
+
+/// 与 core 的 `kComplexItemAppendAtEnd` 哨兵一致：放在所有简单实体之后。
+const int kComplexItemAppendAtEnd = 0xFFFFFFFF;
 
 final class MissionDocument {
   const MissionDocument({
@@ -343,6 +410,8 @@ final class MissionDocument {
     this.revision = 1,
     this.updatedAtMs = 0,
     this.entities = const [],
+    this.complexItems = const [],
+    this.extensions = const {},
   });
 
   final int schemaVersion;
@@ -354,6 +423,11 @@ final class MissionDocument {
   final int revision;
   final int updatedAtMs;
   final List<MissionEntity> entities;
+  final List<MissionComplexItem> complexItems;
+
+  /// 原生格式保留的整体 JSON 片段（例如 QGC `.plan` 的未知顶层 / mission 段），
+  /// 按键原样透传，避免 `replace` 时丢数据。
+  final JsonMap extensions;
 
   factory MissionDocument.fromJson(JsonMap json) => MissionDocument(
     schemaVersion: json['schema_version'] as int? ?? 1,
@@ -371,6 +445,11 @@ final class MissionDocument {
         .whereType<JsonMap>()
         .map(MissionEntity.fromJson)
         .toList(growable: false),
+    complexItems: (json['complex_items'] as List<Object?>? ?? const [])
+        .whereType<JsonMap>()
+        .map(MissionComplexItem.fromJson)
+        .toList(growable: false),
+    extensions: _map(json['extensions']),
   );
 
   JsonMap toJson() => {
@@ -384,6 +463,9 @@ final class MissionDocument {
     'revision': revision,
     'updated_at_ms': updatedAtMs,
     'entities': [for (final entity in entities) entity.toJson()],
+    if (complexItems.isNotEmpty)
+      'complex_items': [for (final item in complexItems) item.toJson()],
+    if (extensions.isNotEmpty) 'extensions': extensions,
   };
 
   /// 只替换需要改的字段；`replace` 操作会用整份文档覆盖后端，
@@ -397,6 +479,8 @@ final class MissionDocument {
     int? revision,
     int? updatedAtMs,
     List<MissionEntity>? entities,
+    List<MissionComplexItem>? complexItems,
+    JsonMap? extensions,
   }) => MissionDocument(
     schemaVersion: schemaVersion,
     metadata: metadata ?? this.metadata,
@@ -407,6 +491,8 @@ final class MissionDocument {
     revision: revision ?? this.revision,
     updatedAtMs: updatedAtMs ?? this.updatedAtMs,
     entities: entities ?? this.entities,
+    complexItems: complexItems ?? this.complexItems,
+    extensions: extensions ?? this.extensions,
   );
 }
 
@@ -786,6 +872,7 @@ final class MissionCommandDescriptor {
     required this.requiresPosition,
     required this.requiresAltitude,
     required this.parameters,
+    required this.vehicles,
   });
 
   final int command;
@@ -802,6 +889,10 @@ final class MissionCommandDescriptor {
   final bool requiresAltitude;
   final List<MissionCommandParameter> parameters;
 
+  /// 该命令支持的机型类别（copter/plane/vtol/rover/sub/tracker）。
+  /// 空列表表示后端未标注机型，前端不得据此过滤。
+  final List<String> vehicles;
+
   factory MissionCommandDescriptor.fromJson(JsonMap json) =>
       MissionCommandDescriptor(
         command: json['command'] as int? ?? 0,
@@ -815,6 +906,9 @@ final class MissionCommandDescriptor {
         parameters: (json['parameters'] as List<Object?>? ?? const [])
             .whereType<JsonMap>()
             .map(MissionCommandParameter.fromJson)
+            .toList(growable: false),
+        vehicles: (json['vehicles'] as List<Object?>? ?? const [])
+            .whereType<String>()
             .toList(growable: false),
       );
 }
@@ -832,4 +926,77 @@ List<double> _doubleList(Object? value, {required List<double> fallback}) {
           ? (value[index] as num).toDouble()
           : fallback[index],
   ];
+}
+
+/// 归一化机型类别名。
+///
+/// 与后端 `mission_vehicle_class_bit` 保持一致的别名集合：把 `fixedwing`
+/// 归一成 `plane`、`multirotor` 归一成 `copter`，无法识别时返回 null。
+/// null 表示“不判断机型”，调用方不要在无法识别时过滤或拒绝。
+String? normalizeMissionVehicleClass(String? vehicleClass) {
+  final name = vehicleClass?.trim().toLowerCase();
+  if (name == null || name.isEmpty) return null;
+  return switch (name) {
+    'copter' || 'multirotor' || 'heli' || 'helicopter' => 'copter',
+    'plane' || 'fixedwing' || 'fixed_wing' || 'fixedwing_plane' => 'plane',
+    'vtol' || 'quadplane' => 'vtol',
+    'rover' || 'ground' || 'boat' => 'rover',
+    'sub' || 'submarine' => 'sub',
+    'tracker' || 'antennatracker' => 'tracker',
+    _ => null,
+  };
+}
+
+/// 按机型过滤命令目录。
+///
+/// [vehicles] 为空的命令视为“后端未标注机型”，始终保留；机型无法识别时不过滤。
+/// [keepCommands] 里的命令即使在当前机型上不受支持也保留，用于不因过滤而让一个
+/// 已存在的实体在下拉里落到别的命令上。
+List<MissionCommandDescriptor> filterCommandCatalogForVehicle(
+  List<MissionCommandDescriptor> catalog,
+  String? vehicleClass, {
+  Iterable<int> keepCommands = const [],
+}) {
+  final normalized = normalizeMissionVehicleClass(vehicleClass);
+  if (normalized == null) return catalog;
+  final keep = keepCommands.toSet();
+  return catalog
+      .where(
+        (descriptor) =>
+            keep.contains(descriptor.command) ||
+            descriptor.vehicles.isEmpty ||
+            descriptor.vehicles.contains(normalized),
+      )
+      .toList(growable: false);
+}
+
+/// 任务文件互操作导出结果（native `mg_mission_doc_export_format`）。
+///
+/// [format] 是规范化后的格式名 `waypoints`（Mission Planner / QGC 的
+/// `QGC WPL 110` 文本）或 `plan`（QGroundControl JSON）；[text] 是要写盘的
+/// 完整文件内容，[itemCount] 是导出条目数（waypoints 为编译后的任务项数，
+/// plan 为实体数），[warnings] 是导出期间可继续但可能丢字段的提示。
+final class MissionInterchangeExport {
+  const MissionInterchangeExport({
+    required this.format,
+    required this.itemCount,
+    required this.text,
+    this.warnings = const [],
+  });
+
+  final String format;
+  final int itemCount;
+  final String text;
+  final List<String> warnings;
+
+  factory MissionInterchangeExport.fromJson(JsonMap json) =>
+      MissionInterchangeExport(
+        format: json['format'] as String? ?? '',
+        itemCount: (json['item_count'] as num?)?.toInt() ?? 0,
+        text: json['text'] as String? ?? '',
+        warnings: [
+          for (final warning in (json['warnings'] as List?) ?? const [])
+            warning.toString(),
+        ],
+      );
 }

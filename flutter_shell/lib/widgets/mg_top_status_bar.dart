@@ -298,8 +298,8 @@ class MgTopStatusData {
   factory MgTopStatusData.fromController(ConnectionController controller) {
     return MgTopStatusData(
       connected: controller.isConnected,
-      armed: controller.vehicleArmed,
-      flying: controller.vehicleFlying,
+      armed: controller.vehicleStateFresh && controller.vehicleArmed,
+      flying: controller.vehicleStateFresh && controller.vehicleFlying,
       flightMode: controller.vehicleFlightMode,
       vtolState: controller.vehicleVtolState,
       gpsFixType: controller.gpsFixType,
@@ -308,7 +308,9 @@ class MgTopStatusData {
       batteryVoltage: controller.batteryVoltage,
       transportLabel: controller.selectedTransportLabel,
       messageCount: controller.flightMessages.length,
-      stale: controller.telemetryStale,
+      stale:
+          controller.telemetryStale ||
+          (controller.isConnected && !controller.vehicleStateFresh),
       isVtolVehicle:
           controller.controlProfile == VehicleControlProfile.planeVtol ||
           const {19, 20, 21, 22, 23, 24, 25}.contains(controller.vehicleType),
@@ -334,6 +336,7 @@ class MgTopStatusData {
 
   String get statusLabel {
     if (!connected) return '未连接';
+    if (stale) return '数据过期';
     if (flying) return '飞行中';
     if (armed) return '已解锁';
     return '待命';
@@ -472,12 +475,12 @@ class MgTopStatusBar extends StatelessWidget {
                       _LinkIndicator(data: data),
                     ],
                     const SizedBox(width: 12),
-                    if (data.connected && !data.flying) ...[
+                    if (data.connected && !data.stale && !data.flying) ...[
                       _ArmButton(data: data, onPressed: onToggleArm),
                       const SizedBox(width: 4),
                     ],
                     // 急停与常规上锁分开：常规上锁在飞行中被禁用，急停必须仍可触达。
-                    if (data.connected && data.armed) ...[
+                    if (data.connected && !data.stale && data.armed) ...[
                       _EmergencyStopButton(
                         data: data,
                         onPressed: onEmergencyStop,
@@ -605,11 +608,9 @@ class _EmergencyStopButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
-    final enabled = data.connected && onPressed != null;
+    final enabled = data.connected && !data.stale && onPressed != null;
     return MacosTooltip(
-      message: data.connected
-          ? '急停：跳过解锁前检查强制上锁，立即停止电机'
-          : '未连接飞控',
+      message: data.connected ? '急停：跳过解锁前检查强制上锁，立即停止电机' : '未连接飞控',
       child: PushButton(
         controlSize: ControlSize.regular,
         onPressed: enabled ? onPressed : null,
@@ -639,7 +640,8 @@ class _ArmButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
-    final enabled = data.connected && !data.flying && onPressed != null;
+    final enabled =
+        data.connected && !data.stale && !data.flying && onPressed != null;
     final label = data.armed ? '上锁' : '解锁';
     final tooltip = !data.connected
         ? '未连接飞控'
@@ -949,9 +951,7 @@ class _LinkIndicator extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           Text(
-            stale
-                ? '数据过期'
-                : (data.connected ? data.transportLabel : '未连接'),
+            stale ? '数据过期' : (data.connected ? data.transportLabel : '未连接'),
             style: MgTypography.sans(
               MgTypography.caption.copyWith(
                 color: stale ? colors.warning : colors.textSecondary,

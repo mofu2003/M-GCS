@@ -5,14 +5,10 @@ import 'package:macos_ui/macos_ui.dart';
 
 /// 字体族：全应用只允许使用这里定义的那一套。
 ///
-/// 当前实验配置：MiSans 同时覆盖汉字与拉丁，因此全应用压到**一套字体**，
-/// 三个平台字形完全一致。Arimo 仍随包分发但未启用，改一行即可切回
-/// "Arimo 西文 + 系统中文" 的组合。切换前必须在三个平台实测字形一致性。
+/// MiSans 同时覆盖汉字与拉丁，是 pubspec.yaml 中唯一打包的字体族。
+/// 平台回退仅用于这套字体不包含的字符。
 class MgFonts {
   const MgFonts._();
-
-  /// 西文界面字体族名，与 `pubspec.yaml` 的声明一致。
-  static const String arimo = 'Arimo';
 
   /// 中英文统一字体族名。
   static const String misans = 'MiSans';
@@ -79,6 +75,13 @@ class MgTypography {
   /// 强调正文，例如当前选中的导航项。
   static const TextStyle bodyStrong = TextStyle(
     fontSize: 13,
+    height: 1.40,
+    fontWeight: FontWeight.w600,
+  );
+
+  /// 表头，例如电机参数表的列名。U4 允许表头加粗，其余正文一律 w400。
+  static const TextStyle tableHeader = TextStyle(
+    fontSize: 11,
     height: 1.40,
     fontWeight: FontWeight.w600,
   );
@@ -220,7 +223,6 @@ class MgMetrics {
   static const double dashboardColumnWidth = 168;
 
   /// 左下角姿态仪直径。
-  static const double attitudeSize = 140;
 
   /// 右下角罗盘表盘直径。
   static const double compassSize = 230;

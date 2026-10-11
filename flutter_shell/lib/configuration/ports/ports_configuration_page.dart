@@ -211,9 +211,7 @@ class _SerialParameterCardState extends State<_SerialParameterCard> {
               children: [
                 Text(
                   serial,
-                  style: MgTypography.sans(
-                    MgTypography.section.copyWith(fontWeight: FontWeight.w700),
-                  ),
+                  style: MgTypography.sans(MgTypography.section),
                 ),
                 if (widget.hardwareName case final hardwareName?) ...[
                   const SizedBox(width: 10),

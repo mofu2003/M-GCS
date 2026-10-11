@@ -25,9 +25,7 @@ class HeaderCell extends StatelessWidget {
     child: Center(
       child: Text(
         label,
-        style: MacosTheme.of(
-          context,
-        ).typography.caption1.copyWith(fontWeight: FontWeight.w600),
+        style: MgTypography.sans(MgTypography.tableHeader),
       ),
     ),
   );

@@ -328,19 +328,3 @@ class NativeCore {
     throw StateError('找不到 $expected');
   }
 }
-
-/// 从 FFI 响应里取错误文案：优先 v2 的 `error.message`，其次 v1 的 `error` 字符串。
-///
-/// 放在这里是因为 v1/v2 两种格式并存（见 `ffi-contract.md` 的 F4），
-/// 各调用方都需要同一套兜底逻辑。
-String nativeErrorText(Object? result, String fallback) {
-  if (result is Map<String, Object?>) {
-    final error = result['error'];
-    if (error is String && error.isNotEmpty) return error;
-    if (error is Map<String, Object?>) {
-      final message = error['message'];
-      if (message is String && message.isNotEmpty) return message;
-    }
-  }
-  return fallback;
-}

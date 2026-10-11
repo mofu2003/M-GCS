@@ -5,7 +5,16 @@ import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import 'mg_floating_panel.dart';
 
-enum MgSettingsDestination { connection, configuration, missionPlanning, gcs }
+enum MgSettingsDestination {
+  connection,
+  configuration,
+  missionPlanning,
+  survey,
+  logs,
+  flightLog,
+  files,
+  gcs,
+}
 
 /// 顶部设置按钮打开的紧凑工具面板。
 Future<MgSettingsDestination?> showMgSettingsMenu(
@@ -96,6 +105,39 @@ class _MgSettingsPanel extends StatelessWidget {
                 onTap: () => Navigator.of(
                   context,
                 ).pop(MgSettingsDestination.missionPlanning),
+              ),
+              Divider(height: 1, color: colors.hairline),
+              _SettingsRow(
+                icon: CupertinoIcons.map_pin_ellipse,
+                title: '测绘规划',
+                subtitle: '矩形/交叉网格、走廊扫描，生成后并入任务',
+                onTap: () =>
+                    Navigator.of(context).pop(MgSettingsDestination.survey),
+              ),
+              Divider(height: 1, color: colors.hairline),
+              _SettingsRow(
+                icon: CupertinoIcons.doc_text,
+                title: '机载日志',
+                subtitle: '飞控 DataFlash 日志下载与进度',
+                onTap: () =>
+                    Navigator.of(context).pop(MgSettingsDestination.logs),
+              ),
+              Divider(height: 1, color: colors.hairline),
+              _SettingsRow(
+                icon: CupertinoIcons.stopwatch,
+                title: '飞行记录',
+                subtitle: '链路 .tlog 录制与本地离线回放',
+                onTap: () => Navigator.of(
+                  context,
+                ).pop(MgSettingsDestination.flightLog),
+              ),
+              Divider(height: 1, color: colors.hairline),
+              _SettingsRow(
+                icon: CupertinoIcons.folder,
+                title: '机载文件',
+                subtitle: '浏览机载目录、下载与上传文件',
+                onTap: () =>
+                    Navigator.of(context).pop(MgSettingsDestination.files),
               ),
               Divider(height: 1, color: colors.hairline),
               _SettingsRow(

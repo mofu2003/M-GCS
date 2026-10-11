@@ -17,9 +17,7 @@ class SystemSectionTitle extends StatelessWidget {
     children: [
       Text(
         title,
-        style: MacosTheme.of(
-          context,
-        ).typography.title3.copyWith(fontWeight: FontWeight.w600),
+        style: MgTypography.sans(MgTypography.section),
       ),
       const Spacer(),
       ?trailing,
