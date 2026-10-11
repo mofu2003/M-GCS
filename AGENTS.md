@@ -33,6 +33,9 @@ M-GCS 是无人机地面站，对标 Mission Planner 与 QGroundControl，优先
 - `README.md`：项目概览
 - `docs/development.md`：构建、测试、门禁、发布
 - `docs/adr/`：架构决策记录
+- `docs/capabilities.md`：FFI 模块交付状态与 UI 覆盖矩阵（阶段 0 基线）
+- `docs/plans/`：分阶段开发计划
+- `docs/comparisons/`：与 QGroundControl、Mission Planner 的对比报告
 
 ## 禁区
 

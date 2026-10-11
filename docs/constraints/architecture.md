@@ -11,7 +11,7 @@
 **A1 core 不依赖上层**
 `core/` 不得包含 `bridge/` 或 `flutter_shell/` 的任何头文件。
 - 违反后果：依赖循环，核心无法独立测试，也无法替换前端。
-- 验证：编译期机制保证，例如公共 include 路径不暴露 `bridge/ffi`。当前仅靠文件名前缀匹配，需要升级（KD-20）。
+- 验证：**编译期强制**。`CMakeLists.txt` 把 core（`mgcore_core`）与 bridge（`mgcore`/`mgcore_static`）拆成两个目标，只有 bridge 目标带 `bridge/ffi` 的 include 路径；core 里一旦 `#include "ffi_api.h"` 之类就直接编译失败。`core/tests/test_bridge_architecture_guards.cc` 的文本扫描作为第二道防线保留（它同时检查 core 只引用 core 自己的头）。
 
 **A2 模块无环**
 `transport`、`mavlink`、`firmware` 之间不得形成依赖环。
@@ -24,8 +24,10 @@
 - 验证：针对关键路径的测试加代码审查。
 
 **A4 发送回调不在锁内执行**
-- 违反后果：回调重入导致死锁（当前见 KD-22）。
-- 验证：测试以重入回调覆盖发送路径。
+- 违反后果：回调重入导致死锁（原 KD-22，已闭环）。
+- 验证：`core/tests/test_mavlink_protocol.cc` 用重入回调覆盖发送路径——发送中查询
+  adapter 状态要拿同一把锁，发送若在锁内就会自锁死。持锁派发路径的发送改用延迟
+  帧队列（见 ADR-0005），公开入口用"临时解锁 → 发送 → 回锁"。
 
 **A5 dart:ffi 只在 backend 层**
 `dart:ffi` 符号只能出现在 backend 层。页面与控制器通过接口访问，不直接持有原生句柄。

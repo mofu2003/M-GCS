@@ -3,9 +3,9 @@
 本文件的规则都是约束（MUST）。每条写明违反后果和验证方式。
 
 **R1 版本号一致**
-以下四处必须一致：`CMakeLists.txt` 的 `project(... VERSION)`、`flutter_shell/pubspec.yaml` 的 `version`、`bridge/ffi/ffi_api_core.h` 的 `MGCORE_VERSION_*`、`CHANGELOG.md` 的最新条目。
+以下四处必须一致：`CMakeLists.txt` 的 `project(... VERSION)`、`flutter_shell/pubspec.yaml` 的 `version`、`bridge/ffi/ffi_api_core.h` 的 `MGCORE_VERSION_*`、`CHANGELOG.md` 的最新发布条目（不含 Unreleased）。
 - 违反后果：发布的版本信息错误，用户无法判断自己使用的版本。
-- 验证：`tools/preflight.sh` 校验前三处。`CHANGELOG.md` 的检查尚未实现（见 KD-38）。
+- 验证：`tools/preflight.sh` 校验四处；`tools/release.sh` 在编辑前检查必需文件，并同步 README 中的版本。
 
 **R2 发布顺序**
 改版本号，更新 CHANGELOG，本地提交，本地打标签。用户明确要求时才推送。

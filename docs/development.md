@@ -3,7 +3,7 @@
 ## 环境
 
 - CMake 3.20 及以上，C++17 编译器
-- Flutter SDK，版本以 `flutter_shell/pubspec.lock` 为准
+- Flutter SDK；Dart 版本必须满足 `flutter_shell/pubspec.yaml` 的约束，依赖版本由 `pubspec.lock` 固定
 - Python 3，用于生成 MAVLink 头文件（脚本会在 `.venv` 中安装 pymavlink）
 - 构建 macOS 应用需要 Xcode
 
@@ -19,12 +19,19 @@ Windows 使用 `tools/generate-mavlink.ps1`。输出位于 `third_party/mavlink/
 
 ## 构建共享库
 
+旧产物可以删除 `build/`、`build_check/` 与 `flutter_shell/build/` 后重建。Flutter 缓存由 `flutter clean` 清理；保留 `.venv/` 和已生成的 MAVLink 头文件可避免重复获取依赖。
+
 ```bash
 cmake -S . -B build -DMGCORE_BUILD_SHARED=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release --target mgcore
+cmake --build build --config Release --target mgcore --parallel 8
 ```
 
-产物位置：macOS 为 `build/mgcore.dylib`，Windows 为 `build/mgcore.dll`，Linux 库名待确认（见 `docs/constraints/known-deviations.md` 的 KD-39）。
+产物位置：macOS 为 `build/libmgcore.dylib`，Windows 为 `build/mgcore.dll`，Linux 为 `build/libmgcore.so`。
+
+`CMakeLists.txt` 把 `mgcore` 共享目标的输出目录固定为仓库根 `build/`，所有构建树共用同一个文件。
+因此**不要**在 `build_asan`/`build_tsan` 里开启 `MGCORE_BUILD_SHARED`：那会用带 sanitizer 运行时的库覆盖
+Release 产物，随后 Flutter 内嵌或 preflight 的 FFI 符号核对会加载到错误的库。`tools/sanitize.sh` 已按此约定
+固定为 `MGCORE_BUILD_SHARED=OFF`；preflight 在符号核对前也会检测并重新链接被污染或过期的产物。
 
 ## 运行前端
 
@@ -46,20 +53,37 @@ cmake --build build_check --parallel 8
 ctest --test-dir build_check -L "offline|simulation" -LE "hardware|manual"
 ```
 
-### 构建并发必须设上限
+### 编译并发
 
-`cmake --build build_check --parallel`（不带数字）等于**不限并发**，这是本项目最贵的一个坑：每个含 MAVLink 重头文件的编译单元峰值内存约 1.5–2 GB，16 GB 机器上同时跑 10+ 个 clang 会触发换页。实测同一个头文件的增量重编：
+显式设置 `--parallel 8` 或适合主机内存的更小值，不使用无限并发。`preflight.sh` 自动选择上限，可用 `MGCORE_BUILD_JOBS` 覆盖。MAVLink 头文件较大，过量并发会引发内存压力；历史耗时不能作为其他主机的保证。
 
-| 并发 | 耗时 |
-|---|---|
-| 不限（`--parallel`） | **165 s** |
-| `--parallel 8` | **26 s** |
-| `--parallel 10` | 36 s |
-| `--parallel 6` | 41 s |
+### Sanitizer 复测（改到锁、回调、线程或传输层后）
 
-同一份工作相差 6 倍，纯粹是内存压力。`tools/preflight.sh` 会按内存自动选上限（16 GB 机器选 8）并打印；要覆盖用 `MGCORE_BUILD_JOBS=6 tools/preflight.sh`。手敲命令时请显式写 `--parallel 8`。
+```bash
+tools/sanitize.sh              # 依次跑 ASan 与 TSan
+tools/sanitize.sh --tsan-only  # 只跑其中一个
+```
 
-链接不是瓶颈：一次改动重链 46 个测试二进制只要约 2 秒。
+脚本在 `build_asan`/`build_tsan` 下以 Debug 重新编译全部测试，并运行
+`ctest -L "offline|simulation" -LE "hardware|manual"`。只应在触及锁、回调、线程或传输层的改动后运行：
+sanitizer 需要重编所有测试，比 Release 门禁慢得多。macOS 的 ASan 不支持 `detect_leaks`，脚本不设置
+`ASAN_OPTIONS`。
+
+### SITL 端到端任务场景（阶段 2 证据）
+
+需要本地可运行的 ArduPilot SITL 构建：
+
+```bash
+tools/sitl-mission-scenario.sh                                   # arducopter --model quad
+tools/sitl-mission-scenario.sh --vehicle arduplane --model plane \
+    --port 14551 --evidence docs/sitl-scenario-evidence-plane.md
+```
+
+脚本拉起 SITL（`--serial0 udpclient:127.0.0.1:<port>`，不是 `sim_vehicle.py` 的
+`--out`），运行 `build_check/test_sitl_mission_scenario`，并把断言与 `[EVIDENCE]`
+行写成 `docs/sitl-scenario-evidence.md`。没设 `MG_SITL_ENDPOINT` 时驱动打印
+`[SKIP]` 并以 0 退出，所以它不属于 preflight。用 `--ardupilot <dir>` 或
+`ARDUPILOT_DIR` 指定 ArduPilot 源码/构建目录。
 
 ## 门禁
 
@@ -69,7 +93,7 @@ ctest --test-dir build_check -L "offline|simulation" -LE "hardware|manual"
 tools/preflight.sh
 ```
 
-它依次检查补丁格式、版本一致性、UI token、Flutter 分析与测试、后端测试，以及 macOS debug 构建。
+它依次检查补丁格式、版本一致性、FFI 目录、UI token、Flutter 分析与测试、后端测试，以及 macOS debug 构建。全量检查最后核对新编译库的符号和版本，并运行 Flutter 与原生后端的 FFI smoke。
 
 可用选项：
 
@@ -80,7 +104,7 @@ tools/preflight.sh
 
 ### 开发时用 `--changed`，提交前跑全量
 
-测试本身不慢：后端 37 套约 20 s，Flutter 125 个测试约 4 s。慢的是**编译**——改一个被广泛 include 的 core 头文件要重编 80 s 左右。所以真正该省的是"跑哪些"。
+测试数量和耗时随代码与主机变化，以当次门禁输出为准。共享头文件修改可能触发多模块重编译，定向测试仅适用于工具已分类的局部改动。
 
 ```bash
 tools/preflight.sh --changed              # 内环：只跑改动相关的部分
@@ -108,7 +132,17 @@ tools/preflight.sh --no-macos-build       # 提交前：全量
 tools/install-hooks.sh
 ```
 
-钩子要求工作区干净，然后运行 `preflight.sh`。
+钩子要求相关修改全部暂存且没有未跟踪文件，再运行 `preflight.sh`；已暂存的修改不要求先提交。
+
+## 前后端接口对齐
+
+```bash
+python3 tools/check_ffi_contract.py --write-catalog
+python3 tools/check_ffi_contract.py --library build/libmgcore.dylib
+(cd flutter_shell && MGCS_FLEET_LIBRARY="$PWD/../build/libmgcore.dylib" flutter test --no-pub test/fleet_ffi_smoke_test.dart)
+```
+
+Linux 的库路径为 `build/libmgcore.so`，Windows 为 `build/mgcore.dll`。目录和声明检查已纳入 preflight，后端全量构建后还会核对编译库的全部公开符号和版本，防止误用旧库。同一脚本还会同步 `bridge/ffi/API_CATALOG.md` 与 `docs/capabilities.md` 的模块覆盖表；改了公开头文件或 Dart 绑定后，先跑一次 `--write-catalog` 再提交，否则 preflight 会因目录/能力表过期而失败。FFI smoke 用本地 UDP 模拟链路覆盖生产 backend，不需要实体飞控。
 
 ## Docker（仅后端）
 

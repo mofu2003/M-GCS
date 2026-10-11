@@ -24,7 +24,7 @@ M-GCS 对标 QGroundControl（QGC）与 Mission Planner（MP）。功能、操�
 **P4 许可核对**
 引用 QGC 的 Apache-2.0 分支代码之前，必须记录所选许可、Qt 商业授权与再分发义务，并写入 ADR。
 - 违反后果：法律风险。
-- 验证：ADR 中存在对应记录。
+- 验证：ADR 中存在对应记录。纯数据例外（不含 Qt 代码、不链接 Qt 的 JSON/表数据）只履行上游版权与许可声明保留义务，但同样要写 ADR；已落地的一例是 PX4 参数元数据快照 `core/src/config/PX4ParameterMetaData.json`（`docs/adr/0007-px4-parameter-metadata.md`，许可原文见同目录 `PX4ParameterMetaData.LICENSE.txt`）。
 
 **P5 MAVLink 使用官方定义**
 消息定义使用官方生成结果，不手写消息结构。
