@@ -149,10 +149,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   de-duplication, `ui.decodeImageFromPixels` → `RawImage`) and a rewritten video panel that shows
   「本平台未启用本地视频解码（此构建未包含 LGPL FFmpeg 后端）」 when there is no backend instead of
   faking playback. Backend choice is FFmpeg under LGPL only (`--disable-gpl`); frames cross FFI as a
-  copy (no platform texture). Frame format is RGBA8888. Flutter suite is 231 passing / 4 skipped;
-  `tools/check_ffi_contract.py` reports 309 declarations / 131 bindings. The FFmpeg build path is
-  not compiled here (no FFmpeg/pkg-config on this host), so every platform is still honestly
-  `unsupported` until a real RTSP/UDP stream plays on two platforms.
+  copy (no platform texture). Frame format is RGBA8888. A local LGPL FFmpeg 7.1.1 build now plays a real TCP/MPEG-TS source
+  end-to-end on macOS (arm64). Local recording and frame capture build on this pipeline (S4,
+  below).
+
+- Local recording and frame capture on top of the S3 video pipeline (direction 4 S4,
+  `docs/features/video-camera-gimbal.md` §3.4): four payload exports —
+  `mg_video_start_recording`, `mg_video_stop_recording`, `mg_video_recording_status` and
+  `mg_video_capture_frame` — enable, disable, poll and snapshot the running local decoder.
+  Recording copies the decoded stream into a container chosen by the file extension (the UI
+  writes `.mkv`, i.e. Matroska) with no re-encode, synthesising a frame-rate time base when the
+  source carries no timestamps; `mg_video_recording_status` always returns a success envelope
+  with `available/recording/path/error/bytes/duration_us` and keeps the final result after a
+  stop, an empty path is `INVALID_PARAM`, no backend is `NOT_SUPPORTED`, no running source or no
+  frame yet is `INVALID_STATE`, and stopping while idle is an idempotent success.
+  `mg_video_capture_frame` writes the latest frame as PNG (RGBA) or JPEG (YUVJ420P). Container
+  and handle setup, the trailer write and the close all run outside the decoder lock so the poll
+  path is never blocked. The Flutter side gains `payload/video_storage.dart`
+  (`VideoStorageSettings` persisted as JSON in the app-support directory with a temp-directory
+  fallback, `enableStorageLimit` default off, `maxVideoSize` default 10240 MB and floored at
+  100 MB, `listRecordings` / `pruneOldRecordings` deleting oldest-first while never deleting the
+  file just written), the `PayloadController.startLocalRecording` / `stopLocalRecording` /
+  `captureLocalFrame` / `refreshRecordingStatus` actions (which, like starting the local video,
+  do not require a vehicle connection) and a recording section on the camera & gimbal page with
+  a directory field, the size-limit toggle, start/stop and a snapshot button; the controls are
+  not drawn when the build has no video backend. Recording and capture were verified against a
+  real TCP/MPEG-TS `testsrc` stream on macOS (arm64) with the LGPL FFmpeg 7.1.1 build: the
+  Matroska output probes as mpeg4 640x480 at ~5.1 s with a real byte count, and the captured
+  640x480 PNG content was checked visually. Flutter suite is 247 passing / 4 skipped;
+  `tools/check_ffi_contract.py` reports 314 declarations / 136 bindings and `tools/preflight.sh`
+  passes end to end. Recording and playback are demonstrated on one platform, so the S3/S4
+  "two platforms" exit condition is still open (see R6 for the FFmpeg packaging work).
 
 ### Fixed
 - PX4 flight modes had two drifting tables: `PX4Plugin` kept its own `kPX4Modes` while

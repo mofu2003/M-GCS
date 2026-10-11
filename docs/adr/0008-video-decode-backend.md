@@ -57,16 +57,18 @@ D3 决策）：
 
 ## 平台矩阵与证据等级（当前）
 
-| 平台 | build | 播放证据 | UI 状态 |
+| 平台 | build | 播放/录制/截图证据 | UI 状态 |
 |---|---|---|---|
-| macOS | 仅 `MGCORE_HAS_FFMPEG=OFF` 构建 | 无 | `unsupported`（诚实显示） |
+| macOS (arm64) | 本地 LGPL FFmpeg 7.1.1 构建（`--disable-gpl`） | 2026-10-11 端到端通过：TCP/MPEG-TS 真实码流取帧、录 `.mkv`、截 `.png`，`ffprobe` 校验通过 | 开发构建可用；默认发布构建未打包 FFmpeg，仍按 `unsupported` 处理 |
 | Linux | 未构建 | 无 | `unsupported` |
 | Windows | 未构建 | 无 | `unsupported` |
 | Android | 未构建 | 无 | `unsupported` |
 
 本 ADR 只定**方向**。S3 的退出条件（至少两端平台能播放一路 RTSP/UDP，Android
-至少一端）需要一台装有 LGPL FFmpeg 的构建机与真实流；在拿到该证据前，所有平台
-一律按上表显示 `unsupported`，不得因为「编译通过」就把状态改成 `supported`。
+至少一端）需要一台装有 LGPL FFmpeg 的构建机与真实流；2026-10-11 已在 macOS
+取得第一端证据，仍需第二端。在拿到对应证据前，未验证平台一律按上表显示
+`unsupported`，不得因为「编译通过」就把状态改成 `supported`；已取得证据的平台也
+要区分「开发构建可用」与「发布包已打包 FFmpeg」。
 
 ## 后果
 
@@ -74,8 +76,12 @@ D3 决策）：
   不得启用 GPL 组件。`docs/constraints/release-and-hardware.md` 与 SBOM 流程需覆盖。
 - `core` 新增一个可选外部依赖（默认 `OFF`），`third_party/` 不变；FFmpeg 头文件
   只在 `MGCORE_HAS_FFMPEG` 时可见。
-- FFmpeg 适配代码在本环境（无 FFmpeg、无 pkg-config）**无法编译验证**，只能与
-  `OFF` 路径共存；启用构建时必须先过一遍编译与一路流的实测，再更新上表。
+- FFmpeg 适配代码与 `MGCORE_HAS_FFMPEG=OFF` 路径共存。2026-10-11 已在本环境
+  用 LGPL FFmpeg 7.1.1 完成编译与一路真实码流的实测（播放 + 录制 + 截图），
+  上表 macOS 行据此更新；其他平台在拿到同等证据前不得标 `supported`。
+- 录制/截图复用同一个后端：`VideoDecoder::start_recording` 把码流复制进 Matroska
+  （不重新编码），`capture_frame` 把最新帧编码成 PNG/JPEG。它们与解码共用
+  `MGCORE_HAS_FFMPEG` 开关，无后端时返回 `NOT_SUPPORTED`；阻塞 I/O 全部在锁外。
 - 帧缓冲与 FFI 契约是后端无关的，可脱离 FFmpeg 用合成帧单测；这部分进 CI。
 
 ## 相关
@@ -84,3 +90,4 @@ D3 决策）：
 - `docs/constraints/upstream.md`（许可）、`docs/constraints/release-and-hardware.md`
 - `docs/features/video-camera-gimbal.md`（D3）
 - `core/include/core/video/video_decoder.h`、`core/src/video/video_decoder.cc`、`bridge/ffi/ffi_api_payload.h`
+- `docs/features/video-camera-gimbal.md`（S3/S4 验收与手动验证步骤）

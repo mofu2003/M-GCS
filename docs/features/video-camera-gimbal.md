@@ -1,6 +1,6 @@
 # 功能简报：视频 / 相机 / 云台（Video / Camera / Gimbal）
 
-状态：方向已立项。**S1（native 状态层 + FFI 读契约修复）、S2（前端「相机与云台」页）与 S3（本地视频解码/渲染管线）已实现并验证**；S4（录像/截图落盘）尚未开始。S3 的解码后端与帧交付方式已由 `docs/adr/0008-video-decode-backend.md` 定案（FFmpeg 仅 LGPL 构建、帧经 FFI 交付、无后端诚实降级）；「至少两端平台能播放一路真实流」的退出条件尚未达成，所有平台当前如实标 `unsupported`。
+状态：方向已立项。**S1（native 状态层 + FFI 读契约修复）、S2（前端「相机与云台」页）、S3（本地视频解码/渲染管线）与 S4（本地录制/截图落盘 + 容量管理）已实现并验证**。解码后端与帧交付方式由 `docs/adr/0008-video-decode-backend.md` 定案（FFmpeg 仅 LGPL 构建、帧经 FFI 交付、无后端诚实降级）。macOS(arm64) 上用本地 LGPL FFmpeg 构建跑通了「真实码流播放 + 录制落盘 + 截图落盘」的端到端验证（2026-10-11，见 3.4/8/11 节）；「至少两端平台」的退出条件只完成一端，未验证平台一律如实标 `unsupported`。
 日期：2026-10-11
 来源：`docs/plans/mgcs-development-plan-2026-10-10.md` 阶段 3 第 4 条；`docs/capabilities.md` 对 `ffi_api_payload.h` 的「待接入」说明。
 
@@ -18,8 +18,8 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 
 ## 2. 范围
 
-- 范围内：相机发现与状态（`CAMERA_INFORMATION`/`CAMERA_SETTINGS`/`CAMERA_CAPTURE_STATUS`/`STORAGE_INFORMATION`）；云台发现与状态（`GIMBAL_MANAGER_INFORMATION`/`GIMBAL_MANAGER_STATUS`/`GIMBAL_DEVICE_ATTITUDE_STATUS`/`GIMBAL_DEVICE_INFORMATION`）；视频流元数据（`VIDEO_STREAM_INFORMATION`/`VIDEO_STREAM_STATUS`）与流选择；FFI 读契约与错误对象；前端相机/云台/视频源配置页；本地视频解码/渲染管线（S3，含无后端诚实降级）。
-- 范围外：录像与截图落盘（S4）、相机定义 XML 驱动的完整设置项、云台 on-screen 点击指向与 ROI 向导、热成像/双路画面、SubtitleWriter 式遥测字幕叠加。
+- 范围内：相机发现与状态（`CAMERA_INFORMATION`/`CAMERA_SETTINGS`/`CAMERA_CAPTURE_STATUS`/`STORAGE_INFORMATION`）；云台发现与状态（`GIMBAL_MANAGER_INFORMATION`/`GIMBAL_MANAGER_STATUS`/`GIMBAL_DEVICE_ATTITUDE_STATUS`/`GIMBAL_DEVICE_INFORMATION`）；视频流元数据（`VIDEO_STREAM_INFORMATION`/`VIDEO_STREAM_STATUS`）与流选择；FFI 读契约与错误对象；前端相机/云台/视频源配置页；本地视频解码/渲染管线（S3，含无后端诚实降级）；本地录制与截图落盘 + 容量上限清理（S4）。
+- 范围外：相机定义 XML 驱动的完整设置项、云台 on-screen 点击指向与 ROI 向导、热成像/双路画面、SubtitleWriter 式遥测字幕叠加、多路并发录制、录制再编码/转码。
 
 ## 3. M-GCS 现状（S1 改造前）
 
@@ -71,13 +71,21 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 - **测试/门禁**：`flutter analyze lib test` 无问题；`flutter test` 231 通过 / 4 跳过（较 S2 基线 +7 用例：`payload_controller_test` renderer 读取含断链、无后端合法、pollFrame、启动后刷新运行态，`camera_gimbal_page_test` 无后端文案、后端可用已停止、运行中元数据 + 卸载取消定时器）；`dart tools/check_ui_tokens.dart` 通过；`python3 tools/check_ffi_contract.py` 309 声明 / 131 绑定一致（+2 视频导出），`API_CATALOG.md`、`docs/capabilities.md` 已重生成。
 - **诚实边界**：真帧 `ui.decodeImageFromPixels` 渲染未在 widget 测试覆盖（`flutter_tester` 下 `macos_ui` 等异步平台通道会污染 `runAsync`），需真实后端/设备验证；本机无 FFmpeg、无 pkg-config，`MGCORE_HAS_FFMPEG` 分支**未编译验证**；真实相机/云台硬件回读仍需真实设备。
 
+### 3.4 S4 落地结果（2026-10-11）
+
+- **native 后端**：`core/include/core/video/video_decoder.h` + `core/src/video/video_decoder.cc` 新增 `start_recording`/`stop_recording`/`recording_status`/`capture_frame`。录制是**码流复制**（`av_interleaved_write_frame`，不重新解码再编码），容器由扩展名决定（UI 固定用 `.mkv`/Matroska）；源没有时间戳时按帧率补一条合成时间轴。写帧在 `rec_mtx` 内，打开文件、写文件头与收尾（`av_write_trailer`/`avio_closep`）都在锁外（A7）；写失败立即收尾并把原因留在 `RecordingStatus.error`，不会留下半个「正在录制」的状态。截图取帧缓冲里的最新帧，按扩展名编码 `.png`（RGBA）或 `.jpg`（YUVJ420P）落盘。
+- **FFI**：新增 `mg_video_start_recording(core, path)`、`mg_video_stop_recording(core)`、`mg_video_recording_status(core)`、`mg_video_capture_frame(core, path)`。契约：空路径 `INVALID_PARAM`（先于后端检查）；没有编译进解码后端 `NOT_SUPPORTED`；有后端但没有正在运行的本地源/没有可用帧 `INVALID_STATE`；`stop_recording` 在未录制时是幂等的成功。`recording_status` 恒为成功信封，字段 `available`/`recording`/`path`/`error`/`bytes`/`duration_us`，停止后保留最后一次结果，界面可显示「已保存 N」而不是回到空白。
+- **前端**：`payload_models` 加 `VideoRecordingStatus`；`payload_backend`（含不可用替身）与 `payload_ffi_backend` 加四个方法；新增 `flutter_shell/lib/payload/video_storage.dart`——`VideoStorageSettings`（录制目录 / 容量上限开关 / 上限 MB，JSON 存应用支持目录，平台上不可用时退回临时目录）、默认上限 10240 MB、下界 100 MB（对齐 QGC `maxVideoSize`）、录制/截图文件名、`listRecordings` 与 `pruneOldRecordings`（越旧越先删，正在写的文件不删）。`payload_controller` 加 `startLocalRecording`/`stopLocalRecording`/`captureLocalFrame`/`refreshRecordingStatus`；这些是本机操作，`_send` 传 `requiresVehicle:false`，**不依赖飞控连接**（相机命令仍要求连接）。`camera_gimbal_page` 在解码后端可用时增加录制面板（录制状态 + 目录 + 保存 + 容量上限 + 开始/停止录制 + 截图）；后端不可用时整块不画，只保留「本平台未启用本地视频解码」。
+- **测试**：`core/tests/test_video_pipeline.cc` 新增「video recording/capture FFI contract」组（按后端分支断言参数/状态/幂等），`test_new_modules.cc` 的 video FFI 改为按后端能力分支；Flutter 新增 `test/video_storage_test.dart`（7 用例：上限收口、文件名、列文件、清理、keep、无上限、建目录）、`payload_controller_test.dart` 的「本地录制与截图」组（6 用例：开始/空目录/断链可用/停止/截图/清理/后端失败）与 `camera_gimbal_page_test.dart` 的 2 个页面用例。`tools/check_ffi_contract.py` 记录 314 声明 / 136 绑定（+4 导出）。
+- **端到端**：见 8 节与 11 节——LGPL FFmpeg 生成 `testsrc` 码流，`mg_video_start` 播放（`mg_video_poll_frame` 取到帧）、`mg_video_start_recording` 落 `.mkv`、`mg_video_capture_frame` 落 `.png`，产物均能通过 `ffprobe` 校验。
+
 ## 4. 上游行为研究
 
 ### QGroundControl（Apache-2.0 / GPL 双许可；参考提交 `bf0096d97`）
 
 - **视频源配置模型**：`src/Settings/Video.SettingsGroup.json` 定义 `videoSource`（UDP/TCP/RTSP/UVC）、`udpUrl`/`rtspUrl`/`tcpUrl`、`videoSavePath`、`aspectRatio`、`gridLines`、`videoFit`、`recordingFormat`（枚举 mp4/mov/mkv，值 2/1/0）、`maxVideoSize`（默认 10240 MB）、`enableStorageLimit`、`rtspTimeout`。**优点**：源可切换、录制格式与存储上限可配。**不采用**：默认值直接绑定 Qt 设置系统。
 - **流自动选择**：`src/VideoManager/VideoManager.cc:590` `_updateAutoStream()` 按 `VIDEO_STREAM_TYPE_RTSP`/`TCP_MPEG`/`RTPUDP`/`MPEG_TS` 把 `VIDEO_STREAM_INFORMATION` 的 `uri` 映射成 `rtsp://`/`tcp://`/`udp://`（H264）/`udp265://`（H265）/`mpegts://` 源串（`:698-703`）。**优点**：设备上报即自动配置源，无需用户手填 URL。
-- **录制与截图**：`RecordingFormat` 枚举在 `src/VideoManager/VideoReceiver/VideoReceiver.h:50-57`（MKV=0/MOV=1/MP4=2），`VideoManager.cc:38` 有扩展名表；`:353` `startRecording()`、`:385` `stopRecording()`、`:392` `grabImage()`（截图）、`:318/:343` 存储上限与自动删除最旧录像。**优点**：格式可选、有容量上限。**参考，不在 S1**。
+- **录制与截图**：`RecordingFormat` 枚举在 `src/VideoManager/VideoReceiver/VideoReceiver.h:50-57`（MKV=0/MOV=1/MP4=2），`VideoManager.cc:38` 有扩展名表；`:353` `startRecording()`、`:385` `stopRecording()`、`:392` `grabImage()`（截图）、`:318/:343` 存储上限与自动删除最旧录像。**优点**：格式可选、有容量上限。**S4 已对齐行为**：M-GCS 走码流复制录制、容量上限默认关闭、超限删最旧（只固定 Matroska 容器，不做格式选择）。
 - **相机发现与状态**：`src/Camera/QGCCameraManager.cc:160-200` 只处理来自相机组件（`MAV_COMP_ID_CAMERA..CAMERA6`）或自驾仪代理的消息；`:217-226` 对每个 compId 建请求上下文；`:576-589` 交替用 `MAV_CMD_REQUEST_MESSAGE` 与 `MAV_CMD_REQUEST_CAMERA_INFORMATION` 请求 `CAMERA_INFORMATION`；状态来自 `CAMERA_SETTINGS`/`CAMERA_CAPTURE_STATUS`/`STORAGE_INFORMATION`。**优点**：按组件寻址 + 重试/退避；**不采用** Qt 信号槽模型。
 - **云台（V2 协议）**：`src/Gimbal/GimbalController.cc:55-84` 处理 `GIMBAL_MANAGER_INFORMATION`/`STATUS`/`GIMBAL_DEVICE_ATTITUDE_STATUS`/`GIMBAL_DEVICE_INFORMATION`；`:676` `setGimbalRetract()` 用 `GIMBAL_DEVICE_FLAGS_RETRACT` 位；`:694` `sendRate()`、`:720` `_sendGimbalAttitudeRates()` 走 `GIMBAL_MANAGER_FLAGS_ROLL_LOCK|PITCH_LOCK|YAW_IN_VEHICLE_FRAME`；`:565` `gimbalOnScreenControl()` 做点击指向。`src/Settings/GimbalController.SettingsGroup.json` 有 `enableOnScreenControl`、`cameraVFov/HFov`、`cameraSlideSpeed`。**优点**：以 `GIMBAL_MANAGER_INFORMATION` 为能力/设备 id 的事实来源，姿态读取用 `GIMBAL_DEVICE_ATTITUDE_STATUS`。**参考能力模型**。
 - **视频后端**：`src/VideoManager/VideoReceiver/GStreamer/`（GstVideoReceiver）与 `QtMultimedia/`（UVCReceiver）两套后端，另有 `SubtitleWriter.cc` 写遥测字幕。**优点**：backends 可切换；**不采用** GStreamer/Qt 依赖（见 9 节）。
@@ -98,7 +106,7 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 - **G5**：`camera_id`/`gimbal_device_id` 无寻址语义。**S1** 让 FFI 按 sysid/compid 或 device_id 寻址；**S2 完成**：前端按 compId 选择并下发，native 按 compId 寻址（`<=0` = 第一台/活动目标）。
 - **G6**：没有前端入口（17 导出 0 接入）。**S2 完成**：新增配置工作区「相机与云台」页，设备清单/状态/命令与视频源元数据均有 UI 入口。
 - **G7**：没有本地视频解码/渲染。**S3 完成**：ADR-0008 定案 FFmpeg(LGPL) 后端 + `VideoDecoder`/`VideoFrameBuffer` + `mg_video_renderer_status`/`mg_video_poll_frame` + 前端预览，无后端诚实降级。真实平台播放证据（退出条件）仍未达成，见 8 节。
-- **G8**：没有录像/截图落盘与容量管理。**S4**。
+- **G8**：没有录像/截图落盘与容量管理。**S4 完成**：native 码流复制录制 + 截图编码，FFI 四个新导出，前端录制面板与容量清理（对齐 QGC `maxVideoSize`/`enableStorageLimit`）。
 - **G9**：QGC 用相机定义 XML 驱动完整设置面板，M-GCS 无。**D2 决定**：先不做 XML，只暴露 MAVLink 标准设置项。
 
 决策点（D）：
@@ -113,21 +121,29 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 - **S1️⃣ native 状态层 + FFI 读契约（本轮完成）**：相机状态缓存（`CAMERA_INFORMATION`/`CAMERA_SETTINGS`/`CAMERA_CAPTURE_STATUS`/`STORAGE_INFORMATION`）、云台状态缓存（`GIMBAL_MANAGER_INFORMATION`/`STATUS`、`GIMBAL_DEVICE_ATTITUDE_STATUS`/`INFORMATION`）、`VIDEO_STREAM_STATUS`；补齐 dispatcher；`mg_camera_get_status`/`mg_video_status` 返回真实状态；修 `mg_video_start`；新增云台状态读导出（`mg_gimbal_get_status`/`mg_gimbal_get_attitude`）；`camera_id`/`gimbal_device_id` 按 `D4` 处理；单测。
 - **S2️⃣ 前端相机/云台页（本轮完成）**：配置工作区新增「相机与云台」页，展示发现的相机与云台、状态（录像/存储/姿态）、执行拍照/录像/变焦/云台指向/回中；视频源设置（RTSP/UDP/TCP URL + 流列表 + 选择）。
 - **S3️⃣ 本地视频解码/渲染（本轮完成方向，退出条件未达成）**：D3 决策落为 `ADR-0008`；native `VideoDecoder`/`VideoFrameBuffer` + FFI `mg_video_renderer_status`/`mg_video_poll_frame` + 前端 `video_preview` 已交付，无后端诚实降级。**仍开放**：至少两端平台播放一路真实 RTSP/UDP 流并落平台能力矩阵（需一台装 LGPL FFmpeg 的构建机与真实流），达成前平台矩阵全 `unsupported`。
-- **S4️⃣ 录像与截图落盘**：录制格式选择 + 容量上限 + 自动删除最旧（对齐 QGC `maxVideoSize`/`enableStorageLimit`）。
+- **S4️⃣ 录像与截图落盘（本轮完成）**：`VideoDecoder::start_recording`/`stop_recording`/`capture_frame`（码流复制、锁外 I/O）+ FFI `mg_video_start_recording`/`mg_video_stop_recording`/`mg_video_recording_status`/`mg_video_capture_frame` + 前端录制面板与 `video_storage`（容量上限 + 自动删除最旧，对齐 QGC `maxVideoSize`/`enableStorageLimit`）。录制容器固定 Matroska（`.mkv`），不提供格式选择（QGC 的 mp4/mov/mkv 三选一按需再开）。
 
 ## 7. 验收标准
 
 - **S1 已满足**：`mg_video_start` 不再误发录像命令（单测钉住）；`mg_camera_get_status`/`mg_video_status`/云台读导出返回真实缓存状态，无设备时 `available:false` 而非假 `success`；dispatcher 覆盖 G4 列出的消息 ID；相机/云台状态有单测（构造消息 → 读接口 → 断言字段）。
 - **S2 已满足**：页面可发现相机/云台、显示状态、下发拍照/录像/变焦/云台指向/回中，命令成功措辞为「已发送」；多设备按 compId 选择并重读；无设备与失败分别措辞；`payload_controller_test`/`camera_gimbal_page_test` 覆盖读、切换、命令成功/失败、断链、会话切换。真实硬件回读（状态更新链路）见 10 节的硬件验收待办。
 - **S3 已满足（方向/工程交付）**：D3 决策写成 `ADR-0008`；native 解码器与帧缓冲、FFI 读/轮询契约、前端预览与无后端降级已交付并有单测（`test_video_pipeline` + 7 个 Flutter 用例）；`flutter analyze`/`flutter test`/`check_ui_tokens`/`check_ffi_contract` 全过。
-- **S3 退出条件（未达成）**：至少两端平台（macOS/Linux/Windows 中任选两端，Android 至少一端）能播放一路真实 RTSP 或 UDP 流，并有平台能力矩阵；未验证的平台标 `unsupported`。当前全平台 `unsupported`。
+- **S3 退出条件（部分达成）**：至少两端平台（macOS/Linux/Windows 中任选两端，Android 至少一端）能播放一路真实 RTSP 或 UDP 流，并有平台能力矩阵；未验证的平台标 `unsupported`。macOS(arm64) 已有真实播放 + 录制 + 截图的端到端证据（8 节）；仍需第二端平台。
+- **S4 已满足**：native 录制/截图实现与 FFI 契约有单测（按后端分支断言 `INVALID_PARAM`/`NOT_SUPPORTED`/`INVALID_STATE`/幂等停止与状态信封）；前端录制面板、设置持久化与容量清理有 Flutter 用例；macOS 上真实码流录制出非空 `.mkv`、截图出可解码 `.png`，`ffprobe` 校验通过。
 - **自动化**：新增 native 测试（消息 fixture → 状态）；`tools/preflight.sh` 通过；FFI catalog 计数一致。
 
 ## 8. 平台
 
 - S1 是纯协议/状态逻辑，全平台一致，无外部依赖。
 - S2 是 Flutter UI，遵循现有跨平台约束。
-- S3 是唯一有平台差异的切片：解码后端按 OS 能力矩阵决定，未证明的平台显式 `unsupported`。当前证据等级（`ADR-0008`）：macOS 仅有 `MGCORE_HAS_FFMPEG=OFF` 构建、无播放证据；Linux/Windows/Android 未构建；一律 `unsupported`（诚实在 UI 显示「本平台未启用本地视频解码」）。
+- S3/S4 是仅有的平台差异切片：解码/录制后端按 OS 能力矩阵决定，未证明的平台显式 `unsupported`。当前证据等级（`ADR-0008`）：
+
+| 平台 | 构建 | 播放/录制/截图证据 | UI 状态 |
+|---|---|---|---|
+| macOS (arm64) | 本地 LGPL FFmpeg（`build_ffmpeg`，`--disable-gpl`） | 2026-10-11 端到端通过（TCP/MPEG-TS 真实码流：取帧、录 `.mkv`、截 `.png`，`ffprobe` 校验通过） | 开发构建可用；默认发布构建未打包 FFmpeg，仍显示 `unsupported` 文案 |
+| Linux / Windows / Android | 未构建 | 无 | `unsupported`（诚实显示） |
+
+- 「开发构建可用」不等于「发布可用」：仓库默认构建仍是 `MGCORE_HAS_FFMPEG=OFF`，只有显式启用 FFmpeg 的构建才实际解码。要把它变成产品默认行为，需要按 R6 把 LGPL FFmpeg 打进各平台发布包（见 10 节）。
 - 视频流本身来自网络（RTSP/UDP/TCP），与 conformance/GCS 平台无关。
 
 ## 9. 许可与外部依赖
@@ -141,8 +157,24 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 ## 10. 未决问题
 
 - **D3（视频解码后端）**：已决定（S3/ADR-0008）——FFmpeg 仅 LGPL 构建 + FFI 帧交付 + 无后端诚实降级。
-- **S3 平台播放证据**：未完成——至少两端平台播放一路真实 RTSP/UDP 流并落能力矩阵（需装 LGPL FFmpeg 的构建机与真实流）；达成前全平台 `unsupported`。
+- **S3/S4 平台证据**：只完成 macOS(arm64) 一端（真实播放 + 录制 + 截图，见 8 节）；至少还需第二端平台。其他平台在拿到证据前一律 `unsupported`。
+- **发布打包 FFmpeg**：默认构建仍 `MGCORE_HAS_FFMPEG=OFF`。要把 macOS 的「开发构建可用」变成发布可用，需按 `release-and-hardware.md` R6 把 LGPL FFmpeg 动态库打进发布包并附许可/源码获取方式；Linux/Windows/Android 的打包方案未定。
+- **录制格式选择**：QGC 允许 mp4/mov/mkv，M-GCS 固定 Matroska。当前按「一个可用容器」取舍，等有兼容性需求再开格式选择。
+- **录制期间断流/换源**：`stop()`/`start()` 会先收尾当前录制再释放输入；会话切换时 Flutter 侧不自动续录（用户需重新开始），是否需要自动恢复未决。
 - **D4（`camera_id` 语义）**：已决定（S2）——按 MAVLink compId 寻址，`<= 0` 表示第一台/活动目标。
 - **G5 完整多设备寻址**：已完成（S2）——前端按 compId 选择并下发，native 按 compId 寻址。
 - **热成像/双路画面**：QGC 有 thermal 通道，M-GCS 未建模。
 - **真实硬件验收**：相机与云台行为需真实设备或能模拟 `CAMERA_*`/`GIMBAL_*` 的仿真链路验证；SITL 是否覆盖待确认（ArduPilot SITL 默认无相机/云台组件）。
+
+## 11. 手动验证步骤（真实码流，S3/S4）
+
+在一台装了 LGPL FFmpeg 的机器上（本仓库验证环境：macOS arm64，FFmpeg 7.1.1，`--disable-gpl`，前缀 `/Users/fansicheng/.local/ffmpeg-lgpl`）：
+
+1. 用 FFmpeg 造一路本地码流（TCP 更省事，不需要额外的 RTSP 服务）：
+   `ffmpeg -re -f lavfi -i testsrc=size=640x480:rate=15 -c:v mpeg4 -q:v 5 -f mpegts -listen 1 tcp://127.0.0.1:12345`
+2. 用启用 FFmpeg 的构建（`-DMGCORE_HAS_FFMPEG=ON`，链接上述 dylib）调 FFI：`mg_video_start(core, "tcp://127.0.0.1:12345")` → 轮询 `mg_video_poll_frame` 直到返回 `> 0`（确认真的在解码，而不是只报了 `running`）。
+3. `mg_video_start_recording(core, "<dir>/rec.mkv")`，跑几秒；`mg_video_recording_status` 应报 `recording:true` 且 `bytes` 增长。
+4. `mg_video_stop_recording(core)` 后 `recording_status` 应保留最终 `bytes`/`duration_us`；`mg_video_capture_frame(core, "<dir>/shot.png")` 应返回 `success:true` 与正确的 `width`/`height`。
+5. 产物校验：`ffprobe rec.mkv`（Matroska，含视频流）与 `ffprobe shot.png`（PNG，尺寸与画面一致）。截图像素应与预览画面一致，而不是黑帧或空文件。
+
+未编译进 FFmpeg 后端时，第 2 步的 `mg_video_start` 会返回 `NOT_SUPPORTED`，第 3/4 步返回 `NOT_SUPPORTED`；这是预期行为，UI 会显示「本平台未启用本地视频解码」，不画录制控件。

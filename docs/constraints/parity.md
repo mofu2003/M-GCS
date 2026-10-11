@@ -94,6 +94,13 @@
 - **未核对**。本轮核对没有覆盖两者的遥测界面，需要单独核对。
 - M-GCS 侧：遥测仪表（`lib/widgets/mg_telemetry_dashboard.dart`）与实时波形（`lib/components/realtime_waveform.dart`）已实现。
 
+### 视频 / 相机 / 云台
+
+- **QGC**：视频源模型在 `src/Settings/Video.SettingsGroup.json`（`videoSource`、`udpUrl`/`rtspUrl`/`tcpUrl`、`videoSavePath`、`recordingFormat`、`maxVideoSize` 默认 10240 MB、`enableStorageLimit`、`rtspTimeout`）；`VideoManager/VideoManager.cc:590` 按 `VIDEO_STREAM_INFORMATION` 的 `VIDEO_STREAM_TYPE_*` 自动把上报 `uri` 映射成 `rtsp://`/`tcp://`/`udp://`/`udp265://`/`mpegts://`；录制/截图在 `VideoManager.cc:353` `startRecording()`、`:385` `stopRecording()`、`:392` `grabImage()`，存储上限与自动删除最旧在 `:318/:343`。相机/云台走 MAVLink 标准消息与 `Camera/QGCCameraManager.cc`、`Gimbal/GimbalController.cc`，另有相机定义 XML 驱动完整设置面板。视频后端是 GStreamer/QtMultimedia 双实现（`VideoReceiver/`）。
+- **MP**：相机协议在 `ExtLibs/ArduPilot/Mavlink/CameraProtocol.cs` 与 `ExtLibs/ArduPilot/Camera.cs`（标准 `MAV_CMD` 集合），云台在 `ExtLibs/ArduPilot/Mavlink/GimbalManagerProtocol.cs`（`GIMBAL_MANAGER_CAP_FLAGS` 能力门控），视频显示在 `Controls/Video.cs`（GStreamer 管道）/`OSDVideo.cs`/`LibVLC.NET`。许可 GPLv3，**不可复制源码**。
+- **M-GCS**：S1/S2/S3/S4 已落地（见 `docs/features/video-camera-gimbal.md`）。相机/云台/视频流元数据进适配器缓存并有「相机与云台」页；本地解码用 FFmpeg 且只允许 LGPL 构建（ADR-0008），帧经 FFI 拷贝到 Flutter 渲染；录制是把码流复制进 Matroska（不重编码），容量上限默认关闭、超限删最旧（对齐 QGC 的 `enableStorageLimit`/`maxVideoSize`），截图为 PNG/JPEG。native 在无后端时返回 `NOT_SUPPORTED` 且 UI 如实说明。
+- **结论**：协议状态与命令覆盖与 QGC/MP 同级；本地解码/录制后端**不采用** QGC 的 GStreamer/Qt 依赖与 MP 的 GStreamer/LibVLC，改用 FFmpeg(LGPL)，这是许可与架构上的有意差异（ADR-0008）。仍有差距：无相机定义 XML 驱动设置、无 on-screen 点击指向/ROI、无自动视频源映射（用户手填 URL）、无热成像/双路、无录制格式选择、无遥测字幕叠加。平台证据只完成 macOS 一端。
+
 ### 校准
 
 - 与"安全行为"中的"校准取消"合并核对。
