@@ -390,16 +390,60 @@ MGCORE_API char* mg_video_start(mg_core_t* core, const char* uri) {
     CHECK_CORE(core);
     if (!uri || uri[0] == '\0')
         return fail(MG_ERROR_INVALID_PARAM, "video uri is required");
-    // 本地视频解码后端（S3）尚未实现。此前这里误发 camera_start_video（让相机开始录像），
-    // 与「启动一个视频源」语义不符；改为显式返回未支持，避免静默做错事。
-    return fail(MG_ERROR_NOT_SUPPORTED,
-                "local video decoding backend not implemented yet (planned slice S3)");
+    // 「启动一个本地视频源」语义（与相机录像 mg_camera_start_video 区分，ADR-0008）。
+    // 此前这里误发 camera_start_video（让相机开始录像），已修正。
+    if (!mg::core::video::VideoDecoder::backend_available())
+        return fail(MG_ERROR_NOT_SUPPORTED,
+                    "local video decoding backend unavailable in this build");
+    if (!core->video_decoder.start(uri))
+        return fail(MG_ERROR_SEND_FAILED, "failed to open local video source");
+    return ok();
 }
 
 MGCORE_API char* mg_video_stop(mg_core_t* core) {
     CHECK_CORE(core);
-    return fail(MG_ERROR_NOT_SUPPORTED,
-                "local video decoding backend not implemented yet (planned slice S3)");
+    core->video_decoder.stop();
+    return ok();
+}
+
+MGCORE_API char* mg_video_renderer_status(mg_core_t* core) {
+    CHECK_CORE(core);
+    mg::core::telemetry::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", true);
+    jb.field("available", mg::core::video::VideoDecoder::backend_available());
+    jb.field("backend", std::string(mg::core::video::VideoDecoder::backend_name()));
+    jb.field("running", core->video_decoder.running());
+    jb.field("uri", core->video_decoder.uri());
+    const auto& buf = core->video_decoder.frames();
+    const mg::core::video::VideoFrameBuffer::Snapshot snap = buf.latest();
+    jb.field("has_frame", snap.width > 0 && snap.height > 0);
+    jb.field("width", snap.width);
+    jb.field("height", snap.height);
+    jb.field("pts_us", static_cast<long long>(snap.pts_us));
+    jb.field("sequence", static_cast<long long>(snap.sequence));
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
+MGCORE_API int mg_video_poll_frame(mg_core_t* core, unsigned char* dst, int dst_capacity,
+                                   int* out_width, int* out_height, long long* out_pts_us,
+                                   unsigned long long* out_sequence) {
+    if (!core || !dst || dst_capacity <= 0) return -1;
+    // 先取元数据：即使容量不足也要把「需要多大」告诉调用方，便于扩容重试。
+    const mg::core::video::VideoFrameBuffer::Snapshot snap =
+        core->video_decoder.frames().latest();
+    if (out_width) *out_width = snap.width;
+    if (out_height) *out_height = snap.height;
+    if (out_pts_us) *out_pts_us = static_cast<long long>(snap.pts_us);
+    if (out_sequence) *out_sequence = static_cast<unsigned long long>(snap.sequence);
+    if (snap.width <= 0 || snap.height <= 0) return 0; // 尚无帧
+    const size_t need = static_cast<size_t>(snap.width) * static_cast<size_t>(snap.height) * 4u;
+    if (static_cast<size_t>(dst_capacity) < need) return -1; // 容量不足，按 out_* 扩容
+    mg::core::video::VideoFrameBuffer::Snapshot copied_snap;
+    const size_t copied =
+        core->video_decoder.frames().copy_latest(dst, static_cast<size_t>(dst_capacity), copied_snap);
+    return static_cast<int>(copied);
 }
 
 MGCORE_API char* mg_video_status(mg_core_t* core) {
@@ -412,8 +456,8 @@ MGCORE_API char* mg_video_status(mg_core_t* core) {
     auto streams = mav ? mav->latest_video_streams() : std::vector<mg::core::mavlink::VideoStreamInfo>{};
     auto statuses = mav ? mav->latest_video_stream_status() : std::vector<VideoStreamStatusInfo>{};
     jb.field("available", !streams.empty() || !statuses.empty());
-    // 本地解码未实现，S1 阶段不谎报正在播放。
-    jb.field("playing", false);
+    // 只有本地解码器确实在跑且已有帧时才报 playing（ADR-0008，不谎报播放）。
+    jb.field("playing", core->video_decoder.running() && core->video_decoder.frames().has_frame());
     jb.field("stream_count", static_cast<int>(streams.size()));
 
     mg::core::telemetry::JsonBuilder arr;

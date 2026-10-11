@@ -369,8 +369,10 @@ static void test_video_ffi() {
     mg_core_t* core = mg_create();
     CHECK(core != nullptr, "mg_create");
 
-    // mg_video_start 需要 uri；空 uri 是参数错误，非空 uri 因为 S3 本地解码未实现而 NOT_SUPPORTED。
-    // 关键回归点：它绝不能再退化成「让相机开始录像」。
+    // mg_video_start 需要 uri；空 uri 是参数错误，非空 uri 在本构建（无 FFmpeg 后端）下是
+    // NOT_SUPPORTED。关键回归点：它绝不能再退化成「让相机开始录像」。
+    // 注意：这里断言 NOT_SUPPORTED 只在 MGCORE_HAS_FFMPEG=OFF 的构建成立；若将来构建机启用
+    // FFmpeg，本组应改为验证「无真实流时打不开」的 SEND_FAILED 路径（ADR-0008 退出条件）。
     char* r = mg_video_start(core, "");
     CHECK(r != nullptr, "video_start(empty) returns non-null");
     CHECK(json_has(r, "\"error\""), "video_start(empty) returns error");
@@ -379,14 +381,15 @@ static void test_video_ffi() {
 
     r = mg_video_start(core, "rtsp://192.168.1.10:8554/main");
     CHECK(r != nullptr, "video_start(uri) returns non-null");
-    CHECK(json_has(r, "\"error\""), "video_start(uri) returns error (S3 not implemented)");
+    CHECK(json_has(r, "\"error\""), "video_start(uri) returns error (no FFmpeg backend in this build)");
     CHECK(json_has(r, "NOT_SUPPORTED"), "video_start(uri) is NOT_SUPPORTED, not camera recording");
     if (r) mg_free_string(r);
 
-    // video_stop 同理
+    // video_stop 是幂等的「停止本地视频源」：没有后端或未运行时是无害的 no-op，
+    // 返回 success（S1 曾以 NOT_SUPPORTED 报「未实现」，S3/ADR-0008 改为幂等成功）。
     r = mg_video_stop(core);
     CHECK(r != nullptr, "video_stop returns non-null");
-    CHECK(json_has(r, "NOT_SUPPORTED"), "video_stop is NOT_SUPPORTED");
+    CHECK(json_has(r, "\"success\":true"), "video_stop is an idempotent no-op success");
     if (r) mg_free_string(r);
 
     // video_status：无设备时 available:false，且绝不谎报 playing:true

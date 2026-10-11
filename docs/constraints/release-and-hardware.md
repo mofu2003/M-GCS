@@ -26,3 +26,8 @@
 硬件测试必须有人在场，并在执行前确认机体安全（拆桨、未解锁）。
 - 违反后果：机体意外动作。
 - 验证：每次执行前的检查清单。
+
+**R6 LGPL FFmpeg 合规**
+构建本地视频解码时，FFmpeg 必须使用 LGPL 构建（不得启用 `--enable-gpl`），并动态链接（见 `docs/adr/0008-video-decode-backend.md`）。发布含 FFmpeg 的构建时，随包附 LGPL 许可文本与对应 FFmpeg 源码获取方式（或书面提供），并在 SBOM/第三方依赖清单登记版本。
+- 违反后果：GPL 传染导致发布物许可不合规。
+- 验证：构建脚本检查 FFmpeg `--disable-gpl`；发布检查表核对许可与源码获取方式；`tools/preflight.sh` 不自动覆盖此项，需人工确认。

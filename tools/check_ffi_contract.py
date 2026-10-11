@@ -27,7 +27,7 @@ CAPABILITY_METADATA = {
     "ffi_api_logging.h": ("部分接入", "机载 DataFlash 日志列表/下载/擦除（「机载日志」页）、链路 `.tlog` 录制/离线回放（「飞行记录」页）与 `mg_fs_*` 通用 MAVLink FTP 文件浏览/收发（「机载文件」页）均已接入；仍未接入的是事件日志服务与会话文件日志（`mg_event_*`/`mg_session_log_*`），见 docs/features/flight-logging-and-replay.md。"),
     "ffi_api_mission.h": ("已交付", "任务规划、上传、围栏/Rally 下发与航点编辑走任务面板与地图；survey/corridor 生成（`mg_survey_generate*`）接入配置工作区「测绘规划」页，见 docs/features/survey-and-terrain.md。"),
     "ffi_api_params.h": ("部分接入", "参数读写、文件导入导出接入配置页；批量下载进度与描述符映射部分留在 FFI 内部。"),
-    "ffi_api_payload.h": ("部分接入", "相机/云台/视频元数据接入配置工作区「相机与云台」页（`payload`，S2）：设备清单、拍照/录像/变焦/云台指向/回中与视频流元数据；本地视频解码/渲染（S3）与录像/截图落盘（S4）未做，UI 不声称已支持。S1 的读契约返回真实适配器缓存，无设备时 `success:true`+`available:false`，见 docs/features/video-camera-gimbal.md。"),
+    "ffi_api_payload.h": ("部分接入", "相机/云台/视频元数据接入配置工作区「相机与云台」页（`payload`，S2）：设备清单、拍照/录像/变焦/云台指向/回中与视频流元数据。本地视频解码（S3，ADR-0008）已接入 `mg_video_renderer_status`/`mg_video_poll_frame` 与前端 `VideoPreview`：后端可用且运行中时渲染最新 RGBA 帧，没有编译进后端时 `available:false`/`backend:\"none\"` 并如实说明；仍剩录像/截图落盘与容量管理（S4）。S1 的读契约返回真实适配器缓存，无设备时 `success:true`+`available:false`，见 docs/features/video-camera-gimbal.md。"),
     "ffi_api_telemetry.h": ("部分接入", "遥测快照、姿态、GPS、电池进入顶栏/仪表盘；波形与部分导航量仍为 FFI 内部能力。"),
 }
 

@@ -164,7 +164,7 @@ set(MGCORE_SOURCES
     # Terrain
     core/src/terrain/terrain_store.cc
     # Video
-    core/src/video/ffmpeg_decoder.cc
+    core/src/video/video_decoder.cc
     # Vehicle (multi-vehicle)
     core/src/vehicle/multi_vehicle_manager.cc
     core/src/vehicle/vehicle.cc
@@ -386,6 +386,7 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_telemetry_ring_buffer.cc
         core/tests/test_waveform_buffer.cc
         core/tests/test_waveform_instances.cc
+        core/tests/test_video_pipeline.cc
         core/tests/test_ffi_contract.cc
         core/tests/test_ffi_comprehensive.cc
         core/tests/test_bridge_architecture_guards.cc

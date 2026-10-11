@@ -1,0 +1,165 @@
+/**
+ * test_video_pipeline.cc - 本地视频帧缓冲与 video FFI 契约（ADR-0008）
+ *
+ * 覆盖两个后端无关的部分：
+ *   1. VideoFrameBuffer 的写入/拷贝/容量不足/清空语义（合成帧，无需 FFmpeg）。
+ *   2. 无解码后端时的诚实降级：renderer_status available:false、start 返回
+ *      NOT_SUPPORTED、poll_frame 返回 0、video_status.playing 为 false。
+ *
+ * 真机/FFmpeg 解码路径（MGCORE_HAS_FFMPEG=ON）不在此覆盖，见 ADR-0008 的平台矩阵。
+ */
+#include "ffi_api.h"
+#include "core/video/video_decoder.h"
+
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <vector>
+
+using mg::core::video::VideoDecoder;
+using mg::core::video::VideoFrameBuffer;
+
+static int g_pass = 0;
+static int g_fail = 0;
+
+#define CHECK(cond, msg) do { \
+    if (cond) { g_pass++; fprintf(stderr, "  [PASS] %s\n", msg); } \
+    else { g_fail++; fprintf(stderr, "  [FAIL] %s\n", msg); } \
+} while (0)
+
+static bool json_has(const char* json, const char* needle) {
+    return json && std::strstr(json, needle) != nullptr;
+}
+
+int main() {
+    fprintf(stderr, "=== Video Pipeline Tests ===\n");
+
+    // ---- VideoFrameBuffer ----
+    {
+        fprintf(stderr, "\n[Group] VideoFrameBuffer\n");
+        VideoFrameBuffer buf;
+        CHECK(!buf.has_frame(), "empty buffer has no frame");
+
+        VideoFrameBuffer::Snapshot snap = buf.latest();
+        CHECK(snap.width == 0 && snap.height == 0 && snap.sequence == 0,
+              "empty buffer latest() is zeroed");
+
+        // 2x2 RGBA
+        const uint8_t f1[16] = {
+            1,2,3,4,   5,6,7,8,
+            9,10,11,12, 13,14,15,16,
+        };
+        buf.publish(f1, 2, 2, 1000);
+        CHECK(buf.has_frame(), "publish makes frame available");
+
+        snap = buf.latest();
+        CHECK(snap.width == 2 && snap.height == 2 && snap.pts_us == 1000 && snap.sequence == 1,
+              "latest() reports geometry, pts and sequence");
+
+        uint8_t out[16] = {0};
+        VideoFrameBuffer::Snapshot got;
+        size_t n = buf.copy_latest(out, sizeof(out), got);
+        CHECK(n == 16, "copy_latest copies the whole frame");
+        CHECK(std::memcmp(out, f1, 16) == 0, "copied pixels match published pixels");
+        CHECK(got.width == 2 && got.height == 2, "copy_latest reports geometry");
+
+        // 容量不足：整体失败，不写半帧
+        uint8_t small[8];
+        std::memset(small, 0xAB, sizeof(small));
+        size_t n2 = buf.copy_latest(small, sizeof(small), got);
+        CHECK(n2 == 0, "copy_latest fails when capacity is too small");
+        bool untouched = true;
+        for (uint8_t b : small) if (b != 0xAB) untouched = false;
+        CHECK(untouched, "copy_latest does not write a partial frame");
+
+        // 覆盖写：sequence 递增，latest() 反映新帧
+        const uint8_t f2[16] = {
+            16,15,14,13, 12,11,10,9,
+            8,7,6,5,     4,3,2,1,
+        };
+        buf.publish(f2, 2, 2, 2000);
+        n = buf.copy_latest(out, sizeof(out), got);
+        CHECK(n == 16 && got.sequence == 2 && got.pts_us == 2000, "publish overwrites latest frame");
+        CHECK(std::memcmp(out, f2, 16) == 0, "overwritten pixels are the new frame");
+
+        // 非法输入被忽略，不破坏已有帧
+        buf.publish(nullptr, 2, 2, 3000);
+        buf.publish(f2, 0, 2, 3000);
+        CHECK(buf.latest().sequence == 2, "invalid publish is ignored");
+
+        // 尺寸变化时重分配
+        const uint8_t f3[4] = {7,7,7,7};
+        buf.publish(f3, 1, 1, 4000);
+        uint8_t out1[4] = {0};
+        n = buf.copy_latest(out1, sizeof(out1), got);
+        CHECK(n == 4 && got.width == 1 && got.height == 1, "publish resizes to new geometry");
+
+        buf.clear();
+        CHECK(!buf.has_frame(), "clear drops the frame");
+        CHECK(buf.latest().sequence == 0, "clear resets sequence");
+    }
+
+    // ---- VideoDecoder（当前构建无后端）----
+    {
+        fprintf(stderr, "\n[Group] VideoDecoder backend gating\n");
+        CHECK(!VideoDecoder::backend_available(), "no decode backend is compiled in this build");
+        CHECK(std::string(VideoDecoder::backend_name()) == "none", "backend name is \"none\"");
+
+        VideoDecoder dec;
+        CHECK(!dec.start("rtsp://example.invalid/stream"), "start() returns false without a backend");
+        CHECK(!dec.running(), "decoder is not running without a backend");
+        CHECK(!dec.frames().has_frame(), "no frames are produced without a backend");
+        dec.stop(); // must be safe
+    }
+
+    // ---- FFI 契约 ----
+    {
+        fprintf(stderr, "\n[Group] video FFI contract\n");
+        mg_core_t* core = mg_create();
+        CHECK(core != nullptr, "mg_create returns a core");
+
+        char* st = mg_video_renderer_status(core);
+        CHECK(json_has(st, "\"available\":false"), "renderer_status reports available:false");
+        CHECK(json_has(st, "\"backend\":\"none\""), "renderer_status reports backend:none");
+        CHECK(json_has(st, "\"running\":false"), "renderer_status reports not running");
+        CHECK(json_has(st, "\"success\":true"), "renderer_status is a success envelope");
+        mg_free_string(st);
+
+        char* started = mg_video_start(core, "rtsp://example.invalid/stream");
+        CHECK(json_has(started, "\"success\":false"), "start fails without a backend");
+        CHECK(json_has(started, "NOT_SUPPORTED"), "start reports NOT_SUPPORTED");
+        mg_free_string(started);
+
+        char* empty = mg_video_start(core, "");
+        CHECK(json_has(empty, "INVALID_PARAM"), "empty uri is rejected as INVALID_PARAM");
+        mg_free_string(empty);
+
+        char* stopped = mg_video_stop(core);
+        CHECK(json_has(stopped, "\"success\":true"), "stop is a no-op success without a backend");
+        mg_free_string(stopped);
+
+        char* status = mg_video_status(core);
+        CHECK(json_has(status, "\"playing\":false"), "video_status does not claim to be playing");
+        mg_free_string(status);
+
+        std::vector<unsigned char> frame(4 * 4 * 4, 0);
+        int w = -1, h = -1;
+        long long pts = -1;
+        unsigned long long seq = 99;
+        int copied = mg_video_poll_frame(core, frame.data(), static_cast<int>(frame.size()),
+                                         &w, &h, &pts, &seq);
+        CHECK(copied == 0, "poll_frame returns 0 with no decoded frame");
+        CHECK(w == 0 && h == 0, "poll_frame reports an empty frame geometry when idle");
+        CHECK(mg_video_poll_frame(core, nullptr, 16, &w, &h, &pts, &seq) == -1,
+              "poll_frame rejects a null destination");
+        CHECK(mg_video_poll_frame(core, frame.data(), 0, &w, &h, &pts, &seq) == -1,
+              "poll_frame rejects non-positive capacity");
+        CHECK(mg_video_poll_frame(nullptr, frame.data(), 16, &w, &h, &pts, &seq) == -1,
+              "poll_frame rejects a null core");
+
+        mg_destroy(core);
+    }
+
+    fprintf(stderr, "\n=== %d passed, %d failed ===\n", g_pass, g_fail);
+    return g_fail == 0 ? 0 : 1;
+}

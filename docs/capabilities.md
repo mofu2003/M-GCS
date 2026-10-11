@@ -24,14 +24,14 @@
 | `ffi_api_logging.h` | 25 | 18 | 部分接入 | 机载 DataFlash 日志列表/下载/擦除（「机载日志」页）、链路 `.tlog` 录制/离线回放（「飞行记录」页）与 `mg_fs_*` 通用 MAVLink FTP 文件浏览/收发（「机载文件」页）均已接入；仍未接入的是事件日志服务与会话文件日志（`mg_event_*`/`mg_session_log_*`），见 docs/features/flight-logging-and-replay.md。 |
 | `ffi_api_mission.h` | 53 | 33 | 已交付 | 任务规划、上传、围栏/Rally 下发与航点编辑走任务面板与地图；survey/corridor 生成（`mg_survey_generate*`）接入配置工作区「测绘规划」页，见 docs/features/survey-and-terrain.md。 |
 | `ffi_api_params.h` | 21 | 7 | 部分接入 | 参数读写、文件导入导出接入配置页；批量下载进度与描述符映射部分留在 FFI 内部。 |
-| `ffi_api_payload.h` | 19 | 17 | 部分接入 | 相机/云台/视频元数据接入配置工作区「相机与云台」页（`payload`，S2）：设备清单、拍照/录像/变焦/云台指向/回中与视频流元数据；本地视频解码/渲染（S3）与录像/截图落盘（S4）未做，UI 不声称已支持。S1 的读契约返回真实适配器缓存，无设备时 `success:true`+`available:false`，见 docs/features/video-camera-gimbal.md。 |
+| `ffi_api_payload.h` | 21 | 19 | 部分接入 | 相机/云台/视频元数据接入配置工作区「相机与云台」页（`payload`，S2）：设备清单、拍照/录像/变焦/云台指向/回中与视频流元数据。本地视频解码（S3，ADR-0008）已接入 `mg_video_renderer_status`/`mg_video_poll_frame` 与前端 `VideoPreview`：后端可用且运行中时渲染最新 RGBA 帧，没有编译进后端时 `available:false`/`backend:"none"` 并如实说明；仍剩录像/截图落盘与容量管理（S4）。S1 的读契约返回真实适配器缓存，无设备时 `success:true`+`available:false`，见 docs/features/video-camera-gimbal.md。 |
 | `ffi_api_telemetry.h` | 47 | 15 | 部分接入 | 遥测快照、姿态、GPS、电池进入顶栏/仪表盘；波形与部分导航量仍为 FFI 内部能力。 |
-| **合计** | **307** | **129** | — | 其余 178 个公开导出尚未被前端绑定。 |
+| **合计** | **309** | **131** | — | 其余 178 个公开导出尚未被前端绑定。 |
 <!-- capabilities:end -->
 
 ## 说明
 
 - 「已接入前端」按 Dart 绑定是否出现该符号统计，只代表存在调用路径，不等于该路径已覆盖全部成功与失败分支；行为契约由 `tests/test_ffi_response_contract.cc` 和各模块的 sim/合约测试保证。
-- `ffi_api_logging.h` 已部分接入（配置工作区「机载日志」「飞行记录」「机载文件」三页：机载日志列表/下载/取消/擦除、`.tlog` 录制/回放、MAVLink FTP 文件浏览/收发）。`ffi_api_payload.h` 已部分接入（配置工作区「相机与云台」页：相机/云台清单与状态、拍照/录像/变焦/云台指向/回中、视频源元数据；S2）。本地视频解码/渲染（S3）与录像/截图落盘（S4）未做，界面不声称「已支持视频」。
+- `ffi_api_logging.h` 已部分接入（配置工作区「机载日志」「飞行记录」「机载文件」三页：机载日志列表/下载/取消/擦除、`.tlog` 录制/回放、MAVLink FTP 文件浏览/收发）。`ffi_api_payload.h` 已部分接入（配置工作区「相机与云台」页：相机/云台清单与状态、拍照/录像/变焦/云台指向/回中、视频源元数据；S3 起本机解码后端状态与预览帧经 `mg_video_renderer_status`/`mg_video_poll_frame` 接到前端 `VideoPreview`，后端缺失时如实降级）。录像/截图落盘与容量管理（S4）、真实相机/云台/视频硬件回读仍待完成，界面不声称「已支持视频」。
 - `ffi_api_environment.h` 部分接入：SITL 启停只服务开发与离线分析；地形缓存与剖面查询已接前端 backend 与在线 provider（open-elevation），但**尚未接入页面**（前端入口待定），补齐前不得在界面上声称「已支持」，见 `docs/features/survey-and-terrain.md`。
 - 公开导出的完整签名、Dart 绑定位置与所有权规则见 `bridge/ffi/API_CATALOG.md`；本文件只回答「交付到哪一层」。

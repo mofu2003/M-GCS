@@ -11,7 +11,7 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 任务上传的即时响应表示传输启动，最终结果需读取 operation 状态。
 符号检查不等于完整的参数类型或行为验证；真实交互另由 FFI smoke 和合约测试覆盖。
 
-公开函数：307；Flutter 绑定：129。
+公开函数：309；Flutter 绑定：131。
 
 ## ffi_api_configuration.h
 
@@ -324,6 +324,8 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `char* mg_gimbal_get_status(mg_core_t* core, int gimbal_id);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
 | `char* mg_gimbal_request_info(mg_core_t* core);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
 | `char* mg_video_get_streams(mg_core_t* core);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `int mg_video_poll_frame(mg_core_t* core, unsigned char* dst, int dst_capacity, int* out_width, int* out_height, long long* out_pts_us, unsigned long long* out_sequence);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_video_renderer_status(mg_core_t* core);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
 | `char* mg_video_start(mg_core_t* core, const char* uri);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
 | `char* mg_video_status(mg_core_t* core);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
 | `char* mg_video_stop(mg_core_t* core);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
