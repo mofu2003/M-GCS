@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
@@ -32,6 +33,22 @@ final class PayloadFfiBackend implements PayloadBackend {
     _videoStatus = _lookup1('mg_video_status');
     _videoGetStreams = _lookup1('mg_video_get_streams');
     _videoStop = _lookup1('mg_video_stop');
+    _videoRendererStatus = _lookup1('mg_video_renderer_status');
+    _videoPollFrame = _library
+        .lookup<
+          NativeFunction<
+            Int32 Function(
+              Pointer<Void>,
+              Pointer<Uint8>,
+              Int32,
+              Pointer<Int32>,
+              Pointer<Int32>,
+              Pointer<Int64>,
+              Pointer<Uint64>,
+            )
+          >
+        >('mg_video_poll_frame')
+        .asFunction();
     _cameraSetZoom = _library
         .lookup<
           NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Int32, Float)>
@@ -77,6 +94,23 @@ final class PayloadFfiBackend implements PayloadBackend {
   late final Pointer<Utf8> Function(Pointer<Void>) _videoGetStreams;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _videoStart;
   late final Pointer<Utf8> Function(Pointer<Void>) _videoStop;
+  late final Pointer<Utf8> Function(Pointer<Void>) _videoRendererStatus;
+  late final int Function(
+    Pointer<Void>,
+    Pointer<Uint8>,
+    int,
+    Pointer<Int32>,
+    Pointer<Int32>,
+    Pointer<Int64>,
+    Pointer<Uint64>,
+  )
+  _videoPollFrame;
+
+  /// 帧轮询复用同一块原生缓冲：容量不足时按 native 回报的尺寸扩容重试，
+  /// 避免每帧都 malloc/free 一大块内存。释放见 [dispose]。
+  Pointer<Uint8> _frameBuffer = nullptr;
+  int _frameCapacity = 0;
+  bool _disposed = false;
 
   Pointer<Utf8> Function(Pointer<Void>, int) _lookupInt(String symbol) =>
       _library
@@ -160,6 +194,78 @@ final class PayloadFfiBackend implements PayloadBackend {
 
   @override
   Map<String, Object?> videoStop() => _read(_videoStop(_core));
+
+  @override
+  Map<String, Object?> rendererStatus() => _read(_videoRendererStatus(_core));
+
+  @override
+  VideoFrameData? pollFrame() {
+    if (_disposed) return null;
+    final outWidth = calloc<Int32>();
+    final outHeight = calloc<Int32>();
+    final outPts = calloc<Int64>();
+    final outSeq = calloc<Uint64>();
+    try {
+      if (_frameBuffer == nullptr) _growFrameBuffer(1);
+      var copied = _videoPollFrame(
+        _core,
+        _frameBuffer,
+        _frameCapacity,
+        outWidth,
+        outHeight,
+        outPts,
+        outSeq,
+      );
+      if (copied < 0) {
+        // 容量不足：native 已在 out_* 里回报所需尺寸，扩容后重试一次。
+        final width = outWidth.value;
+        final height = outHeight.value;
+        if (width <= 0 || height <= 0) return null;
+        _growFrameBuffer(width * height * 4);
+        copied = _videoPollFrame(
+          _core,
+          _frameBuffer,
+          _frameCapacity,
+          outWidth,
+          outHeight,
+          outPts,
+          outSeq,
+        );
+      }
+      if (copied <= 0) return null;
+      return VideoFrameData(
+        width: outWidth.value,
+        height: outHeight.value,
+        rgba: Uint8List.fromList(_frameBuffer.asTypedList(copied)),
+        ptsUs: outPts.value,
+        sequence: outSeq.value,
+      );
+    } finally {
+      calloc.free(outWidth);
+      calloc.free(outHeight);
+      calloc.free(outPts);
+      calloc.free(outSeq);
+    }
+  }
+
+  void _growFrameBuffer(int bytes) {
+    final needed = bytes < 64 * 1024 ? 64 * 1024 : bytes;
+    if (_frameBuffer != nullptr && needed <= _frameCapacity) return;
+    if (_frameBuffer != nullptr) malloc.free(_frameBuffer);
+    _frameBuffer = malloc<Uint8>(needed);
+    _frameCapacity = needed;
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    if (_frameBuffer != nullptr) {
+      malloc.free(_frameBuffer);
+      _frameBuffer = nullptr;
+    }
+    _frameCapacity = 0;
+  }
 
   Map<String, Object?> _read(Pointer<Utf8> pointer) {
     if (pointer == nullptr) throw StateError('后端返回空结果');

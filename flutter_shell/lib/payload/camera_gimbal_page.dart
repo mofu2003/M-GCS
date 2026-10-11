@@ -9,6 +9,7 @@ import '../widgets/mac_panel.dart';
 import '../widgets/mg_inline_notice.dart';
 import 'payload_controller.dart';
 import 'payload_models.dart';
+import 'video_preview.dart';
 
 /// 相机与云台页：列出已发现的相机/云台，显示状态并下发拍摄与指向命令。
 ///
@@ -17,7 +18,8 @@ import 'payload_models.dart';
 /// - 设备清单来自 `mg_camera_get_status`/`mg_gimbal_get_status` 的 `cameras[]`/
 ///   `gimbals[]`，按 MAVLink 组件 id 选择；
 /// - 命令只表示数据包已发出（native 无 ACK），界面措辞为「已发送」；
-/// - 视频源在 S3 落地前恒为「本地播放未支持」，页面不谎称已播放。
+/// - 视频源：先显示本机解码后端能力（`mg_video_renderer_status`）；只有后端可用
+///   且真正在跑时才显示预览帧，没有后端时如实说明「本平台未启用本地解码」。
 class CameraGimbalPage extends StatefulWidget {
   const CameraGimbalPage({
     super.key,
@@ -403,19 +405,41 @@ class _CameraGimbalPageState extends State<CameraGimbalPage> {
     final colors = context.mgColors;
     final status = controller.videoStatus;
     final streams = controller.videoStreams;
+    final renderer = controller.videoRendererStatus;
     final enabled = controller.connected && !controller.busy;
+    final backendAvailable = renderer?.available ?? false;
     return MacPanel(
       padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          MgInlineNotice(
-            icon: CupertinoIcons.info_circle,
-            color: colors.textSecondary,
-            text:
-                '本地视频解码尚未实现（S3）。当前只能读取并显示流元数据，'
-                '「启动视频源」会明确返回「未支持」，不会静默做别的事。',
-          ),
+          if (!backendAvailable)
+            MgInlineNotice(
+              icon: CupertinoIcons.info_circle,
+              color: colors.textSecondary,
+              text:
+                  '本平台未启用本地视频解码（此构建未包含 LGPL FFmpeg 后端）。'
+                  '只能读取并显示流元数据，「启动视频源」会明确返回「未支持」，'
+                  '不会静默做别的事。',
+            )
+          else ...[
+            _readout(
+              context,
+              '解码后端',
+              '${renderer!.backend} · ${renderer.running ? '正在播放' : '已停止'}',
+            ),
+            if (renderer.running && renderer.uri.isNotEmpty)
+              _readout(context, '播放地址', renderer.uri),
+            _readout(
+              context,
+              '画面',
+              renderer.hasFrame
+                  ? '${renderer.width}×${renderer.height} · 第 ${renderer.sequence} 帧'
+                  : '等待首个视频帧…',
+            ),
+            const SizedBox(height: 8),
+            VideoPreview(controller: controller),
+          ],
           const SizedBox(height: 10),
           AlignedFieldRow(
             label: '视频源',

@@ -121,6 +121,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "queried, no device" are worded distinctly. The `ffi_api_payload.h` exports are now Dart-bound
   (17 of 19) and `docs/capabilities.md` moves it from 待接入 to 部分接入. Video stays
   metadata-only and says so, because local decoding/rendering is slice S3.
+- Local video decode pipeline (direction 4 S3, `docs/adr/0008-video-decode-backend.md`; ADR-0008 is
+  the D3 decision): a new native `core/include/core/video/video_decoder.h` +
+  `core/src/video/video_decoder.cc` (`VideoFrameBuffer` = bounded latest-frame slot with a
+  sequence number, `VideoDecoder` = one optional source) replaces the dead `ffmpeg_decoder.{h,cc}`
+  (no call sites, an empty shell under `MGCORE_HAS_FFMPEG=OFF`). Two payload exports are added:
+  `mg_video_renderer_status` (`{success,available,backend,running,uri,has_frame,width,height,pts_us,sequence}`)
+  and `mg_video_poll_frame` (`>0` bytes / `0` no frame / `-1` capacity error, reporting the required
+  size). `mg_video_start` now means start the local source (no backend → `NOT_SUPPORTED`, empty URI
+  → `INVALID_PARAM`, open failure → `SEND_FAILED`) and no longer fires the camera-record command;
+  `mg_video_status.playing` is true only while the local decoder is running with a new frame. The
+  Flutter side gains `payload/video_preview.dart` (33 ms polling only while running, sequence
+  de-duplication, `ui.decodeImageFromPixels` → `RawImage`) and a rewritten video panel that shows
+  「本平台未启用本地视频解码（此构建未包含 LGPL FFmpeg 后端）」 when there is no backend instead of
+  faking playback. Backend choice is FFmpeg under LGPL only (`--disable-gpl`); frames cross FFI as a
+  copy (no platform texture). Frame format is RGBA8888. Flutter suite is 231 passing / 4 skipped;
+  `tools/check_ffi_contract.py` reports 309 declarations / 131 bindings. The FFmpeg build path is
+  not compiled here (no FFmpeg/pkg-config on this host), so every platform is still honestly
+  `unsupported` until a real RTSP/UDP stream plays on two platforms.
 
 ### Fixed
 - PX4 flight modes had two drifting tables: `PX4Plugin` kept its own `kPX4Modes` while

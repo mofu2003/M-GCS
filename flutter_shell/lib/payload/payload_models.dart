@@ -407,3 +407,46 @@ final class VideoStatus {
     ],
   );
 }
+
+/// `mg_video_renderer_status` 的解析结果：本机（native core 内）解码后端的
+/// 可用性、运行状态与最新帧元数据。
+///
+/// 与 [VideoStatus] 的区别：[VideoStatus] 描述飞控上报的**远端视频流**；
+/// 本模型描述**本机解码器**。`available:false`（`backend:"none"`）表示这个
+/// 构建没编译进解码后端，页面据此如实说明「本平台未启用本地解码」，而不是
+/// 把「没有流」伪装成「未播放」。
+final class VideoRendererStatus {
+  const VideoRendererStatus({
+    required this.available,
+    this.backend = 'none',
+    this.running = false,
+    this.uri = '',
+    this.hasFrame = false,
+    this.width = 0,
+    this.height = 0,
+    this.ptsUs = 0,
+    this.sequence = 0,
+  });
+
+  final bool available;
+  final String backend;
+  final bool running;
+  final String uri;
+  final bool hasFrame;
+  final int width;
+  final int height;
+  final int ptsUs;
+  final int sequence;
+
+  factory VideoRendererStatus.fromJson(JsonMap json) => VideoRendererStatus(
+    available: json['available'] == true,
+    backend: json['backend'] as String? ?? 'none',
+    running: json['running'] == true,
+    uri: json['uri'] as String? ?? '',
+    hasFrame: json['has_frame'] == true,
+    width: json['width'] as int? ?? 0,
+    height: json['height'] as int? ?? 0,
+    ptsUs: (json['pts_us'] as num?)?.toInt() ?? 0,
+    sequence: (json['sequence'] as num?)?.toInt() ?? 0,
+  );
+}

@@ -26,6 +26,7 @@ class PayloadController extends ChangeNotifier {
   GimbalAttitude? _gimbalAttitude;
   VideoStatus? _videoStatus;
   List<VideoStreamInfo> _videoStreams = const [];
+  VideoRendererStatus? _rendererStatus;
 
   /// 当前查看的相机组件 id；null 表示「第一台 / 活动目标」。
   int? _selectedCameraId;
@@ -47,6 +48,9 @@ class PayloadController extends ChangeNotifier {
   GimbalAttitude? get gimbalAttitude => _gimbalAttitude;
   VideoStatus? get videoStatus => _videoStatus;
   List<VideoStreamInfo> get videoStreams => _videoStreams;
+
+  /// 本机解码后端状态（不是飞控能力）。未连接时也照常读取。
+  VideoRendererStatus? get videoRendererStatus => _rendererStatus;
 
   int? get selectedCameraId => _selectedCameraId;
   int? get selectedGimbalId => _selectedGimbalId;
@@ -76,6 +80,7 @@ class PayloadController extends ChangeNotifier {
     _gimbalAttitude = null;
     _videoStatus = null;
     _videoStreams = const [];
+    _rendererStatus = null;
     _selectedCameraId = null;
     _selectedGimbalId = null;
     _listError = null;
@@ -115,19 +120,23 @@ class PayloadController extends ChangeNotifier {
     _listError = null;
     notifyListeners();
 
+    final errors = <String>[];
+    // 本机解码后端与飞控连接无关：即使未连接也要如实报告「本平台有没有解码后端」。
+    _readRenderer(errors);
+
     if (!backend.isConnected) {
       _cameraStatus = null;
       _gimbalStatus = null;
       _gimbalAttitude = null;
       _videoStatus = null;
       _videoStreams = const [];
-      _listError = '未连接飞控，无法读取相机与云台状态';
+      errors.insert(0, '未连接飞控，无法读取相机与云台状态');
+      _listError = errors.join('；');
       _loading = false;
       notifyListeners();
       return;
     }
 
-    final errors = <String>[];
     try {
       _readCamera(errors);
       _readGimbal(errors);
@@ -137,6 +146,20 @@ class PayloadController extends ChangeNotifier {
       _listError = errors.isEmpty ? null : errors.join('；');
       _loading = false;
       notifyListeners();
+    }
+  }
+
+  /// 读取本机解码后端状态。`available:false` 是合法能力状态，不算错误。
+  void _readRenderer(List<String> errors) {
+    try {
+      final response = backend.rendererStatus();
+      if (!ffiSucceeded(response)) {
+        errors.add(ffiErrorText(response, '读取本地视频解码状态失败'));
+        return;
+      }
+      _rendererStatus = VideoRendererStatus.fromJson(response);
+    } on Object catch (error) {
+      errors.add('读取本地视频解码状态失败：$error');
     }
   }
 
@@ -267,8 +290,8 @@ class PayloadController extends ChangeNotifier {
   Future<void> gimbalRecenter() =>
       _send(() => backend.gimbalRecenter(), '已发送云台回中指令');
 
-  /// 启动视频源：native 在 S3 落地前恒返回 `NOT_SUPPORTED`，
-  /// 这里不吞掉这个结果，错误会照实显示为「本地播放未支持」。
+  /// 启动视频源。没有编译进解码后端时 native 返回 `NOT_SUPPORTED`；
+  /// 这里不吞掉这个结果，错误会照实显示为「本地解码未支持」。
   Future<void> startVideo(String uri) async {
     final trimmed = uri.trim();
     if (trimmed.isEmpty) {
@@ -277,9 +300,24 @@ class PayloadController extends ChangeNotifier {
       return;
     }
     await _send(() => backend.videoStart(trimmed), '已请求启动视频源');
+    _refreshRendererQuietly();
   }
 
-  Future<void> stopVideo() => _send(() => backend.videoStop(), '已请求停止视频源');
+  Future<void> stopVideo() async {
+    await _send(() => backend.videoStop(), '已请求停止视频源');
+    _refreshRendererQuietly();
+  }
+
+  /// 取本机解码器的最新一帧；没有新帧或没有后端时返回 null。
+  /// 页面预览走这条缝，因此页面仍然只接触控制器，不接触 backend（U1）。
+  VideoFrameData? pollFrame() => backend.pollFrame();
+
+  /// 命令后刷新运行状态，失败不污染列表错误区（命令结果已在 action 区展示）。
+  void _refreshRendererQuietly() {
+    if (_disposed) return;
+    _readRenderer(<String>[]);
+    notifyListeners();
+  }
 
   Future<void> _send(
     Map<String, Object?> Function() action,

@@ -10,8 +10,9 @@ import 'support/payload_backend_fake.dart';
 
 Future<void> _pumpPage(
   WidgetTester tester,
-  PayloadController controller,
-) async {
+  PayloadController controller, {
+  bool settle = true,
+}) async {
   tester.view.physicalSize = const Size(1400, 1600);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
@@ -26,7 +27,11 @@ Future<void> _pumpPage(
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+  }
 }
 
 void main() {
@@ -109,6 +114,61 @@ void main() {
     expect(controller.selectedCameraId, 101);
     expect(backend.lastCameraId, 101);
     expect(find.textContaining('CAM-B'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('未启用解码后端时如实说明，不画预览画面', (tester) async {
+    final controller = PayloadController(backend: FakePayloadBackend());
+    addTearDown(controller.dispose);
+
+    await _pumpPage(tester, controller);
+
+    expect(find.textContaining('本平台未启用本地视频解码'), findsOneWidget);
+    expect(find.text('未播放'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('解码后端可用但已停止时显示后端与占位画面', (tester) async {
+    final backend = FakePayloadBackend();
+    backend.onRendererStatus = () =>
+        rendererStatusResponse(available: true, backend: 'ffmpeg');
+    final controller = PayloadController(backend: backend);
+    addTearDown(controller.dispose);
+
+    await _pumpPage(tester, controller);
+
+    expect(find.textContaining('ffmpeg · 已停止'), findsOneWidget);
+    expect(find.text('未播放'), findsOneWidget);
+    expect(find.textContaining('本平台未启用本地视频解码'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('解码运行中显示帧元数据与地址，不留假画面', (tester) async {
+    final backend = FakePayloadBackend();
+    backend.onRendererStatus = () => rendererStatusResponse(
+      available: true,
+      backend: 'ffmpeg',
+      running: true,
+      uri: 'rtsp://cam/main',
+      hasFrame: true,
+      width: 4,
+      height: 4,
+      sequence: 8,
+    );
+    final controller = PayloadController(backend: backend);
+    addTearDown(controller.dispose);
+
+    // 运行时会开帧轮询定时器，不能用 pumpAndSettle。
+    await _pumpPage(tester, controller, settle: false);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.textContaining('ffmpeg · 正在播放'), findsOneWidget);
+    expect(find.textContaining('4×4 · 第 8 帧'), findsOneWidget);
+    expect(find.textContaining('rtsp://cam/main'), findsWidgets);
+
+    // 卸载页面必须取消轮询定时器。
+    await tester.pumpWidget(const SizedBox());
     expect(tester.takeException(), isNull);
   });
 }

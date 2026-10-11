@@ -4032,6 +4032,7 @@ final class ConnectionController extends ChangeNotifier {
     _tlogController?.dispose();
     _fileController?.dispose();
     _payloadController?.dispose();
+    _payloadBackend?.dispose();
     _fleet?.removeListener(_handleFleetChanged);
     _fleetTimer?.cancel();
     _fleet?.dispose();

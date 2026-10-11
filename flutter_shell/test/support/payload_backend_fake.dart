@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:mgcs_frontend/payload/payload_backend.dart';
 
 /// 相机 / 云台 / 视频 FFI 的替身。
@@ -18,6 +20,10 @@ class FakePayloadBackend implements PayloadBackend {
   Map<String, Object?> Function(int gimbalId)? onGimbalAttitude;
   Map<String, Object?> Function()? onVideoStatus;
   Map<String, Object?> Function()? onVideoStreams;
+  Map<String, Object?> Function()? onRendererStatus;
+
+  /// 每次 [pollFrame] 依次弹出的帧；耗尽后返回 null（模拟「无新帧」）。
+  final List<VideoFrameData> pollFrames = [];
 
   /// 命令类（拍照、变焦、云台指向、视频启动…）的返回值。
   Map<String, Object?> commandResponse = payloadOk();
@@ -138,6 +144,24 @@ class FakePayloadBackend implements PayloadBackend {
 
   @override
   Map<String, Object?> videoStop() => _command('videoStop');
+
+  @override
+  Map<String, Object?> rendererStatus() {
+    calls.add('rendererStatus');
+    return onRendererStatus?.call() ?? rendererStatusResponse();
+  }
+
+  @override
+  VideoFrameData? pollFrame() {
+    calls.add('pollFrame');
+    if (pollFrames.isEmpty) return null;
+    return pollFrames.removeAt(0);
+  }
+
+  @override
+  void dispose() {
+    calls.add('dispose');
+  }
 }
 
 /// `{"success":true}` 的标准成功响应。
@@ -372,3 +396,50 @@ Map<String, Object?> videoStatusResponse({
 Map<String, Object?> videoStreamsResponse({
   List<Map<String, Object?>> streams = const [],
 }) => {'success': true, 'count': streams.length, 'streams': streams};
+
+/// `mg_video_renderer_status` 的响应。默认「没有可用后端」，与当前构建一致。
+Map<String, Object?> rendererStatusResponse({
+  bool available = false,
+  String backend = 'none',
+  bool running = false,
+  String uri = '',
+  bool hasFrame = false,
+  int width = 0,
+  int height = 0,
+  int ptsUs = 0,
+  int sequence = 0,
+}) => {
+  'success': true,
+  'available': available,
+  'backend': backend,
+  'running': running,
+  'uri': uri,
+  'has_frame': hasFrame,
+  'width': width,
+  'height': height,
+  'pts_us': ptsUs,
+  'sequence': sequence,
+};
+
+/// 一帧合成 RGBA8888（纯色），供控制器/预览测试驱动，不依赖真实解码后端。
+VideoFrameData renderedFrame({
+  int width = 4,
+  int height = 4,
+  int sequence = 1,
+  int ptsUs = 0,
+}) {
+  final rgba = Uint8List(width * height * 4);
+  for (var i = 0; i < width * height; i++) {
+    rgba[i * 4] = 10;
+    rgba[i * 4 + 1] = 20;
+    rgba[i * 4 + 2] = 30;
+    rgba[i * 4 + 3] = 255;
+  }
+  return VideoFrameData(
+    width: width,
+    height: height,
+    rgba: rgba,
+    ptsUs: ptsUs,
+    sequence: sequence,
+  );
+}

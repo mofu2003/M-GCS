@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 /// 相机 / 云台 / 视频的原生边界。
 ///
 /// 只暴露 `mg_camera_*`、`mg_gimbal_*`、`mg_video_*`、`mg_command_gimbal_*`
@@ -37,9 +39,37 @@ abstract interface class PayloadBackend {
   /// 更完整的视频流定义（`VIDEO_STREAM_INFORMATION`）。未连接返回错误对象。
   Map<String, Object?> videoStreams();
 
-  /// 启动本地视频源。S3 前 native 恒返回 `NOT_SUPPORTED`。
+  /// 启动本地视频源。没有编译进解码后端时 native 返回 `NOT_SUPPORTED`。
   Map<String, Object?> videoStart(String uri);
   Map<String, Object?> videoStop();
+
+  /// 本机解码后端状态（`mg_video_renderer_status`）。即使未连接飞控也可读：
+  /// 它描述的是本机后端，不是飞控能力。
+  Map<String, Object?> rendererStatus();
+
+  /// 取本机解码器的最新一帧（RGBA8888）。没有新帧或没有可用后端时返回 null，
+  /// 不阻塞、不抛异常。像素已拷进 Dart 侧的 [VideoFrameData.rgba]。
+  VideoFrameData? pollFrame();
+
+  /// 释放后端持有的原生资源（例如帧缓冲）。重复调用安全。
+  void dispose();
+}
+
+/// 一帧 RGBA8888 像素与元数据。`rgba` 长度为 `width * height * 4`，行间无填充。
+final class VideoFrameData {
+  const VideoFrameData({
+    required this.width,
+    required this.height,
+    required this.rgba,
+    this.ptsUs = 0,
+    this.sequence = 0,
+  });
+
+  final int width;
+  final int height;
+  final Uint8List rgba;
+  final int ptsUs;
+  final int sequence;
 }
 
 /// 原生库不可用时的降级实现：明确报错，不静默返回空结果。
@@ -109,4 +139,26 @@ final class PayloadUnavailableBackend implements PayloadBackend {
 
   @override
   Map<String, Object?> videoStop() => _fail();
+
+  /// 原生库不可用时，本机解码后端同样「不可用」——这是一个合法的能力状态，
+  /// 不是错误，所以返回 `available:false` 而不是失败对象，避免污染页面错误区。
+  @override
+  Map<String, Object?> rendererStatus() => const {
+    'success': true,
+    'available': false,
+    'backend': 'none',
+    'running': false,
+    'uri': '',
+    'has_frame': false,
+    'width': 0,
+    'height': 0,
+    'pts_us': 0,
+    'sequence': 0,
+  };
+
+  @override
+  VideoFrameData? pollFrame() => null;
+
+  @override
+  void dispose() {}
 }

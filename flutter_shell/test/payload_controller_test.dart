@@ -174,6 +174,64 @@ void main() {
     expect(controller.actionError, contains('not implemented'));
   });
 
+  test('读出本机解码后端状态，未连接时也如实报告能力', () async {
+    backend.onRendererStatus = () => rendererStatusResponse(
+      available: true,
+      backend: 'ffmpeg',
+      running: false,
+    );
+
+    await controller.refresh();
+    expect(controller.videoRendererStatus?.available, isTrue);
+    expect(controller.videoRendererStatus?.backend, 'ffmpeg');
+    expect(controller.videoRendererStatus?.running, isFalse);
+
+    // 断链只影响飞控读接口，本机解码能力仍应可读。
+    backend.connected = false;
+    await controller.refresh();
+    expect(controller.listError, contains('未连接飞控'));
+    expect(controller.videoRendererStatus?.available, isTrue);
+  });
+
+  test('无解码后端是合法状态，不写进错误区', () async {
+    await controller.refresh();
+
+    expect(controller.listError, isNull);
+    expect(controller.videoRendererStatus?.available, isFalse);
+    expect(controller.videoRendererStatus?.backend, 'none');
+  });
+
+  test('pollFrame 取用后端帧，无新帧返回 null', () async {
+    backend.pollFrames.add(renderedFrame(width: 3, height: 2, sequence: 5));
+
+    final frame = controller.pollFrame();
+    expect(frame, isNotNull);
+    expect(frame!.width, 3);
+    expect(frame.height, 2);
+    expect(frame.sequence, 5);
+    expect(frame.rgba.length, 3 * 2 * 4);
+
+    expect(controller.pollFrame(), isNull);
+  });
+
+  test('启动视频源成功后刷新解码运行状态', () async {
+    backend.onRendererStatus = () => rendererStatusResponse(
+      available: true,
+      backend: 'ffmpeg',
+      running: true,
+      uri: 'rtsp://192.168.1.10:8554/main',
+    );
+
+    await controller.startVideo('rtsp://192.168.1.10:8554/main');
+
+    expect(controller.actionError, isNull);
+    expect(controller.videoRendererStatus?.running, isTrue);
+    expect(
+      controller.videoRendererStatus?.uri,
+      'rtsp://192.168.1.10:8554/main',
+    );
+  });
+
   test('变焦与云台指向把参数原样交给 native', () async {
     backend.onCameraStatus = (_) => cameraStatusResponse(
       devices: [cameraDevice(componentId: 100)],
