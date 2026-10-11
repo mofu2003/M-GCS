@@ -10,6 +10,7 @@
  */
 #include "mock_vehicle_test_env.h"
 #include "ffi_api.h"
+#include "ardupilotmega/mavlink.h"
 
 #include <chrono>
 #include <cstdio>
@@ -984,6 +985,153 @@ void test_px4_apis_reject_ardupilot() {
     if (g) mg_free_string(g);
 }
 
+// ---- 相机/云台设备清单（S2 前端页面的读接口基础） ----
+//
+// S1 的读接口只能返回「第一台设备 + 数量」，前端无法列出多台设备。
+// 这里钉住清单数组：注入两台不同型号的相机/云台后，读接口必须把它们都列出来，
+// 并且按组件 id 选择时返回对应那台的详情。
+std::string payload_array_slice(const char* json, const char* key) {
+    if (json == nullptr) return {};
+    const std::string text(json);
+    const auto begin = text.find(key);
+    if (begin == std::string::npos) return {};
+    const auto end = text.find(']', begin);
+    if (end == std::string::npos) return {};
+    return text.substr(begin, end - begin + 1);
+}
+
+int count_char(const std::string& text, char needle) {
+    int n = 0;
+    for (char c : text) {
+        if (c == needle) n++;
+    }
+    return n;
+}
+
+void inject_message(TestEnv& env, mavlink_message_t& msg) {
+    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+    const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+    env.link->inject_incoming(buf, len);
+}
+
+void test_payload_device_inventory() {
+    fprintf(stderr, "\n[Group] Payload device inventory (camera/gimbal)\n");
+    TestEnv env;
+    CHECK(env.wait_connected(), "payload inventory: connected");
+
+    // 两台相机：component 100 / 101，型号不同。
+    auto inject_camera = [&env](uint8_t comp, const char* model, uint16_t res_h) {
+        mavlink_message_t m;
+        mavlink_camera_information_t ci = {};
+        ci.flags = 0x00000003;  // CAPTURE_IMAGE | CAPTURE_VIDEO
+        ci.resolution_h = res_h;
+        ci.resolution_v = 2160;
+        std::memcpy(ci.vendor_name, "ACME", 4);
+        std::memcpy(ci.model_name, model, std::strlen(model));
+        mavlink_msg_camera_information_encode(1, comp, &m, &ci);
+        inject_message(env, m);
+    };
+    inject_camera(100, "CamA", 4000);
+    inject_camera(101, "CamB", 1920);
+
+    // 相机 100 有两个存储桶（0 与 1）。
+    for (uint8_t storage_id = 0; storage_id < 2; storage_id++) {
+        mavlink_message_t m;
+        mavlink_storage_information_t si = {};
+        si.storage_id = storage_id;
+        si.storage_count = 2;
+        si.status = 2;
+        si.total_capacity = 32000.0f;
+        si.used_capacity = 1000.0f * (storage_id + 1);
+        si.available_capacity = 31000.0f;
+        mavlink_msg_storage_information_encode(1, 100, &m, &si);
+        inject_message(env, m);
+    }
+
+    char* r = mg_camera_get_status(env.core, 0);
+    CHECK(r != nullptr, "camera_get_status returns non-null");
+    const std::string cameras = payload_array_slice(r, "\"cameras\":[");
+    CHECK(count_char(cameras, '{') == 2, "camera inventory lists both cameras");
+    CHECK(cameras.find("\"model_name\":\"CamA\"") != std::string::npos, "inventory has CamA");
+    CHECK(cameras.find("\"model_name\":\"CamB\"") != std::string::npos, "inventory has CamB");
+    CHECK(json_has(r, "\"available\":true"), "camera available:true when a device exists");
+    CHECK(json_has(r, "\"model_name\":\"CamA\""), "default selection is the first camera");
+    const std::string storage = payload_array_slice(r, "\"entries\":[");
+    CHECK(count_char(storage, '{') == 2, "storage returns every bucket, not just the first");
+    if (r) mg_free_string(r);
+
+    // 按组件 id 选择第二台：详情必须是 CamB，而不是「第一台」。
+    r = mg_camera_get_status(env.core, 101);
+    CHECK(r != nullptr, "camera_get_status(101) returns non-null");
+    CHECK(json_has(r, "\"component_id\":101"), "selecting by compId addresses CamB");
+    CHECK(json_has(r, "\"model_name\":\"CamB\""), "selected camera detail is CamB");
+    CHECK(json_has(r, "\"resolution_h\":1920"), "selected camera detail keeps its own resolution");
+    if (r) mg_free_string(r);
+
+    // 不存在的组件 id：合法的「无此设备」，不是调用失败。
+    r = mg_camera_get_status(env.core, 200);
+    CHECK(r != nullptr, "camera_get_status(200) returns non-null");
+    CHECK(json_has(r, "\"available\":false"), "unknown compId reports available:false");
+    CHECK(!json_has(r, "\"error\""), "unknown compId is not an error");
+    if (r) mg_free_string(r);
+
+    // 两台云台管理器：component 154 / 155；154 另有设备信息提供厂商/型号。
+    for (uint8_t comp = 154; comp < 156; comp++) {
+        mavlink_message_t m;
+        mavlink_gimbal_manager_information_t gi = {};
+        gi.cap_flags = 0x5;
+        gi.pitch_min = -90.0f;
+        gi.pitch_max = 30.0f;
+        mavlink_msg_gimbal_manager_information_encode(1, comp, &m, &gi);
+        inject_message(env, m);
+    }
+    {
+        mavlink_message_t m;
+        mavlink_gimbal_device_information_t gd = {};
+        std::memcpy(gd.vendor_name, "GMB", 3);
+        std::memcpy(gd.model_name, "G1", 2);
+        mavlink_msg_gimbal_device_information_encode(1, 154, &m, &gd);
+        inject_message(env, m);
+    }
+
+    r = mg_gimbal_get_status(env.core, 0);
+    CHECK(r != nullptr, "gimbal_get_status returns non-null");
+    const std::string gimbals = payload_array_slice(r, "\"gimbals\":[");
+    CHECK(count_char(gimbals, '{') == 2, "gimbal inventory lists both managers");
+    CHECK(gimbals.find("\"vendor_name\":\"GMB\"") != std::string::npos,
+          "gimbal inventory carries device vendor when known");
+    CHECK(json_has(r, "\"available\":true"), "gimbal available:true when a device exists");
+    CHECK(json_has(r, "\"pitch_min\":-90"), "gimbal detail exposes the manager pitch range");
+    if (r) mg_free_string(r);
+
+    // 云台姿态：单位四元数 → 欧拉角全 0；再验证 180° 偏航（q=(0,0,0,1)，
+    // 在 float 下是精确值，不会因为 0.7071 的舍入把断言变成浮点噪声）。
+    {
+        mavlink_message_t m;
+        mavlink_gimbal_device_attitude_status_t ga = {};
+        ga.q[0] = 1.0f;
+        mavlink_msg_gimbal_device_attitude_status_encode(1, 154, &m, &ga);
+        inject_message(env, m);
+    }
+    r = mg_gimbal_get_attitude(env.core, 0);
+    CHECK(r != nullptr, "gimbal_get_attitude returns non-null");
+    CHECK(json_has(r, "\"available\":true"), "gimbal attitude available after status message");
+    CHECK(json_has(r, "\"yaw_deg\":0"), "identity quaternion gives yaw 0");
+    if (r) mg_free_string(r);
+
+    {
+        mavlink_message_t m;
+        mavlink_gimbal_device_attitude_status_t ga = {};
+        ga.q[3] = 1.0f;  // 180° about Z
+        mavlink_msg_gimbal_device_attitude_status_encode(1, 154, &m, &ga);
+        inject_message(env, m);
+    }
+    r = mg_gimbal_get_attitude(env.core, 0);
+    CHECK(r != nullptr, "gimbal_get_attitude(second) returns non-null");
+    CHECK(json_has(r, "\"yaw_deg\":180"), "yaw quaternion converts to 180 degrees");
+    if (r) mg_free_string(r);
+}
+
 int main() {
     fprintf(stderr, "=== FFI UI path simulation tests ===\n");
     test_params_get_by_name();
@@ -1012,6 +1160,7 @@ int main() {
     test_mission_request_propagates_send_failure();
     test_serial_get_uart_names();
     test_fs_transfer_async_ffi();
+    test_payload_device_inventory();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

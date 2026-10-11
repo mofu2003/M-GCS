@@ -152,17 +152,40 @@ MGCORE_API char* mg_camera_get_status(mg_core_t* core, int camera_id) {
     jb.begin_object();
     jb.field("success", true);
 
+    auto* mav = get_active_mavlink(core);
+    const std::vector<CameraInformationInfo> cameras =
+        mav ? mav->latest_cameras() : std::vector<CameraInformationInfo>{};
+
+    // 设备清单：前端据此列出所有已发现的相机，并在多相机时提供选择（S2/D4）。
+    // 清单只带列表展示所需的摘要，逐台详情仍由选中项字段给出。
+    mg::core::telemetry::JsonBuilder list;
+    list.begin_array();
+    for (const auto& c : cameras) {
+        mg::core::telemetry::JsonBuilder entry;
+        entry.begin_object();
+        entry.field("system_id", static_cast<int>(c.system_id));
+        entry.field("component_id", static_cast<int>(c.component_id));
+        entry.field("camera_device_id", static_cast<int>(c.camera_device_id));
+        entry.field("vendor_name", c.vendor_name);
+        entry.field("model_name", c.model_name);
+        entry.field("flags", static_cast<long long>(c.flags));
+        entry.field("has_photo", (c.flags & 0x01) != 0);   // CAMERA_CAP_FLAGS_CAPTURE_IMAGE
+        entry.field("has_video", (c.flags & 0x02) != 0);   // CAMERA_CAP_FLAGS_CAPTURE_VIDEO
+        entry.end_object();
+        list.append_json(entry.str());
+    }
+    list.end_array();
+    jb.raw_field("cameras", list.str());
+    jb.field("count", static_cast<int>(cameras.size()));
+
     auto selected = select_camera(core, camera_id);
     if (!selected) {
         // 「已查询、当前无该相机」是合法状态，不是调用失败（D5）。
         jb.field("available", false);
-        auto* mav = get_active_mavlink(core);
-        jb.field("count", mav ? static_cast<int>(mav->latest_cameras().size()) : 0);
         jb.end_object();
         return to_cstr(jb.str());
     }
 
-    auto* mav = get_active_mavlink(core);
     const uint8_t sys = selected->system_id;
     const uint8_t comp = selected->component_id;
     std::optional<CameraSettingsInfo> settings = mav->camera_settings(sys, comp);
@@ -190,18 +213,26 @@ MGCORE_API char* mg_camera_get_status(mg_core_t* core, int camera_id) {
     jb.field("video_status", capture ? static_cast<int>(capture->video_status) : 0);
     jb.field("available_capacity_mib", capture ? capture->available_capacity : 0.0f);
 
+    // 存储是列表（一台相机可能有多个存储桶），按列表返回而不是只暴露第一个。
     mg::core::telemetry::JsonBuilder st;
     st.begin_object();
     st.field("count", static_cast<int>(storage.size()));
-    if (!storage.empty()) {
-        const auto& s = storage.front();
-        st.field("storage_id", static_cast<int>(s.storage_id));
-        st.field("status", static_cast<int>(s.status));
-        st.field("total_capacity_mib", s.total_capacity);
-        st.field("used_capacity_mib", s.used_capacity);
-        st.field("available_capacity_mib", s.available_capacity);
-        st.field("name", s.name);
+    mg::core::telemetry::JsonBuilder buckets;
+    buckets.begin_array();
+    for (const auto& s : storage) {
+        mg::core::telemetry::JsonBuilder entry;
+        entry.begin_object();
+        entry.field("storage_id", static_cast<int>(s.storage_id));
+        entry.field("status", static_cast<int>(s.status));
+        entry.field("total_capacity_mib", s.total_capacity);
+        entry.field("used_capacity_mib", s.used_capacity);
+        entry.field("available_capacity_mib", s.available_capacity);
+        entry.field("name", s.name);
+        entry.end_object();
+        buckets.append_json(entry.str());
     }
+    buckets.end_array();
+    st.raw_field("entries", buckets.str());
     st.end_object();
     jb.raw_field("storage", st.str());
     jb.end_object();
@@ -250,16 +281,39 @@ MGCORE_API char* mg_gimbal_get_status(mg_core_t* core, int gimbal_id) {
     jb.begin_object();
     jb.field("success", true);
 
+    auto* mav = get_active_mavlink(core);
+    const std::vector<GimbalManagerInformationInfo> gimbals =
+        mav ? mav->latest_gimbals() : std::vector<GimbalManagerInformationInfo>{};
+
+    // 设备清单：前端据此列出所有已发现的云台并在多云台时提供选择（S2/D4）。
+    // 厂商/型号来自 GIMBAL_DEVICE_INFORMATION（若有），缺失时留空。
+    mg::core::telemetry::JsonBuilder list;
+    list.begin_array();
+    for (const auto& g : gimbals) {
+        std::optional<GimbalDeviceInformationInfo> info =
+            mav->gimbal_device_information(g.system_id, g.component_id);
+        mg::core::telemetry::JsonBuilder entry;
+        entry.begin_object();
+        entry.field("system_id", static_cast<int>(g.system_id));
+        entry.field("component_id", static_cast<int>(g.component_id));
+        entry.field("gimbal_device_id", static_cast<int>(g.gimbal_device_id));
+        entry.field("cap_flags", static_cast<long long>(g.cap_flags));
+        entry.field("vendor_name", info ? info->vendor_name : "");
+        entry.field("model_name", info ? info->model_name : "");
+        entry.end_object();
+        list.append_json(entry.str());
+    }
+    list.end_array();
+    jb.raw_field("gimbals", list.str());
+    jb.field("count", static_cast<int>(gimbals.size()));
+
     auto selected = select_gimbal(core, gimbal_id);
     if (!selected) {
         jb.field("available", false);
-        auto* mav = get_active_mavlink(core);
-        jb.field("count", mav ? static_cast<int>(mav->latest_gimbals().size()) : 0);
         jb.end_object();
         return to_cstr(jb.str());
     }
 
-    auto* mav = get_active_mavlink(core);
     const uint8_t sys = selected->system_id;
     const uint8_t comp = selected->component_id;
     std::optional<GimbalManagerStatusInfo> status = mav->gimbal_manager_status(sys, comp);
