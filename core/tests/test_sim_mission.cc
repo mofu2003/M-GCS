@@ -131,7 +131,7 @@ static void test_mission_upload() {
 
     CHECK(env.mock->mission_items_received == 4, "ArduPilot upload includes injected home + 3 mission items");
 
-    const auto& home = env.mock->stored_mission().front();
+    const auto home = env.mock->stored_mission().front();
     CHECK(home.seq == 0 &&
           home.command == MAV_CMD_NAV_WAYPOINT &&
           home.frame == MAV_FRAME_GLOBAL,
@@ -238,6 +238,80 @@ static void test_mission_download_compat_item() {
     if (plan) mg_free_string(plan);
 
     CHECK(has_lat && has_lon, "compat mission item download preserves coordinates");
+}
+
+// S4：DO_LAND_START(189) 的 x/y 语义按固件区分。ArduPilot
+// `AP_Mission::stored_in_location()` 把它当坐标；QGC 的 PX4 MavCmdInfo
+// 覆盖成纯标记，0/无关值不能被画到地图上。
+static void test_mission_plan_json_land_start_per_firmware() {
+    fprintf(stderr, "\n[Group] Mission plan JSON DO_LAND_START per firmware\n");
+
+    auto land_start_mission = [] {
+        std::vector<mavlink_mission_item_int_t> items(2);
+        memset(items.data(), 0, items.size() * sizeof(mavlink_mission_item_int_t));
+        items[0].seq = 0;
+        items[0].frame = MAV_FRAME_GLOBAL_RELATIVE_ALT;
+        items[0].command = 189; // MAV_CMD_DO_LAND_START
+        items[0].autocontinue = 1;
+        items[0].x = static_cast<int32_t>(47.5 * 1e7);
+        items[0].y = static_cast<int32_t>(85.4 * 1e7);
+        items[0].z = 30.0f;
+        items[1].seq = 1;
+        items[1].frame = MAV_FRAME_GLOBAL_RELATIVE_ALT;
+        items[1].command = MAV_CMD_NAV_WAYPOINT;
+        items[1].autocontinue = 1;
+        items[1].x = static_cast<int32_t>(39.9 * 1e7);
+        items[1].y = static_cast<int32_t>(116.4 * 1e7);
+        items[1].z = 50.0f;
+        return items;
+    };
+
+    {
+        TestEnv env; // 默认 ArduPilot
+        for (int i = 0; i < 15; i++) env.tick(100);
+        env.mock->set_mission(land_start_mission());
+
+        char* started = mg_mission_download(env.core);
+        if (started) mg_free_string(started);
+        for (int i = 0; i < 80; i++) env.tick(50);
+
+        char* plan = mg_mission_get_plan(env.core);
+        const bool keeps_land_start =
+            plan != nullptr && strstr(plan, "\"lat\":47.5") != nullptr &&
+            strstr(plan, "\"lon\":85.4") != nullptr;
+        const bool keeps_waypoint =
+            plan != nullptr && strstr(plan, "\"lat\":39.9") != nullptr;
+        if (plan) mg_free_string(plan);
+        CHECK(keeps_land_start,
+              "ArduPilot plan JSON keeps DO_LAND_START coordinates");
+        CHECK(keeps_waypoint, "ArduPilot plan JSON keeps the waypoint coordinates");
+    }
+
+    {
+        MockFlightController::Config cfg;
+        cfg.firmware = MockFlightController::PX4;
+        TestEnv env(cfg);
+        for (int i = 0; i < 15; i++) env.tick(100);
+        env.mock->set_mission(land_start_mission());
+
+        char* started = mg_mission_download(env.core);
+        if (started) mg_free_string(started);
+        for (int i = 0; i < 80; i++) env.tick(50);
+
+        char* plan = mg_mission_get_plan(env.core);
+        const bool lists_command =
+            plan != nullptr && strstr(plan, "\"command\":189") != nullptr;
+        const bool drops_land_start =
+            plan != nullptr && strstr(plan, "\"lat\":47.5") == nullptr &&
+            strstr(plan, "\"lon\":85.4") == nullptr;
+        const bool keeps_waypoint =
+            plan != nullptr && strstr(plan, "\"lat\":39.9") != nullptr;
+        if (plan) mg_free_string(plan);
+        CHECK(lists_command, "PX4 plan JSON still lists DO_LAND_START");
+        CHECK(drops_land_start,
+              "PX4 plan JSON treats DO_LAND_START x/y as a marker, not a position");
+        CHECK(keeps_waypoint, "PX4 plan JSON keeps the waypoint coordinates");
+    }
 }
 
 static void test_mission_clear() {
@@ -673,6 +747,7 @@ int main() {
     test_mission_upload_compat_request();
     test_mission_download();
     test_mission_download_compat_item();
+    test_mission_plan_json_land_start_per_firmware();
     test_mission_clear();
     test_mission_transfer_guards();
     test_mission_ack_source_validation();

@@ -11,10 +11,11 @@
  * issuing the next).
  */
 #include "ffi_internal.h"
-#include "json_serializers.h"
+#include "core/telemetry/json_serializers.h"
 #include "core/mission/mission_manager.h"
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 // Safe helper: get mission plan from mavlink (null-safe)
 static mg::core::mission::MissionPlan safe_get_plan(mg_core_t* core) {
@@ -57,7 +58,7 @@ MGCORE_API char* mg_mission_add_item(mg_core_t* core, const char* json) {
     CHECK_CORE(core);
     if (!json || json[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null json");
 
-    cJSON* root = cJSON_Parse(json);
+    cJSON* root = mg::core::json::parse(json);
     if (!root) return fail(MG_ERROR_INVALID_PARAM, "invalid JSON");
 
     mg::core::mission::MissionItem item{};
@@ -87,7 +88,7 @@ MGCORE_API char* mg_mission_add_item(mg_core_t* core, const char* json) {
     });
     if (error) return error;
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("index", -1);
@@ -99,7 +100,7 @@ MGCORE_API char* mg_mission_update_item(mg_core_t* core, const char* json) {
     CHECK_CORE(core);
     if (!json || json[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null json");
 
-    cJSON* root = cJSON_Parse(json);
+    cJSON* root = mg::core::json::parse(json);
     if (!root) return fail(MG_ERROR_INVALID_PARAM, "invalid JSON");
 
     cJSON* idx = cJSON_GetObjectItemCaseSensitive(root, "index");
@@ -164,14 +165,14 @@ MGCORE_API char* mg_mission_validate(mg_core_t* core) {
 
     auto result = mgr.validate();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("valid", result.valid);
 
-    mg::bridge::JsonBuilder warnings_arr;
+    mg::core::telemetry::JsonBuilder warnings_arr;
     warnings_arr.begin_array();
     for (const auto& w : result.warnings) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("msg", w);
         item.end_object();
@@ -180,10 +181,10 @@ MGCORE_API char* mg_mission_validate(mg_core_t* core) {
     warnings_arr.end_array();
     jb.raw_field("warnings", warnings_arr.str());
 
-    mg::bridge::JsonBuilder errors_arr;
+    mg::core::telemetry::JsonBuilder errors_arr;
     errors_arr.begin_array();
     for (const auto& e : result.errors) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("msg", e);
         item.end_object();
@@ -204,7 +205,7 @@ MGCORE_API char* mg_mission_get_stats(mg_core_t* core) {
 
     auto stats = mgr.calculate_stats();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("total_distance_m", stats.total_distance_m);
     jb.field("total_altitude_change_m", stats.total_altitude_change_m);
@@ -264,10 +265,10 @@ MGCORE_API char* mg_mission_get_templates(mg_core_t* core) {
 
     auto templates = mg::core::mission::MissionManager::get_templates();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
     for (const auto& t : templates) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("name", t.name);
         item.field("description", t.description);

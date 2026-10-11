@@ -25,10 +25,10 @@ std::string severity_name(DiagnosticSeverity severity) {
 }
 
 std::string diagnostics_array_json(const MissionValidationReport& report) {
-    mg::bridge::JsonBuilder diagnostics;
+    mg::core::telemetry::JsonBuilder diagnostics;
     diagnostics.begin_array();
     for (const MissionDiagnostic& diagnostic : report.diagnostics) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("severity", severity_name(diagnostic.severity));
         item.field("code", diagnostic.code);
@@ -110,7 +110,7 @@ std::string document_snapshot_json(
     const std::string document_json =
         mg::core::mission::cad::serialize_mission_document(document);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("revision", static_cast<unsigned long long>(document.revision));
@@ -127,12 +127,11 @@ std::string document_snapshot_json(
 char* validation_failure_json(
     const char* error,
     const MissionValidationReport& report) {
-    mg_set_last_error(MG_ERROR_INVALID_PARAM);
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", false);
-    jb.field("error", error ? error : "mission validation failed");
-    jb.field("code", static_cast<int>(MG_ERROR_INVALID_PARAM));
+    write_error(jb, MG_ERROR_INVALID_PARAM,
+                error ? error : "mission validation failed");
     jb.field("valid", false);
     jb.raw_field("diagnostics", diagnostics_array_json(report));
     jb.end_object();

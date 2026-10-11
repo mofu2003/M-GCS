@@ -21,6 +21,7 @@
 // cJSON for JSON import/export
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 namespace mg::core::mission {
 
@@ -28,7 +29,6 @@ static constexpr double kEarthRadiusM = 6371000.0; // Earth radius in meters
 static constexpr double kDegToRad = M_PI / 180.0;
 static constexpr double kRadToDeg = 180.0 / M_PI;
 static constexpr float kDefaultCruiseSpeed = 15.0f;  // m/s
-static constexpr float kDefaultHoverSpeed = 5.0f;    // m/s
 
 // ================================================================
 // Constructor / Destructor
@@ -551,7 +551,7 @@ std::string MissionManager::export_json() const {
 }
 
 bool MissionManager::import_json(const std::string& json) {
-    cJSON* root = cJSON_Parse(json.c_str());
+    cJSON* root = mg::core::json::parse(json.c_str());
     if (!root) return false;
 
     cJSON* items = cJSON_GetObjectItem(root, "items");

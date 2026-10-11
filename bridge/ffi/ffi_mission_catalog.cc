@@ -4,6 +4,8 @@
 
 #include "core/mission/cad/mission_command_catalog.h"
 
+#include "core/firmware/firmware_adapter.h"
+
 namespace {
 
 const char* parameter_type_name(
@@ -18,21 +20,52 @@ const char* parameter_type_name(
     return "float";
 }
 
+/// 当前活动会话的固件 profile（`"px4"`/`"ardupilot"`/`"unknown"`）。
+/// 用于任务命令目录按固件覆盖（QGC `MavCmdInfo` 的 `paramRemove`）。
+const char* active_firmware_profile(mg_core_t* core) {
+    auto* cache = get_active_cache(core);
+    if (!cache) return "";
+    auto hb_snap = cache->snapshot_heartbeat();
+    mg::core::firmware::FirmwareAdapter adapter;
+    adapter.detect(hb_snap.data.autopilot_type, hb_snap.data.vehicle_type);
+    switch (adapter.firmware_kind()) {
+        case mg::core::firmware::FirmwareKind::PX4:
+            return "px4";
+        case mg::core::firmware::FirmwareKind::ArduPilot:
+            return "ardupilot";
+        default:
+            return "unknown";
+    }
+}
+
+std::vector<const char*> vehicle_names(uint16_t vehicles) {
+    using namespace mg::core::mission::cad;
+    std::vector<const char*> names;
+    if (vehicles & mission_vehicle::kCopter) names.push_back("copter");
+    if (vehicles & mission_vehicle::kPlane) names.push_back("plane");
+    if (vehicles & mission_vehicle::kVtol) names.push_back("vtol");
+    if (vehicles & mission_vehicle::kRover) names.push_back("rover");
+    if (vehicles & mission_vehicle::kSub) names.push_back("sub");
+    if (vehicles & mission_vehicle::kTracker) names.push_back("tracker");
+    return names;
+}
+
 } // namespace
 
 MGCORE_API char* mg_mission_get_command_catalog(mg_core_t* core) {
     CHECK_CORE(core);
 
     const auto& catalog = mg::core::mission::cad::mission_command_catalog();
-    mg::bridge::JsonBuilder root;
+    const std::string firmware_profile = active_firmware_profile(core);
+    mg::core::telemetry::JsonBuilder root;
     root.begin_object();
     root.field("success", true);
     root.field("schema_version", 1);
 
-    mg::bridge::JsonBuilder commands;
+    mg::core::telemetry::JsonBuilder commands;
     commands.begin_array();
     for (const auto& command : catalog) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("command", static_cast<int>(command.command));
         item.field("name", command.name);
@@ -43,10 +76,22 @@ MGCORE_API char* mg_mission_get_command_catalog(mg_core_t* core) {
         item.field("requires_position", command.requires_position);
         item.field("requires_altitude", command.requires_altitude);
 
-        mg::bridge::JsonBuilder parameters;
+        mg::core::telemetry::JsonBuilder vehicles;
+        vehicles.begin_array();
+        for (const char* name : vehicle_names(command.vehicles)) {
+            vehicles.append_string(name);
+        }
+        vehicles.end_array();
+        item.raw_field("vehicles", vehicles.str());
+
+        mg::core::telemetry::JsonBuilder parameters;
         parameters.begin_array();
         for (const auto& parameter : command.parameters) {
-            mg::bridge::JsonBuilder parameter_json;
+            if (!mg::core::mission::cad::mission_command_parameter_visible(
+                    command.command, parameter.index, firmware_profile)) {
+                continue;
+            }
+            mg::core::telemetry::JsonBuilder parameter_json;
             parameter_json.begin_object();
             parameter_json.field("index", static_cast<int>(parameter.index));
             parameter_json.field("name", parameter.name);
@@ -63,10 +108,10 @@ MGCORE_API char* mg_mission_get_command_catalog(mg_core_t* core) {
             }
             parameter_json.field("required", parameter.required);
             if (!parameter.options.empty()) {
-                mg::bridge::JsonBuilder options;
+                mg::core::telemetry::JsonBuilder options;
                 options.begin_array();
                 for (const auto& option : parameter.options) {
-                    mg::bridge::JsonBuilder option_json;
+                    mg::core::telemetry::JsonBuilder option_json;
                     option_json.begin_object();
                     option_json.field("value", option.value);
                     option_json.field("label", option.label);

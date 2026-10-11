@@ -102,7 +102,7 @@ int main(int argc, char* argv[]) {
 
     // Some key params
     auto show_param = [&](const char* name) {
-        char* p = mg_param_get(core, name);
+        char* p = mg_params_get_by_name(core, name);
         if (p) { fprintf(stderr, "  %s = %s\n", name, p); mg_free_string(p); }
     };
 
@@ -131,7 +131,7 @@ int main(int argc, char* argv[]) {
     show_param("SERIAL0_BAUD");
 
     fprintf(stderr, "\n--- Geofence Config (after params) ---\n");
-    dump("fence", mg_geofence_get(core));
+    dump("fence", mg_geofence_get_config(core));
 
     // Final battery check with updated data
     fprintf(stderr, "\n--- Final Battery Status ---\n");

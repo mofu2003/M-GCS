@@ -64,9 +64,57 @@ static void test_verify_tolerates_position_quantization() {
     if (result) mg_free_string(result);
 }
 
+/// SITL 回归（tools/sitl-mission-scenario.sh 首次跑出来的真实差异）：
+/// ArduCopter 的任务结构不存航点接受半径，回读的 param2 固定是 0，实际接受半径
+/// 由 WP_RADIUS 决定（libraries/AP_Mission/AP_Mission.cpp:1092-1116）。核对必须
+/// 把它记成 normalization，而不是任务差异。
+static void test_verify_ignores_fields_the_vehicle_cannot_store() {
+    fprintf(stderr, "\n[Group] Verify vs fields the connected vehicle cannot store\n");
+    MockVehicleTestEnv env;
+    for (int i = 0; i < 15; ++i) env.tick(100);
+
+    char* result = mg_mission_doc_create(
+        env.core,
+        R"({"metadata":{"name":"radius"},"home":{"set":true,"lat":39.9,"lon":116.4,"alt_m":20}})");
+    if (result) mg_free_string(result);
+    result = mg_mission_doc_apply(
+        env.core,
+        R"({"operation":"add","expected_revision":1,"entity":{"type":"waypoint","command":16,"lat":39.9001,"lon":116.4001,"alt_m":50,"params":[0,2,0,0]}})");
+    if (result) mg_free_string(result);
+    result = mg_mission_doc_upload(env.core, 2);
+    CHECK(result && strstr(result, "\"success\":true"), "radius mission upload starts");
+    if (result) mg_free_string(result);
+    for (int i = 0; i < 80; ++i) env.tick(50);
+
+    auto stored = env.mock->stored_mission();
+    bool dropped = false;
+    for (auto& item : stored) {
+        if (item.command == MAV_CMD_NAV_WAYPOINT && std::fabs(item.param2 - 2.0f) < 0.01f) {
+            item.param2 = 0.0f;  // ArduCopter 读回的值
+            dropped = true;
+        }
+    }
+    CHECK(dropped, "copter readback simulation dropped the waypoint acceptance radius");
+    env.mock->set_mission(stored);
+
+    result = mg_mission_download(env.core);
+    if (result) mg_free_string(result);
+    for (int i = 0; i < 80; ++i) env.tick(50);
+
+    result = mg_mission_doc_verify(env.core, 1.0);
+    CHECK(result && strstr(result, "\"matches\":true"),
+          "a dropped acceptance radius still verifies as matching on a copter");
+    CHECK(result && strstr(result, "\"difference_count\":0"),
+          "the dropped acceptance radius is not reported as a difference");
+    CHECK(result && strstr(result, "\"normalization_count\":1"),
+          "the dropped acceptance radius is reported as one normalization");
+    if (result) mg_free_string(result);
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Simulation Tests ===\n");
     test_verify_tolerates_position_quantization();
+    test_verify_ignores_fields_the_vehicle_cannot_store();
     MockVehicleTestEnv env;
     for (int i = 0; i < 15; ++i) env.tick(100);
 

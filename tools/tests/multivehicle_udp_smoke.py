@@ -2,7 +2,7 @@
 """MV1 actual-library smoke, isolated loopback ports; never touches user SITL.
 
 Run with the existing pymavlink environment:
-.venv/bin/python tools/tests/multivehicle_udp_smoke.py build/mgcore.dylib
+.venv/bin/python tools/tests/multivehicle_udp_smoke.py build/libmgcore.dylib
 """
 import ctypes as C
 import json

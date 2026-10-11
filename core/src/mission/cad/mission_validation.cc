@@ -44,6 +44,23 @@ const MissionCommandDescriptor* find_command_descriptor(uint16_t command) {
     return found == catalog.end() ? nullptr : &*found;
 }
 
+/// ArduPilot 机型 capability table 只覆盖 ArduPilot；PX4 或未声明 firmware 的
+/// 文档不做机型判断，避免用 ArduPilot 的能力表拒绝 PX4 任务。
+bool capability_table_applies(const MissionDocument& document) {
+    return document.metadata.firmware_profile.empty() ||
+           document.metadata.firmware_profile == "ardupilot";
+}
+
+/// 命令是否支持文档声明的机型；机型未知或非 ArduPilot 时返回 true。
+bool command_supported_for_document(
+    const MissionDocument& document,
+    const MissionCommandDescriptor& descriptor) {
+    if (!capability_table_applies(document)) return true;
+    return mission_command_supports_vehicle(
+        descriptor.command,
+        document.metadata.vehicle_type);
+}
+
 /// 参数化测绘实体的校验。展开交给 SurveyCalculator，这里只保证参数自洽，
 /// 避免把“尺寸为 0”“终点缺失”这类意图错误拖到编译期才炸。
 void validate_survey_entity(
@@ -255,6 +272,31 @@ bool position_command(uint16_t command) {
     }
 }
 
+MissionValidationReport validate_plan_for_vehicle(
+    const MissionPlan& plan,
+    const std::string& vehicle_class) {
+    MissionValidationReport report;
+    if (mission_vehicle_class_bit(vehicle_class) == 0) return report;
+    for (const MissionItem& item : plan.items) {
+        const MissionCommandDescriptor* descriptor =
+            find_command_descriptor(item.command);
+        if (!descriptor) continue;
+        if (descriptor->vehicles == 0) continue;
+        if (mission_command_supports_vehicle(item.command, vehicle_class)) {
+            continue;
+        }
+        add_diagnostic(
+            report,
+            DiagnosticSeverity::Error,
+            "mission.command_vehicle_unsupported",
+            descriptor->name + " is not supported on " +
+                mission_vehicle_class_label(vehicle_class),
+            std::to_string(item.seq),
+            "command");
+    }
+    return report;
+}
+
 MissionValidationReport validate_document(const MissionDocument& document) {
     MissionValidationReport report;
     if (document.schema_version <= 0 ||
@@ -352,14 +394,28 @@ MissionValidationReport validate_document(const MissionDocument& document) {
             continue;
         }
         for (const MissionEntity& entity : expanded) {
-            if (entity.command == 0 ||
-                find_command_descriptor(entity.command) == nullptr) {
+            const MissionCommandDescriptor* expanded_descriptor =
+                find_command_descriptor(entity.command);
+            if (entity.command == 0 || expanded_descriptor == nullptr) {
                 add_diagnostic(
                     report,
                     DiagnosticSeverity::Error,
                     "complex_item.unsupported_command",
                     "Expanded complex item contains a command that is not in "
                     "the supported catalog",
+                    entity.id,
+                    "command");
+                continue;
+            }
+            if (!command_supported_for_document(document, *expanded_descriptor)) {
+                add_diagnostic(
+                    report,
+                    DiagnosticSeverity::Error,
+                    "complex_item.command_vehicle_unsupported",
+                    std::string("Expanded complex item uses ") +
+                        expanded_descriptor->name + " which is not supported on " +
+                        mission_vehicle_class_label(
+                            document.metadata.vehicle_type),
                     entity.id,
                     "command");
             }
@@ -590,6 +646,16 @@ MissionValidationReport validate_document(const MissionDocument& document) {
                 "command");
             continue;
         }
+        if (!command_supported_for_document(document, *descriptor)) {
+            add_diagnostic(
+                report,
+                DiagnosticSeverity::Error,
+                "entity.command_vehicle_unsupported",
+                descriptor->name + " is not supported on " +
+                    mission_vehicle_class_label(document.metadata.vehicle_type),
+                entity.id,
+                "command");
+        }
 
         uint16_t expected_command = 0;
         if (type_has_expected_command(entity.type, entity.command, expected_command)) {
@@ -812,3 +878,13 @@ MissionValidationReport validate_document(const MissionDocument& document) {
 }
 
 } // namespace mg::core::mission::cad::detail
+
+namespace mg::core::mission::cad {
+
+MissionValidationReport validate_plan_for_vehicle(
+    const MissionPlan& plan,
+    const std::string& vehicle_class) {
+    return detail::validate_plan_for_vehicle(plan, vehicle_class);
+}
+
+} // namespace mg::core::mission::cad

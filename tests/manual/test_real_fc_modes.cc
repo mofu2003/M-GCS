@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
     }
 
     std::fprintf(stderr, "\n--- Switch to AltHold ---\n");
-    char* alt_hold = mg_cmd_set_mode(core, "AltHold");
+    char* alt_hold = mg_flight_set_mode(core, "AltHold");
     std::string alt_hold_json = alt_hold ? alt_hold : "";
     std::fprintf(stderr, "[set_mode_alt_hold] %s\n", alt_hold_json.c_str());
     free_json(alt_hold);
@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
     call_json("mode_status_after_alt_hold", mg_flight_get_mode_status, core);
 
     std::fprintf(stderr, "\n--- Switch back to Stabilize ---\n");
-    char* stabilize = mg_cmd_set_mode(core, "Stabilize");
+    char* stabilize = mg_flight_set_mode(core, "Stabilize");
     std::string stabilize_json = stabilize ? stabilize : "";
     std::fprintf(stderr, "[set_mode_stabilize] %s\n", stabilize_json.c_str());
     free_json(stabilize);

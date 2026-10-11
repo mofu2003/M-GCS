@@ -10,6 +10,7 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 #include <chrono>
 #include <cstdio>
@@ -28,7 +29,7 @@ static int g_fail = 0;
 static unsigned long long document_revision(mg_core_t* core) {
     char* json = mg_mission_doc_get(core);
     unsigned long long revision = 0;
-    cJSON* root = json ? cJSON_Parse(json) : nullptr;
+    cJSON* root = json ? mg::core::json::parse(json) : nullptr;
     if (root) {
         cJSON* item = cJSON_GetObjectItemCaseSensitive(root, "revision");
         if (item && cJSON_IsNumber(item)) {
@@ -62,7 +63,7 @@ static bool wait_for(MockVehicleTestEnv& env,
 static int json_array_size(const char* json, const char* section,
                            const char* array_key) {
     if (!json) return -1;
-    cJSON* root = cJSON_Parse(json);
+    cJSON* root = mg::core::json::parse(json);
     int size = -1;
     if (root) {
         cJSON* document = cJSON_GetObjectItemCaseSensitive(root, "document");

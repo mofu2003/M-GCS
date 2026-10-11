@@ -8,6 +8,7 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 #include <cmath>
 #include <cstdio>
@@ -689,6 +690,131 @@ static bool json_float_near(cJSON* array, int index, double expected,
 // 本地创建的 survey_grid / corridor 必须导出成 QGC 可重新打开的
 // ComplexItem，而不是报错丢任务。这里同时校验 JSON 结构和展开任务项的
 // 精度，确保 QGC 载入后看到的是同一个测绘区域和同一条航线。
+static void test_qgc_plan_preserves_unknown_fields() {
+    fprintf(stderr, "\n[Group] QGC .plan unknown-field round-trip\n");
+
+    const std::string plan = R"({
+        "fileType": "Plan",
+        "groundStation": "QGroundControl",
+        "version": 1,
+        "customTopLevel": {"keep": true, "note": "vendor block"},
+        "mission": {
+            "version": 2,
+            "firmwareType": 3,
+            "vehicleType": 2,
+            "cruiseSpeed": 12,
+            "hoverSpeed": 4.5,
+            "globalPlanAltitudeMode": 1,
+            "plannedHomePosition": [39.9, 116.4, 20],
+            "items": [{
+                "type": "SimpleItem",
+                "frame": 3,
+                "command": 16,
+                "autoContinue": true,
+                "doJumpId": 1,
+                "altitudeMode": 1,
+                "altitude": 75.5,
+                "AMSLAltAboveTerrain": 120.0,
+                "vendorTag": "keep-me",
+                "params": [0, 0, 0, 0, 39.9, 116.4, 50]
+            }]
+        }
+    })";
+    MissionDocument document;
+    std::vector<std::string> warnings;
+    std::string error;
+    CHECK(import_qgc_plan_json(plan, document, warnings, error),
+          "QGC plan with unknown fields imports");
+    CHECK(document.entities.size() == 1,
+          "QGC plan with unknown fields yields one entity");
+    if (document.entities.size() == 1) {
+        const std::string& extras = document.entities[0].extensions_json;
+        CHECK(extras.find("altitudeMode") != std::string::npos &&
+                  extras.find("AMSLAltAboveTerrain") != std::string::npos &&
+                  extras.find("vendorTag") != std::string::npos,
+              "per-item unknown fields are captured on the entity");
+        CHECK(extras.find("\"frame\"") == std::string::npos &&
+                  extras.find("\"params\"") == std::string::npos &&
+                  extras.find("\"doJumpId\"") == std::string::npos,
+              "captured fields exclude the keys M-GCS models natively");
+    }
+    CHECK(document.extensions.count("qgc_plan.mission_fields") == 1 &&
+              document.extensions["qgc_plan.mission_fields"].find("hoverSpeed") !=
+                  std::string::npos &&
+              document.extensions["qgc_plan.mission_fields"]
+                      .find("globalPlanAltitudeMode") != std::string::npos,
+          "unknown mission fields are preserved");
+    CHECK(document.extensions.count("qgc_plan.root_fields") == 1 &&
+              document.extensions["qgc_plan.root_fields"].find("customTopLevel") !=
+                  std::string::npos,
+          "unknown top-level sections are preserved");
+
+    const std::string native = serialize_mission_document(document);
+    MissionDocument native_round;
+    error.clear();
+    CHECK(deserialize_mission_document(native, native_round, error) &&
+              native_round.entities.size() == 1 &&
+              native_round.entities[0].extensions_json.find("altitudeMode") !=
+                  std::string::npos &&
+              native_round.extensions.count("qgc_plan.mission_fields") == 1,
+          "unknown fields survive the native mission document round-trip");
+
+    warnings.clear();
+    error.clear();
+    const std::string exported = export_qgc_plan_json(document, warnings, error);
+    CHECK(!exported.empty(), "QGC plan with unknown fields exports");
+    CHECK(exported.find("\"altitudeMode\"") != std::string::npos &&
+              exported.find("\"AMSLAltAboveTerrain\"") != std::string::npos &&
+              exported.find("keep-me") != std::string::npos,
+          "per-item unknown fields are re-emitted on export");
+    CHECK(exported.find("customTopLevel") != std::string::npos,
+          "unknown top-level section is re-emitted on export");
+    CHECK(exported.find("4.5") != std::string::npos,
+          "original hoverSpeed value is re-emitted on export");
+    const size_t first_hover = exported.find("\"hoverSpeed\"");
+    CHECK(first_hover != std::string::npos &&
+              exported.find("\"hoverSpeed\"", first_hover + 1) == std::string::npos,
+          "hoverSpeed is emitted exactly once");
+
+    MissionDocument reimport;
+    warnings.clear();
+    error.clear();
+    CHECK(import_qgc_plan_json(exported, reimport, warnings, error) &&
+              reimport.entities.size() == 1 &&
+              reimport.entities[0].extensions_json.find("keep-me") !=
+                  std::string::npos &&
+              reimport.extensions["qgc_plan.mission_fields"].find("hoverSpeed") !=
+                  std::string::npos,
+          "unknown fields survive export then re-import");
+
+    const std::string v3_plan = R"({
+        "fileType": "Plan",
+        "mission": {
+            "version": 3,
+            "firmwareType": 3,
+            "vehicleType": 2,
+            "plannedHomePosition": [39.9, 116.4, 20],
+            "items": [{"type": "SimpleItem", "frame": 3, "command": 16,
+                       "autoContinue": true, "doJumpId": 1,
+                       "params": [0, 0, 0, 0, 39.9, 116.4, 50]}]
+        }
+    })";
+    MissionDocument v3;
+    warnings.clear();
+    error.clear();
+    CHECK(import_qgc_plan_json(v3_plan, v3, warnings, error) &&
+              v3.entities.size() == 1,
+          "unknown QGC mission version still imports");
+    bool version_warning = false;
+    for (const auto& warning : warnings) {
+        if (warning.find("mission version") != std::string::npos) {
+            version_warning = true;
+        }
+    }
+    CHECK(version_warning,
+          "unknown QGC mission version is reported as a warning");
+}
+
 static void test_qgc_complex_item_export() {
     fprintf(stderr, "\n[Group] QGC ComplexItem export\n");
     std::vector<std::string> warnings;
@@ -713,7 +839,7 @@ static void test_qgc_complex_item_export() {
     CHECK(error.empty(), "survey_grid exports to QGC plan without error");
     CHECK(!survey_text.empty(), "survey_grid export produced JSON");
 
-    cJSON* survey_root = cJSON_Parse(survey_text.c_str());
+    cJSON* survey_root = mg::core::json::parse(survey_text.c_str());
     cJSON* survey_mission = json_at(survey_root, "mission");
     cJSON* survey_items = json_at(survey_mission, "items");
     CHECK(survey_items && json_array_size(survey_items) == 1,
@@ -793,7 +919,7 @@ static void test_qgc_complex_item_export() {
         export_qgc_plan_json(corridor_document, warnings, error);
     CHECK(error.empty(), "corridor exports to QGC plan without error");
 
-    cJSON* corridor_root = cJSON_Parse(corridor_text.c_str());
+    cJSON* corridor_root = mg::core::json::parse(corridor_text.c_str());
     cJSON* corridor_items = json_at(json_at(corridor_root, "mission"), "items");
     cJSON* corridor_item =
         corridor_items ? cJSON_GetArrayItem(corridor_items, 0) : nullptr;
@@ -890,6 +1016,110 @@ static void test_frame_mission_command_import() {
               takeoff_document.entities.size() == 1 &&
               std::fabs(takeoff_document.entities[0].latitude - 39.9) < 1e-6,
           "fixed-wing NAV_TAKEOFF keeps its geographic position");
+}
+
+// S4：DO_LAND_START(189) 的坐标语义按固件区分。ArduPilot 的
+// `AP_Mission::stored_in_location()` 含 189；QGC `PX4-MavCmdInfoCommon.json`
+// 把 PX4 的 189 标成 `specifiesCoordinate:false`，x/y 是纯标记。
+static void test_land_start_location_override_per_firmware() {
+    fprintf(stderr, "\n[Group] DO_LAND_START location override per firmware\n");
+
+    const uint16_t land_start = 189; // MAV_CMD_DO_LAND_START
+
+    MissionItem item{};
+    item.seq = 0;
+    item.frame = 3; // GLOBAL_RELATIVE_ALT
+    item.command = land_start;
+    item.x = static_cast<int32_t>(47.5 * 1e7);
+    item.y = static_cast<int32_t>(85.4 * 1e7);
+    item.z = 30.0f;
+    MissionPlan transport;
+    transport.valid = true;
+    transport.items.push_back(item);
+
+    // 单参重载保持 ArduPilot 物理语义，供不区分固件的调用点使用。
+    CHECK(mission_command_uses_location(land_start) &&
+              mission_command_uses_location(land_start, "ardupilot") &&
+              mission_command_uses_location(land_start, "") &&
+              !mission_command_uses_location(land_start, "px4"),
+          "DO_LAND_START location semantics follow the firmware profile");
+
+    MissionDocument ardupilot_document; // 默认 profile = "ardupilot"
+    std::string error;
+    CHECK(import_mission_plan_into_document(
+              transport, ardupilot_document, error) &&
+              ardupilot_document.entities.size() == 1 &&
+              std::fabs(ardupilot_document.entities[0].latitude - 47.5) < 1e-6 &&
+              std::fabs(ardupilot_document.entities[0].longitude - 85.4) < 1e-6,
+          "ArduPilot imports DO_LAND_START x/y as a position");
+
+    MissionDocument px4_document;
+    px4_document.metadata.firmware_profile = "px4";
+    CHECK(import_mission_plan_into_document(transport, px4_document, error) &&
+              px4_document.entities.size() == 1 &&
+              std::isnan(px4_document.entities[0].latitude) &&
+              std::isnan(px4_document.entities[0].longitude),
+          "PX4 imports DO_LAND_START x/y as a marker, not a position");
+
+    // 编译路径也按固件 profile 判定 189 是否承载坐标（`mission_compile.cc` 调用
+    // `mission_command_uses_location(command, profile)`）。但 M-GCS 的可编辑命令
+    // 目录目前只覆盖 14 条常用命令，不含 DO_LAND_START，所以这一步先在
+    // `validate_document()` 报 `entity.command_unsupported`，与固件 profile 无关。
+    // 两条断言固定这个现状：目录纳入 189 后，profile 覆盖才会真正生效。
+    const MissionCompileResult ardupilot_compiled =
+        MissionDocumentService::compile_document(ardupilot_document);
+    CHECK(!ardupilot_compiled.valid &&
+              report_has_code(ardupilot_compiled.report,
+                              "entity.command_unsupported"),
+          "ArduPilot compile reports DO_LAND_START outside the editable catalog");
+
+    const MissionCompileResult px4_compiled =
+        MissionDocumentService::compile_document(px4_document);
+    CHECK(!px4_compiled.valid &&
+              report_has_code(px4_compiled.report, "entity.command_unsupported"),
+          "PX4 compile reports DO_LAND_START outside the editable catalog");
+
+    std::vector<std::string> warnings;
+    const std::string px4_text =
+        export_qgc_plan_json(px4_document, warnings, error);
+    CHECK(error.empty(), "PX4 DO_LAND_START document exports without error");
+    cJSON* px4_root = mg::core::json::parse(px4_text.c_str());
+    cJSON* px4_mission = json_at(px4_root, "mission");
+    cJSON* px4_items = json_at(px4_mission, "items");
+    cJSON* px4_item = px4_items ? cJSON_GetArrayItem(px4_items, 0) : nullptr;
+    cJSON* px4_params = json_at(px4_item, "params");
+    cJSON* px4_firmware_type = json_at(px4_mission, "firmwareType");
+    CHECK(px4_firmware_type && px4_firmware_type->valueint == 12,
+          "PX4 document exports firmwareType 12");
+    CHECK(px4_params && cJSON_GetArraySize(px4_params) == 7 &&
+              cJSON_IsNull(cJSON_GetArrayItem(px4_params, 4)) &&
+              cJSON_IsNull(cJSON_GetArrayItem(px4_params, 5)),
+          "PX4 .plan export leaves DO_LAND_START params 5/6 null");
+    cJSON_Delete(px4_root);
+
+    MissionDocument px4_reimport;
+    warnings.clear();
+    CHECK(import_qgc_plan_json(px4_text, px4_reimport, warnings, error) &&
+              px4_reimport.metadata.firmware_profile == "px4" &&
+              px4_reimport.entities.size() == 1 &&
+              std::isnan(px4_reimport.entities[0].latitude),
+          "re-imported PX4 plan invents no DO_LAND_START position");
+
+    warnings.clear();
+    const std::string ardupilot_text =
+        export_qgc_plan_json(ardupilot_document, warnings, error);
+    CHECK(error.empty(), "ArduPilot DO_LAND_START document exports without error");
+    cJSON* ardupilot_root = mg::core::json::parse(ardupilot_text.c_str());
+    cJSON* ardupilot_items = json_at(json_at(ardupilot_root, "mission"), "items");
+    cJSON* ardupilot_item =
+        ardupilot_items ? cJSON_GetArrayItem(ardupilot_items, 0) : nullptr;
+    cJSON* ardupilot_params = json_at(ardupilot_item, "params");
+    CHECK(ardupilot_params && cJSON_GetArraySize(ardupilot_params) == 7 &&
+              cJSON_IsNumber(cJSON_GetArrayItem(ardupilot_params, 4)) &&
+              std::fabs(cJSON_GetArrayItem(ardupilot_params, 4)->valuedouble -
+                       47.5) < 1e-6,
+          "ArduPilot .plan export writes DO_LAND_START coordinates");
+    cJSON_Delete(ardupilot_root);
 }
 
 static void test_qgc_plan_interchange() {
@@ -1728,6 +1958,8 @@ static void test_vtol_takeoff_and_land_commands() {
 
     // 一个完整的 VTOL 任务：垂直起飞 → 航点 → 垂直降落。
     MissionDocument document = valid_document();
+    // 文档声明 VTOL 机型：能力表把 84/85 限定为 VTOL，默认的 copter 会被拒绝。
+    document.metadata.vehicle_type = "vtol";
     document.entities.clear();
 
     MissionEntity vertical_takeoff;
@@ -1805,6 +2037,178 @@ static void test_vtol_takeoff_and_land_commands() {
           "legacy MissionManager accepts VTOL land as last item");
 }
 
+/// ArduPilot 任务命令能力表：命令 × 机型矩阵、自由函数和文档/计划校验。
+static void test_mission_vehicle_capability() {
+    fprintf(stderr, "\n[Group] Mission vehicle capability table\n");
+
+    using namespace mission_vehicle;
+
+    const auto& catalog = mission_command_catalog();
+    const auto vehicles_of = [&catalog](uint16_t command) -> uint16_t {
+        for (const auto& entry : catalog) {
+            if (entry.command == command) return entry.vehicles;
+        }
+        return 0xFFFFu;  // 送到目录里不存在时回一个不可能的值，便于断言失败
+    };
+
+    // 目录标注：四类机型共享的导航命令、只支持 VTOL 的 84/85。
+    const uint16_t all = kCopter | kPlane | kVtol | kRover;
+    CHECK(vehicles_of(static_cast<uint16_t>(NavCommand::NavWaypoint)) == all,
+          "NAV_WAYPOINT is annotated for copter/plane/vtol/rover");
+    CHECK((vehicles_of(static_cast<uint16_t>(NavCommand::NavTakeoff)) & kCopter) != 0 &&
+              (vehicles_of(static_cast<uint16_t>(NavCommand::NavTakeoff)) & kRover) == 0,
+          "NAV_TAKEOFF excludes rover");
+    CHECK((vehicles_of(static_cast<uint16_t>(NavCommand::NavLand)) & kRover) == 0 &&
+              (vehicles_of(static_cast<uint16_t>(NavCommand::NavLand)) & kCopter) != 0,
+          "NAV_LAND excludes rover");
+    CHECK(vehicles_of(static_cast<uint16_t>(NavCommand::NavVtolTakeoff)) == kVtol,
+          "NAV_VTOL_TAKEOFF is annotated VTOL only");
+    CHECK(vehicles_of(static_cast<uint16_t>(NavCommand::NavVtolLand)) == kVtol,
+          "NAV_VTOL_LAND is annotated VTOL only");
+
+    // 自由函数：别名归一、未知不拦、未在目录不拦。
+    CHECK(!mission_command_supports_vehicle(21, "rover"),
+          "mission_command_supports_vehicle rejects NAV_LAND on rover");
+    CHECK(!mission_command_supports_vehicle(21, "Rover"),
+          "vehicle class comparison is case-insensitive");
+    CHECK(mission_command_supports_vehicle(16, "rover"),
+          "mission_command_supports_vehicle accepts NAV_WAYPOINT on rover");
+    CHECK(!mission_command_supports_vehicle(84, "FixedWing"),
+          "NAV_VTOL_TAKEOFF is rejected on a fixed wing");
+    CHECK(mission_command_supports_vehicle(84, "vtol"),
+          "NAV_VTOL_TAKEOFF is accepted on a VTOL");
+    CHECK(mission_command_supports_vehicle(21, ""),
+          "an unknown vehicle class does not reject a command");
+    CHECK(mission_command_supports_vehicle(21, "submarine"),
+          "an unmodelled vehicle class (Sub) does not reject a command");
+    CHECK(mission_command_supports_vehicle(9999, "rover"),
+          "a command outside the catalog is left to the catalog check");
+
+    // 文档级校验：Rover 文档里的 NAV_LAND 被拒绝，NAV_WAYPOINT 保留。
+    {
+        MissionDocument rover = valid_document();
+        rover.metadata.vehicle_type = "rover";
+        const auto report = MissionDocumentService::validate_document(rover);
+        CHECK(!report.valid,
+              "a rover document with NAV_LAND fails validation");
+        CHECK(report_has_code(report, "entity.command_vehicle_unsupported"),
+              "rover document reports entity.command_vehicle_unsupported");
+        bool waypoint_flagged = false;
+        for (const auto& diagnostic : report.diagnostics) {
+            if (diagnostic.code == "entity.command_vehicle_unsupported" &&
+                diagnostic.entity_id == "waypoint-1") {
+                waypoint_flagged = true;
+            }
+        }
+        CHECK(!waypoint_flagged,
+              "NAV_WAYPOINT is not flagged on a rover");
+    }
+
+    // PX4 文档不套用 ArduPilot 能力表。
+    {
+        MissionDocument px4 = valid_document();
+        px4.metadata.firmware_profile = "px4";
+        px4.metadata.vehicle_type = "rover";
+        const auto report = MissionDocumentService::validate_document(px4);
+        CHECK(!report_has_code(report, "entity.command_vehicle_unsupported"),
+              "a PX4 document is not judged by the ArduPilot capability table");
+    }
+
+    // 上传前的运行时门禁：直接对已编译计划做机型检查。
+    {
+        MissionPlan plan;
+        plan.items.resize(2);
+        plan.items[0].seq = 0;
+        plan.items[0].command = static_cast<uint16_t>(NavCommand::NavWaypoint);
+        plan.items[1].seq = 1;
+        plan.items[1].command = static_cast<uint16_t>(NavCommand::NavLand);
+
+        const auto rover_report = validate_plan_for_vehicle(plan, "rover");
+        CHECK(rover_report.has_errors() &&
+                  report_has_code(rover_report, "mission.command_vehicle_unsupported"),
+              "validate_plan_for_vehicle rejects NAV_LAND on the online rover");
+
+        const auto unknown_report = validate_plan_for_vehicle(plan, "");
+        CHECK(unknown_report.diagnostics.empty(),
+              "validate_plan_for_vehicle produces no diagnostics for an unknown vehicle");
+
+        const auto copter_report = validate_plan_for_vehicle(plan, "copter");
+        CHECK(!copter_report.has_errors(),
+              "validate_plan_for_vehicle accepts waypoint+land on a copter");
+    }
+
+    // 参数级机型适用性：ArduPilot 按机型复用 15 字节的任务结构
+    // （AP_Mission.cpp:1092-1116、:1649-1659），回读时被丢弃的字段不能算差异。
+    {
+        const uint16_t waypoint = static_cast<uint16_t>(NavCommand::NavWaypoint);
+
+        CHECK(mission_command_parameter_applies(waypoint, 1, "copter") &&
+                  mission_command_parameter_applies(waypoint, 1, "rover") &&
+                  !mission_command_parameter_applies(waypoint, 1, "plane") &&
+                  !mission_command_parameter_applies(waypoint, 1, "vtol"),
+              "waypoint hold time is stored on copter/rover but not on plane/VTOL");
+
+        CHECK(!mission_command_parameter_applies(waypoint, 2, "copter") &&
+                  !mission_command_parameter_applies(waypoint, 2, "rover") &&
+                  mission_command_parameter_applies(waypoint, 2, "plane") &&
+                  mission_command_parameter_applies(waypoint, 2, "vtol"),
+              "waypoint acceptance radius is stored only on plane/VTOL");
+
+        CHECK(!mission_command_parameter_applies(waypoint, 3, "copter") &&
+                  mission_command_parameter_applies(waypoint, 3, "vtol"),
+              "waypoint pass radius is stored only on plane/VTOL");
+
+        CHECK(!mission_command_parameter_applies(waypoint, 4, "copter") &&
+                  !mission_command_parameter_applies(waypoint, 4, "plane") &&
+                  !mission_command_parameter_applies(waypoint, 4, "rover"),
+              "no ArduPilot build stores the waypoint yaw field");
+        CHECK(mission_command_parameter_applies(waypoint, 4, ""),
+              "PX4 (unnormalised vehicle class) keeps the waypoint yaw field");
+
+        CHECK(mission_command_parameter_applies(waypoint, 1, "") &&
+                  mission_command_parameter_applies(waypoint, 2, ""),
+              "an unknown vehicle class does not downgrade any parameter");
+
+        const uint16_t takeoff = static_cast<uint16_t>(NavCommand::NavTakeoff);
+        CHECK(mission_command_parameter_applies(takeoff, 1, "copter") &&
+                  mission_command_parameter_applies(takeoff, 1, "plane"),
+              "parameters without a vehicle annotation apply everywhere");
+        CHECK(mission_command_parameter_applies(waypoint, 9, "copter"),
+              "a parameter outside the catalog is not judged");
+        CHECK(mission_command_parameter_applies(9999, 1, "copter"),
+              "a command outside the catalog is not judged");
+    }
+
+    // 参数可见性：固件级覆盖（QGC PX4-MavCmdInfoCommon.json 的 paramRemove）。
+    // 与上面按机型判断的 applies 不同，这里只决定前端是否显示该字段。
+    {
+        const uint16_t waypoint = static_cast<uint16_t>(NavCommand::NavWaypoint);
+        const uint16_t land = static_cast<uint16_t>(NavCommand::NavLand);
+        const uint16_t video_start = 2500; // MAV_CMD_VIDEO_START_CAPTURE
+
+        // ArduPilot 与未知固件不隐藏任何字段。
+        CHECK(mission_command_parameter_visible(waypoint, 2, "ardupilot") &&
+                  mission_command_parameter_visible(waypoint, 3, "ardupilot") &&
+                  mission_command_parameter_visible(land, 1, "ardupilot") &&
+                  mission_command_parameter_visible(waypoint, 2, "") &&
+                  mission_command_parameter_visible(waypoint, 2, "unknown"),
+              "ArduPilot/unknown firmware hides no mission command parameter");
+
+        // PX4 隐藏 WAYPOINT param2/3、LAND param1、VIDEO_START_CAPTURE param2。
+        CHECK(!mission_command_parameter_visible(waypoint, 2, "px4") &&
+                  !mission_command_parameter_visible(waypoint, 3, "px4") &&
+                  !mission_command_parameter_visible(land, 1, "px4") &&
+                  !mission_command_parameter_visible(video_start, 2, "px4"),
+              "PX4 hides the params QGC removes via paramRemove");
+
+        // PX4 未列出的字段仍然显示（WAYPOINT 停留时间/偏航、LAND 精确降落）。
+        CHECK(mission_command_parameter_visible(waypoint, 1, "px4") &&
+                  mission_command_parameter_visible(waypoint, 4, "px4") &&
+                  mission_command_parameter_visible(land, 2, "px4"),
+              "PX4 keeps the params QGC does not remove");
+    }
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Tests ===\n");
     test_document_editing_history();
@@ -1823,10 +2227,13 @@ int main() {
     test_waypoints_interchange();
     test_ffi_waypoints_interchange();
     test_frame_mission_command_import();
+    test_land_start_location_override_per_firmware();
     test_qgc_plan_interchange();
+    test_qgc_plan_preserves_unknown_fields();
     test_qgc_complex_item_export();
     test_mission_format_recommendation();
     test_vtol_takeoff_and_land_commands();
+    test_mission_vehicle_capability();
     test_ffi_qgc_plan_interchange();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

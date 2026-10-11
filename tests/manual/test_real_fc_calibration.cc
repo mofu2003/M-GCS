@@ -108,7 +108,7 @@ static CalStatusSnapshot poll_cal_status(mg_core_t* core, int timeout_ms) {
     CalStatusSnapshot last;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (std::chrono::steady_clock::now() < deadline) {
-        char* p = mg_cal_status(core);
+        char* p = mg_calibration_get_status(core);
         std::string json = p ? p : "";
         free_json(p);
         CalStatusSnapshot parsed;
@@ -188,16 +188,16 @@ int main(int argc, char** argv) {
     call_json("prearm", mg_vehicle_get_prearm_check, core);
     call_json("sensor_health", mg_sensors_get_health, core);
     call_json("statustext_before", mg_sensors_get_statustext, core);
-    call_json("cal_status_before", mg_cal_status, core);
+    call_json("cal_status_before", mg_calibration_get_status, core);
 
     std::fprintf(stderr, "\n--- Starting gyroscope calibration ---\n");
-    char* start = mg_cal_start(core, 0, 0);
+    char* start = mg_calibration_start(core, 0, 0);
     std::string start_json = start ? start : "";
     std::fprintf(stderr, "[cal_start_gyro] %s\n", start_json.c_str());
     free_json(start);
     if (start_json.find("\"success\":true") == std::string::npos) {
         std::fprintf(stderr, "[FAIL] gyro calibration command was not accepted by bridge\n");
-        call_json("cal_status_after_start_fail", mg_cal_status, core);
+        call_json("cal_status_after_start_fail", mg_calibration_get_status, core);
         mg_connection_disconnect(core);
         mg_destroy(core);
         return 1;
@@ -205,9 +205,9 @@ int main(int argc, char** argv) {
 
     CalStatusSnapshot final_status = poll_cal_status(core, 30000);
 
-    call_json("cal_status_final", mg_cal_status, core);
-    call_json_int("cal_history_gyro", mg_cal_history, core, 0);
-    call_json("cal_retry", mg_cal_retry_info, core);
+    call_json("cal_status_final", mg_calibration_get_status, core);
+    call_json_int("cal_history_gyro", mg_calibration_get_history, core, 0);
+    call_json("cal_retry", mg_calibration_get_retry_info, core);
     call_json("statustext_after", mg_sensors_get_statustext, core);
 
     mg_connection_disconnect(core);

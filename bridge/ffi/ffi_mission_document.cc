@@ -16,6 +16,7 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 namespace {
 
@@ -170,12 +171,10 @@ char* operation_result_json(const MissionOperationResult& result) {
             case mg::core::mission::cad::MissionOperationError::None:
                 break;
         }
-        mg_set_last_error(error);
-        mg::bridge::JsonBuilder failure;
+        mg::core::telemetry::JsonBuilder failure;
         failure.begin_object();
         failure.field("success", false);
-        failure.field("error", result.error);
-        failure.field("code", static_cast<int>(error));
+        write_error(failure, error, result.error);
         failure.field(
             "revision",
             static_cast<unsigned long long>(result.revision));
@@ -185,7 +184,7 @@ char* operation_result_json(const MissionOperationResult& result) {
 
     const std::string document_json =
         mg::core::mission::cad::serialize_mission_document(result.document);
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("revision", static_cast<unsigned long long>(result.revision));
@@ -199,7 +198,7 @@ std::string diagnostics_array_json(
 
 char* validation_report_json(
     const mg::core::mission::cad::MissionValidationReport& report) {
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("valid", report.valid);
@@ -211,10 +210,10 @@ char* validation_report_json(
 
 std::string diagnostics_array_json(
     const mg::core::mission::cad::MissionValidationReport& report) {
-    mg::bridge::JsonBuilder diagnostics;
+    mg::core::telemetry::JsonBuilder diagnostics;
     diagnostics.begin_array();
     for (const MissionDiagnostic& diagnostic : report.diagnostics) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("severity", severity_name(diagnostic.severity));
         item.field("code", diagnostic.code);
@@ -270,7 +269,7 @@ MGCORE_API char* mg_mission_doc_apply(mg_core_t* core, const char* json_command)
         return fail(MG_ERROR_INVALID_PARAM, "empty mission document command");
     }
 
-    cJSON* root = cJSON_Parse(json_command);
+    cJSON* root = mg::core::json::parse(json_command);
     if (!root || !cJSON_IsObject(root)) {
         cJSON_Delete(root);
         return fail(MG_ERROR_INVALID_PARAM, "invalid mission document command");
@@ -344,19 +343,22 @@ MGCORE_API char* mg_mission_doc_compile(mg_core_t* core) {
     CHECK_CORE(core);
     const auto result = ensure_document(core)->compile();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("valid", result.valid);
     jb.field(
         "document_revision",
         static_cast<unsigned long long>(result.document_revision));
-    jb.raw_field("plan", mg::bridge::mission_plan_json(result.plan));
+    jb.raw_field(
+        "plan",
+        mg::bridge::mission_plan_json(
+            result.plan, ffi_param_profile(core)));
 
-    mg::bridge::JsonBuilder ids;
+    mg::core::telemetry::JsonBuilder ids;
     ids.begin_array();
     for (const auto& entity_id : result.source_entity_ids) {
-        mg::bridge::JsonBuilder id;
+        mg::core::telemetry::JsonBuilder id;
         id.begin_object();
         id.field("id", entity_id);
         id.end_object();
@@ -389,11 +391,10 @@ MGCORE_API char* mg_mission_doc_upload(
         revision_error);
     if (!revision_error.empty()) {
         mg_set_last_error(MG_ERROR_INVALID_STATE);
-        mg::bridge::JsonBuilder failure;
+        mg::core::telemetry::JsonBuilder failure;
         failure.begin_object();
         failure.field("success", false);
-        failure.field("error", revision_error);
-        failure.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
+        write_error(failure, MG_ERROR_INVALID_STATE, revision_error);
         failure.field(
             "revision",
             static_cast<unsigned long long>(compiled.document_revision));
@@ -404,6 +405,17 @@ MGCORE_API char* mg_mission_doc_upload(
         return validation_failure_json(
             "mission document cannot be uploaded because validation failed",
             compiled.report);
+    }
+
+    // 文档 metadata 里的机型可能与当前在线飞控不一致，上传前用飞控实际机型再做
+    // 一道命令能力门禁。未连接、非 ArduPilot 或机型无法归一化时不产生诊断。
+    const auto vehicle_report = mg::core::mission::cad::validate_plan_for_vehicle(
+        compiled.plan,
+        ffi_ardupilot_vehicle_class(core));
+    if (vehicle_report.has_errors()) {
+        return validation_failure_json(
+            "mission contains commands not supported on the connected vehicle",
+            vehicle_report);
     }
 
     auto plan = ffi_prepare_mission_upload(core, compiled.plan, &document.home);
@@ -417,7 +429,7 @@ MGCORE_API char* mg_mission_doc_upload(
         return fail(MG_ERROR_SEND_FAILED, "mission upload failed to start");
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field(
@@ -444,11 +456,14 @@ MGCORE_API char* mg_mission_doc_compile_fence(mg_core_t* core) {
             error.empty() ? "geo fence cannot be compiled" : error.c_str());
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("item_count", static_cast<int>(plan.items.size()));
-    jb.raw_field("plan", mg::bridge::mission_plan_json(plan));
+    jb.raw_field(
+        "plan",
+        mg::bridge::mission_plan_json(
+            plan, ffi_param_profile(core)));
     jb.end_object();
     return to_cstr(jb.str());
 }
@@ -466,14 +481,11 @@ MGCORE_API char* mg_mission_doc_upload_fence(
     }
     if (service->revision() != expected_revision) {
         mg_set_last_error(MG_ERROR_INVALID_STATE);
-        mg::bridge::JsonBuilder failure;
+        mg::core::telemetry::JsonBuilder failure;
         failure.begin_object();
         failure.field("success", false);
-        failure.field(
-            "error",
-            "revision mismatch: expected " + std::to_string(expected_revision) +
+        write_error(failure, MG_ERROR_INVALID_STATE, "revision mismatch: expected " + std::to_string(expected_revision) +
                 ", current " + std::to_string(service->revision()));
-        failure.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
         failure.field(
             "revision",
             static_cast<unsigned long long>(service->revision()));
@@ -500,7 +512,7 @@ MGCORE_API char* mg_mission_doc_upload_fence(
         return fail(MG_ERROR_SEND_FAILED, "geofence upload failed to start");
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field(
@@ -524,7 +536,7 @@ MGCORE_API char* mg_mission_doc_clear_fence(mg_core_t* core) {
         return fail(MG_ERROR_SEND_FAILED, "geofence clear failed to start");
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("state", "clearing");
@@ -544,11 +556,14 @@ MGCORE_API char* mg_mission_doc_compile_rally(mg_core_t* core) {
             error.empty() ? "rally points cannot be compiled" : error.c_str());
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("item_count", static_cast<int>(plan.items.size()));
-    jb.raw_field("plan", mg::bridge::mission_plan_json(plan));
+    jb.raw_field(
+        "plan",
+        mg::bridge::mission_plan_json(
+            plan, ffi_param_profile(core)));
     jb.end_object();
     return to_cstr(jb.str());
 }
@@ -566,14 +581,11 @@ MGCORE_API char* mg_mission_doc_upload_rally(
     }
     if (service->revision() != expected_revision) {
         mg_set_last_error(MG_ERROR_INVALID_STATE);
-        mg::bridge::JsonBuilder failure;
+        mg::core::telemetry::JsonBuilder failure;
         failure.begin_object();
         failure.field("success", false);
-        failure.field(
-            "error",
-            "revision mismatch: expected " + std::to_string(expected_revision) +
+        write_error(failure, MG_ERROR_INVALID_STATE, "revision mismatch: expected " + std::to_string(expected_revision) +
                 ", current " + std::to_string(service->revision()));
-        failure.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
         failure.field(
             "revision",
             static_cast<unsigned long long>(service->revision()));
@@ -600,7 +612,7 @@ MGCORE_API char* mg_mission_doc_upload_rally(
         return fail(MG_ERROR_SEND_FAILED, "rally upload failed to start");
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field(
@@ -624,7 +636,7 @@ MGCORE_API char* mg_mission_doc_clear_rally(mg_core_t* core) {
         return fail(MG_ERROR_SEND_FAILED, "rally clear failed to start");
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("state", "clearing");
@@ -645,13 +657,10 @@ MGCORE_API char* mg_mission_doc_import_fence_from_vehicle(mg_core_t* core) {
         provenance.last_completed_download_revision !=
             provenance.plan_revision) {
         mg_set_last_error(MG_ERROR_INVALID_STATE);
-        mg::bridge::JsonBuilder error;
+        mg::core::telemetry::JsonBuilder error;
         error.begin_object();
         error.field("success", false);
-        error.field(
-            "error",
-            "vehicle geofence must be downloaded successfully before importing");
-        error.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
+        write_error(error, MG_ERROR_INVALID_STATE, "vehicle geofence must be downloaded successfully before importing");
         error.field(
             "plan_revision",
             static_cast<unsigned long long>(provenance.plan_revision));
@@ -685,13 +694,10 @@ MGCORE_API char* mg_mission_doc_import_rally_from_vehicle(mg_core_t* core) {
         provenance.last_completed_download_revision !=
             provenance.plan_revision) {
         mg_set_last_error(MG_ERROR_INVALID_STATE);
-        mg::bridge::JsonBuilder error;
+        mg::core::telemetry::JsonBuilder error;
         error.begin_object();
         error.field("success", false);
-        error.field(
-            "error",
-            "vehicle rally points must be downloaded successfully before importing");
-        error.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
+        write_error(error, MG_ERROR_INVALID_STATE, "vehicle rally points must be downloaded successfully before importing");
         error.field(
             "plan_revision",
             static_cast<unsigned long long>(provenance.plan_revision));
@@ -854,13 +860,10 @@ MGCORE_API char* mg_mission_doc_verify_fence(mg_core_t* core,
         provenance.last_completed_download_revision !=
             provenance.plan_revision) {
         mg_set_last_error(MG_ERROR_INVALID_STATE);
-        mg::bridge::JsonBuilder error;
+        mg::core::telemetry::JsonBuilder error;
         error.begin_object();
         error.field("success", false);
-        error.field(
-            "error",
-            "vehicle geofence must be downloaded successfully before verification");
-        error.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
+        write_error(error, MG_ERROR_INVALID_STATE, "vehicle geofence must be downloaded successfully before verification");
         error.end_object();
         return to_cstr(error.str());
     }
@@ -877,15 +880,15 @@ MGCORE_API char* mg_mission_doc_verify_fence(mg_core_t* core,
     compare_fence(document.geo_fence, vehicle_fence,
                   std::max(0.0, tolerance_m), diffs);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("matches", diffs.empty());
     jb.field("difference_count", static_cast<int>(diffs.size()));
-    mg::bridge::JsonBuilder array;
+    mg::core::telemetry::JsonBuilder array;
     array.begin_array();
     for (const auto& diff : diffs) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("area", diff.area);
         item.field("index", diff.index);
@@ -915,13 +918,10 @@ MGCORE_API char* mg_mission_doc_verify_rally(mg_core_t* core,
         provenance.last_completed_download_revision !=
             provenance.plan_revision) {
         mg_set_last_error(MG_ERROR_INVALID_STATE);
-        mg::bridge::JsonBuilder error;
+        mg::core::telemetry::JsonBuilder error;
         error.begin_object();
         error.field("success", false);
-        error.field(
-            "error",
-            "vehicle rally points must be downloaded successfully before verification");
-        error.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
+        write_error(error, MG_ERROR_INVALID_STATE, "vehicle rally points must be downloaded successfully before verification");
         error.end_object();
         return to_cstr(error.str());
     }
@@ -963,15 +963,15 @@ MGCORE_API char* mg_mission_doc_verify_rally(mg_core_t* core,
         }
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("matches", diffs.empty());
     jb.field("difference_count", static_cast<int>(diffs.size()));
-    mg::bridge::JsonBuilder array;
+    mg::core::telemetry::JsonBuilder array;
     array.begin_array();
     for (const auto& diff : diffs) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("area", diff.area);
         item.field("index", diff.index);
@@ -1000,13 +1000,10 @@ MGCORE_API char* mg_mission_doc_import_from_vehicle(mg_core_t* core) {
         provenance.last_completed_download_revision !=
             provenance.plan_revision) {
         mg_set_last_error(MG_ERROR_INVALID_STATE);
-        mg::bridge::JsonBuilder error;
+        mg::core::telemetry::JsonBuilder error;
         error.begin_object();
         error.field("success", false);
-        error.field(
-            "error",
-            "vehicle mission must be downloaded successfully before importing");
-        error.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
+        write_error(error, MG_ERROR_INVALID_STATE, "vehicle mission must be downloaded successfully before importing");
         error.field(
             "plan_revision",
             static_cast<unsigned long long>(provenance.plan_revision));
@@ -1055,13 +1052,10 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
         provenance.last_completed_download_revision !=
             provenance.plan_revision) {
         mg_set_last_error(MG_ERROR_INVALID_STATE);
-        mg::bridge::JsonBuilder error;
+        mg::core::telemetry::JsonBuilder error;
         error.begin_object();
         error.field("success", false);
-        error.field(
-            "error",
-            "vehicle mission must be downloaded successfully before verification");
-        error.field("code", static_cast<int>(MG_ERROR_INVALID_STATE));
+        write_error(error, MG_ERROR_INVALID_STATE, "vehicle mission must be downloaded successfully before verification");
         error.field(
             "plan_revision",
             static_cast<unsigned long long>(provenance.plan_revision));
@@ -1080,12 +1074,15 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
         &vehicle_home,
         &vehicle_home_present);
     const double tolerance = std::max(0.0, tolerance_m);
+    // 连接飞控的归一化机型名（非 ArduPilot 或未知时为空串）。用来判断飞控是否
+    // 真的会存储某个任务参数字段。
+    const std::string vehicle_class = ffi_ardupilot_vehicle_class(core);
 
-    mg::bridge::JsonBuilder differences;
+    mg::core::telemetry::JsonBuilder differences;
     differences.begin_array();
-    mg::bridge::JsonBuilder normalizations;
+    mg::core::telemetry::JsonBuilder normalizations;
     normalizations.begin_array();
-    mg::bridge::JsonBuilder home_sync;
+    mg::core::telemetry::JsonBuilder home_sync;
     home_sync.begin_array();
     int difference_count = 0;
     int normalization_count = 0;
@@ -1096,7 +1093,7 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                               const std::string& expected,
                               const std::string& actual) {
         ++difference_count;
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("index", index);
         item.field("field", field);
@@ -1112,7 +1109,7 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                                   const std::string& actual,
                                   const char* reason) {
         ++normalization_count;
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("index", index);
         item.field("field", field);
@@ -1128,7 +1125,7 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                              const std::string& expected,
                              const std::string& actual) {
         ++home_sync_count;
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("index", index);
         item.field("field", field);
@@ -1308,17 +1305,35 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
                 : param == 1 ? actual.param2
                 : param == 2 ? actual.param3
                              : actual.param4;
+            const bool parameter_applicable =
+                mg::core::mission::cad::mission_command_parameter_applies(
+                    expected.command,
+                    static_cast<uint8_t>(param + 1),
+                    vehicle_class);
             if (command_has_parameter(descriptor, static_cast<uint8_t>(param + 1)) &&
                 !mission_float_matches(
                     expected_value,
                     actual_value,
                     tolerance,
                     true)) {
-                add_difference(
-                    index,
-                    ("param" + std::to_string(param + 1)).c_str(),
-                    std::to_string(expected_value),
-                    std::to_string(actual_value));
+                // 飞控对当前机型根本不存储这个字段时不报差异。ArduPilot 把
+                // 15 字节的任务结构按机型复用（例如 copter 不存航点接受半径，
+                // 用 WP_RADIUS 代替），回读必然是默认值；这属于表示差异，
+                // 和 frame/x/y 的既有处理一致，记 normalization。
+                if (!parameter_applicable) {
+                    add_normalization(
+                        index,
+                        ("param" + std::to_string(param + 1)).c_str(),
+                        std::to_string(expected_value),
+                        std::to_string(actual_value),
+                        "该机型不存储此字段（由机型专属参数决定）");
+                } else {
+                    add_difference(
+                        index,
+                        ("param" + std::to_string(param + 1)).c_str(),
+                        std::to_string(expected_value),
+                        std::to_string(actual_value));
+                }
             } else if (command_has_parameter(
                            descriptor,
                            static_cast<uint8_t>(param + 1)) &&
@@ -1341,7 +1356,7 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
     normalizations.end_array();
     home_sync.end_array();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("matches", difference_count == 0);
@@ -1360,7 +1375,7 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
 MGCORE_API char* mg_mission_doc_estimate(mg_core_t* core) {
     CHECK_CORE(core);
     const auto estimate = ensure_document(core)->estimate();
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("total_distance_m", estimate.total_distance_m);

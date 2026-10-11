@@ -6,8 +6,8 @@
  * instead of leaving them in the historical catch-all command module.
  */
 #include "ffi_internal.h"
-#include "json_builder.h"
-#include "json_serializers.h"
+#include "core/telemetry/json_builder.h"
+#include "core/telemetry/json_serializers.h"
 #include "mission_json_serializers.h"
 #include "mission_json_parser.h"
 
@@ -15,6 +15,7 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 namespace {
 
@@ -43,7 +44,7 @@ MGCORE_API char* mg_mission_upload(mg_core_t* core, const char* j) {
     mg::core::platform::LockGuard lk(core->mission_mtx);
     if (!j || j[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "empty mission data");
 
-    cJSON* root = cJSON_Parse(j);
+    cJSON* root = mg::core::json::parse(j);
     if (!root) return fail(MG_ERROR_INVALID_PARAM, "invalid JSON");
     if (!cJSON_IsArray(root)) {
         cJSON_Delete(root);
@@ -74,7 +75,14 @@ MGCORE_API char* mg_mission_upload(mg_core_t* core, const char* j) {
 
     auto* mav = get_active_mavlink(core);
     if (mav && mav->mission_upload(active_target_sys(core), active_target_comp(core), plan)) {
-        return ok();
+        // S2：这里只是“传输已开始”。MISSION_COUNT 已发出，逐项传输与 MISSION_ACK
+        // 由 operation 状态和回读核验，调用方不能把这行当成任务已生效。
+        mg::core::telemetry::JsonBuilder jb;
+        jb.begin_object();
+        jb.field("success", true);
+        jb.field("transfer_started", true);
+        jb.end_object();
+        return to_cstr(jb.str());
     }
     return fail(MG_ERROR_SEND_FAILED, "send failed");
 }
@@ -100,7 +108,8 @@ MGCORE_API char* mg_mission_get_plan(mg_core_t* core) {
     CHECK_CORE(core);
     auto* mav = get_active_mavlink(core);
     auto plan = mav ? ffi_present_mission_plan(core, mav->mission_get_plan()) : mg::core::mission::MissionPlan{};
-    return to_cstr(mg::bridge::mission_plan_json(plan));
+    return to_cstr(
+        mg::bridge::mission_plan_json(plan, ffi_param_profile(core)));
 }
 
 MGCORE_API char* mg_mission_get_progress(mg_core_t* core) {
@@ -116,7 +125,7 @@ MGCORE_API char* mg_mission_get_current(mg_core_t* core) {
     auto* mav = get_active_mavlink(core);
     auto raw_plan = mav ? mav->mission_get_plan() : mg::core::mission::MissionPlan{};
     auto plan = ffi_present_mission_plan(core, raw_plan);
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("index", mg::bridge::ffi::present_mission_current_index(core, raw_plan));
     jb.field("count", (int)plan.items.size());
@@ -133,7 +142,7 @@ MGCORE_API char* mg_mission_get_execution_progress(mg_core_t* core) {
         ? mav->mission_get_execution_progress()
         : mg::core::mavlink::MavlinkAdapter::MissionExecutionProgress{};
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("valid", progress.valid);

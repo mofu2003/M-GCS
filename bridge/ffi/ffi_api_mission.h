@@ -7,11 +7,14 @@
 extern "C" {
 #endif
 
+// 上传任务。立即返回的 success 只表示**传输已开始**，最终结果由 operation 状态和
+// 任务回读给出；调用方不得把该响应当成“已在飞控生效”。
 MGCORE_API char* mg_mission_upload(mg_core_t* core, const char* json_wps);
 MGCORE_API char* mg_mission_download(mg_core_t* core);
+// 启动任务会发送 MAV_CMD_MISSION_START 并等待 COMMAND_ACK：同步调用，最长阻塞约 5 s。
+// 界面线程请改用 mg_command_submit_for_vehicle({"command":"mission_start"}) + poll。
 MGCORE_API char* mg_mission_start(mg_core_t* core);
 MGCORE_API char* mg_mission_clear(mg_core_t* core);
-MGCORE_API char* mg_mission_request(mg_core_t* core, const char* json_request);
 MGCORE_API char* mg_mission_get_progress(mg_core_t* core);
 MGCORE_API char* mg_mission_get_plan(mg_core_t* core);
 // 任务执行进度：MISSION_CURRENT 的当前项 + MISSION_ITEM_REACHED 统计。

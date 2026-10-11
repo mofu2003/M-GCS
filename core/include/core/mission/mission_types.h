@@ -222,6 +222,23 @@ inline bool mission_command_uses_location(uint16_t command) {
     }
 }
 
+/// `mission_command_uses_location` 的固件覆盖版。
+///
+/// 上面那张表镜像 ArduPilot `AP_Mission::stored_in_location()`，是「飞控实际
+/// 怎么存这个字节」的物理语义。QGC 另有一层编辑器语义——`MavCmdInfo*.json`
+/// 的 `specifiesCoordinate` / `standaloneCoordinate`——PX4 覆盖了其中一条：
+/// `MAV_CMD_DO_LAND_START`(189) 在 `PX4-MavCmdInfoCommon.json` 里两者都是
+/// false，即 PX4 的 land start 是纯标记，x/y 不承载经纬度。若不按固件区分，
+/// 从 PX4 回读 x=y=0 的 land start 会被当成 (0, 0) 的坐标画到地图上。
+///
+/// `firmware_profile` 为 `"px4"` 时应用该覆盖；空、`"ardupilot"` 或未知一律
+/// 与 ArduPilot 语义一致（没有数据就不改判）。
+inline bool mission_command_uses_location(uint16_t command,
+                                          const std::string& firmware_profile) {
+    if (firmware_profile == "px4" && command == 189) return false;
+    return mission_command_uses_location(command);
+}
+
 } // namespace mg::core::mission
 
 #endif // MGCORE_MISSION_TYPES_H

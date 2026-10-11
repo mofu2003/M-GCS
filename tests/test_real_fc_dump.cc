@@ -99,7 +99,7 @@ static void dump_all(mg_core_t* core) {
     print_json("mission_current", mg_mission_get_current(core));
 
     // Geofence
-    print_json("geofence", mg_geofence_get(core));
+    print_json("geofence", mg_geofence_get_config(core));
 
     // Flight mode
     print_json("flight_mode_status", mg_flight_get_mode_status(core));

@@ -12,6 +12,7 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 namespace mg::core::mission::cad {
 
@@ -127,6 +128,14 @@ bool parse_entity(
     entity.altitude_m = get_float(
         item, "alt_m", get_float(item, "altitude_m", entity.altitude_m));
     entity.notes = get_string(item, "notes", {});
+    cJSON* entity_extensions = get_item(item, "extensions");
+    if (entity_extensions && cJSON_IsObject(entity_extensions)) {
+        char* raw = cJSON_PrintUnformatted(entity_extensions);
+        if (raw) {
+            entity.extensions_json = raw;
+            cJSON_free(raw);
+        }
+    }
 
     cJSON* params = get_item(item, "params");
     if (params && cJSON_IsArray(params)) {
@@ -661,7 +670,7 @@ std::string serialize_mission_document(const MissionDocument& document) {
     if (!document.extensions.empty()) {
         cJSON* extensions = cJSON_AddObjectToObject(root, "extensions");
         for (const auto& [key, raw_json] : document.extensions) {
-            cJSON* value = cJSON_Parse(raw_json.c_str());
+            cJSON* value = mg::core::json::parse(raw_json.c_str());
             if (!value) continue;
             cJSON_AddItemToObject(extensions, key.c_str(), value);
         }
@@ -733,6 +742,15 @@ std::string serialize_mission_document(const MissionDocument& document) {
         if (!entity.notes.empty()) {
             cJSON_AddStringToObject(item, "notes", entity.notes.c_str());
         }
+        if (!entity.extensions_json.empty()) {
+            cJSON* extras =
+                mg::core::json::parse(entity.extensions_json.c_str());
+            if (extras && cJSON_IsObject(extras)) {
+                cJSON_AddItemToObject(item, "extensions", extras);
+            } else {
+                cJSON_Delete(extras);
+            }
+        }
         cJSON_AddItemToArray(entities, item);
     }
 
@@ -747,7 +765,7 @@ bool deserialize_mission_document(
     const std::string& json,
     MissionDocument& document,
     std::string& error) {
-    cJSON* root = cJSON_Parse(json.c_str());
+    cJSON* root = mg::core::json::parse(json.c_str());
     if (!root || !cJSON_IsObject(root)) {
         cJSON_Delete(root);
         error = "invalid mission document JSON";
@@ -1083,7 +1101,8 @@ bool import_mission_plan_into_document(
         // MAV_FRAME_MISSION 的 x/y 是 param5/param6，不是经纬度；只有命令
         // 语义承载位置且坐标帧为全球帧时才还原成文档位置。
         if (is_global_coordinate_frame(normalized_frame) &&
-            mission_command_uses_location(item.command)) {
+            mission_command_uses_location(
+                item.command, document.metadata.firmware_profile)) {
             entity.latitude = static_cast<double>(item.x) / 1e7;
             entity.longitude = static_cast<double>(item.y) / 1e7;
         }

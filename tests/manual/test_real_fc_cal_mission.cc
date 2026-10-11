@@ -225,12 +225,12 @@ int main(int argc, char** argv) {
     }
 
     fprintf(stderr, "\n--- Calibration read-only checks ---\n");
-    call_json("cal_status", mg_cal_status, core);
-    call_json("cal_retry", mg_cal_retry_info, core);
+    call_json("cal_status", mg_calibration_get_status, core);
+    call_json("cal_retry", mg_calibration_get_retry_info, core);
     for (int type = 0; type <= 3; type++) {
         char label[32];
         snprintf(label, sizeof(label), "cal_history_%d", type);
-        call_json_int(label, mg_cal_history, core, type);
+        call_json_int(label, mg_calibration_get_history, core, type);
     }
     call_json("prearm", mg_vehicle_get_prearm_check, core);
     call_json("sensor_health", mg_sensors_get_health, core);

@@ -64,7 +64,7 @@ MGCORE_API char* mg_mission_doc_export_format(mg_core_t* core, const char* forma
         return fail(MG_ERROR_INTERNAL, error.c_str());
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("format", qgc_plan ? "plan" : "waypoints");

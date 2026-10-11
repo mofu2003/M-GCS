@@ -89,7 +89,7 @@ int main() {
     printf("\n--- Firmware ---\n"); fflush(stdout);
     TJ("mg_firmware_get_type", mg_firmware_get_type(core));
     TJ("mg_firmware_flash_status", mg_firmware_flash_status(core));
-    TJ("mg_firmware_get_version", mg_firmware_get_version(core));
+    TJ("mg_vehicle_get_firmware_version", mg_vehicle_get_firmware_version(core));
 
     // --- Config / Params ---
     printf("\n--- Config / Params ---\n"); fflush(stdout);
@@ -109,7 +109,7 @@ int main() {
 
     // --- Geofence ---
     printf("\n--- Geofence ---\n"); fflush(stdout);
-    TJ("mg_geofence_get", mg_geofence_get(core));
+    TJ("mg_geofence_get_config", mg_geofence_get_config(core));
     TJ("mg_geofence_check", mg_geofence_check(core, 37.0, -122.0));
 
     // --- Rally / Fence ---
@@ -119,8 +119,8 @@ int main() {
 
     // --- Logs ---
     printf("\n--- Logs ---\n"); fflush(stdout);
-    TJ("mg_log_get_entries", mg_log_get_entries(core));
-    TJ("mg_logging_get_stats", mg_logging_get_stats(core));
+    TJ("mg_onboard_log_get_entries", mg_onboard_log_get_entries(core));
+    TJ("mg_tlog_status", mg_tlog_status(core));
 
     // --- Preflight ---
     printf("\n--- Preflight ---\n"); fflush(stdout);
@@ -132,9 +132,9 @@ int main() {
 
     // --- Calibration ---
     printf("\n--- Calibration ---\n"); fflush(stdout);
-    TJ("mg_cal_status", mg_cal_status(core));
-    TJ("mg_cal_history", mg_cal_history(core, 0));
-    TJ("mg_cal_retry_info", mg_cal_retry_info(core));
+    TJ("mg_calibration_get_status", mg_calibration_get_status(core));
+    TJ("mg_calibration_get_history", mg_calibration_get_history(core, 0));
+    TJ("mg_calibration_get_retry_info", mg_calibration_get_retry_info(core));
 
     // --- PX4 Specific ---
     printf("\n--- PX4 Specific ---\n"); fflush(stdout);
@@ -145,13 +145,14 @@ int main() {
 
     // --- Flight Commands (verify FFI calls return valid JSON) ---
     printf("\n--- Flight Commands (FFI call check) ---\n"); fflush(stdout);
-    TJ("mg_cmd_arm", mg_cmd_arm(core));
-    TJ("mg_cmd_disarm", mg_cmd_disarm(core));
-    TJ("mg_cmd_takeoff", mg_cmd_takeoff(core, 10.0f));
-    TJ("mg_cmd_land", mg_cmd_land(core));
-    TJ("mg_cmd_rtl", mg_cmd_rtl(core));
-    TJ("mg_cmd_loiter", mg_cmd_loiter(core));
-    TJ("mg_cmd_guided", mg_cmd_guided(core, 0.0, 0.0, 10.0f));
+    TJ("mg_command_arm", mg_command_arm(core, 0));
+    TJ("mg_command_disarm", mg_command_disarm(core, 0));
+    TJ("mg_command_takeoff", mg_command_takeoff(core, 10.0f));
+    TJ("mg_command_land", mg_command_land(core));
+    TJ("mg_command_rtl", mg_command_rtl(core));
+    TJ("mg_command_guided_pause", mg_command_guided_pause(core));
+    TJ("mg_command_guided_point",
+       mg_command_guided_point(core, 0.0, 0.0, 10.0f, 0.0f, -1.0f));
 
     mg_destroy(core);
 

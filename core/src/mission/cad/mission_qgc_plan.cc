@@ -8,10 +8,12 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <string>
@@ -64,6 +66,82 @@ double number_or_nan(cJSON* item) {
     return item && cJSON_IsNumber(item)
         ? item->valuedouble
         : std::numeric_limits<double>::quiet_NaN();
+}
+
+std::string compact_json(cJSON* value);
+
+// Keys M-GCS models natively. Everything else on the JSON object is captured
+// verbatim so an import -> edit -> export round-trip does not drop user data.
+const char* const kSimpleItemKnownKeys[] = {
+    "type",       "frame", "command", "autoContinue",
+    "params",     "coordinate", "doJumpId",
+};
+const char* const kMissionKnownKeys[] = {
+    "version", "firmwareType", "vehicleType", "cruiseSpeed",
+    "plannedHomePosition", "items",
+};
+const char* const kPlanRootKnownKeys[] = {
+    "fileType", "groundStation", "version", "mission", "geoFence", "rallyPoints",
+};
+
+template <size_t N>
+bool known_key(const char* key, const char* const (&keys)[N]) {
+    if (!key) return false;
+    for (const char* candidate : keys) {
+        if (std::strcmp(key, candidate) == 0) return true;
+    }
+    return false;
+}
+
+// Build a JSON object holding every field of `source` whose key is not in
+// `keys`. Caller owns the result (or nullptr when there is nothing to keep).
+template <size_t N>
+cJSON* collect_extra_fields(cJSON* source, const char* const (&keys)[N]) {
+    if (!source) return nullptr;
+    cJSON* extras = nullptr;
+    for (cJSON* child = source->child; child != nullptr; child = child->next) {
+        if (!child->string || known_key(child->string, keys)) continue;
+        if (!extras) extras = cJSON_CreateObject();
+        if (!extras) return nullptr;
+        cJSON_AddItemToObject(extras, child->string, cJSON_Duplicate(child, true));
+    }
+    return extras;
+}
+
+// Preserve "unknown" source fields on a document entity as a compact JSON
+// object string. `entity` is untouched when there is nothing extra to keep.
+template <size_t N>
+void attach_item_extensions(cJSON* item, const char* const (&keys)[N], MissionEntity& entity) {
+    cJSON* extras = collect_extra_fields(item, keys);
+    if (!extras) return;
+    if (extras->child) entity.extensions_json = compact_json(extras);
+    cJSON_Delete(extras);
+}
+
+// Copy every field of `source` onto `target`, replacing a same-named key. Used
+// on export to re-emit the fields captured by `collect_extra_fields`.
+void merge_object_fields(cJSON* target, cJSON* source) {
+    if (!target || !source) return;
+    for (cJSON* child = source->child; child != nullptr; child = child->next) {
+        if (!child->string) continue;
+        cJSON_DeleteItemFromObjectCaseSensitive(target, child->string);
+        cJSON_AddItemToObject(target, child->string, cJSON_Duplicate(child, true));
+    }
+}
+
+// Parse a preserved verbatim JSON object out of the document extension store.
+// Returns nullptr when the key is absent or not a JSON object.
+cJSON* extension_object(
+    const std::map<std::string, std::string>& extensions,
+    const char* key) {
+    const auto it = extensions.find(key);
+    if (it == extensions.end() || it->second.empty()) return nullptr;
+    cJSON* value = mg::core::json::parse(it->second.c_str());
+    if (!value || !cJSON_IsObject(value)) {
+        cJSON_Delete(value);
+        return nullptr;
+    }
+    return value;
 }
 
 const char* firmware_profile_from_type(int firmware_type) {
@@ -160,6 +238,9 @@ bool parse_qgc_simple_item(cJSON* item,
     }
     const int params_count = cJSON_GetArraySize(params);
     if (params_count >= 7) {
+        // 这条路径只被 `expand_complex_item_entities()` 用来展开 complex item
+        // 的几何（测绘/走廊，全是航点），不涉及 PX4 的坐标覆盖，按 ArduPilot
+        // 语义判定即可；文档级导入见 `import_qgc_plan_json()`。
         if (is_global_coordinate_frame(entity.frame) &&
             mission_command_uses_location(entity.command)) {
             entity.latitude = number_or_nan(cJSON_GetArrayItem(params, 4));
@@ -179,6 +260,7 @@ bool parse_qgc_simple_item(cJSON* item,
         entity.altitude_m =
             static_cast<float>(number_or_nan(cJSON_GetArrayItem(coordinate, 2)));
     }
+    attach_item_extensions(item, kSimpleItemKnownKeys, entity);
     return true;
 }
 
@@ -196,7 +278,7 @@ bool append_complex_item_json(cJSON* target,
                               int do_jump_id,
                               std::string& error) {
     std::unique_ptr<cJSON, decltype(&cJSON_Delete)> item(
-        cJSON_Parse(complex.json.c_str()), cJSON_Delete);
+        mg::core::json::parse(complex.json.c_str()), cJSON_Delete);
     if (!item || !cJSON_IsObject(item.get())) {
         error = "mission document complex item '" + complex.id +
                 "' is not a JSON object";
@@ -864,7 +946,8 @@ std::string export_qgc_plan_json(
             cJSON_AddItemToArray(params, cJSON_CreateNumber(value));
         }
         if (is_global_coordinate_frame(entity.frame) &&
-            mission_command_uses_location(entity.command)) {
+            mission_command_uses_location(
+                entity.command, document.metadata.firmware_profile)) {
             add_number_or_null(params, entity.latitude);
             add_number_or_null(params, entity.longitude);
         } else {
@@ -874,6 +957,11 @@ std::string export_qgc_plan_json(
             add_number_or_null(params, std::numeric_limits<double>::quiet_NaN());
         }
         add_number_or_null(params, entity.altitude_m);
+        if (!entity.extensions_json.empty()) {
+            cJSON* extras = mg::core::json::parse(entity.extensions_json.c_str());
+            merge_object_fields(item, extras);
+            cJSON_Delete(extras);
+        }
         cJSON_AddItemToArray(items, item);
     }
     // Flush trailing complex items, including the append-at-end sentinel.
@@ -890,6 +978,20 @@ std::string export_qgc_plan_json(
 
     add_geo_fence(root.get(), document, "geoFence");
     add_rally_points(root.get(), document, "rallyPoints");
+
+    // Re-emit the fields captured on import that M-GCS does not model
+    // natively, so a QGC .plan round-trip keeps the user's extra sections and
+    // the original hoverSpeed / globalPlanAltitudeMode values.
+    {
+        cJSON* root_extras =
+            extension_object(document.extensions, "qgc_plan.root_fields");
+        merge_object_fields(root.get(), root_extras);
+        cJSON_Delete(root_extras);
+        cJSON* mission_extras =
+            extension_object(document.extensions, "qgc_plan.mission_fields");
+        merge_object_fields(mission, mission_extras);
+        cJSON_Delete(mission_extras);
+    }
 
     char* printed = cJSON_Print(root.get());
     if (!printed) {
@@ -910,7 +1012,7 @@ bool import_qgc_plan_json(
     warnings.clear();
 
     std::unique_ptr<cJSON, decltype(&cJSON_Delete)> root(
-        cJSON_Parse(text.c_str()), cJSON_Delete);
+        mg::core::json::parse(text.c_str()), cJSON_Delete);
     if (!root || !cJSON_IsObject(root.get())) {
         error = "QGC .plan is not a JSON object";
         return false;
@@ -940,6 +1042,8 @@ bool import_qgc_plan_json(
     parsed.complex_items.clear();
     parsed.extensions.erase("geoFence");
     parsed.extensions.erase("rallyPoints");
+    parsed.extensions.erase("qgc_plan.root_fields");
+    parsed.extensions.erase("qgc_plan.mission_fields");
     parsed.rally_points.clear();
     parsed.geo_fence = MissionGeoFence{};
     if (!parse_geo_fence(root.get(), parsed, warnings, error)) return false;
@@ -979,14 +1083,6 @@ bool import_qgc_plan_json(
         } else {
             add_warning(warnings, "QGC cruiseSpeed is not a positive finite value");
         }
-    }
-    if (object_field(mission, "hoverSpeed")) {
-        add_warning(warnings, "QGC hoverSpeed is not preserved by the mission document");
-    }
-    if (object_field(mission, "globalPlanAltitudeMode")) {
-        add_warning(
-            warnings,
-            "QGC globalPlanAltitudeMode is not preserved; per-item frame is authoritative");
     }
 
     cJSON* home_json = object_field(mission, "plannedHomePosition");
@@ -1085,7 +1181,8 @@ bool import_qgc_plan_json(
         const int params_count = cJSON_GetArraySize(params);
         if (params_count >= 7) {
             if (is_global_coordinate_frame(entity.frame) &&
-                mission_command_uses_location(entity.command)) {
+                mission_command_uses_location(
+                    entity.command, parsed.metadata.firmware_profile)) {
                 entity.latitude = number_or_nan(cJSON_GetArrayItem(params, 4));
                 entity.longitude = number_or_nan(cJSON_GetArrayItem(params, 5));
             }
@@ -1096,7 +1193,8 @@ bool import_qgc_plan_json(
         cJSON* coordinate = object_field(item, "coordinate");
         if (coordinate && cJSON_IsArray(coordinate) && cJSON_GetArraySize(coordinate) >= 3) {
             if (is_global_coordinate_frame(entity.frame) &&
-                mission_command_uses_location(entity.command)) {
+                mission_command_uses_location(
+                    entity.command, parsed.metadata.firmware_profile)) {
                 entity.latitude = number_or_nan(cJSON_GetArrayItem(coordinate, 0));
                 entity.longitude = number_or_nan(cJSON_GetArrayItem(coordinate, 1));
             }
@@ -1104,14 +1202,10 @@ bool import_qgc_plan_json(
                 number_or_nan(cJSON_GetArrayItem(coordinate, 2)));
         }
 
-        if (object_field(item, "altitudeMode") ||
-            object_field(item, "altitude") ||
-            object_field(item, "AMSLAltAboveTerrain")) {
-            add_warning(
-                warnings,
-                "QGC item " + std::to_string(index) +
-                    " altitudeMode/terrain fields are not preserved");
-        }
+        // Fields M-GCS does not model natively (altitudeMode, altitude,
+        // AMSLAltAboveTerrain, ...) are kept verbatim on the entity so the
+        // export puts them back instead of dropping user data.
+        attach_item_extensions(item, kSimpleItemKnownKeys, entity);
         if (!catalog_has_command(static_cast<uint16_t>(command))) {
             add_warning(
                 warnings,
@@ -1120,6 +1214,26 @@ bool import_qgc_plan_json(
                     ", which is not in the supported command catalog");
         }
         parsed.entities.push_back(std::move(entity));
+    }
+
+    // Preserve unknown top-level and mission-object sections so a QGC plan
+    // that carries extra metadata survives the round-trip.
+    {
+        cJSON* root_extras = collect_extra_fields(root.get(), kPlanRootKnownKeys);
+        if (root_extras) {
+            if (root_extras->child) {
+                parsed.extensions["qgc_plan.root_fields"] = compact_json(root_extras);
+            }
+            cJSON_Delete(root_extras);
+        }
+        cJSON* mission_extras = collect_extra_fields(mission, kMissionKnownKeys);
+        if (mission_extras) {
+            if (mission_extras->child) {
+                parsed.extensions["qgc_plan.mission_fields"] =
+                    compact_json(mission_extras);
+            }
+            cJSON_Delete(mission_extras);
+        }
     }
 
     document.home = parsed.home;
@@ -1141,7 +1255,7 @@ bool expand_complex_item_entities(
     entities.clear();
 
     std::unique_ptr<cJSON, decltype(&cJSON_Delete)> root(
-        cJSON_Parse(complex.json.c_str()), cJSON_Delete);
+        mg::core::json::parse(complex.json.c_str()), cJSON_Delete);
     if (!root || !cJSON_IsObject(root.get())) {
         error = "complex item '" + complex.id + "' payload is not a JSON object";
         return false;

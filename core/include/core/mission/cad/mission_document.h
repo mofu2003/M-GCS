@@ -138,6 +138,11 @@ struct MissionEntity {
     std::array<float, 4> params = {0.0f, 0.0f, 0.0f, 0.0f};
     MissionSurveySpec survey;
     std::string notes;
+    /// Format-specific JSON fields of the source item (for example QGC
+    /// `altitudeMode` / `AMSLAltAboveTerrain`) preserved verbatim as a JSON
+    /// object string, so import -> edit -> export keeps fields M-GCS does not
+    /// model natively. Empty when the entity came from an M-GCS-native source.
+    std::string extensions_json;
 };
 
 struct MissionDocument {
@@ -345,6 +350,13 @@ const char* mission_entity_type_for_command(uint16_t command);
 /// 文档用 double 存位置、编译时再转 degE7，两者语义相同，所以 5→0、6→3、
 /// 11→10。不归一化的话，导入回来的任务会被自己的校验判成 frame_unsupported。
 uint8_t normalize_mission_frame(uint8_t frame);
+
+/// 检查已编译任务里的命令在指定机型上是否受支持，用于上传前对**在线飞控**做最后
+/// 一道机型门禁（文档 metadata 可能与当前飞控不一致）。机型名为空或无法归一化
+/// （Sub/Tracker 等未建模机型）时不产生诊断；命令不在目录里也不在这里判。
+MissionValidationReport validate_plan_for_vehicle(
+    const MissionPlan& plan,
+    const std::string& vehicle_class);
 
 /// 用一份已编译的 MAVLink 任务替换文档的实体列表（home 与 metadata 保留）。
 /// 用于“从飞控读取任务”这类导入：任务项只带 command/frame/params/位置，
