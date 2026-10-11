@@ -178,3 +178,21 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 5. 产物校验：`ffprobe rec.mkv`（Matroska，含视频流）与 `ffprobe shot.png`（PNG，尺寸与画面一致）。截图像素应与预览画面一致，而不是黑帧或空文件。
 
 未编译进 FFmpeg 后端时，第 2 步的 `mg_video_start` 会返回 `NOT_SUPPORTED`，第 3/4 步返回 `NOT_SUPPORTED`；这是预期行为，UI 会显示「本平台未启用本地视频解码」，不画录制控件。
+
+### 在 macOS 应用里看效果（开发构建）
+
+默认应用构建是 `MGCORE_HAS_FFMPEG=OFF`，所以打开应用只会在视频面板看到「本平台未启用本地视频解码」。
+要让它真正预览/录制/截图，先把应用的 mgcore 构建缓存指向 LGPL FFmpeg，再构建应用
+（Xcode 内嵌阶段复用这个缓存；详细说明见 `docs/development.md`「运行前端」）：
+
+```bash
+cmake -S . -B flutter_shell/build/mgcore -DCMAKE_BUILD_TYPE=Release \
+  -DMGCORE_BUILD_SHARED=ON -DMGCORE_BUILD_TESTS=OFF \
+  -DMGCORE_HAS_FFMPEG=ON -DFFMPEG_ROOT=/Users/fansicheng/.local/ffmpeg-lgpl
+cd flutter_shell && flutter build macos --debug
+```
+
+然后按第 1 步起一路 `testsrc`，在应用里打开「相机与云台」页，视频地址填 `tcp://127.0.0.1:12345` 并启动。
+录制面板只有在后端可用时才出现。用 `otool -L .../Contents/Frameworks/libmgcore.dylib` 确认链接的是
+LGPL 那份 FFmpeg；要回到默认构建，删掉 `flutter_shell/build/mgcore` 后重新构建即可。
+这里的动态库路径是本机绝对路径，仅用于开发构建；发布打包按 `release-and-hardware.md` R6 单独处理。

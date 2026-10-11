@@ -39,6 +39,23 @@ Release 产物，随后 Flutter 内嵌或 preflight 的 FFI 符号核对会加�
 cd flutter_shell && flutter run -d macos
 ```
 
+### 启用本地视频解码（可选）
+
+默认构建是 `MGCORE_HAS_FFMPEG=OFF`，相机与云台页会诚实显示「本平台未启用本地视频解码」，也不会画录制控件。
+要在本机开发构建里启用本地视频预览、录制和截图，把 macOS 应用的 mgcore 构建缓存指向自建的 LGPL FFmpeg
+（`--disable-gpl`；GPL 构建不得链接，见 ADR-0008）：
+
+```bash
+cmake -S . -B flutter_shell/build/mgcore -DCMAKE_BUILD_TYPE=Release \
+  -DMGCORE_BUILD_SHARED=ON -DMGCORE_BUILD_TESTS=OFF \
+  -DMGCORE_HAS_FFMPEG=ON -DFFMPEG_ROOT=/Users/fansicheng/.local/ffmpeg-lgpl
+cd flutter_shell && flutter build macos --debug
+```
+
+Xcode 内嵌阶段会复用这个缓存，产出的 `libmgcore.dylib` 仍然动态链接上述前缀下的 FFmpeg（本机绝对路径，
+仅限开发构建）。要回到默认构建，删除 `flutter_shell/build/mgcore` 后重新构建。发布打包按
+`release-and-hardware.md` R6 单独处理；`docs/features/video-camera-gimbal.md` 第 11 节有真实码流的验证步骤。
+
 ## 后端测试
 
 测试源码位于 `core/tests/`，通过 CTest 标签分组：
