@@ -23,7 +23,7 @@ class MagnetometerCalibrationCard extends StatelessWidget {
     final status = controller.calibrationStatus;
     final calibrating =
         status.active && status.type == CalibrationType.magnetometer;
-    final instances = controller.waveformMagInstances;
+    final instances = controller.waveform.instances(WaveformInstanceKind.mag);
     // 容差等级参数名由后端角色表提供（safety.md S6），角色缺失时下拉先置灰。
     final toleranceName = controller.roleParam('compass.cal_fit');
     final tolerance = toleranceName == null
@@ -66,7 +66,7 @@ class MagnetometerCalibrationCard extends StatelessWidget {
                   children: [
                     for (final instance in instances)
                       MagneticFieldStrength(
-                        controller: controller,
+                        controller: controller.waveform,
                         instance: instance,
                       ),
                   ],

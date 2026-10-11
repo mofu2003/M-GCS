@@ -15,7 +15,7 @@ class MagnetometerCalibrationView extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: Listenable.merge([
-      controller.waveformChanges,
+      controller.waveform.changes,
       controller.parameterChanges,
       controller.calibrationChanges,
     ]),

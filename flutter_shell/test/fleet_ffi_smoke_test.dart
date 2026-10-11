@@ -295,7 +295,7 @@ void main() {
         }
         expect(controller.sessionId, vehicleIds.first);
         expect(controller.vehicleFlightMode, 'Guided');
-        controller.waveformImuPointCount = 17;
+        controller.waveform.imuPointCount = 17;
         controller.flightTimeSeconds = 42.5;
         controller.flightDistanceMeters = 321.0;
         final missionA = controller.missionPlanning;
@@ -322,10 +322,10 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
         expect(controller.vehicleFlightMode, 'Stabilize');
-        expect(controller.waveformImuPointCount, 0);
+        expect(controller.waveform.imuPointCount, 0);
         expect(controller.flightTimeSeconds, 0);
         expect(controller.flightDistanceMeters, 0);
-        controller.waveformImuPointCount = 23;
+        controller.waveform.imuPointCount = 23;
         controller.flightTimeSeconds = 84.0;
         controller.flightDistanceMeters = 654.0;
         final missionB = controller.missionPlanning;
@@ -363,7 +363,7 @@ void main() {
         expect(controller.vehicleFlightMode, 'Guided');
         // Waveform samples are intentionally not cached across a switch;
         // flight statistics are restored from the vehicle runtime snapshot.
-        expect(controller.waveformImuPointCount, 0);
+        expect(controller.waveform.imuPointCount, 0);
         // Flight time is derived from a running stopwatch, so it advances by a
         // few milliseconds between arming and the assertion. Compare with a
         // tolerance instead of exact equality.

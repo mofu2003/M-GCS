@@ -239,6 +239,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `int`-truncated byte counters, missing erase/index/integrity checks, and a missing
   `CHECK_CONNECTED` in `mg_onboard_log_get_entries`.
 ### Changed
+- Extracted the realtime waveform subsystem out of `ConnectionController`:
+  `flutter_shell/lib/connection/waveform_controller.dart` now owns the IMU/magnetometer ring
+  buffers, the 10 Hz polling timer, instance discovery and the SCALED_IMU/2/3 stream-rate
+  negotiation. Per-vehicle switching and disconnects go through the new
+  `captureSnapshot`/`applySnapshot`/`reset`/`stopPolling`/`restartPolling`/`onLinkEstablished`
+  lifecycle hooks instead of the controller moving waveform fields one by one;
+  `connection_controller.dart` drops from 4160 to 3833 lines (KD-43). The public waveform API is
+  now reached as `controller.waveform.*` (`changes`, `instances`, `instanceIndex`, `points`,
+  `pointCount`, `magLatest`, `setInstance`, `setActive`), and the buffers are allocated eagerly,
+  so they are valid even when the native library fails to load.
 - The synchronous `mg_fs_download_cancel` export is gone: FTP transfers are now async and are
   cancelled with `mg_fs_cancel`, observed with `mg_fs_transfer_status`. `MavlinkAdapter`'s old
   blocking `list_directory`/`download_file`/`upload_file`/`cancel_file_transfer` methods were

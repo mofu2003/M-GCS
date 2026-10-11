@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:macos_ui/macos_ui.dart';
@@ -34,12 +32,6 @@ void main() {
     // Uses the normal controller in the disconnected state. No session is
     // opened: these tests never touch a serial port or send flight commands.
     final controller = ConnectionController();
-    // flutter_tester has no bundled native library. The UI fixture supplies
-    // empty waveform buffers without opening or mocking a flight connection.
-    if (controller.initializationError != null) {
-      controller.waveformImuPoints = Float32List(0);
-      controller.waveformMagPoints = Float32List(0);
-    }
     var returnedToMap = false;
     await tester.pumpWidget(
       MacosTheme(
@@ -108,7 +100,7 @@ void main() {
     // Updating after removal must not notify any disposed page state.
     controller.profileChanges.value++;
     controller.calibrationChanges.value++;
-    controller.waveformChanges.value++;
+    controller.waveform.changes.value++;
     await tester.pump();
     controller.dispose();
     expect(tester.takeException(), isNull);

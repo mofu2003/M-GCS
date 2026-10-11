@@ -38,6 +38,9 @@ import 'flight_command_ffi_backend.dart';
 import 'native_core.dart';
 import 'signing_controller.dart';
 import 'signing_key_store.dart';
+import 'waveform_controller.dart';
+
+export 'waveform_controller.dart';
 
 final class SerialPortInfo {
   const SerialPortInfo({
@@ -51,8 +54,6 @@ final class SerialPortInfo {
   final bool likelyFlightController;
 }
 
-/// 波形选择器里的两类实例：IMU（加速度计/陀螺仪）和磁力计。
-enum WaveformInstanceKind { imu, mag }
 
 enum CalibrationType {
   gyroscope,
@@ -122,36 +123,6 @@ final class CalibrationStatus {
   };
 }
 
-/// 后端识别到的一个传感器实例。
-final class WaveformInstance {
-  const WaveformInstance({
-    required this.index,
-    required this.active,
-    required this.name,
-  });
-
-  /// 实例号，0 对应 IMU1 / 磁力计 1，直接作为取数时的 instance 参数。
-  final int index;
-
-  /// 最近是否真的收到过这个实例的数据。
-  final bool active;
-
-  /// 解码出的传感器型号，参数未下发时是空串。
-  final String name;
-
-  /// 选择器上的显示名，例如 `IMU 1`。
-  String label(String prefix) => '$prefix ${index + 1}';
-
-  @override
-  bool operator ==(Object other) =>
-      other is WaveformInstance &&
-      other.index == index &&
-      other.active == active &&
-      other.name == name;
-
-  @override
-  int get hashCode => Object.hash(index, active, name);
-}
 
 final class ParameterOption {
   const ParameterOption({required this.value, required this.label});
@@ -383,11 +354,7 @@ final class _VehicleRuntimeSnapshot {
     required this.lastFlightLongitude,
     required this.firmwareVersionInfo,
     required this.sensorHealth,
-    required this.waveformWindowMs,
-    required this.waveformImuInstances,
-    required this.waveformMagInstances,
-    required this.waveformImuInstance,
-    required this.waveformMagInstance,
+    required this.waveform,
     required this.parameters,
     required this.parameterWriteErrors,
     required this.parameterMetadataLoaded,
@@ -456,11 +423,7 @@ final class _VehicleRuntimeSnapshot {
   final double? lastFlightLongitude;
   final Map<String, Object?>? firmwareVersionInfo;
   final Map<String, Object?>? sensorHealth;
-  final int waveformWindowMs;
-  final List<WaveformInstance> waveformImuInstances;
-  final List<WaveformInstance> waveformMagInstances;
-  final int waveformImuInstance;
-  final int waveformMagInstance;
+  final WaveformSnapshot waveform;
   final Map<String, VehicleParameter> parameters;
   final Map<String, String> parameterWriteErrors;
   final Set<String> parameterMetadataLoaded;
@@ -506,11 +469,24 @@ final class ConnectionController extends ChangeNotifier {
       vehicleIds: () => fleetSnapshot.vehicles.map((vehicle) => vehicle.id),
       keyStore: signingKeyStore,
     )..addListener(notifyListeners);
+    _waveform = WaveformController(
+      native: () => _native,
+      ready: () => initializationError == null,
+      connected: () => isConnected,
+      sessionId: () => sessionId,
+    );
     _initialize();
     unawaited(_signing.loadLibrary());
   }
 
   late final SigningController _signing;
+
+  /// 波形子系统：取数、缓冲、实例清单和流速率协商都在它里面，
+  /// 控制器只负责接线，并把切车/断连的生命周期转给它。
+  late final WaveformController _waveform;
+
+  /// 波形子系统的公开入口。
+  WaveformController get waveform => _waveform;
 
   /// MV1 seam: connection registry and command target tokens.
   /// Multi-link UI is intentionally not exposed until per-vehicle rebinding is verified.
@@ -745,33 +721,6 @@ final class ConnectionController extends ChangeNotifier {
   final List<SerialPortInfo> ports = [];
   final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
 
-  /// 波形缓冲区上限。50s 窗口 @10Hz 约 500 帧，取 600 留余量，
-  /// 正常就是逐帧原始点，抽稀只在采样率异常高时才兜底。
-  /// 点数直接决定每帧的绘制和分配开销，这个值不要为了"看起来更细"随意调大。
-  static const int _waveformMaxPoints = 600;
-
-  /// 每个采样点：相对毫秒 + 加速度 3 轴 + 角速度 3 轴 + 磁力 3 轴。
-  static const int _waveformFloatsPerPoint = 10;
-
-  /// 波形页面默认显示的时间窗口（毫秒）。
-  ///
-  /// 这个值同时决定曲线的横坐标范围：后端按它裁出返回的点，图表用它算 maxX。
-  static const int _waveformDefaultWindowMs = 40000;
-
-  /// 波形页面取数间隔。
-  ///
-  /// 必须跟后端的 10Hz 采样对齐：这里曾经是 1 秒一次，结果飞控在持续采集，
-  /// 界面却每秒才读一次缓冲，读数会在动作结束后成批跳出，表现为"摇完才变"。
-  /// 波形与曲线统一按 10Hz 刷新，不要降到秒级。
-  static const Duration _waveformPollInterval = Duration(milliseconds: 100);
-
-  /// 波形页面可见时请求的采样间隔（10Hz）。SCALED_IMU/2/3 各请求一次，
-  /// 按显示需要取数，把串口带宽和缓冲写入量压到常规链路水平。
-  static const int _waveformStreamIntervalUs = 100000;
-  static const int _waveformIdleStreamIntervalUs = 500000;
-
-  /// 波形页面按采样间隔请求的消息 ID：SCALED_IMU / SCALED_IMU2 / SCALED_IMU3。
-  static const List<int> _waveformMessageIds = [26, 116, 129];
 
   /// 常规遥测轮询间隔。位置/姿态/VFR_HUD 提到 20Hz，地图和仪表更顺滑。
   /// 波形仍保持独立的 10Hz 采样与轮询，不跟着一起加倍。
@@ -796,7 +745,6 @@ final class ConnectionController extends ChangeNotifier {
   final ValueNotifier<int> telemetryChanges = ValueNotifier(0);
   final ValueNotifier<int> profileChanges = ValueNotifier(0);
   final ValueNotifier<int> connectionChanges = ValueNotifier(0);
-  final ValueNotifier<int> waveformChanges = ValueNotifier(0);
   final ValueNotifier<int> calibrationChanges = ValueNotifier(0);
 
   String? selectedPort;
@@ -915,35 +863,6 @@ final class ConnectionController extends ChangeNotifier {
   Map<String, Object?>? firmwareVersionInfo;
   Map<String, Object?>? sensorHealth;
 
-  /// 波形采样点，由后端环形缓冲直接写入：每点 10 个 float
-  /// （相对毫秒 + accel XYZ + gyro XYZ + mag XYZ）。
-  /// IMU 和磁力计各自一份，因为两个面板会选不同的实例；
-  /// 这些都是复用的缓冲区，不是每次轮询新建的列表。
-  late final Float32List waveformImuPoints;
-  int waveformImuPointCount = 0;
-  late final Float32List waveformMagPoints;
-  int waveformMagPointCount = 0;
-  final Map<int, List<double>> waveformMagLatestByInstance = {};
-
-  /// 波形页面显示的时间窗口（毫秒）。
-  int waveformWindowMs = _waveformDefaultWindowMs;
-
-  /// 后端识别到的实例清单，以及当前选中的实例号。
-  List<WaveformInstance> waveformImuInstances = const [
-    _waveformDefaultInstance,
-  ];
-  List<WaveformInstance> waveformMagInstances = const [
-    _waveformDefaultInstance,
-  ];
-  int waveformImuInstance = 0;
-  int waveformMagInstance = 0;
-
-  /// 后端还没上报任何实例时的占位：只有 IMU1 / 磁力计 1，且未激活。
-  static const WaveformInstance _waveformDefaultInstance = WaveformInstance(
-    index: 0,
-    active: false,
-    name: '',
-  );
   final Map<String, VehicleParameter> parameters = {};
   final Map<String, Future<void>> _parameterWriteJobs = {};
   final Map<String, String> _parameterWriteErrors = {};
@@ -975,9 +894,7 @@ final class ConnectionController extends ChangeNotifier {
   String? initializationError;
   Timer? _stateTimer;
   Timer? _telemetryTimer;
-  Timer? _waveformTimer;
   Timer? _calibrationTimer;
-  bool _waveformActive = false;
   int _lastSystemStatusPollMs = 0;
   bool _busy = false;
   bool _switchingSession = false;
@@ -1204,9 +1121,6 @@ final class ConnectionController extends ChangeNotifier {
     if (!_disposed) connectionChanges.value++;
   }
 
-  void _notifyWaveformChanges() {
-    if (!_disposed) waveformChanges.value++;
-  }
 
   void _notifyCalibrationChanges() {
     if (!_disposed) calibrationChanges.value++;
@@ -1862,12 +1776,6 @@ final class ConnectionController extends ChangeNotifier {
           // Keep last fleet snapshot on transient reads; never change focus here.
         }
       });
-      waveformImuPoints = Float32List(
-        _waveformMaxPoints * _waveformFloatsPerPoint,
-      );
-      waveformMagPoints = Float32List(
-        _waveformMaxPoints * _waveformFloatsPerPoint,
-      );
       unawaited(refreshPorts());
     } on Object catch (error) {
       initializationError = '串口连接后端初始化失败：$error';
@@ -2038,8 +1946,6 @@ final class ConnectionController extends ChangeNotifier {
       _clearGuidedTarget();
       _lastFlightLatitude = null;
       _lastFlightLongitude = null;
-      waveformImuPointCount = 0;
-      waveformMagPointCount = 0;
       phase = targetSummary.connected
           ? SerialConnectionPhase.connected
           : SerialConnectionPhase.waitingForHeartbeat;
@@ -2068,8 +1974,7 @@ final class ConnectionController extends ChangeNotifier {
     _stateTimer = null;
     _telemetryTimer?.cancel();
     _telemetryTimer = null;
-    _waveformTimer?.cancel();
-    _waveformTimer = null;
+    _waveform.stopPolling();
   }
 
   void _startSessionPolling() {
@@ -2083,7 +1988,7 @@ final class ConnectionController extends ChangeNotifier {
       final id = sessionId;
       if (id != null) _pollTelemetry(id);
     });
-    _restartWaveformTimer();
+    _waveform.restartPolling();
   }
 
   _VehicleRuntimeSnapshot _captureRuntimeSnapshot() => _VehicleRuntimeSnapshot(
@@ -2130,11 +2035,7 @@ final class ConnectionController extends ChangeNotifier {
         ? null
         : Map.of(firmwareVersionInfo!),
     sensorHealth: sensorHealth == null ? null : Map.of(sensorHealth!),
-    waveformWindowMs: waveformWindowMs,
-    waveformImuInstances: List.of(waveformImuInstances),
-    waveformMagInstances: List.of(waveformMagInstances),
-    waveformImuInstance: waveformImuInstance,
-    waveformMagInstance: waveformMagInstance,
+    waveform: _waveform.captureSnapshot(),
     parameters: Map.of(parameters),
     parameterWriteErrors: Map.of(_parameterWriteErrors),
     parameterMetadataLoaded: Set.of(_parameterMetadataLoaded),
@@ -2218,11 +2119,7 @@ final class ConnectionController extends ChangeNotifier {
     sensorHealth = snapshot.sensorHealth == null
         ? null
         : Map.of(snapshot.sensorHealth!);
-    waveformWindowMs = snapshot.waveformWindowMs;
-    waveformImuInstances = List.of(snapshot.waveformImuInstances);
-    waveformMagInstances = List.of(snapshot.waveformMagInstances);
-    waveformImuInstance = snapshot.waveformImuInstance;
-    waveformMagInstance = snapshot.waveformMagInstance;
+    _waveform.applySnapshot(snapshot.waveform);
     parameters
       ..clear()
       ..addAll(snapshot.parameters);
@@ -3097,10 +2994,8 @@ final class ConnectionController extends ChangeNotifier {
         phase = SerialConnectionPhase.connected;
         message = '飞控已连接';
         unawaited(_signing.applyIfNeeded());
-        if (previousPhase != SerialConnectionPhase.connected &&
-            _waveformActive) {
-          _applyWaveformStreamRate();
-          _scheduleWaveformStreamRateRetry();
+        if (previousPhase != SerialConnectionPhase.connected) {
+          _waveform.onLinkEstablished();
         }
         if (capturedVehicleId != null && !_firmwareVersionRequested) {
           _firmwareVersionRequested = true;
@@ -3446,221 +3341,6 @@ final class ConnectionController extends ChangeNotifier {
       notifyListeners();
     }
   }
-
-  /// 波形只在页面可见时轮询，不可见就完全停掉，省掉无谓的取数和重绘。
-  void setWaveformActive(bool active) {
-    if (_waveformActive == active) return;
-    _waveformActive = active;
-    _restartWaveformTimer();
-    _applyWaveformStreamRate();
-  }
-
-  /// 选择波形页面显示的实例。取数定时器共用，所以换实例只是换取样区间，
-  /// 立刻补一次取数，不用等下一个周期。
-  void setWaveformInstance(WaveformInstanceKind kind, int index) {
-    if (index < 0) return;
-    if (kind == WaveformInstanceKind.mag) {
-      if (index == waveformMagInstance) return;
-      waveformMagInstance = index;
-      waveformMagPointCount = 0;
-    } else {
-      if (index == waveformImuInstance) return;
-      waveformImuInstance = index;
-      waveformImuPointCount = 0;
-    }
-    final id = sessionId;
-    if (_waveformActive && id != null && isConnected) {
-      _pollWaveform(id);
-    } else {
-      _notifyWaveformChanges();
-    }
-  }
-
-  /// 某一类实例的清单，按实例号升序。
-  List<WaveformInstance> waveformInstances(WaveformInstanceKind kind) =>
-      kind == WaveformInstanceKind.mag
-      ? waveformMagInstances
-      : waveformImuInstances;
-
-  /// 当前选中的实例号。
-  int waveformInstanceIndex(WaveformInstanceKind kind) =>
-      kind == WaveformInstanceKind.mag
-      ? waveformMagInstance
-      : waveformImuInstance;
-
-  /// 某一类实例最近一次取数写入的点，画图时直接读这里。
-  Float32List waveformPoints(WaveformInstanceKind kind) =>
-      kind == WaveformInstanceKind.mag ? waveformMagPoints : waveformImuPoints;
-
-  List<double> waveformMagLatest(int index) =>
-      waveformMagLatestByInstance[index] ??
-      const [double.nan, double.nan, double.nan];
-
-  /// 某一类实例最近一次取数的点数。
-  int waveformPointCount(WaveformInstanceKind kind) =>
-      kind == WaveformInstanceKind.mag
-      ? waveformMagPointCount
-      : waveformImuPointCount;
-
-  /// 波形页面可见时把 SCALED_IMU/2/3 都提到 10Hz，离开时恢复常规速率。
-  /// 复用通用的 mg_stream_set_interval，不新增后端专用接口。
-  void _applyWaveformStreamRate() {
-    if (initializationError != null || !isConnected) return;
-    final intervalUs = _waveformActive
-        ? _waveformStreamIntervalUs
-        : _waveformIdleStreamIntervalUs;
-    for (final messageId in _waveformMessageIds) {
-      try {
-        _native!.setStreamInterval(messageId, intervalUs);
-      } on Object {
-        // 速率只是画质优化，失败不影响波形页面本身。
-      }
-    }
-  }
-
-  /// 后端识别到固件时会重新下发常规流速率，识别完成后再补一次高速率。
-  void _scheduleWaveformStreamRateRetry() {
-    Timer(const Duration(milliseconds: 1500), () {
-      if (!_disposed && _waveformActive) _applyWaveformStreamRate();
-    });
-  }
-
-  void _restartWaveformTimer() {
-    _waveformTimer?.cancel();
-    _waveformTimer = null;
-    if (!_waveformActive || _disposed || initializationError != null) return;
-    _waveformTimer = Timer.periodic(_waveformPollInterval, (_) {
-      final id = sessionId;
-      if (id != null) _pollWaveform(id);
-    });
-  }
-
-  void _pollWaveform(int id) {
-    if (!isConnected || sessionId != id || _disposed) return;
-    _readWaveformKind(WaveformInstanceKind.imu);
-    _readWaveformKind(WaveformInstanceKind.mag);
-    // 磁场强度要同时显示所有罗盘，而整窗取数只覆盖当前选中的实例，
-    // 所以给其余实例各补一次"只要最新一点"的取数。
-    _refreshMagLatestValues();
-    // 实例数量随"最近有没有收到数据"变化，和取数同一个周期刷新，
-    // 只有真的变了才通知界面，避免选择器每秒闪一下。
-    _refreshWaveformInstances();
-    _notifyWaveformChanges();
-  }
-
-  /// 刷新所有罗盘实例的最新磁场值，而不只是当前选中的那个。
-  ///
-  /// 磁场强度卡片是按实例平铺的，只更新选中实例会导致别的罗盘一直空着，
-  /// 直到用户手动切过去。
-  ///
-  /// 这里用**时间窗口**而不是点数来裁剪：`copy_points` 在"可用点数多于
-  /// max_points"时会走 min/max 降采样分支，而那个分支要求 `written + 2 <=
-  /// max_points`，所以传 `target_points = 1` 会一个点都不返回。改成把窗口压到
-  /// 1ms，缓冲里的点数是 1，走的是直通分支，拿到的就是真正的最新一帧。
-  void _refreshMagLatestValues() {
-    for (final instance in waveformMagInstances) {
-      if (instance.index == waveformMagInstance) continue; // 整窗取数已经顺手更新过
-      try {
-        final written = _native!.readWaveform(
-          maxPoints: _waveformMaxPoints,
-          floatsPerPoint: _waveformFloatsPerPoint,
-          windowMs: 1, // 只保留最新一帧
-          instance: instance.index,
-        );
-        if (written <= 0) continue;
-        final base = (written - 1) * _waveformFloatsPerPoint + 7;
-        waveformMagLatestByInstance[instance.index] = [
-          _native!.waveformValueAt(base),
-          _native!.waveformValueAt(base + 1),
-          _native!.waveformValueAt(base + 2),
-        ];
-      } on Object {
-        // 单个实例取不到数据不影响其它实例。
-      }
-    }
-  }
-
-  /// 取一类实例的波形。任何一个实例取不到数据都只是把点数清零，
-  /// 不影响另一类实例的显示。
-  void _readWaveformKind(WaveformInstanceKind kind) {
-    final instance = waveformInstanceIndex(kind);
-    var count = 0;
-    try {
-      final written = _native!.readWaveform(
-        maxPoints: _waveformMaxPoints,
-        floatsPerPoint: _waveformFloatsPerPoint,
-        windowMs: waveformWindowMs,
-        instance: instance,
-      );
-      if (written > 0) {
-        final view = _native!.waveformView(written * _waveformFloatsPerPoint);
-        waveformPoints(kind).setRange(0, view.length, view);
-        count = written;
-        if (kind == WaveformInstanceKind.mag) {
-          final base = (written - 1) * _waveformFloatsPerPoint + 7;
-          waveformMagLatestByInstance[instance] = [
-            _native!.waveformValueAt(base),
-            _native!.waveformValueAt(base + 1),
-            _native!.waveformValueAt(base + 2),
-          ];
-        }
-      }
-    } on Object {
-      count = 0;
-    }
-
-    if (kind == WaveformInstanceKind.mag) {
-      waveformMagPointCount = count;
-    } else {
-      waveformImuPointCount = count;
-    }
-  }
-
-  /// 刷新后端识别到的实例清单，并把选中实例收敛到仍然存在的实例上。
-  void _refreshWaveformInstances() {
-    try {
-      final payload = _native!.waveformInstances() as Map<String, Object?>;
-      final imu = _parseWaveformInstances(payload['imu']);
-      final mag = _parseWaveformInstances(payload['mag']);
-      if (listEquals(imu, waveformImuInstances) &&
-          listEquals(mag, waveformMagInstances)) {
-        return;
-      }
-      waveformImuInstances = imu;
-      waveformMagInstances = mag;
-      waveformImuInstance = _clampInstance(waveformImuInstance, imu);
-      waveformMagInstance = _clampInstance(waveformMagInstance, mag);
-    } on Object {
-      // 实例清单只是选择器数据，取不到就保持上一次的结果。
-    }
-  }
-
-  static List<WaveformInstance> _parseWaveformInstances(Object? raw) {
-    final entries = raw as List<Object?>? ?? const [];
-    final instances = <WaveformInstance>[];
-    for (final entry in entries) {
-      if (entry is! Map<String, Object?>) continue;
-      final index = entry['index'] as int?;
-      if (index == null || index < 0) continue;
-      instances.add(
-        WaveformInstance(
-          index: index,
-          active: entry['active'] == true,
-          name: entry['name'] as String? ?? '',
-        ),
-      );
-    }
-    if (instances.isEmpty) {
-      return const [_waveformDefaultInstance];
-    }
-    return instances;
-  }
-
-  /// 选中的实例消失时退回列表里的第一个，保证选择器始终指向有效实例。
-  static int _clampInstance(int current, List<WaveformInstance> instances) =>
-      instances.any((instance) => instance.index == current)
-      ? current
-      : instances.first.index;
 
   void _pollParameterDownload() {
     if (!_parameterRequestStarted || parametersLoaded || sessionId == null) {
@@ -4107,13 +3787,7 @@ final class ConnectionController extends ChangeNotifier {
     vehicleIdentity = null;
     firmwareVersionInfo = null;
     sensorHealth = null;
-    waveformImuPointCount = 0;
-    waveformMagPointCount = 0;
-    waveformMagLatestByInstance.clear();
-    waveformImuInstances = const [_waveformDefaultInstance];
-    waveformMagInstances = const [_waveformDefaultInstance];
-    waveformImuInstance = 0;
-    waveformMagInstance = 0;
+    _waveform.reset();
     servoOutputs = const [];
     servoOutputsValid = false;
     rcChannels = const [];
@@ -4139,16 +3813,15 @@ final class ConnectionController extends ChangeNotifier {
     _flightStopwatch.stop();
     _stateTimer?.cancel();
     _telemetryTimer?.cancel();
-    _waveformTimer?.cancel();
     _calibrationTimer?.cancel();
     _signing.removeListener(notifyListeners);
     _signing.dispose();
+    _waveform.dispose();
     _native?.dispose();
     parameterChanges.dispose();
     telemetryChanges.dispose();
     profileChanges.dispose();
     connectionChanges.dispose();
-    waveformChanges.dispose();
     calibrationChanges.dispose();
     _offlineMissionPlanning?.dispose();
     for (final mission in _missionPlanningBySession.values) {

@@ -69,14 +69,14 @@ class _CalibrationPageState extends State<CalibrationPage> {
   /// 两个面板同时挂在树上，所以取数开关必须由页面统一决定，
   /// 不能让面板各自调用，否则会互相覆盖。
   void _syncWaveformPolling() {
-    widget.controller.setWaveformActive(_tabs.index <= 1);
+    widget.controller.waveform.setActive(_tabs.index <= 1);
   }
 
   @override
   void dispose() {
     widget.controller.profileChanges.removeListener(_registerMetadata);
     _tabs.removeListener(_handleTabChanged);
-    widget.controller.setWaveformActive(false);
+    widget.controller.waveform.setActive(false);
     _tabs.dispose();
     super.dispose();
   }

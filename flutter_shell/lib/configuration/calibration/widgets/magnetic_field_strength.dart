@@ -16,12 +16,12 @@ class MagneticFieldStrength extends StatelessWidget {
     required this.instance,
   });
 
-  final ConnectionController controller;
+  final WaveformController controller;
   final WaveformInstance instance;
 
   @override
   Widget build(BuildContext context) {
-    final values = controller.waveformMagLatest(instance.index);
+    final values = controller.magLatest(instance.index);
     final finite = values.every((value) => value.isFinite);
     final magnitude = finite
         ? math.sqrt(

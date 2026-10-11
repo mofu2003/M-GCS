@@ -142,12 +142,12 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.controller.waveformChanges,
+    animation: widget.controller.waveform.changes,
     builder: (context, _) {
       final controller = widget.controller;
       final groups = _groups;
-      final instances = controller.waveformInstances(widget.instanceKind);
-      final selected = controller.waveformInstanceIndex(widget.instanceKind);
+      final instances = controller.waveform.instances(widget.instanceKind);
+      final selected = controller.waveform.instanceIndex(widget.instanceKind);
       // 换了实例就整体重来：量程和曲线都属于上一个传感器，不能沿用。
       if (_cachedInstance != selected) {
         _cachedInstance = selected;
@@ -155,13 +155,13 @@ class _SensorWaveformPanelState extends State<SensorWaveformPanel> {
         _charts.clear();
         _cachedRevision = -1;
       }
-      final view = _WaveformView(controller, widget.instanceKind);
+      final view = _WaveformView(controller.waveform, widget.instanceKind);
       final colors = MgColors.of(context);
       final brightness = colors.brightness;
       // 图表只在有新数据时重建，普通重建直接复用缓存。
-      if (_cachedRevision != controller.waveformChanges.value ||
+      if (_cachedRevision != controller.waveform.changes.value ||
           _cachedBrightness != brightness) {
-        _cachedRevision = controller.waveformChanges.value;
+        _cachedRevision = controller.waveform.changes.value;
         _cachedBrightness = brightness;
         final nowMs = _clock.elapsedMilliseconds.toDouble();
         for (final group in groups) {
@@ -450,9 +450,9 @@ class _AxisRange {
 
 /// 后端波形缓冲的只读视图，面板不再拷贝一份数据。
 class _WaveformView {
-  _WaveformView(ConnectionController controller, WaveformInstanceKind kind)
-    : _data = controller.waveformPoints(kind),
-      length = controller.waveformPointCount(kind);
+  _WaveformView(WaveformController controller, WaveformInstanceKind kind)
+    : _data = controller.points(kind),
+      length = controller.pointCount(kind);
 
   final Float32List _data;
   final int length;
@@ -505,7 +505,7 @@ class _PanelHeader extends StatelessWidget {
                 selected: instances.indexWhere(
                   (instance) => instance.index == selected,
                 ),
-                onChanged: (position) => controller.setWaveformInstance(
+                onChanged: (position) => controller.waveform.setInstance(
                   kind,
                   instances[position].index,
                 ),
