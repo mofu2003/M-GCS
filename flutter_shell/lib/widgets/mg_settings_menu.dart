@@ -10,6 +10,7 @@ enum MgSettingsDestination {
   configuration,
   missionPlanning,
   survey,
+  payload,
   logs,
   flightLog,
   files,
@@ -116,6 +117,14 @@ class _MgSettingsPanel extends StatelessWidget {
               ),
               Divider(height: 1, color: colors.hairline),
               _SettingsRow(
+                icon: CupertinoIcons.camera,
+                title: '相机与云台',
+                subtitle: '相机/云台状态、拍照录像与指向',
+                onTap: () =>
+                    Navigator.of(context).pop(MgSettingsDestination.payload),
+              ),
+              Divider(height: 1, color: colors.hairline),
+              _SettingsRow(
                 icon: CupertinoIcons.doc_text,
                 title: '机载日志',
                 subtitle: '飞控 DataFlash 日志下载与进度',
@@ -127,9 +136,8 @@ class _MgSettingsPanel extends StatelessWidget {
                 icon: CupertinoIcons.stopwatch,
                 title: '飞行记录',
                 subtitle: '链路 .tlog 录制与本地离线回放',
-                onTap: () => Navigator.of(
-                  context,
-                ).pop(MgSettingsDestination.flightLog),
+                onTap: () =>
+                    Navigator.of(context).pop(MgSettingsDestination.flightLog),
               ),
               Divider(height: 1, color: colors.hairline),
               _SettingsRow(

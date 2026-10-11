@@ -1,6 +1,6 @@
 # 功能简报：视频 / 相机 / 云台（Video / Camera / Gimbal）
 
-状态：方向已立项。**S1（native 状态层 + FFI 读契约修复）已实现并验证**；S2（前端相机/云台页）与 S3（本地视频解码/渲染）尚未开始。视频解码跨平台方案（S3）必须先做依赖与许可决策。
+状态：方向已立项。**S1（native 状态层 + FFI 读契约修复）与 S2（前端「相机与云台」页）已实现并验证**；S3（本地视频解码/渲染）与 S4（录像/截图落盘）尚未开始。视频解码跨平台方案（S3）必须先做依赖与许可决策。
 日期：2026-10-11
 来源：`docs/plans/mgcs-development-plan-2026-10-10.md` 阶段 3 第 4 条；`docs/capabilities.md` 对 `ffi_api_payload.h` 的「待接入」说明。
 
@@ -53,6 +53,15 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 - **删除死代码（D1）**：删除 `core/include/core/camera/camera_manager.h`、`core/src/camera/camera_manager.cc`、`core/include/core/video/video_receiver.h`、`core/src/video/video_receiver.cc`，并从 `CMakeLists.txt`、`core/include/core/vehicle/vehicle.h`（访问器与成员）、`core/src/vehicle/vehicle.cc`（`on_video_stream_info` 转发块）摘除引用。`ffmpeg_decoder`（S3 解码基座）保留。
 - **文档/契约（F1）**：`docs/capabilities.md`、`bridge/ffi/API_CATALOG.md` 由 `python3 tools/check_ffi_contract.py --write-catalog` 重新生成。
 
+### 3.2 S2 落地结果（2026-10-11）
+
+- **前端页（G6）**：新增 `flutter_shell/lib/payload/`——`payload_models`（相机/云台/姿态/视频流模型）、`payload_backend`（接口 + 不可用替身）、`payload_ffi_backend`（`dart:ffi` 绑定，A5 白名单文件）、`payload_controller`（状态机）、`camera_gimbal_page`（页面）。入口：设置菜单「相机与云台」→ 配置工作区 `payload` 页。页面只经控制器读写，不直接接触 backend 或 `dart:ffi`（U1/A5）。三张卡片：相机（清单 + 型号/分辨率/模式/拍摄状态/存储）、云台（清单 + 能力范围 + 姿态）、视频源（流列表 + 地址行）。
+- **多设备寻址（G5/D4）**：按 MAVLink 组件 id 选择相机/云台（`AdaptivePopupButton`，「自动（第一台）」= `selectedId:null` → native `id<=0`），选择后立即用该 compId 重新读取。D4 采用 QGC 的 compId 语义（见下）。
+- **诚实措辞**：命令成功只显示「已发送…」，不谎报完成；未连接/失败复用 native 规范错误对象文案；无设备显示「已查询、当前无设备」而非错误。
+- **视频**：视频区只展示 `mg_video_status`/`mg_video_get_streams` 的元数据，并明确「本地解码尚未实现（S3）」；`startVideo` 非空 URI 照实转发 native 的 `NOT_SUPPORTED`、空 URI 前端直接拒绝。
+- **测试**：`flutter_shell/test/payload_controller_test.dart`（9 用例）、`camera_gimbal_page_test.dart`（3 用例）、`test/support/payload_backend_fake.dart`；`architecture_ffi_boundary_test.dart` 白名单登记 `payload/payload_ffi_backend.dart`。
+- **文档/契约**：`docs/capabilities.md` 的 `ffi_api_payload.h` 改为「部分接入」（19 导出 / 17 前端绑定），`API_CATALOG.md` 由 `check_ffi_contract.py --write-catalog` 重新生成；`docs/constraints/ui-pages.md` 登记新页。
+
 ## 4. 上游行为研究
 
 ### QGroundControl（Apache-2.0 / GPL 双许可；参考提交 `bf0096d97`）
@@ -77,8 +86,8 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 - **G2（真实缺陷）**：`mg_camera_get_status`/`mg_video_status` 返回硬编码值，读契约是假的。**S1 修复**。
 - **G3（真实缺陷）**：相机与云台状态只落日志，无缓存；`CameraManager::process_message` 是死代码。**S1 修复**（适配器状态模型 + 删除死代码）。
 - **G4（真实缺陷）**：dispatcher 缺 `GIMBAL_DEVICE_ATTITUDE_STATUS`/`GIMBAL_DEVICE_INFORMATION`/`CAMERA_SETTINGS`/`STORAGE_INFORMATION`/`VIDEO_STREAM_STATUS`。**S1 补齐**。
-- **G5**：`camera_id`/`gimbal_device_id` 无寻址语义。**S1** 至少让 FFI 按 sysid/compid 或 device_id 寻址，或诚实返回「不支持多设备寻址」。
-- **G6**：没有前端入口（17 导出 0 接入）。**S2**。
+- **G5**：`camera_id`/`gimbal_device_id` 无寻址语义。**S1** 让 FFI 按 sysid/compid 或 device_id 寻址；**S2 完成**：前端按 compId 选择并下发，native 按 compId 寻址（`<=0` = 第一台/活动目标）。
+- **G6**：没有前端入口（17 导出 0 接入）。**S2 完成**：新增配置工作区「相机与云台」页，设备清单/状态/命令与视频源元数据均有 UI 入口。
 - **G7**：没有本地视频解码/渲染。**S3**（平台工程 + 依赖决策）。
 - **G8**：没有录像/截图落盘与容量管理。**S4**。
 - **G9**：QGC 用相机定义 XML 驱动完整设置面板，M-GCS 无。**D2 决定**：先不做 XML，只暴露 MAVLink 标准设置项。
@@ -87,20 +96,20 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 - **D1（S1 已决定）**：状态模型的唯一事实来源放在**适配器层缓存**（与 `tel.video_streams` 一致）。`CameraManager`/`VideoReceiver` 本仓库内无任何调用点（死代码），S1 决定**直接删除**，改为在适配器状态按 `(sysid, compid)` 建最小缓存（符合 A2「适配器只翻译协议」的既有分层），避免两套事实来源。
 - **D2（S1 已决定）**：不引入相机定义 XML；只做 MAVLink 标准字段（信息/设置/拍照状态/存储）。QGC 的 XML 能力留待独立议题。
 - **D3（未决，S3 前必须定）**：本地视频解码用 GStreamer / FFmpeg / 平台原生（AVFoundation/MediaFoundation/MediaCodec）哪一类？涉及外部依赖与许可（见 9 节）。
-- **D4（未决）**：`camera_id` 语义——按序号（第 N 个发现的相机）还是 MAVLink compId？QGC 用 compId 寻址。
+- **D4（S2 已决定）**：采用 MAVLink compId 寻址（与 QGC 一致）：`> 0` 按组件 id 选择，`<= 0` 表示「第一台 / 活动目标」。前端下拉按 compId 选择。
 - **D5（S1 已决定）**：无相机/云台时读接口返回什么？决定：**`success:true` + `available:false`**（「已查询、当前无设备」是合法状态），命令类在无目标设备时返回 `MG_ERROR_NOT_CONNECTED`/`MG_ERROR_NOT_SUPPORTED` 错误对象。缺值/无设备与「调用失败」是两回事（与 terrain 的 `valid:false` 同理）。
 
 ## 6. 交付切片
 
 - **S1️⃣ native 状态层 + FFI 读契约（本轮完成）**：相机状态缓存（`CAMERA_INFORMATION`/`CAMERA_SETTINGS`/`CAMERA_CAPTURE_STATUS`/`STORAGE_INFORMATION`）、云台状态缓存（`GIMBAL_MANAGER_INFORMATION`/`STATUS`、`GIMBAL_DEVICE_ATTITUDE_STATUS`/`INFORMATION`）、`VIDEO_STREAM_STATUS`；补齐 dispatcher；`mg_camera_get_status`/`mg_video_status` 返回真实状态；修 `mg_video_start`；新增云台状态读导出（`mg_gimbal_get_status`/`mg_gimbal_get_attitude`）；`camera_id`/`gimbal_device_id` 按 `D4` 处理；单测。
-- **S2️⃣ 前端相机/云台页**：配置工作区新增「相机与云台」页，展示发现的相机与云台、状态（录像/存储/姿态）、执行拍照/录像/变焦/云台指向/回中；视频源设置（RTSP/UDP/TCP URL + 流列表 + 选择）。
+- **S2️⃣ 前端相机/云台页（本轮完成）**：配置工作区新增「相机与云台」页，展示发现的相机与云台、状态（录像/存储/姿态）、执行拍照/录像/变焦/云台指向/回中；视频源设置（RTSP/UDP/TCP URL + 流列表 + 选择）。
 - **S3️⃣ 本地视频解码/渲染**：先完成 D3 决策（依赖 + 许可 + 平台矩阵），再用最小可行后端证明至少两端平台可播放；证明前 UI 只显示流元数据、不声称「已支持视频」。
 - **S4️⃣ 录像与截图落盘**：录制格式选择 + 容量上限 + 自动删除最旧（对齐 QGC `maxVideoSize`/`enableStorageLimit`）。
 
 ## 7. 验收标准
 
 - **S1 已满足**：`mg_video_start` 不再误发录像命令（单测钉住）；`mg_camera_get_status`/`mg_video_status`/云台读导出返回真实缓存状态，无设备时 `available:false` 而非假 `success`；dispatcher 覆盖 G4 列出的消息 ID；相机/云台状态有单测（构造消息 → 读接口 → 断言字段）。
-- **S2 目标**：完成一次「发现相机 → 见状态 → 拍照 → 状态更新」与「发现云台 → 云台指向 → 姿态变化」的可观察链路。
+- **S2 已满足**：页面可发现相机/云台、显示状态、下发拍照/录像/变焦/云台指向/回中，命令成功措辞为「已发送」；多设备按 compId 选择并重读；无设备与失败分别措辞；`payload_controller_test`/`camera_gimbal_page_test` 覆盖读、切换、命令成功/失败、断链、会话切换。真实硬件回读（状态更新链路）见 10 节的硬件验收待办。
 - **S3 目标**：至少两端平台（macOS/Linux/Windows 中任选两端，Android 至少一端）能播放一路 RTSP 或 UDP 流，并有平台能力矩阵；未验证的平台标 `unsupported`。
 - **自动化**：新增 native 测试（消息 fixture → 状态）；`tools/preflight.sh` 通过；FFI catalog 计数一致。
 
@@ -122,7 +131,7 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 ## 10. 未决问题
 
 - **D3（视频解码后端）**：未决——S3 的前置条件。
-- **D4（`camera_id` 语义）**：未决。S1 暂按 MAVLink `(sysid, compid)` 寻址并在文档写明。
-- **G5 完整多设备寻址**：S1 只做到「按连接的活动目标/compId」，多相机 UI 选择留待 S2。
+- **D4（`camera_id` 语义）**：已决定（S2）——按 MAVLink compId 寻址，`<= 0` 表示第一台/活动目标。
+- **G5 完整多设备寻址**：已完成（S2）——前端按 compId 选择并下发，native 按 compId 寻址。
 - **热成像/双路画面**：QGC 有 thermal 通道，M-GCS 未建模。
 - **真实硬件验收**：相机与云台行为需真实设备或能模拟 `CAMERA_*`/`GIMBAL_*` 的仿真链路验证；SITL 是否覆盖待确认（ArduPilot SITL 默认无相机/云台组件）。

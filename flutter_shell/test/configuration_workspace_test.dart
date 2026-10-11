@@ -18,12 +18,13 @@ import 'package:mgcs_frontend/connection/connection_controller.dart';
 import 'package:mgcs_frontend/logging/file_browser_page.dart';
 import 'package:mgcs_frontend/logging/flight_log_page.dart';
 import 'package:mgcs_frontend/logging/onboard_log_page.dart';
+import 'package:mgcs_frontend/payload/camera_gimbal_page.dart';
 import 'package:mgcs_frontend/survey/survey_planning_page.dart';
 import 'package:mgcs_frontend/theme/mg_typography.dart';
 import 'package:mgcs_frontend/widgets/app_workspace_shell.dart';
 
 void main() {
-  testWidgets('all thirteen routes preserve disconnected page skeletons', (
+  testWidgets('all fourteen routes preserve disconnected page skeletons', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1600, 1000);
@@ -66,6 +67,7 @@ void main() {
       'arming': ArmingChecksPage,
       'allParameters': AllParametersPage,
       'survey': SurveyPlanningPage,
+      'payload': CameraGimbalPage,
       'logs': OnboardLogPage,
       'flightLog': FlightLogPage,
       'files': FileBrowserPage,

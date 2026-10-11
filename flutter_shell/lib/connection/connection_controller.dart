@@ -21,6 +21,9 @@ import '../mission/mission_document_controller.dart';
 import '../mission/mission_geo.dart';
 import '../mission/mission_document_ffi_backend.dart';
 import '../mission/mission_document_models.dart';
+import '../payload/payload_backend.dart';
+import '../payload/payload_controller.dart';
+import '../payload/payload_ffi_backend.dart';
 import '../terrain/elevation_provider.dart';
 import '../terrain/terrain_backend.dart';
 import '../terrain/terrain_controller.dart';
@@ -541,6 +544,8 @@ final class ConnectionController extends ChangeNotifier {
   ElevationProvider? _elevationProvider;
   SurveyBackend? _surveyBackend;
   SurveyController? _surveyController;
+  PayloadBackend? _payloadBackend;
+  PayloadController? _payloadController;
 
   MissionDocumentController get missionPlanning {
     final id = sessionId;
@@ -630,8 +635,9 @@ final class ConnectionController extends ChangeNotifier {
   ///
   /// 回放只读本地文件、与连接无关，所以这里不做会话绑定；录制挂在活动车辆上，
   /// 由页面在进入时读取 `mg_tlog_status` 并对未连接状态禁用开始按钮。
-  TlogController get tlogController =>
-      _tlogController ??= TlogController(backend: _tlogBackend ??= _makeTlogBackend());
+  TlogController get tlogController => _tlogController ??= TlogController(
+    backend: _tlogBackend ??= _makeTlogBackend(),
+  );
 
   TlogBackend _makeTlogBackend() {
     final native = _native;
@@ -693,10 +699,8 @@ final class ConnectionController extends ChangeNotifier {
   ///
   /// 生成不需要连接飞控；并把结果并入任务文档由 [SurveyController] 处理，
   /// 上传仍走任务面板。入口见 docs/constraints/ui-pages.md 的「测绘规划」。
-  SurveyController get surveyController =>
-      _surveyController ??= SurveyController(
-        backend: _surveyBackend ??= _makeSurveyBackend(),
-      );
+  SurveyController get surveyController => _surveyController ??=
+      SurveyController(backend: _surveyBackend ??= _makeSurveyBackend());
 
   SurveyBackend _makeSurveyBackend() {
     final native = _native;
@@ -706,10 +710,36 @@ final class ConnectionController extends ChangeNotifier {
     return SurveyFfiBackend(native.library, native.handle);
   }
 
+  /// 「相机与云台」页的控制器：设备清单、状态与拍摄/指向命令。
+  ///
+  /// 与日志/文件一样按当前连接会话绑定；换飞机或断开会丢弃设备缓存，
+  /// 避免把上一架飞机的相机状态写回界面。命令入口仍要求已连接。
+  PayloadController get payloadController {
+    final controller = _payloadController ??= PayloadController(
+      backend: _payloadBackend ??= _makePayloadBackend(),
+    );
+    controller.bindSession(sessionId);
+    return controller;
+  }
+
+  PayloadBackend _makePayloadBackend() {
+    final native = _native;
+    if (native == null) {
+      // 原生库不可用时页面仍要能渲染骨架并给出确定的错误。
+      return const PayloadUnavailableBackend();
+    }
+    return PayloadFfiBackend(
+      native.library,
+      native.handle,
+      isConnected: () => isConnected && sessionId != null,
+    );
+  }
+
   /// 会话切换/断开时把日志控制器绑到新会话；`null` 表示当前无会话。
   void _bindLogSession(int? id) {
     _logController?.bindSession(id);
     _fileController?.bindSession(id);
+    _payloadController?.bindSession(id);
   }
 
   final List<SerialPortInfo> ports = [];
@@ -1050,7 +1080,8 @@ final class ConnectionController extends ChangeNotifier {
     // 暴露出来，这里优先采用。
     final firmware = firmwareInfo?['firmware']?.toString().toLowerCase();
     if (firmware == 'px4') {
-      return (firmwareInfo?['minimum_takeoff_altitude_m'] as num?)?.toDouble() ??
+      return (firmwareInfo?['minimum_takeoff_altitude_m'] as num?)
+              ?.toDouble() ??
           0;
     }
 
@@ -4000,6 +4031,7 @@ final class ConnectionController extends ChangeNotifier {
     _logController?.dispose();
     _tlogController?.dispose();
     _fileController?.dispose();
+    _payloadController?.dispose();
     _fleet?.removeListener(_handleFleetChanged);
     _fleetTimer?.cancel();
     _fleet?.dispose();

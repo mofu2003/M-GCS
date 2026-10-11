@@ -301,6 +301,10 @@ class _MapPageState extends State<MapPage> {
         _cancelCommandConfirmation();
         _configurationPageRequest.value = 'survey';
         setState(() => _showConfiguration = true);
+      case MgSettingsDestination.payload:
+        _cancelCommandConfirmation();
+        _configurationPageRequest.value = 'payload';
+        setState(() => _showConfiguration = true);
       case MgSettingsDestination.logs:
         _cancelCommandConfirmation();
         _configurationPageRequest.value = 'logs';

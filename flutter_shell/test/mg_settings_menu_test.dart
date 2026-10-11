@@ -79,6 +79,39 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('settings menu routes to camera and gimbal page', (tester) async {
+    MgSettingsDestination? selected;
+    await tester.pumpWidget(
+      MacosTheme(
+        data: MacosThemeData.light(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => PushButton(
+                controlSize: ControlSize.regular,
+                onPressed: () async {
+                  selected = await showMgSettingsMenu(
+                    context,
+                    connected: true,
+                    linkLabel: 'UDP',
+                  );
+                },
+                child: const Text('打开设置'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('相机与云台'));
+    await tester.pumpAndSettle();
+    expect(selected, MgSettingsDestination.payload);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('settings menu routes to onboard logs', (tester) async {
     MgSettingsDestination? selected;
     await tester.pumpWidget(

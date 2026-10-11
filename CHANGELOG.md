@@ -110,6 +110,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tools/check_ffi_contract.py` (new `INTERNAL_SYMBOL_NOTES` table plus guards that fail when an
   internal-only symbol becomes bound in Dart or when a note references a missing export) record the
   identity so no public symbol is left unexplained.
+- Camera & gimbal page (`flutter_shell/lib/payload/` — `payload_models.dart`,
+  `payload_backend.dart`, `payload_ffi_backend.dart`, `payload_controller.dart`,
+  `camera_gimbal_page.dart`; opened from the settings menu → configuration workspace `payload`,
+  direction 4 S2): list the cameras/gimbals discovered from `mg_camera_get_status` /
+  `mg_gimbal_get_status`, pick one by MAVLink component id (「自动（第一台）」 → `id<=0`), show
+  model/resolution/mode/capture state/storage and gimbal capability range + attitude, and send
+  take-photo / start-stop-video / stop-capture / zoom / mode / gimbal point-recenter commands. A
+  command's success wording is 「已发送」 (the export has no ACK); disconnect, failure and
+  "queried, no device" are worded distinctly. The `ffi_api_payload.h` exports are now Dart-bound
+  (17 of 19) and `docs/capabilities.md` moves it from 待接入 to 部分接入. Video stays
+  metadata-only and says so, because local decoding/rendering is slice S3.
 
 ### Fixed
 - PX4 flight modes had two drifting tables: `PX4Plugin` kept its own `kPX4Modes` while

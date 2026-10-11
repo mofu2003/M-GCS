@@ -20,6 +20,7 @@ const _ffiAllowlist = <String>{
   'connection/telemetry_ffi_backend.dart',
   'fleet/fleet_ffi_backend.dart',
   'mission/mission_document_ffi_backend.dart',
+  'payload/payload_ffi_backend.dart',
   'logging/file_ffi_backend.dart',
   'logging/log_ffi_backend.dart',
   'logging/tlog_ffi_backend.dart',

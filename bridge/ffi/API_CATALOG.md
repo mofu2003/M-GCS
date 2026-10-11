@@ -11,7 +11,7 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 任务上传的即时响应表示传输启动，最终结果需读取 operation 状态。
 符号检查不等于完整的参数类型或行为验证；真实交互另由 FFI smoke 和合约测试覆盖。
 
-公开函数：307；Flutter 绑定：112。
+公开函数：307；Flutter 绑定：129。
 
 ## ffi_api_configuration.h
 
@@ -99,7 +99,7 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `mg_core_t* mg_create(void);` | `flutter_shell/lib/connection/native_core.dart` |
 | `void mg_destroy(mg_core_t* core);` | `flutter_shell/lib/connection/native_core.dart` |
 | `const char* mg_error_string(mg_error_t error);` | — |
-| `void mg_free_string(char* str);` | `flutter_shell/lib/connection/calibration_ffi_backend.dart`<br>`flutter_shell/lib/connection/flight_command_ffi_backend.dart`<br>`flutter_shell/lib/connection/native_core.dart`<br>`flutter_shell/lib/connection/parameter_ffi_backend.dart`<br>`flutter_shell/lib/connection/telemetry_ffi_backend.dart`<br>`flutter_shell/lib/fleet/fleet_ffi_backend.dart`<br>`flutter_shell/lib/logging/file_ffi_backend.dart`<br>`flutter_shell/lib/logging/log_ffi_backend.dart`<br>`flutter_shell/lib/logging/tlog_ffi_backend.dart`<br>`flutter_shell/lib/mission/mission_document_ffi_backend.dart`<br>`flutter_shell/lib/survey/survey_ffi_backend.dart`<br>`flutter_shell/lib/terrain/terrain_ffi_backend.dart` |
+| `void mg_free_string(char* str);` | `flutter_shell/lib/connection/calibration_ffi_backend.dart`<br>`flutter_shell/lib/connection/flight_command_ffi_backend.dart`<br>`flutter_shell/lib/connection/native_core.dart`<br>`flutter_shell/lib/connection/parameter_ffi_backend.dart`<br>`flutter_shell/lib/connection/telemetry_ffi_backend.dart`<br>`flutter_shell/lib/fleet/fleet_ffi_backend.dart`<br>`flutter_shell/lib/logging/file_ffi_backend.dart`<br>`flutter_shell/lib/logging/log_ffi_backend.dart`<br>`flutter_shell/lib/logging/tlog_ffi_backend.dart`<br>`flutter_shell/lib/mission/mission_document_ffi_backend.dart`<br>`flutter_shell/lib/payload/payload_ffi_backend.dart`<br>`flutter_shell/lib/survey/survey_ffi_backend.dart`<br>`flutter_shell/lib/terrain/terrain_ffi_backend.dart` |
 | `mg_error_t mg_get_last_error(void);` | — |
 | `char* mg_get_version(void);` | — |
 | `char* mg_operations_cancel(mg_core_t* core, const char* operation_id);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
@@ -308,25 +308,25 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 
 | 声明 | Flutter 绑定位置 |
 | --- | --- |
-| `char* mg_camera_get_status(mg_core_t* core, int camera_id);` | — |
-| `char* mg_camera_request_info(mg_core_t* core, int camera_id);` | — |
+| `char* mg_camera_get_status(mg_core_t* core, int camera_id);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_camera_request_info(mg_core_t* core, int camera_id);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
 | `char* mg_camera_set_focus(mg_core_t* core, int camera_id, int focus_type, float focus_value);` | — |
-| `char* mg_camera_set_mode(mg_core_t* core, int camera_id, int mode);` | — |
-| `char* mg_camera_set_zoom(mg_core_t* core, int camera_id, float zoom_level);` | — |
-| `char* mg_camera_start_video(mg_core_t* core, int camera_id);` | — |
-| `char* mg_camera_stop_capture(mg_core_t* core, int camera_id);` | — |
-| `char* mg_camera_stop_video(mg_core_t* core, int camera_id);` | — |
-| `char* mg_camera_take_photo(mg_core_t* core, int camera_id);` | — |
+| `char* mg_camera_set_mode(mg_core_t* core, int camera_id, int mode);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_camera_set_zoom(mg_core_t* core, int camera_id, float zoom_level);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_camera_start_video(mg_core_t* core, int camera_id);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_camera_stop_capture(mg_core_t* core, int camera_id);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_camera_stop_video(mg_core_t* core, int camera_id);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_camera_take_photo(mg_core_t* core, int camera_id);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
 | `char* mg_command_gimbal_configure(mg_core_t* core, int gimbal_device_id, int primary_sys, int primary_comp, int secondary_sys, int secondary_comp);` | — |
-| `char* mg_command_gimbal_control(mg_core_t* core, float pitch_deg, float yaw_deg);` | — |
-| `char* mg_command_gimbal_recenter(mg_core_t* core);` | — |
-| `char* mg_gimbal_get_attitude(mg_core_t* core, int gimbal_id);` | — |
-| `char* mg_gimbal_get_status(mg_core_t* core, int gimbal_id);` | — |
-| `char* mg_gimbal_request_info(mg_core_t* core);` | — |
-| `char* mg_video_get_streams(mg_core_t* core);` | — |
-| `char* mg_video_start(mg_core_t* core, const char* uri);` | — |
-| `char* mg_video_status(mg_core_t* core);` | — |
-| `char* mg_video_stop(mg_core_t* core);` | — |
+| `char* mg_command_gimbal_control(mg_core_t* core, float pitch_deg, float yaw_deg);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_command_gimbal_recenter(mg_core_t* core);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_gimbal_get_attitude(mg_core_t* core, int gimbal_id);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_gimbal_get_status(mg_core_t* core, int gimbal_id);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_gimbal_request_info(mg_core_t* core);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_video_get_streams(mg_core_t* core);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_video_start(mg_core_t* core, const char* uri);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_video_status(mg_core_t* core);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
+| `char* mg_video_stop(mg_core_t* core);` | `flutter_shell/lib/payload/payload_ffi_backend.dart` |
 
 ## ffi_api_telemetry.h
 
