@@ -320,7 +320,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Emergency stop entry in the top status bar: forced disarm behind the S3 confirmation component,
   shown only while armed so it stays reachable in flight.
 - `docs/capabilities.md`: module-level delivery status (delivered / partial / pending UI /
-  internal) for all 296 public FFI exports, generated from the headers and Dart bindings and
+  internal) for all 305 public FFI exports, generated from the headers and Dart bindings and
   gated by `tools/check_ffi_contract.py`, so the coverage counts cannot silently drift.
 - `docs/plans/mgcs-development-plan-2026-10-10.md` and
   `docs/comparisons/ground-station-comparison-2026-10-10.md` are linked from `README.md` and
