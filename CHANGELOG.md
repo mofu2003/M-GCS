@@ -12,10 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - FFI export-debt gate (`tools/check_ffi_contract.py`, `tools/ffi_unbound_baseline.json`): the
-  contract check now also freezes every public export that has no Dart binding, no internal-only
-  classification and no test reference. The baseline may only shrink — a new unclassified export,
-  or a symbol that is now bound/tested but still listed, fails the gate. Current debt: 58 of 314
-  exports (KD-45).
+  contract check now also freezes every public export that has no Dart binding, no classification
+  and no test reference. The baseline may only shrink — a new unclassified export, or a symbol
+  that is now bound/tested/classified but still listed, fails the gate. The gate now supports two
+  classification tables, `INTERNAL_SYMBOL_NOTES` (internal capability) and the new
+  `SUPERSEDED_SYMBOL_NOTES` (superseded legacy path, decommission candidate); `--write-baseline`
+  writes atomically. This pass classified 48 exports (17 internal + 31 superseded), dropping the
+  debt from 58 to 20 of 314 exports (KD-45).
+- `docs/features/feature-inventory.md`: feature inventory split into implemented, partial,
+  unimplemented and not-yet-wired-to-frontend, with a cluster-by-cluster explanation of the 178
+  unbound FFI exports and their disposition.
 
 ### Changed
 

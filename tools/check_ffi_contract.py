@@ -22,22 +22,22 @@ CAPABILITY_END = "<!-- capabilities:end -->"
 # 状态与说明在此处人工维护；两者一旦不一致，preflight 会让本文件失效并要求重跑
 # --write-catalog。取值：已交付 / 部分接入 / 待接入 / 内部能力。
 CAPABILITY_METADATA = {
-    "ffi_api_configuration.h": ("部分接入", "连接与校准子集已进入配置页；参数组描述符（`mg_config_get_param_roles` 语义角色表）经 Dart 绑定进入 PID、校准、飞行模式与解锁检查等配置页，由前端按语义角色取固件参数名（safety.md S6）；电调/舵机执行器仍为 FFI 内部能力；7 个 PX4 便捷封装（执行器/模式槽/安全/调参）定位为内部能力、无独立 UI 计划——通用参数页配合 `px4` 描述符 profile 已覆盖同一批参数，见 `bridge/ffi/API_CATALOG.md` 的「已定性的内部公开导出」一节与 docs/features/px4-parity.md S5。"),
-    "ffi_api_connection.h": ("已交付", "串口/UDP/TCP 连接、断开、链路状态与本地回环由连接面板和状态栏消费。"),
-    "ffi_api_core.h": ("已交付", "生命周期、版本、错误信息与整机快照由前端启动路径消费。"),
-    "ffi_api_environment.h": ("部分接入", "SITL 启停（`mg_sitl_*`）定位为内部能力、无前端 UI 计划（见 bridge/ffi/API_CATALOG.md 的「已定性的内部公开导出」）；地形缓存与剖面查询（`mg_terrain_query*`、`mg_terrain_cache_*`）已接前端 backend 与在线 provider（open-elevation），但尚未接入页面，前端入口待定，见 docs/features/survey-and-terrain.md。"),
+    "ffi_api_configuration.h": ("部分接入", "连接与校准子集已进入配置页；参数组描述符（`mg_config_get_param_roles` 语义角色表）经 Dart 绑定进入 PID、校准、飞行模式与解锁检查等配置页，由前端按语义角色取固件参数名（safety.md S6）。执行器/RC 通道写入（`mg_actuator_*`、`mg_rc_set_mapping`、`mg_rc_set_failsafe`）与参数预校验（`mg_config_validate_param`）定位为内部能力——通用参数页覆盖同一批 `SERVOx_*`/`RCMAP_*` 参数；串口读写的旧接口（`mg_serial_get_config`/`set_baud`/`set_protocol`）已被参数页取代；7 个 PX4 便捷封装（执行器/模式槽/安全/调参）定位为内部能力、无独立 UI 计划，见 `bridge/ffi/API_CATALOG.md` 的「已定性的公开导出」一节与 docs/features/px4-parity.md S5。"),
+    "ffi_api_connection.h": ("已交付", "串口/UDP/TCP 连接、断开、链路状态与本地回环由连接面板和状态栏消费。旧入口 `mg_connection_connect_tcp`、`mg_send_heartbeat`、`mg_stream_request` 已被 `mg_connection_open`/`mg_stream_set_interval` 取代（退役候选）。"),
+    "ffi_api_core.h": ("已交付", "生命周期、版本、错误信息与整机快照由前端启动路径消费；`mg_error_string`（错误码→字符串）为 ABI 基础设施，供原生调用方与测试使用。"),
+    "ffi_api_environment.h": ("部分接入", "SITL 启停（`mg_sitl_*`）定位为内部能力、无前端 UI 计划（见 bridge/ffi/API_CATALOG.md 的「已定性的公开导出」）；地形缓存与剖面查询（`mg_terrain_query*`、`mg_terrain_cache_*`）已接前端 backend 与在线 provider（open-elevation），但尚未接入页面，前端入口待定，见 docs/features/survey-and-terrain.md。"),
     "ffi_api_firmware.h": ("部分接入", "固件识别接在连接流程；刷写与校验保持 FFI 内部能力，未接 UI。"),
     "ffi_api_flight.h": ("部分接入", "生产入口是 submit/poll 与 get_modes/get_mode_mapping；同步 arm/set_mode/rtl 等仅作内部与测试用途。"),
-    "ffi_api_geofence.h": ("部分接入", "围栏读写进入任务面板；Rally 点集合仍为 FFI 内部能力。"),
+    "ffi_api_geofence.h": ("部分接入", "围栏与 Rally 经任务文档（`mg_mission_doc_*` 的 compile/upload/clear/verify 加 `mg_fence_download`/`mg_rally_download`）下发与回读；旧 `GeofenceManager` 直接编辑接口（`mg_geofence_add_point` 等、`mg_fence_clear`、`mg_rally_clear`）已被取代（退役候选）。"),
     "ffi_api_logging.h": ("部分接入", "机载 DataFlash 日志列表/下载/擦除（「机载日志」页）、链路 `.tlog` 录制/离线回放（「飞行记录」页）与 `mg_fs_*` 通用 MAVLink FTP 文件浏览/收发（「机载文件」页）均已接入；仍未接入的是事件日志服务与会话文件日志（`mg_event_*`/`mg_session_log_*`），见 docs/features/flight-logging-and-replay.md。"),
-    "ffi_api_mission.h": ("已交付", "任务规划、上传、围栏/Rally 下发与航点编辑走任务面板与地图；survey/corridor 生成（`mg_survey_generate*`）接入配置工作区「测绘规划」页，见 docs/features/survey-and-terrain.md。"),
-    "ffi_api_params.h": ("部分接入", "参数读写、文件导入导出接入配置页；批量下载进度与描述符映射部分留在 FFI 内部。"),
+    "ffi_api_mission.h": ("已交付", "任务规划、上传、围栏/Rally 下发与航点编辑走任务面板与地图；文档模型（`mg_mission_doc_*`）是生产路径，旧 `MissionManager` 增删改/导入导出接口（`mg_mission_add_item` 等、`mg_mission_start`）已被取代（退役候选）；survey/corridor 生成（`mg_survey_generate*`）接入配置工作区「测绘规划」页，见 docs/features/survey-and-terrain.md。"),
+    "ffi_api_params.h": ("部分接入", "参数读写（`mg_params_get_all`/`get_by_name`/`request_all`/`get_progress`、`mg_config_get_param_roles`）接入配置页；参数文件内容变换（`.param`/CSV，`mg_param_file_*`）是规范实现、尚未接 UI，磁盘读写交由 Dart；旧一体化文件读写 `mg_params_load/save_from_file` 与 `mg_params_get_changed` 已被取代（退役候选，不删除），见 docs/features/feature-inventory.md。"),
     "ffi_api_payload.h": ("部分接入", "相机/云台/视频元数据接入配置工作区「相机与云台」页（`payload`，S2/S3/S4）：设备清单、拍照/录像/变焦/云台指向/回中与视频流元数据。本地视频解码与录制/截图（S3/S4，ADR-0008）已接入：`mg_video_renderer_status`/`mg_video_poll_frame` 渲染最新 RGBA 帧，`mg_video_start_recording`/`mg_video_stop_recording`/`mg_video_recording_status`/`mg_video_capture_frame` 把正在播放的码流复制到本地文件（Matroska 容器）并按容量上限清理最旧文件；没有编译进后端时 `available:false`/`backend:\"none\"` 并如实说明。S1 的读契约返回真实适配器缓存，无设备时 `success:true`+`available:false`，见 docs/features/video-camera-gimbal.md。"),
     "ffi_api_telemetry.h": ("部分接入", "遥测快照、姿态、GPS、电池进入顶栏/仪表盘；波形与部分导航量仍为 FFI 内部能力。"),
 }
 
 # 公开导出但没有前端绑定、且定位已明确为“内部能力”的符号（不计划接 UI）。
-# 这些符号必须在 API_CATALOG.md 的「已定性的内部公开导出」一节里给出定位。
+# 这些符号必须在 API_CATALOG.md 的「已定性的公开导出」一节里给出定位。
 # 一旦被 Flutter 绑定（说明定位变了），或引用了不存在的导出，preflight 会失败，
 # 要求同步更新定位，避免出现“公开导出但身份不明”的历史堆积。
 INTERNAL_SYMBOL_NOTES = {
@@ -48,10 +48,65 @@ INTERNAL_SYMBOL_NOTES = {
     "mg_px4_safety_set": "PX4 安全断路器；内部能力（只写飞控实际存在的 CBRK_*）",
     "mg_px4_tuning_get": "PX4 姿态/角速度 PID；内部能力（通用参数页覆盖 MC_* 参数）",
     "mg_px4_tuning_set": "PX4 姿态/角速度 PID；内部能力（通用参数页覆盖 MC_* 参数）",
+    "mg_actuator_get_limits": "电调/舵机通道限位；内部能力（通用参数页覆盖 SERVOx_MIN/MAX/TRIM/REVERSED）",
+    "mg_actuator_set_function": "电调/舵机通道功能映射；内部能力（通用参数页覆盖 SERVOx_FUNCTION / ACTUATORx_FUNCTION）",
+    "mg_actuator_set_limits": "电调/舵机通道限位写入；内部能力（通用参数页覆盖 SERVOx_MIN/MAX/TRIM）",
+    "mg_rc_set_mapping": "RC 通道映射写入；内部能力（通用参数页覆盖 RCMAP_* / RC_MAP_*）",
+    "mg_rc_set_failsafe": "RC 失联保护写入；内部能力（通用参数页覆盖 RC_FS_* / *FS_* 参数）",
+    "mg_config_validate_param": "参数值预校验；内部能力（前端按描述符范围/枚举本地校验，不再单独调用）",
+    "mg_error_string": "ABI 基础设施：错误码→字符串常量，供原生调用方与测试使用，无 UI",
     "mg_sitl_start": "SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口",
     "mg_sitl_status": "SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口",
     "mg_sitl_stop": "SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口",
 }
+
+# 公开导出但已被更新的接口取代的历史路径。这类符号保留在 ABI 中（不删除），
+# 但没有前端绑定计划，处置为“登记退役候选”（known-deviations KD-45 的第三种
+# 处置）。它们与 INTERNAL_SYMBOL_NOTES 一起从“未定性导出债务”里剔除；一旦被
+# 重新绑定或想改变定位，门禁会报错，要求同步更新这张表与相关文档。
+SUPERSEDED_SYMBOL_NOTES = {
+    "mg_mission_add_item": "旧 MissionManager 读-改-传路径；被 mg_mission_doc_apply 取代（并发调用有 lost-update 风险，见 ffi_mission_management.cc 文件头）",
+    "mg_mission_update_item": "旧 MissionManager 读-改-传路径；被 mg_mission_doc_apply 取代",
+    "mg_mission_remove_item": "旧 MissionManager 读-改-传路径；被 mg_mission_doc_apply 取代",
+    "mg_mission_move_item": "旧 MissionManager 读-改-传路径；被 mg_mission_doc_apply 取代",
+    "mg_mission_validate": "旧任务校验；被 mg_mission_doc_validate 取代",
+    "mg_mission_get_stats": "旧任务统计；被 mg_mission_doc_get / mg_mission_doc_estimate 取代",
+    "mg_mission_export_json": "旧任务导出；被 mg_mission_doc_export / mg_mission_doc_export_format 取代",
+    "mg_mission_import_json": "旧任务导入；被 mg_mission_doc_import / mg_mission_doc_import_format 取代",
+    "mg_mission_export_csv": "旧任务导出；被 mg_mission_doc_export_format(\"waypoints\") 取代",
+    "mg_mission_import_csv": "旧任务导入；被 mg_mission_doc_import_format(\"waypoints\") 取代",
+    "mg_mission_start": "同步命令（最长阻塞约 5 s）；界面线程改用 mg_command_execute_for_vehicle + 轮询",
+    "mg_geofence_add_point": "旧 GeofenceManager 直接编辑；被 mg_mission_doc_apply + mg_mission_doc_compile_fence/upload_fence 取代",
+    "mg_geofence_remove_point": "旧 GeofenceManager 直接编辑；被 mg_mission_doc_apply 取代",
+    "mg_geofence_get_points": "旧 GeofenceManager 读路径；被 mg_fence_download + mg_mission_doc_import_fence_from_vehicle 取代",
+    "mg_geofence_validate": "旧围栏校验；被 mg_mission_doc_validate 取代",
+    "mg_geofence_set_config": "旧围栏配置写入；走通用参数页 FENCE_* / 任务文档",
+    "mg_geofence_import_json": "旧围栏导入；被 mg_mission_doc_import / mg_mission_doc_import_format 取代",
+    "mg_geofence_export_json": "旧围栏导出；被 mg_mission_doc_export / mg_mission_doc_export_format 取代",
+    "mg_geofence_export_kml": "旧围栏 KML 导出；被 mg_mission_doc_export_format 取代（无前端入口）",
+    "mg_fence_clear": "旧围栏清除；被 mg_mission_doc_clear_fence 取代",
+    "mg_rally_clear": "旧 Rally 清除；被 mg_mission_doc_clear_rally 取代",
+    "mg_connection_connect_tcp": "旧 TCP 连接入口（内部还会 mg_vehicle_open 抢焦点）；被 mg_connection_open 取代",
+    "mg_send_heartbeat": "旧手动心跳；被 mg_connection_open 的连接状态模型取代",
+    "mg_stream_request": "旧数据流请求；被 mg_stream_set_interval 取代",
+    "mg_serial_get_config": "旧串口读接口；被通用参数页 SERIALx_* / SER_TELx_* 取代（mg_serial_get_configs/get_uart_names 仍在用）",
+    "mg_serial_set_baud": "旧串口写接口；被通用参数页 SERIALx_BAUD 取代",
+    "mg_serial_set_protocol": "旧串口写接口；被通用参数页 SERIALx_PROTOCOL 取代",
+    "mg_rc_calibrate_status": "旧 RC 专用校准状态；被通用 mg_calibration_get_status（type=radio）取代",
+    "mg_params_get_changed": "实现与命名不符（返回全部参数而非变化项）；被前端按描述符默认值比较取代",
+    "mg_params_save_to_file": "旧一体化导出（读活动机参数 + FFI 直接写磁盘）；被 mg_params_get_all + mg_param_file_export + 前端 Dart 文件写入取代（FFI 层不做阻塞磁盘 I/O）",
+    "mg_params_load_from_file": "旧一体化导入（FFI 读磁盘 + 逐项下发）；被 mg_param_file_import + mg_params_commit_change_set 取代",
+}
+
+
+def classified_symbols():
+    """返回 {symbol: (类别, 定位)}，覆盖所有已定性的公开导出。"""
+    notes = {}
+    for symbol, note in INTERNAL_SYMBOL_NOTES.items():
+        notes[symbol] = ("内部能力", note)
+    for symbol, note in SUPERSEDED_SYMBOL_NOTES.items():
+        notes[symbol] = ("被取代", note)
+    return notes
 
 
 def capability_table(api, bindings):
@@ -148,7 +203,7 @@ def unbound_debt(api, bindings, tested):
     这些符号是 A7 意义上的存量债务：既没进 UI，也没定性为内部能力，还没有任何
     测试引用。基线只允许缩小，不能让新导出悄悄加入。
     """
-    debt = set(api) - set(bindings) - set(INTERNAL_SYMBOL_NOTES) - set(tested)
+    debt = set(api) - set(bindings) - set(classified_symbols()) - set(tested)
     return sorted(debt)
 
 
@@ -162,7 +217,10 @@ def sync_unbound_baseline(debt, write):
         "symbols": debt,
     }
     if write:
-        UNBOUND_BASELINE.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+        tmp = UNBOUND_BASELINE.with_suffix(".json.tmp")
+        tmp.write_text(text)
+        tmp.replace(UNBOUND_BASELINE)
         return
     if not UNBOUND_BASELINE.exists():
         raise ValueError("tools/ffi_unbound_baseline.json is missing; run with --write-baseline")
@@ -213,15 +271,19 @@ def catalog_text(api, bindings):
             locations = "<br>".join(f"`{p}`" for p in sorted(bindings.get(symbol, []))) or "—"
             lines.append(f"| `{signature}` | {locations} |")
         lines.append("")
-    if INTERNAL_SYMBOL_NOTES:
+    notes = classified_symbols()
+    if notes:
         lines += [
-            "## 已定性的内部公开导出", "",
-            "这些符号保留在 ABI 中，但定位明确为内部能力，没有前端 UI 计划；",
-            "`tools/check_ffi_contract.py` 会在它们被 Flutter 绑定后报错，要求同步定位（见脚本的 `INTERNAL_SYMBOL_NOTES`）。", "",
-            "| 符号 | 定位 |", "| --- | --- |",
+            "## 已定性的公开导出", "",
+            "这些符号保留在 ABI 中，但定位已经明确，没有前端 UI 计划：**内部能力**只服务",
+            "开发、离线分析或原生测试；**被取代**是被更新的接口取代的历史路径（退役候选，不删除）。",
+            "`tools/check_ffi_contract.py` 会在它们被 Flutter 绑定后报错，要求同步定位",
+            "（见脚本的 `INTERNAL_SYMBOL_NOTES` 与 `SUPERSEDED_SYMBOL_NOTES`）。", "",
+            "| 符号 | 类别 | 定位 |", "| --- | --- | --- |",
         ]
-        for symbol in sorted(INTERNAL_SYMBOL_NOTES):
-            lines.append(f"| `{symbol}` | {INTERNAL_SYMBOL_NOTES[symbol]} |")
+        for symbol in sorted(notes):
+            category, note = notes[symbol]
+            lines.append(f"| `{symbol}` | {category} | {note} |")
         lines.append("")
     return "\n".join(lines)
 
@@ -247,15 +309,20 @@ def main():
     retired_bindings = RETIRED_SYMBOLS & set(bindings)
     if retired_bindings:
         raise ValueError("Dart still binds retired FFI symbols: " + ", ".join(sorted(retired_bindings)))
-    now_bound = sorted(set(INTERNAL_SYMBOL_NOTES) & set(bindings))
+    dup_notes = sorted(set(INTERNAL_SYMBOL_NOTES) & set(SUPERSEDED_SYMBOL_NOTES))
+    if dup_notes:
+        raise ValueError(
+            "symbols classified twice (internal and superseded): " + ", ".join(dup_notes))
+    notes = classified_symbols()
+    now_bound = sorted(set(notes) & set(bindings))
     if now_bound:
         raise ValueError(
-            "symbols marked internal-only are now bound in Dart; update INTERNAL_SYMBOL_NOTES: "
-            + ", ".join(now_bound))
-    unknown_notes = sorted(set(INTERNAL_SYMBOL_NOTES) - set(api))
+            "symbols classified as internal/superseded are now bound in Dart; update "
+            "INTERNAL_SYMBOL_NOTES/SUPERSEDED_SYMBOL_NOTES: " + ", ".join(now_bound))
+    unknown_notes = sorted(set(notes) - set(api))
     if unknown_notes:
         raise ValueError(
-            "INTERNAL_SYMBOL_NOTES references unknown exports: " + ", ".join(unknown_notes))
+            "classified symbol notes reference unknown exports: " + ", ".join(unknown_notes))
     expected = catalog_text(api, bindings)
     if args.write_catalog:
         CATALOG.write_text(expected)

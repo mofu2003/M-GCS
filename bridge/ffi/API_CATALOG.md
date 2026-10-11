@@ -387,20 +387,60 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `char* mg_waveform_get_instances(mg_core_t* core);` | `flutter_shell/lib/connection/native_core.dart` |
 | `int mg_waveform_poll(mg_core_t* core, float* out_points, int out_max_points, int target_points, int window_ms, int instance);` | `flutter_shell/lib/connection/native_core.dart` |
 
-## 已定性的内部公开导出
+## 已定性的公开导出
 
-这些符号保留在 ABI 中，但定位明确为内部能力，没有前端 UI 计划；
-`tools/check_ffi_contract.py` 会在它们被 Flutter 绑定后报错，要求同步定位（见脚本的 `INTERNAL_SYMBOL_NOTES`）。
+这些符号保留在 ABI 中，但定位已经明确，没有前端 UI 计划：**内部能力**只服务
+开发、离线分析或原生测试；**被取代**是被更新的接口取代的历史路径（退役候选，不删除）。
+`tools/check_ffi_contract.py` 会在它们被 Flutter 绑定后报错，要求同步定位
+（见脚本的 `INTERNAL_SYMBOL_NOTES` 与 `SUPERSEDED_SYMBOL_NOTES`）。
 
-| 符号 | 定位 |
-| --- | --- |
-| `mg_px4_actuator_get_config` | PX4 执行器映射；内部能力（通用参数页覆盖 PWM_MAIN_FUNC1..16） |
-| `mg_px4_actuator_set_config` | PX4 执行器映射；内部能力（通用参数页覆盖 PWM_MAIN_FUNC1..16） |
-| `mg_px4_flight_mode_get_config` | PX4 模式槽只读视图（COM_FLTMODE1..6）；写入走通用参数页，避免与 RC 模式通道脱节 |
-| `mg_px4_safety_get` | PX4 安全断路器；内部能力（按飞控实际 CBRK_* 缓存报告，不伪造固定字段） |
-| `mg_px4_safety_set` | PX4 安全断路器；内部能力（只写飞控实际存在的 CBRK_*） |
-| `mg_px4_tuning_get` | PX4 姿态/角速度 PID；内部能力（通用参数页覆盖 MC_* 参数） |
-| `mg_px4_tuning_set` | PX4 姿态/角速度 PID；内部能力（通用参数页覆盖 MC_* 参数） |
-| `mg_sitl_start` | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
-| `mg_sitl_status` | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
-| `mg_sitl_stop` | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
+| 符号 | 类别 | 定位 |
+| --- | --- | --- |
+| `mg_actuator_get_limits` | 内部能力 | 电调/舵机通道限位；内部能力（通用参数页覆盖 SERVOx_MIN/MAX/TRIM/REVERSED） |
+| `mg_actuator_set_function` | 内部能力 | 电调/舵机通道功能映射；内部能力（通用参数页覆盖 SERVOx_FUNCTION / ACTUATORx_FUNCTION） |
+| `mg_actuator_set_limits` | 内部能力 | 电调/舵机通道限位写入；内部能力（通用参数页覆盖 SERVOx_MIN/MAX/TRIM） |
+| `mg_config_validate_param` | 内部能力 | 参数值预校验；内部能力（前端按描述符范围/枚举本地校验，不再单独调用） |
+| `mg_connection_connect_tcp` | 被取代 | 旧 TCP 连接入口（内部还会 mg_vehicle_open 抢焦点）；被 mg_connection_open 取代 |
+| `mg_error_string` | 内部能力 | ABI 基础设施：错误码→字符串常量，供原生调用方与测试使用，无 UI |
+| `mg_fence_clear` | 被取代 | 旧围栏清除；被 mg_mission_doc_clear_fence 取代 |
+| `mg_geofence_add_point` | 被取代 | 旧 GeofenceManager 直接编辑；被 mg_mission_doc_apply + mg_mission_doc_compile_fence/upload_fence 取代 |
+| `mg_geofence_export_json` | 被取代 | 旧围栏导出；被 mg_mission_doc_export / mg_mission_doc_export_format 取代 |
+| `mg_geofence_export_kml` | 被取代 | 旧围栏 KML 导出；被 mg_mission_doc_export_format 取代（无前端入口） |
+| `mg_geofence_get_points` | 被取代 | 旧 GeofenceManager 读路径；被 mg_fence_download + mg_mission_doc_import_fence_from_vehicle 取代 |
+| `mg_geofence_import_json` | 被取代 | 旧围栏导入；被 mg_mission_doc_import / mg_mission_doc_import_format 取代 |
+| `mg_geofence_remove_point` | 被取代 | 旧 GeofenceManager 直接编辑；被 mg_mission_doc_apply 取代 |
+| `mg_geofence_set_config` | 被取代 | 旧围栏配置写入；走通用参数页 FENCE_* / 任务文档 |
+| `mg_geofence_validate` | 被取代 | 旧围栏校验；被 mg_mission_doc_validate 取代 |
+| `mg_mission_add_item` | 被取代 | 旧 MissionManager 读-改-传路径；被 mg_mission_doc_apply 取代（并发调用有 lost-update 风险，见 ffi_mission_management.cc 文件头） |
+| `mg_mission_export_csv` | 被取代 | 旧任务导出；被 mg_mission_doc_export_format("waypoints") 取代 |
+| `mg_mission_export_json` | 被取代 | 旧任务导出；被 mg_mission_doc_export / mg_mission_doc_export_format 取代 |
+| `mg_mission_get_stats` | 被取代 | 旧任务统计；被 mg_mission_doc_get / mg_mission_doc_estimate 取代 |
+| `mg_mission_import_csv` | 被取代 | 旧任务导入；被 mg_mission_doc_import_format("waypoints") 取代 |
+| `mg_mission_import_json` | 被取代 | 旧任务导入；被 mg_mission_doc_import / mg_mission_doc_import_format 取代 |
+| `mg_mission_move_item` | 被取代 | 旧 MissionManager 读-改-传路径；被 mg_mission_doc_apply 取代 |
+| `mg_mission_remove_item` | 被取代 | 旧 MissionManager 读-改-传路径；被 mg_mission_doc_apply 取代 |
+| `mg_mission_start` | 被取代 | 同步命令（最长阻塞约 5 s）；界面线程改用 mg_command_execute_for_vehicle + 轮询 |
+| `mg_mission_update_item` | 被取代 | 旧 MissionManager 读-改-传路径；被 mg_mission_doc_apply 取代 |
+| `mg_mission_validate` | 被取代 | 旧任务校验；被 mg_mission_doc_validate 取代 |
+| `mg_params_get_changed` | 被取代 | 实现与命名不符（返回全部参数而非变化项）；被前端按描述符默认值比较取代 |
+| `mg_params_load_from_file` | 被取代 | 旧一体化导入（FFI 读磁盘 + 逐项下发）；被 mg_param_file_import + mg_params_commit_change_set 取代 |
+| `mg_params_save_to_file` | 被取代 | 旧一体化导出（读活动机参数 + FFI 直接写磁盘）；被 mg_params_get_all + mg_param_file_export + 前端 Dart 文件写入取代（FFI 层不做阻塞磁盘 I/O） |
+| `mg_px4_actuator_get_config` | 内部能力 | PX4 执行器映射；内部能力（通用参数页覆盖 PWM_MAIN_FUNC1..16） |
+| `mg_px4_actuator_set_config` | 内部能力 | PX4 执行器映射；内部能力（通用参数页覆盖 PWM_MAIN_FUNC1..16） |
+| `mg_px4_flight_mode_get_config` | 内部能力 | PX4 模式槽只读视图（COM_FLTMODE1..6）；写入走通用参数页，避免与 RC 模式通道脱节 |
+| `mg_px4_safety_get` | 内部能力 | PX4 安全断路器；内部能力（按飞控实际 CBRK_* 缓存报告，不伪造固定字段） |
+| `mg_px4_safety_set` | 内部能力 | PX4 安全断路器；内部能力（只写飞控实际存在的 CBRK_*） |
+| `mg_px4_tuning_get` | 内部能力 | PX4 姿态/角速度 PID；内部能力（通用参数页覆盖 MC_* 参数） |
+| `mg_px4_tuning_set` | 内部能力 | PX4 姿态/角速度 PID；内部能力（通用参数页覆盖 MC_* 参数） |
+| `mg_rally_clear` | 被取代 | 旧 Rally 清除；被 mg_mission_doc_clear_rally 取代 |
+| `mg_rc_calibrate_status` | 被取代 | 旧 RC 专用校准状态；被通用 mg_calibration_get_status（type=radio）取代 |
+| `mg_rc_set_failsafe` | 内部能力 | RC 失联保护写入；内部能力（通用参数页覆盖 RC_FS_* / *FS_* 参数） |
+| `mg_rc_set_mapping` | 内部能力 | RC 通道映射写入；内部能力（通用参数页覆盖 RCMAP_* / RC_MAP_*） |
+| `mg_send_heartbeat` | 被取代 | 旧手动心跳；被 mg_connection_open 的连接状态模型取代 |
+| `mg_serial_get_config` | 被取代 | 旧串口读接口；被通用参数页 SERIALx_* / SER_TELx_* 取代（mg_serial_get_configs/get_uart_names 仍在用） |
+| `mg_serial_set_baud` | 被取代 | 旧串口写接口；被通用参数页 SERIALx_BAUD 取代 |
+| `mg_serial_set_protocol` | 被取代 | 旧串口写接口；被通用参数页 SERIALx_PROTOCOL 取代 |
+| `mg_sitl_start` | 内部能力 | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
+| `mg_sitl_status` | 内部能力 | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
+| `mg_sitl_stop` | 内部能力 | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
+| `mg_stream_request` | 被取代 | 旧数据流请求；被 mg_stream_set_interval 取代 |

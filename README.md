@@ -28,6 +28,7 @@
 - [docs/mission-format-contract.md](docs/mission-format-contract.md)：任务文件（原生 / `.waypoints` / QGC `.plan`）单位、版本与 round-trip 契约
 - [docs/mission-capability-table.md](docs/mission-capability-table.md)：任务命令机型能力表（哪些 `MAV_CMD` 在 Copter/Plane/VTOL/Rover 上执行，以及导入/上传/前端三处门禁）
 - [docs/comparisons/ground-station-comparison-2026-10-10.md](docs/comparisons/ground-station-comparison-2026-10-10.md)：与 QGroundControl、Mission Planner 的多维对比报告
+- [docs/features/feature-inventory.md](docs/features/feature-inventory.md)：功能清单与交付分类（已实现 / 部分实现 / 未实现 / 未接入前端的 FFI 导出明细）
 - [docs/features/](docs/features/)：阶段 3 功能简报（逐方向的需求、上游研究、差距、验收标准）：[视频/相机/云台](docs/features/video-camera-gimbal.md)、[测绘与地形](docs/features/survey-and-terrain.md)、[飞行日志与回放](docs/features/flight-logging-and-replay.md)、[PX4 对齐](docs/features/px4-parity.md)
 - [docs/sitl-scenario-evidence.md](docs/sitl-scenario-evidence.md)、[docs/sitl-scenario-evidence-plane.md](docs/sitl-scenario-evidence-plane.md)：SITL 端到端任务场景证据（ArduCopter / ArduPlane 各一轮，含复算命令）
 - [CHANGELOG.md](CHANGELOG.md)：按版本记录的变更（Keep a Changelog + SemVer）

@@ -155,7 +155,7 @@ tools/install-hooks.sh
 
 维护现有功能为主时，每轮动手前按下面的信号做一次低成本扫描；有问题的按性质处理，不为指标而改代码：
 
-- **无引用/未定性导出**：`python3 tools/check_ffi_contract.py` 会打印 `unbound/untested export debt: N`，并与 `tools/ffi_unbound_baseline.json` 比对，基线只允许缩小（KD-45）。
+- **无引用/未定性导出**：`python3 tools/check_ffi_contract.py` 会打印 `unbound/untested export debt: N`，并与 `tools/ffi_unbound_baseline.json` 比对，基线只允许缩小（KD-45）。定性分「内部能力」（`INTERNAL_SYMBOL_NOTES`）与「被取代」（`SUPERSEDED_SYMBOL_NOTES`）两类；逐簇说明见 `docs/features/feature-inventory.md`。
 - **单一实现的抽象 / 纯转发层**：抽出的接口要有至少两个真实使用方，或有当前的变更原因。Dart 的 `*_backend.dart` 与 C++ 的 `ILink`、`IFirmwarePlugin`、`ICalibrationStrategy` 都已有多个实现；不要再为「将来可能扩展」加空接口（A7）。
 - **大文件**：按变更耦合判断，不按行数。拆之前先用 `git log --follow` 加逐块共变统计，并登记到 `docs/constraints/known-deviations.md` 再决定（KD-43、KD-44、KD-46 是既有结论）。
 - **重复逻辑**：形态相似的 JSON 映射、各自的领域模型不算重复，不要为消除相似强抽公共 helper（KD-47）。
@@ -171,7 +171,7 @@ python3 tools/check_ffi_contract.py --library build/libmgcore.dylib
 (cd flutter_shell && MGCS_FLEET_LIBRARY="$PWD/../build/libmgcore.dylib" flutter test --no-pub test/fleet_ffi_smoke_test.dart)
 ```
 
-Linux 的库路径为 `build/libmgcore.so`，Windows 为 `build/mgcore.dll`。目录和声明检查已纳入 preflight，后端全量构建后还会核对编译库的全部公开符号和版本，防止误用旧库。同一脚本还会同步 `bridge/ffi/API_CATALOG.md` 与 `docs/capabilities.md` 的模块覆盖表；改了公开头文件或 Dart 绑定后，先跑一次 `--write-catalog` 再提交，否则 preflight 会因目录/能力表过期而失败。它同时把「无前端绑定、无内部定性、无测试引用」的导出与 `tools/ffi_unbound_baseline.json` 比对，基线**只允许缩小**：新增未定性导出会失败，被覆盖的符号仍留在基线里也会失败（语义见 KD-45）。新增导出请先绑定 UI 或补测试引用；确实要保留为存量时，用 `--write-baseline` 更新基线并在提交说明里写明理由。FFI smoke 用本地 UDP 模拟链路覆盖生产 backend，不需要实体飞控。
+Linux 的库路径为 `build/libmgcore.so`，Windows 为 `build/mgcore.dll`。目录和声明检查已纳入 preflight，后端全量构建后还会核对编译库的全部公开符号和版本，防止误用旧库。同一脚本还会同步 `bridge/ffi/API_CATALOG.md` 与 `docs/capabilities.md` 的模块覆盖表；改了公开头文件或 Dart 绑定后，先跑一次 `--write-catalog` 再提交，否则 preflight 会因目录/能力表过期而失败。它同时把「无前端绑定、无定性（内部能力/被取代）、无测试引用」的导出与 `tools/ffi_unbound_baseline.json` 比对，基线**只允许缩小**：新增未定性导出会失败，被覆盖的符号仍留在基线里也会失败（语义见 KD-45）。新增导出请先绑定 UI 或补测试引用；确实要保留为存量时，用 `--write-baseline` 更新基线并在提交说明里写明理由。FFI smoke 用本地 UDP 模拟链路覆盖生产 backend，不需要实体飞控。
 
 ## Docker（仅后端）
 
