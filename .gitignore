@@ -10,6 +10,7 @@ build_docker/
 build_smoke_win/
 build_release_*/
 build_asan/
+build_tsan/
 build_connection_check/
 build_vehicle_focus_check/
 build_waveform_check/
@@ -39,6 +40,11 @@ build_log.txt
 build_output.txt
 real_fc_dump_*.txt
 real_fc_dump_latest.txt
+
+# === SITL runtime artifacts ===
+eeprom.bin
+/terrain/
+**/terrain/*.DAT
 
 # === Local scratch ===
 backups/

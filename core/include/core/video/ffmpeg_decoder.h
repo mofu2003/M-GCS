@@ -95,10 +95,12 @@ private:
     std::atomic<bool> decoding_{false};
     std::atomic<bool> opened_{false};
 
-    // 最近一帧（用于截图）
+    // 最近一帧（用于截图，只在启用 FFmpeg 时存在）
+#ifdef MGCORE_HAS_FFMPEG
     uint8_t* last_frame_rgb_ = nullptr;
     int last_frame_w_ = 0;
     int last_frame_h_ = 0;
+#endif
 
     void decode_loop();
 };

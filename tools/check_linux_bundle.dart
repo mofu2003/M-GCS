@@ -11,6 +11,7 @@ const _requiredFiles = [
   'SensorDeviceInfo.json',
   'ParameterDescriptors.json',
   'ParameterTranslations.zh-CN.json',
+  'PX4ParameterMetaData.json',
 ];
 
 void main(List<String> args) {

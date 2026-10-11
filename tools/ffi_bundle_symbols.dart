@@ -22,5 +22,5 @@ const requiredFfiSymbols = [
   'mg_operations_get_snapshot',
   'mg_operations_cancel',
   'mg_calibration_cancel',
-  'mg_log_download_status',
+  'mg_onboard_log_download_status',
 ];

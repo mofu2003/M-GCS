@@ -23,6 +23,11 @@ final _rules = <_TokenRule>[
     '色值集中定义在 mg_colors.dart。',
   ),
   _TokenRule(
+    '裸字重',
+    _regex(r'\bFontWeight\.'),
+    '改用 MgTypography 的字重 token（U4：只有标题与表头加粗）。',
+  ),
+  _TokenRule(
     '裸 TextStyle 字号',
     _findTextStyleFontSize,
     '改用 MgTypography 中的字号 token。',
@@ -148,8 +153,13 @@ bool _runSelfTests() {
     _SelfTestCase('嵌套参数不隐藏裸字号', 'TextStyle(foo(), fontSize: 12)\n', 1),
     _SelfTestCase('TextStyle.new 也被发现', 'TextStyle.new(fontSize: 12)\n', 1),
     _SelfTestCase(
-      '合法 TextStyle 不误报',
+      '裸字重被发现',
       'TextStyle(fontWeight: FontWeight.w600)\n',
+      1,
+    ),
+    _SelfTestCase(
+      'MgTypography 取用不误报',
+      'MgTypography.sans(MgTypography.tableHeader)\n',
       0,
     ),
     _SelfTestCase('裸面板圆角被发现', 'BorderRadius.circular(10)\n', 1),

@@ -27,15 +27,32 @@ jobs:
       shell: bash
       run: PYTHON_BIN=python ./tools/generate-mavlink.sh
 
-    - name: 配置 CMake
-      run: cmake -B build -DMGCORE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+    - name: 检查 FFI 目录与 Flutter 绑定
+      run: python tools/check_ffi_contract.py
 
-    - name: 构建
-      run: cmake --build build --config ${{ matrix.build_type }} --parallel
+    - name: 配置 CMake（测试）
+      run: cmake -B build_check -DMGCORE_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
 
-    - name: 运行离线与模拟测试
-      working-directory: build
-      run: ctest --output-on-failure --no-tests=error -C ${{ matrix.build_type }} -L "offline|simulation" -LE "hardware|manual"
+    - name: 配置 CMake（共享库）
+      run: cmake -B build -DMGCORE_BUILD_SHARED=ON -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+    - name: 构建共享库
+      run: cmake --build build --config ${{ matrix.build_type }} --target mgcore --parallel 4
+
+    # 门禁就是 tools/preflight.sh：CI 与本地跑同一份脚本，避免检查项漂移（KD-32）。
+    - name: 后端口禁（Linux / macOS）
+      if: runner.os != 'Windows'
+      run: tools/preflight.sh --backend-only
+
+    # Windows 上 preflight.sh 依赖 POSIX 工具，这里保留等价步骤；
+    # Flutter 侧的 Windows 预检由 windows-shell job 的 preflight-windows.ps1 覆盖。
+    - name: 构建与测试（Windows）
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        cmake --build build_check --config ${{ matrix.build_type }} --parallel 4
+        ctest --test-dir build_check --output-on-failure --no-tests=error \
+          -C ${{ matrix.build_type }} -L "offline|simulation" -LE "hardware|manual"
 
   flutter-shell:
     runs-on: ubuntu-latest
@@ -66,20 +83,25 @@ jobs:
     - name: 获取依赖
       run: flutter pub get
 
-    - name: 检查 UI 设计 token
-      run: dart ../tools/check_ui_tokens.dart
+    - name: 检查 FFI 目录与 Flutter 绑定
+      working-directory: .
+      run: python tools/check_ffi_contract.py
 
-    - name: 静态分析
-      run: flutter analyze
-
-    - name: 运行外壳测试
-      run: flutter test
+    # 设计 token、静态分析、外壳测试统一交给 preflight（KD-32）；
+    # 它跳过 macOS 构建，与本地 tools/preflight.sh --frontend-only 一致。
+    - name: 前端门禁（token / analyze / test）
+      working-directory: .
+      run: tools/preflight.sh --frontend-only --no-macos-build
 
     - name: 构建 Linux debug 应用
       run: flutter build linux --debug
 
     - name: 检查 Linux 后端桥接产物
       run: dart ../tools/check_linux_bundle.dart build/linux/x64/debug/bundle
+
+    - name: 检查 Linux 全部公开 FFI 符号
+      working-directory: .
+      run: python tools/check_ffi_contract.py --library flutter_shell/build/linux/x64/debug/bundle/libmgcore.so
 
   windows-shell:
     runs-on: windows-latest
@@ -98,6 +120,9 @@ jobs:
     - name: 运行 Windows 完整预检
       shell: pwsh
       run: ./tools/preflight-windows.ps1
+
+    - name: 检查 Windows 全部公开 FFI 符号
+      run: python tools/check_ffi_contract.py --library flutter_shell/build/windows/x64/runner/Debug/mgcore.dll
 
     - name: 上传 Windows 构建产物
       uses: actions/upload-artifact@v4
@@ -126,6 +151,9 @@ jobs:
       working-directory: flutter_shell
       run: flutter pub get
 
+    - name: 检查 FFI 目录与 Flutter 绑定
+      run: python tools/check_ffi_contract.py
+
     - name: 构建 Android debug APK
       working-directory: flutter_shell
       run: flutter build apk --debug
@@ -137,4 +165,5 @@ jobs:
         unzip -l "$apk" | grep -E 'lib/[^/]+/libmgcore\.so' >/dev/null
         unzip -l "$apk" | grep 'assets/mgcore/USBBoardInfo.json' >/dev/null
         unzip -l "$apk" | grep 'assets/mgcore/ParameterDescriptors.json' >/dev/null
+        unzip -l "$apk" | grep 'assets/mgcore/PX4ParameterMetaData.json' >/dev/null
         echo "[android-bundle] APK contains libmgcore.so and core data assets"

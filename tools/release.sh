@@ -19,6 +19,19 @@ readme_file="$root_dir/README.md"
 changelog_file="$root_dir/CHANGELOG.md"
 ffi_header="$root_dir/bridge/ffi/ffi_api_core.h"
 
+# Validate required documents before touching any version file.
+for required_file in "$readme_file" "$changelog_file" "$ffi_header"; do
+  if [[ ! -f "$required_file" ]]; then
+    echo "[release] 缺少必需文件：$required_file" >&2
+    exit 1
+  fi
+done
+if ! grep -q '当前版本：`[0-9][0-9.]*`' "$readme_file" ||
+   ! grep -Eq '^## \[[0-9]+\.[0-9]+\.[0-9]+\] - ' "$changelog_file"; then
+  echo "[release] README 或 CHANGELOG 缺少可更新的版本标记。" >&2
+  exit 1
+fi
+
 current_version="$(
   sed -n 's/^project(mgcore VERSION \([0-9][0-9.]*\) LANGUAGES CXX.*/\1/p' \
     "$cmake_file"
@@ -62,24 +75,22 @@ perl -0pi -e "s/#define MGCORE_VERSION_MAJOR \K[0-9]+/$major/" "$ffi_header"
 perl -0pi -e "s/#define MGCORE_VERSION_MINOR \K[0-9]+/$minor/" "$ffi_header"
 perl -0pi -e "s/#define MGCORE_VERSION_PATCH \K[0-9]+/$patch/" "$ffi_header"
 
-# README / CHANGELOG 属可选文档：存在才同步，缺失不阻塞发布。
-if [[ -f "$readme_file" ]]; then
-  VERSION="$version" perl -0pi -e \
-    's/当前版本：`\K[0-9]+\.[0-9]+\.[0-9]+(?=`)/$ENV{VERSION}/' \
-    "$readme_file"
-fi
+# README / CHANGELOG are required release metadata.
+VERSION="$version" perl -0pi -e \
+  's/当前版本：`\K[0-9]+\.[0-9]+\.[0-9]+(?=`)/$ENV{VERSION}/' \
+  "$readme_file"
 
-if [[ -f "$changelog_file" ]] && ! grep -q "^## $version " "$changelog_file"; then
+if ! grep -Fq "## [$version] - " "$changelog_file"; then
   VERSION="$version" RELEASE_DATE="$today" perl -0pi -e \
-    's/\A(# Changelog\n\n)/$1## $ENV{VERSION} - $ENV{RELEASE_DATE}\n\n### Changed\n\n- 待补充。\n\n### Verification\n\n- 待补充。\n\n/' \
+    's/^(## \[[0-9]+\.[0-9]+\.[0-9]+\] - )/## [$ENV{VERSION}] - $ENV{RELEASE_DATE}\n\n### Changed\n\n- 待补充。\n\n### Verification\n\n- 待补充。\n\n$1/m' \
     "$changelog_file"
 fi
 
 docs_ok=1
-if [[ -f "$readme_file" ]] && ! grep -q "当前版本：\`$version\`" "$readme_file"; then
+if ! grep -Fq "当前版本：\`$version\`" "$readme_file"; then
   docs_ok=0
 fi
-if [[ -f "$changelog_file" ]] && ! grep -q "^## $version " "$changelog_file"; then
+if ! grep -Fq "## [$version] - " "$changelog_file"; then
   docs_ok=0
 fi
 
