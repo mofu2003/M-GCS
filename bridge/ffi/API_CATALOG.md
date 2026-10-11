@@ -397,3 +397,6 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `mg_px4_safety_set` | PX4 安全断路器；内部能力（只写飞控实际存在的 CBRK_*） |
 | `mg_px4_tuning_get` | PX4 姿态/角速度 PID；内部能力（通用参数页覆盖 MC_* 参数） |
 | `mg_px4_tuning_set` | PX4 姿态/角速度 PID；内部能力（通用参数页覆盖 MC_* 参数） |
+| `mg_sitl_start` | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
+| `mg_sitl_status` | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
+| `mg_sitl_stop` | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
