@@ -239,6 +239,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `int`-truncated byte counters, missing erase/index/integrity checks, and a missing
   `CHECK_CONNECTED` in `mg_onboard_log_get_entries`.
 ### Changed
+- Extracted the mission transfer section out of the planning panel:
+  `flutter_shell/lib/mission/mission_transfer_section.dart` now owns the action bar
+  (read / clear / export / upload / start), the transfer progress and verification/diagnostic
+  display, the adopt-vehicle-command path and the three verification widgets that only it used
+  (`_MissionVerificationPanel`, `_HomeSyncNotice`, `_MissionDiagnosticRow`). The seam is three
+  constructor arguments (`mission`, `controller`, `onRequestCommandConfirmation`);
+  `_MissionPlanningFloatingPanelState` drops from 777 to 377 lines and
+  `mission_planning_panel.dart` from 3053 to 2362 (KD-44). One visible difference: the "exported
+  to ..." inline notice now lives in the section, so collapsing and re-expanding the panel no
+  longer keeps it.
 - Extracted the realtime waveform subsystem out of `ConnectionController`:
   `flutter_shell/lib/connection/waveform_controller.dart` now owns the IMU/magnetometer ring
   buffers, the 10 Hz polling timer, instance discovery and the SCALED_IMU/2/3 stream-rate
