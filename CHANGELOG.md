@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<!-- 下一轮开发的变更记录从这里开始；发布时整体迁入带版本号的段落。 -->
+
+## [0.2.0] - 2026-10-11
+
 ### Added
+
 - Semantic parameter roles (safety.md S6, KD-42 closed): the front end no longer hard-codes
   firmware parameter names. The plugin now ships a role table
   (`core/src/config/ParameterDescriptors.json` `roles` section; `ardupilot` base plus
@@ -43,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caches the last directory listings and completed downloads so the page shows the last known state
   before the first reply and reuses an already-downloaded copy when the remote size still matches. A
   corrupt index falls back to an empty one and a write failure only sets `writeFailed`, so a broken
-  cache never blocks browsing. The Flutter suite is at 184 passing / 4 skipped.
+  cache never blocks browsing. The Flutter suite is at 247 passing / 4 skipped.
 - Shared `MgInlineNotice` / `MgDismissButton` widgets (`flutter_shell/lib/widgets/mg_inline_notice.dart`)
   replace the notice/dismiss presentation that the onboard-log and flight-log pages each duplicated.
 - Flight log page (`flutter_shell/lib/logging/tlog_*.dart`, `flight_log_page.dart`, opened from
@@ -181,7 +186,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   passes end to end. Recording and playback are demonstrated on one platform, so the S3/S4
   "two platforms" exit condition is still open (see R6 for the FFmpeg packaging work).
 
+- Emergency stop entry in the top status bar: forced disarm behind the S3 confirmation component,
+  shown only while armed so it stays reachable in flight.
+- `docs/capabilities.md`: module-level delivery status (delivered / partial / pending UI /
+  internal) for all 305 public FFI exports, generated from the headers and Dart bindings and
+  gated by `tools/check_ffi_contract.py`, so the coverage counts cannot silently drift.
+- `docs/plans/mgcs-development-plan-2026-10-10.md` and
+  `docs/comparisons/ground-station-comparison-2026-10-10.md` are linked from `README.md` and
+  `AGENTS.md` so the plan and the QGC/MP comparison are discoverable from the doc index.
+
+### Changed
+
+- Documentation code references are symbol-and-file based instead of line numbers, so they no
+  longer break on refactors: `docs/constraints/parity.md`,
+  `docs/features/px4-parity.md`, `docs/plans/mgcs-development-plan-2026-10-10.md`,
+  `docs/comparisons/ground-station-comparison-2026-10-10.md` and
+  `docs/constraints/known-deviations.md` now point at `isGuidedGotoFlightMode`,
+  `guidedTakeoff`, `minimumTakeoffAltitudeMeters`, `_uploadToVehicle`/`_clearVehicleMission`,
+  `_FenceRallyCard` and `mg_command_submit_for_vehicle`/`mg_command_poll` instead of the
+  pre-KD-43/KD-44 line numbers.
+- Extracted the mission transfer section out of the planning panel:
+  `flutter_shell/lib/mission/mission_transfer_section.dart` now owns the action bar
+  (read / clear / export / upload / start), the transfer progress and verification/diagnostic
+  display, the adopt-vehicle-command path and the three verification widgets that only it used
+  (`_MissionVerificationPanel`, `_HomeSyncNotice`, `_MissionDiagnosticRow`). The seam is three
+  constructor arguments (`mission`, `controller`, `onRequestCommandConfirmation`);
+  `_MissionPlanningFloatingPanelState` drops from 777 to 377 lines and
+  `mission_planning_panel.dart` from 3053 to 2362 (KD-44). One visible difference: the "exported
+  to ..." inline notice now lives in the section, so collapsing and re-expanding the panel no
+  longer keeps it.
+- Extracted the realtime waveform subsystem out of `ConnectionController`:
+  `flutter_shell/lib/connection/waveform_controller.dart` now owns the IMU/magnetometer ring
+  buffers, the 10 Hz polling timer, instance discovery and the SCALED_IMU/2/3 stream-rate
+  negotiation. Per-vehicle switching and disconnects go through the new
+  `captureSnapshot`/`applySnapshot`/`reset`/`stopPolling`/`restartPolling`/`onLinkEstablished`
+  lifecycle hooks instead of the controller moving waveform fields one by one;
+  `connection_controller.dart` drops from 4160 to 3833 lines (KD-43). The public waveform API is
+  now reached as `controller.waveform.*` (`changes`, `instances`, `instanceIndex`, `points`,
+  `pointCount`, `magLatest`, `setInstance`, `setActive`), and the buffers are allocated eagerly,
+  so they are valid even when the native library fails to load.
+- The synchronous `mg_fs_download_cancel` export is gone: FTP transfers are now async and are
+  cancelled with `mg_fs_cancel`, observed with `mg_fs_transfer_status`. `MavlinkAdapter`'s old
+  blocking `list_directory`/`download_file`/`upload_file`/`cancel_file_transfer` methods were
+  replaced by `file_*_start`/`file_transfer_status`/`file_transfer_cancel`/`file_transfer_wait`.
+- Logging FFI exports are now named by object with no legacy aliases: `mg_onboard_log_*`
+  (onboard DataFlash list / download / cancel / status), `mg_tlog_*` (link `.tlog` recording),
+  `mg_session_log_*` (JSONL/CSV session files) and `mg_event_*` (structured event stream);
+  `mg_fs_*` stays as generic MAVLink FTP. The old `mg_log_*` / `mg_log_record_*` /
+  `mg_log_file_*` names are removed rather than aliased — header, implementation, Dart bindings,
+  API catalog and docs updated in one change.
+- Logging byte counters (`size_bytes`, `received_bytes`, `total_bytes`, `saved_bytes`, `bytes`)
+  are emitted as 64-bit values instead of `int`, so DataFlash / `.tlog` files larger than 2 GiB
+  no longer wrap to negative numbers.
+
+- Different commands may now run concurrently for the same vehicle; only a duplicate of a command
+  that is still awaiting its ACK is refused (QGC `MavCommandQueue` rule). This unblocks e.g. RTL
+  while a guided reposition is pending (#3).
+- `mg_command_terminate_flight` is the only flight-termination entrypoint. It sends
+  `DO_FLIGHTTERMINATION` (irreversible), which is not the recoverable emergency stop
+  (`COMPONENT_ARM_DISARM` + param2=21196).
+- Extracted `NativeCore` (sole owner of the native library and handle) and `SigningController` out
+  of `ConnectionController`: 4273 → 3780 lines, with no `dart:ffi` left in the controller.
+
 ### Fixed
+
 - PX4 flight modes had two drifting tables: `PX4Plugin` kept its own `kPX4Modes` while
   `firmware_adapter.cc` decoded through `px4_modes.h`, so the same `custom_mode` could be named
   differently in the status bar and in role resolution, and both tables missed the PX4 1.14+
@@ -265,50 +333,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   swallowed), three overlapping `mg_log_*` API families, a side-effecting `log_download_status`,
   `int`-truncated byte counters, missing erase/index/integrity checks, and a missing
   `CHECK_CONNECTED` in `mg_onboard_log_get_entries`.
-### Changed
-- Documentation code references are symbol-and-file based instead of line numbers, so they no
-  longer break on refactors: `docs/constraints/parity.md`,
-  `docs/features/px4-parity.md`, `docs/plans/mgcs-development-plan-2026-10-10.md`,
-  `docs/comparisons/ground-station-comparison-2026-10-10.md` and
-  `docs/constraints/known-deviations.md` now point at `isGuidedGotoFlightMode`,
-  `guidedTakeoff`, `minimumTakeoffAltitudeMeters`, `_uploadToVehicle`/`_clearVehicleMission`,
-  `_FenceRallyCard` and `mg_command_submit_for_vehicle`/`mg_command_poll` instead of the
-  pre-KD-43/KD-44 line numbers.
-- Extracted the mission transfer section out of the planning panel:
-  `flutter_shell/lib/mission/mission_transfer_section.dart` now owns the action bar
-  (read / clear / export / upload / start), the transfer progress and verification/diagnostic
-  display, the adopt-vehicle-command path and the three verification widgets that only it used
-  (`_MissionVerificationPanel`, `_HomeSyncNotice`, `_MissionDiagnosticRow`). The seam is three
-  constructor arguments (`mission`, `controller`, `onRequestCommandConfirmation`);
-  `_MissionPlanningFloatingPanelState` drops from 777 to 377 lines and
-  `mission_planning_panel.dart` from 3053 to 2362 (KD-44). One visible difference: the "exported
-  to ..." inline notice now lives in the section, so collapsing and re-expanding the panel no
-  longer keeps it.
-- Extracted the realtime waveform subsystem out of `ConnectionController`:
-  `flutter_shell/lib/connection/waveform_controller.dart` now owns the IMU/magnetometer ring
-  buffers, the 10 Hz polling timer, instance discovery and the SCALED_IMU/2/3 stream-rate
-  negotiation. Per-vehicle switching and disconnects go through the new
-  `captureSnapshot`/`applySnapshot`/`reset`/`stopPolling`/`restartPolling`/`onLinkEstablished`
-  lifecycle hooks instead of the controller moving waveform fields one by one;
-  `connection_controller.dart` drops from 4160 to 3833 lines (KD-43). The public waveform API is
-  now reached as `controller.waveform.*` (`changes`, `instances`, `instanceIndex`, `points`,
-  `pointCount`, `magLatest`, `setInstance`, `setActive`), and the buffers are allocated eagerly,
-  so they are valid even when the native library fails to load.
-- The synchronous `mg_fs_download_cancel` export is gone: FTP transfers are now async and are
-  cancelled with `mg_fs_cancel`, observed with `mg_fs_transfer_status`. `MavlinkAdapter`'s old
-  blocking `list_directory`/`download_file`/`upload_file`/`cancel_file_transfer` methods were
-  replaced by `file_*_start`/`file_transfer_status`/`file_transfer_cancel`/`file_transfer_wait`.
-- Logging FFI exports are now named by object with no legacy aliases: `mg_onboard_log_*`
-  (onboard DataFlash list / download / cancel / status), `mg_tlog_*` (link `.tlog` recording),
-  `mg_session_log_*` (JSONL/CSV session files) and `mg_event_*` (structured event stream);
-  `mg_fs_*` stays as generic MAVLink FTP. The old `mg_log_*` / `mg_log_record_*` /
-  `mg_log_file_*` names are removed rather than aliased — header, implementation, Dart bindings,
-  API catalog and docs updated in one change.
-- Logging byte counters (`size_bytes`, `received_bytes`, `total_bytes`, `saved_bytes`, `bytes`)
-  are emitted as 64-bit values instead of `int`, so DataFlash / `.tlog` files larger than 2 GiB
-  no longer wrap to negative numbers.
-
-### Fixed
 - Onboard log download no longer reports `completed` before the file is on disk: the write runs
   outside the adapter lock and `download_completed` / `saved_bytes` are set only after a
   successful `fopen` / `fwrite` / `fclose`. Open, short-write and flush failures now surface as
@@ -397,17 +421,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ui.md` U3 now states that the platform CJK font fallback chain is allowed inside `MgFonts` only,
   resolving the KD-35 ambiguity, and its verification note matches what `tools/check_ui_tokens.dart`
   actually checks.
-### Changed
-- Different commands may now run concurrently for the same vehicle; only a duplicate of a command
-  that is still awaiting its ACK is refused (QGC `MavCommandQueue` rule). This unblocks e.g. RTL
-  while a guided reposition is pending (#3).
-- `mg_command_terminate_flight` is the only flight-termination entrypoint. It sends
-  `DO_FLIGHTTERMINATION` (irreversible), which is not the recoverable emergency stop
-  (`COMPONENT_ARM_DISARM` + param2=21196).
-- Extracted `NativeCore` (sole owner of the native library and handle) and `SigningController` out
-  of `ConnectionController`: 4273 → 3780 lines, with no `dart:ffi` left in the controller.
 
 ### Removed
+
 - Deleted the six `bridge/ffi` compatibility forwarding headers (`json_builder.h`,
   `json_serializers.h`, `param_json_serializers.h`, `sensor_health_json_serializers.h`,
   `telemetry_cache.h`, `telemetry_freshness.h`). They re-exported the telemetry JSON builder,
@@ -415,16 +431,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   old `mg::bridge::*` names, so every type had two names. Bridge code now includes
   `core/telemetry/...` and refers to the single `mg::core::telemetry::*` name; the KD-20 guard in
   `test_bridge_architecture_guards.cc` no longer lists the deleted headers.
-
-### Added
-- Emergency stop entry in the top status bar: forced disarm behind the S3 confirmation component,
-  shown only while armed so it stays reachable in flight.
-- `docs/capabilities.md`: module-level delivery status (delivered / partial / pending UI /
-  internal) for all 305 public FFI exports, generated from the headers and Dart bindings and
-  gated by `tools/check_ffi_contract.py`, so the coverage counts cannot silently drift.
-- `docs/plans/mgcs-development-plan-2026-10-10.md` and
-  `docs/comparisons/ground-station-comparison-2026-10-10.md` are linked from `README.md` and
-  `AGENTS.md` so the plan and the QGC/MP comparison are discoverable from the doc index.
 
 ## [0.1.1] - 2026-10-09
 

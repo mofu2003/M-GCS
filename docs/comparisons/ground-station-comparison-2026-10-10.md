@@ -48,7 +48,7 @@ M-GCS 的当前工作树不是纯 `HEAD`：它包含用户正在进行的收尾�
 | 参数语义/元数据 | 2 | 5 | 5 | M-GCS 读取和编辑能力在发展中，验证写入仍有缺口 |
 | 校准流程 | 3 | 4 | 4 | M-GCS 有明确取消/超时和 PX4 分支，但多实例、跨源过滤仍需闭环 |
 | 日志/分析/回放 | 2 | 4 | 5 | M-GCS 有飞行日志/MAVLink FTP 能力；完整用户链路较少 |
-| 视频/载荷 | 1 | 5 | 4 | QGC 有跨平台 GStreamer 管线；MP 视频和载荷工具较实用；M-GCS 多数还不是产品级 UI |
+| 视频/载荷 | 2 | 5 | 4 | QGC 有跨平台 GStreamer 管线；MP 视频和载荷工具较实用；M-GCS 已在 macOS 开发构建闭环本地播放/录制/截图，但仍只有一端、且不在默认发布构建内 |
 | 地图/地形/离线 | 2 | 5 | 5 | M-GCS 地图源固定、离线数据弱；两者拥有更成熟缓存和地理工具 |
 | 安全契约清晰度 | 5 | 4 | 3 | M-GCS 文件化规则最清楚，但偏差清单显示仍未全部实现 |
 | 安全行为自动验证 | 3 | 4 | 2 | M-GCS 有仿真与规则门禁；上游测试量/平台矩阵更大，MP 测试集中度较低 |
@@ -72,7 +72,7 @@ M-GCS 的当前工作树不是纯 `HEAD`：它包含用户正在进行的收尾�
 | 地图与地理数据 | flutter_map；五个预设瓦片源、坐标系转换、机体/航线显示和地图动作 | Qt Location provider、离线/缓存/地形/geo fence/rally/多种复杂任务地图工具 | GMap.NET provider 丰富、用户选择源、地形/高程、WMS/WMTS、离线地图缓存与 GIS 插件 | 缺用户自定义源、缓存/离线包、地形覆盖可视化、地图数据管理和大规模要素交互 |
 | 遥测、仪表、告警 | C++ telemetry cache/freshness、波形环形缓冲、ADSB、Flutter 仪表；过期态门控正在完善 | 大量 Live Fly View 仪表、MAVLink Inspector、vehicle messages、link/health 模型 | FlightData HUD、数据状态、地图 overlay 和可配置 telemetry | M-GCS 当前仪表和告警种类少；需测端到端频率、延迟、丢包、UI rebuild、后台计时器和 stale 状态边界 |
 | 日志与事后分析 | 本地飞行事件日志、MAVLink log、FTP API 有一定实现；用户界面/导出/分析闭环较浅 | `.tlog`、MAVLink Inspector、log replay 与日志功能 | `.tlog`/`.rlog`、机载 DataFlash 下载和 LogAnalyzer 深入 | M-GCS 需补完整 DataFlash 列表/下载/取消/断点/校验/大文件管理和可视化分析 |
-| 视频、相机、云台 | camera/video FFI 与可选 FFmpeg decoder；核心编译默认 FFmpeg OFF，前端实际控制/显示链路需按平台核查 | GStreamer 视频流显示/录制、camera/gimbal 组件和流信息 | GStreamer、多画面/浮动视频、相机和云台入口 | M-GCS 目前不是可与上游相比的完整视频产品：解码库可选不等于播放器、流发现、录制、生命周期、多平台编解码完成 |
+| 视频、相机、云台 | camera/gimbal/video FFI 与控制页（S2）；本地 FFmpeg(LGPL) 解码 + 录制/截图（S3/S4），已在 macOS 开发构建用真实 TCP/MPEG-TS 码流端到端跑通（取帧、录 `.mkv`、截 `.png`）；默认构建仍 FFmpeg OFF | GStreamer 视频流显示/录制、camera/gimbal 组件和流信息 | GStreamer、多画面/浮动视频、相机和云台入口 | M-GCS 本地播放/录制/截图已在 macOS 一端闭环，但还不是可与上游相比的完整视频产品：默认构建未打包解码后端、硬解、多画面、断流重连、多平台编解码与真实相机/云台硬件回读仍缺 |
 | 固件、更新、SITL | 固件识别和 SITL 启停有实现；firmware flasher 当前源码明确为占位失败 | PX4/APM firmware plugin、固件设置和平台工具支持，但刷写受固件/平台限制 | ArduPilot firmware installer、板卡/固件下载和 SITL 工具是核心优势 | M-GCS 没有可交付的刷写闭环；占位 FFI 需标为 unsupported，避免产品显示成可用功能 |
 | 遥控器、手柄、操纵 | RC 遥测/校准 API 有；完整 joystick 输入和动作绑定尚未形成与 QGC/MP 相当路径 | Joystick 配置、按钮映射、flight mode/command 映射和校准 | Joystick、游戏手柄和动作配置较完整 | 对安全操作要支持 deadman、失联处理、模式/按钮冲突和输入监控；这不是一个“后续 UI 小功能” |
 | 外部设备与插件 | 固件插件模型、sensor decoder、摄像头/载荷 API 基础已存在 | FirmwarePlugin、AutoPilotPlugin、Fact metadata、QML plugin 和 Qt 生态 | ArduPilot 专用扩展、脚本、插件、地面站周边工具 | M-GCS 领域模型比 MP 清晰，但设备协议覆盖、插件 ABI/生命周期、版本兼容及用户扩展生态尚浅 |
@@ -151,13 +151,13 @@ MP README 详细列出固件站点、更新 CDN、参数/日志元数据、地�
 
 ## 8. M-GCS 在代码层已经有、但不应误算为已交付的能力
 
-当前 API 面覆盖比实际 UI 更宽。静态扫描显示 321 个导出中仍有大量函数未被 Flutter 使用或测试触达。以下面向用户的闭环需要在 roadmap 单独列项：
+当前 API 面覆盖比实际 UI 更宽。静态扫描显示 314 个公开导出中仍有大量函数未被 Flutter 使用或测试触达。以下面向用户的闭环需要在 roadmap 单独列项：
 
 | 领域 | 代码已有的迹象 | 仍需证明的部分 |
 | --- | --- | --- |
 | Firmware flash | `mg_firmware_flash`、状态 API、FirmwareFlasher 类型 | core 实现当前直接返回 unsupported；没有文件选择、固件来源/签名校验、板型约束、进度/取消和真实刷写验收 |
 | PX4 专属 setup | PX4 FFI 读写声明和若干传感器支持 | 与 QGC PX4 setup 页对应的参数/安全/调参面、每个字段语义和真实 PX4 测试 |
-| Camera/Gimbal/Video | camera/gimbal/video FFI、可选 FFmpeg decoder | 自动发现、流 URL/协议、硬解、macOS/Windows/Linux/Android codec、画中画、录制/存储、断流重连和控制 ACK |
+| Camera/Gimbal/Video | camera/gimbal/video FFI；macOS 开发构建已端到端跑通本地解码 + 录制 + 截图（LGPL FFmpeg，含容量上限清理） | 仍在 macOS 之外的一端复现；硬解、跨平台编解码、多画面、断流重连、真实相机/云台硬件自动发现与设备回读、发布包内打包 FFmpeg（R6） |
 | DataFlash/log download | MAVLink FTP、log list/download/record API | 完整可见的用户流程、磁盘/空间/续传、巨大日志、文件校验、解析/图表和错误恢复 |
 | Survey/terrain | survey generator、terrain query、任务估算符号 | 规划表单、相机模型、航线参数、地形源/缓存、实时校验、文件 round-trip 和与上游结果对照 |
 | Map providers/offline | 多个 tile URL enum 和 path provider | 自定义 URL/WMS/WMTS、令牌安全、缓存上限、离线包、版权 attribution、不同坐标体系一致性 |
