@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- 下一轮开发的变更记录从这里开始；发布时整体迁入带版本号的段落。 -->
 
+## [0.2.1] - 2026-10-11
+
 ### Added
 
 - FFI export-debt gate (`tools/check_ffi_contract.py`, `tools/ffi_unbound_baseline.json`): the

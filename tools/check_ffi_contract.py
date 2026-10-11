@@ -278,9 +278,10 @@ def catalog_text(api, bindings):
         lines += [
             "## 已定性的公开导出", "",
             "这些符号保留在 ABI 中，但定位已经明确，没有前端 UI 计划：**内部能力**只服务",
-            "开发、离线分析或原生测试；**被取代**是被更新的接口取代的历史路径（退役候选，不删除）。",
+            "开发、离线分析或原生测试；**被取代**是被更新接口取代的历史路径，现已全部从源码删除并",
+            "登记进 `RETIRED_SYMBOLS`（因此该类别在当前 ABI 中为空，表结构保留作占位）。",
             "`tools/check_ffi_contract.py` 会在它们被 Flutter 绑定后报错，要求同步定位",
-            "（见脚本的 `INTERNAL_SYMBOL_NOTES` 与 `SUPERSEDED_SYMBOL_NOTES`）。", "",
+            "（见脚本的 `INTERNAL_SYMBOL_NOTES`、`SUPERSEDED_SYMBOL_NOTES` 与 `RETIRED_SYMBOLS`）。", "",
             "| 符号 | 类别 | 定位 |", "| --- | --- | --- |",
         ]
         for symbol in sorted(notes):

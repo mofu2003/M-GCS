@@ -2,7 +2,7 @@
 
 无人机地面站，对标 Mission Planner 与 QGroundControl。优先服务 ArduPilot，兼容 PX4。
 
-当前版本：`0.2.0`。
+当前版本：`0.2.1`。
 
 ## 结构
 

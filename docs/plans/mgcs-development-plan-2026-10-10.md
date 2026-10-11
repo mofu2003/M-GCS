@@ -37,7 +37,7 @@ M-GCS 的差异化目标是：可替换 Flutter 前端、稳定的 C FFI、核�
 
 **退出条件**
 
-- 314 个公开导出全部有类别、责任模块和 ABI 状态；未接入 UI 的公开符号被明确解释为内部或待实现，不再保留重复别名。
+- 全部公开导出都有类别、责任模块和 ABI 状态（阶段 0 时 314 个；0.2.1 删除 34 个历史遗留后为 280 个）；未接入 UI 的公开符号被明确解释为内部或待实现，不再保留重复别名。
 - 偏差台账没有已修复但仍显示待修复的条目；每个 P0/P1 都有 owner、验收测试和依赖。
 - 版本、catalog、实际编译库三个一致性检查在干净构建中通过。
 
@@ -147,7 +147,7 @@ M-GCS 的差异化目标是：可替换 Flutter 前端、稳定的 C FFI、核�
 
 当前进度：
 
-- **阶段 0 退出条件已满足**。`docs/capabilities.md` 给出 314 个公开导出的模块级交付状态（已交付/部分接入/待接入/内部能力）与 UI 覆盖计数，表格由 `tools/check_ffi_contract.py` 生成并纳入 preflight，计数漂移即失败；`API_CATALOG.md`、Dart 绑定、编译库导出与库版本四项一致。清空后的 `known-deviations.md` 只剩 6 条「已决定」的建议偏差（KD-09、KD-27、KD-36、KD-40，以及后续登记的 KD-43、KD-44），没有已修复却仍列待修复的条目。
+- **阶段 0 退出条件已满足**。`docs/capabilities.md` 给出全部公开导出（阶段 0 为 314 个；0.2.1 清理历史遗留后为 280 个）的模块级交付状态（已交付/部分接入/待接入/内部能力）与 UI 覆盖计数，表格由 `tools/check_ffi_contract.py` 生成并纳入 preflight，计数漂移即失败；`API_CATALOG.md`、Dart 绑定、编译库导出与库版本四项一致。清空后的 `known-deviations.md` 只剩 6 条「已决定」的建议偏差（KD-09、KD-27、KD-36、KD-40，以及后续登记的 KD-43、KD-44），没有已修复却仍列待修复的条目。
 - **阶段 1A 完成**。`heartbeat_fresh`/`heartbeat_age_ms` 已从 core 链路状态进入 Fleet JSON、session telemetry、`mg_flight_get_modes`、诊断与 Dart 模型；危险操作（批量指令、引导、顶栏、地图）在 `heartbeat_fresh` 为 false 时按「未知」拒绝或显示占位，不再用最后一帧放行。`ConnectionController` 的会话/校准/机队/波形轮询都捕获 `sessionId`/`_activeLinkId`/`_sessionGeneration`，焦点切换或断链后旧结果不覆写新状态。
 - **阶段 1B 基本完成**。命令结果统一到 queued command 的 operation 状态，`COMMAND_ACK` 按来源 `sysid`/`compid` 与命令匹配；排队发送失败与 `COMMAND_INT` 失败都在锁外即时投递结果回调，不再只靠轮询（KD-03）；`set_global_origin`/`landing gear` 改为等 `COMMAND_ACK` 再返回（KD-01）；同一目标的不同命令可并发，只有未终结的同一条命令被拒绝。`test_sim_commands.cc` 与 `test_state_machines.cc` 覆盖发送失败回调、拒绝结果和 ACK 来源过滤。
 - **阶段 1C 基本完成**。校准增加 `cancelling` 阶段：取消只有在收到该 `COMMAND_ACK` 后才落 `Cancelled`（KD-41），静默或断链由看门狗收尾并给出原因；PX4 不支持取消/六面确认时明确拒绝（KD-17）。`test_sim_calibration.cc` 覆盖取消发送失败、静默看门狗与断链中止。
