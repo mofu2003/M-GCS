@@ -7,13 +7,14 @@
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
+#include "core/util/json.h"
 
 MGCORE_API char* mg_sitl_start(mg_core_t* core, const char* json_config) {
     CHECK_CORE(core);
     mg::core::sitl::SitlConfig cfg;
 
     if (json_config && json_config[0] != '\0') {
-        cJSON* root = cJSON_Parse(json_config);
+        cJSON* root = mg::core::json::parse(json_config);
         if (root) {
             cJSON* vehicle = cJSON_GetObjectItemCaseSensitive(root, "vehicle");
             if (vehicle && cJSON_IsString(vehicle)) {
@@ -33,7 +34,7 @@ MGCORE_API char* mg_sitl_start(mg_core_t* core, const char* json_config) {
     }
 
     core->sitl.set_status_callback([core](mg::core::sitl::SitlStatus status, const std::string& msg) {
-        mg::bridge::JsonBuilder jb;
+        mg::core::telemetry::JsonBuilder jb;
         jb.begin_object();
         jb.field("status", static_cast<int>(status));
         jb.field("message", msg);
@@ -42,7 +43,7 @@ MGCORE_API char* mg_sitl_start(mg_core_t* core, const char* json_config) {
     });
 
     if (core->sitl.start(cfg)) {
-        mg::bridge::JsonBuilder jb;
+        mg::core::telemetry::JsonBuilder jb;
         jb.begin_object();
         jb.field("success", true);
         jb.field("pid", core->sitl.get_pid());
@@ -62,7 +63,7 @@ MGCORE_API char* mg_sitl_stop(mg_core_t* core) {
 MGCORE_API char* mg_sitl_status(mg_core_t* core) {
     CHECK_CORE(core);
     auto status = core->sitl.status();
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     const char* status_str = "stopped";
     switch (status) {

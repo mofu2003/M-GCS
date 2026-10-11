@@ -7,7 +7,6 @@
  * mg_free_string, mg_get_version
  */
 #include "ffi_internal.h"
-#include "telemetry_bindings.h"
 
 MGCORE_API void mg_free_string(char* str) {
     if (str) free(str);

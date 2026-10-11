@@ -84,7 +84,7 @@ MGCORE_API char* mg_camera_request_info(mg_core_t* core, int camera_id) {
 MGCORE_API char* mg_camera_get_status(mg_core_t* core, int camera_id) {
     CHECK_CORE(core);
     (void)camera_id;
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("available", false);
     jb.field("recording", false);
@@ -145,7 +145,7 @@ MGCORE_API char* mg_video_stop(mg_core_t* core) {
 
 MGCORE_API char* mg_video_status(mg_core_t* core) {
     CHECK_CORE(core);
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("status", "stopped");
     jb.end_object();
@@ -158,15 +158,15 @@ MGCORE_API char* mg_video_get_streams(mg_core_t* core) {
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
 
     auto streams = mav->latest_video_streams();
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("count", static_cast<int>(streams.size()));
 
-    mg::bridge::JsonBuilder arr;
+    mg::core::telemetry::JsonBuilder arr;
     arr.begin_array();
     for (const auto& s : streams) {
-        mg::bridge::JsonBuilder obj;
+        mg::core::telemetry::JsonBuilder obj;
         obj.begin_object();
         obj.field("stream_id", static_cast<int>(s.stream_id));
         obj.field("type", static_cast<int>(s.type));

@@ -7,9 +7,9 @@
  */
 #include "ffi_internal.h"
 #include "ffi_helpers.h"
-#include "json_serializers.h"
-#include "param_json_serializers.h"
-#include "sensor_health_json_serializers.h"
+#include "core/telemetry/json_serializers.h"
+#include "core/telemetry/param_json_serializers.h"
+#include "core/telemetry/sensor_health_json_serializers.h"
 #include "ffi_operations_internal.h"
 
 #include <string>
@@ -20,10 +20,11 @@ using mg::bridge::operations_detail::operations_snapshot_json;
 
 std::string last_error_json() {
     const auto error = mg_get_last_error();
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("code", static_cast<int>(error));
-    jb.field("name", mg_error_string(error));
+    jb.field("name", ffi_error_name(error));
+    jb.field("message", mg_error_string(error));
     jb.end_object();
     return jb.str();
 }
@@ -47,13 +48,13 @@ std::string connection_diagnostics_json(mg_core_t* core) {
         ? mav->link_quality()
         : mg::core::mavlink::LinkQualityInfo{};
 
-    mg::bridge::JsonBuilder heartbeat;
+    mg::core::telemetry::JsonBuilder heartbeat;
     heartbeat.begin_object();
     heartbeat.field("alive", heartbeat_alive);
     heartbeat.field("age_ms", static_cast<long long>(heartbeat_age));
     heartbeat.end_object();
 
-    mg::bridge::JsonBuilder link;
+    mg::core::telemetry::JsonBuilder link;
     link.begin_object();
     link.field("measuring", link_quality.measuring);
     link.field("received", static_cast<int>(link_quality.received));
@@ -61,7 +62,7 @@ std::string connection_diagnostics_json(mg_core_t* core) {
     link.field("quality_pct", static_cast<int>(link_quality.quality_pct));
     link.end_object();
 
-    mg::bridge::JsonBuilder target;
+    mg::core::telemetry::JsonBuilder target;
     target.begin_object();
     target.field("system_id", static_cast<int>(active_target_sys(core)));
     target.field("component_id", static_cast<int>(active_target_comp(core)));
@@ -79,7 +80,7 @@ std::string connection_diagnostics_json(mg_core_t* core) {
     }
     target.end_object();
 
-    mg::bridge::JsonBuilder vehicle_json;
+    mg::core::telemetry::JsonBuilder vehicle_json;
     vehicle_json.begin_object();
     vehicle_json.field("active_vehicle_id", mg_vehicle_get_active(core));
     vehicle_json.field("has_active_vehicle", core->vehicles.active_vehicle() != nullptr);
@@ -94,7 +95,7 @@ std::string connection_diagnostics_json(mg_core_t* core) {
     }
     vehicle_json.end_object();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("connected", connected);
@@ -115,10 +116,10 @@ std::string param_change_history_json(mg_core_t* core) {
         ? mav->param_change_history()
         : std::vector<mg::core::mavlink::MavlinkAdapter::ParamChangeRecord>{};
 
-    mg::bridge::JsonBuilder array;
+    mg::core::telemetry::JsonBuilder array;
     array.begin_array();
     for (const auto& record : records) {
-        mg::bridge::JsonBuilder item;
+        mg::core::telemetry::JsonBuilder item;
         item.begin_object();
         item.field("id", static_cast<unsigned long long>(record.id));
         item.field("name", record.name);
@@ -138,15 +139,15 @@ std::string param_change_history_json(mg_core_t* core) {
 
 std::string telemetry_dashboard_json(mg_core_t* core) {
     auto* cache = get_active_cache(core);
-    mg::bridge::JsonBuilder telemetry;
+    mg::core::telemetry::JsonBuilder telemetry;
     telemetry.begin_object();
     if (cache) {
-        telemetry.raw_field("summary", mg::bridge::heartbeat_json(cache->snapshot_heartbeat().data));
+        telemetry.raw_field("summary", mg::core::telemetry::heartbeat_json(cache->snapshot_heartbeat().data));
         {
             const auto attitude_snap = cache->snapshot_attitude();
             const auto& att = attitude_snap.data;
             const double r2d = 180.0 / 3.141592653589793;
-            mg::bridge::JsonBuilder attitude;
+            mg::core::telemetry::JsonBuilder attitude;
             attitude.begin_object();
             attitude.field("roll_deg", att.roll * r2d);
             attitude.field("pitch_deg", att.pitch * r2d);
@@ -163,7 +164,7 @@ std::string telemetry_dashboard_json(mg_core_t* core) {
         {
             const auto vfr_snap = cache->snapshot_vfr_hud();
             const auto& vfr = vfr_snap.data;
-            mg::bridge::JsonBuilder vfr_hud;
+            mg::core::telemetry::JsonBuilder vfr_hud;
             vfr_hud.begin_object();
             vfr_hud.field("airspeed_m_s", vfr.airspeed);
             vfr_hud.field("groundspeed_m_s", vfr.groundspeed);
@@ -178,19 +179,19 @@ std::string telemetry_dashboard_json(mg_core_t* core) {
     }
     telemetry.end_object();
 
-    mg::bridge::JsonBuilder validity;
+    mg::core::telemetry::JsonBuilder validity;
     validity.begin_object();
     if (cache) {
-        validity.field("heartbeat", cache->is_fresh(mg::bridge::TelemetryType::kHeartbeat));
-        validity.field("attitude", cache->is_fresh(mg::bridge::TelemetryType::kAttitude));
-        validity.field("gps", cache->is_fresh(mg::bridge::TelemetryType::kGps));
-        validity.field("global_position", cache->is_fresh(mg::bridge::TelemetryType::kGlobalPosition));
-        validity.field("battery", cache->is_fresh(mg::bridge::TelemetryType::kBattery));
-        validity.field("vfr_hud", cache->is_fresh(mg::bridge::TelemetryType::kVfrHud));
+        validity.field("heartbeat", cache->is_fresh(mg::core::telemetry::TelemetryType::kHeartbeat));
+        validity.field("attitude", cache->is_fresh(mg::core::telemetry::TelemetryType::kAttitude));
+        validity.field("gps", cache->is_fresh(mg::core::telemetry::TelemetryType::kGps));
+        validity.field("global_position", cache->is_fresh(mg::core::telemetry::TelemetryType::kGlobalPosition));
+        validity.field("battery", cache->is_fresh(mg::core::telemetry::TelemetryType::kBattery));
+        validity.field("vfr_hud", cache->is_fresh(mg::core::telemetry::TelemetryType::kVfrHud));
     }
     validity.end_object();
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.raw_field("connection", connection_diagnostics_json(core));
@@ -216,7 +217,7 @@ MGCORE_API char* mg_telemetry_get_dashboard_snapshot(mg_core_t* core) {
 MGCORE_API char* mg_system_get_diagnostics(mg_core_t* core) {
     CHECK_CORE(core);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.raw_field("connection", connection_diagnostics_json(core));

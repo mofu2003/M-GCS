@@ -11,7 +11,7 @@
  * The FC responds with STATUSTEXT messages describing the calibration process.
  */
 #include "ffi_internal.h"
-#include "json_serializers.h"
+#include "core/telemetry/json_serializers.h"
 
 
 
@@ -28,7 +28,7 @@ MGCORE_API char* mg_rc_get_mapping(mg_core_t* core) {
 
     bool px4 = ffi_is_px4(core);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
 
     for (int i = 0; i < 6; i++) {
@@ -42,7 +42,7 @@ MGCORE_API char* mg_rc_get_mapping(mg_core_t* core) {
     }
 
     // RC trim values (CH1_TRIM..CH18_TRIM)
-    mg::bridge::JsonBuilder trims;
+    mg::core::telemetry::JsonBuilder trims;
     trims.begin_array();
     for (int ch = 1; ch <= 18; ch++) {
         char name[32];
@@ -51,7 +51,7 @@ MGCORE_API char* mg_rc_get_mapping(mg_core_t* core) {
         float trim = ffi_get_param(core, name);
         if (trim == 0) continue;
 
-        mg::bridge::JsonBuilder t;
+        mg::core::telemetry::JsonBuilder t;
         t.begin_object();
         t.field("channel", ch);
         t.field("trim", (int)trim);
@@ -99,7 +99,7 @@ MGCORE_API char* mg_rc_get_calibration(mg_core_t* core) {
 
     bool px4 = ffi_is_px4(core);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
 
     for (int ch = 1; ch <= 18; ch++) {
@@ -120,7 +120,7 @@ MGCORE_API char* mg_rc_get_calibration(mg_core_t* core) {
         float max_val = ffi_get_param(core, max_name);
         if (min_val == 0 && max_val == 0) continue;
 
-        mg::bridge::JsonBuilder obj;
+        mg::core::telemetry::JsonBuilder obj;
         obj.begin_object();
         obj.field("channel", ch);
         obj.field("min", (int)min_val);
@@ -152,10 +152,10 @@ MGCORE_API char* mg_rc_calibrate_status(mg_core_t* core) {
     if (!mav) return to_cstr(R"({"active":false})");
 
     auto ack = mav->latest_command_ack();
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     if (ack.has_value() && ack->command == 211) {
-        jb.field("active", ack->result == 1);  // MAV_RESULT_IN_PROGRESS
+        jb.field("active", ack->result == 5);  // MAV_RESULT_IN_PROGRESS
         jb.field("result", (int)ack->result);
         jb.field("progress", (int)ack->progress);
     } else {
@@ -174,13 +174,13 @@ MGCORE_API char* mg_rc_calibrate_save(mg_core_t* core) {
     // “校准还没结束”的情况，现在显式区分。
     const auto ack = get_active_mavlink(core)->latest_command_ack();
     if (ack.has_value() && ack->command == 211 /* MAV_CMD_DO_RC_CALIBRATION */ &&
-        ack->result == 1 /* MAV_RESULT_IN_PROGRESS */) {
+        ack->result == 5 /* MAV_RESULT_IN_PROGRESS */) {
         return fail(MG_ERROR_INVALID_STATE,
                     "RC calibration is still in progress; the flight controller "
                     "saves the ranges when it finishes");
     }
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
     jb.field("saved_by_flight_controller", true);
@@ -198,7 +198,7 @@ MGCORE_API char* mg_rc_get_failsafe(mg_core_t* core) {
 
     bool px4 = ffi_is_px4(core);
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
 
     if (px4) {

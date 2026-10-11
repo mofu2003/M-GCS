@@ -3,11 +3,11 @@
  * Preflight and failsafe inspection/configuration FFI entrypoints.
  */
 #include "ffi_internal.h"
-#include "json_builder.h"
+#include "core/telemetry/json_builder.h"
 
 namespace {
 
-bool append_preflight_check(mg::bridge::JsonBuilder& checks,
+bool append_preflight_check(mg::core::telemetry::JsonBuilder& checks,
                             const char* name,
                             bool ok_value,
                             const char* message) {
@@ -37,7 +37,7 @@ MGCORE_API char* mg_battery_failsafe_configure(mg_core_t* core,
                                "BATT_CRT_VOLT", critical_voltage_threshold, 9);
 
     if (ok1 && ok2) {
-        mg::bridge::JsonBuilder jb;
+        mg::core::telemetry::JsonBuilder jb;
         jb.begin_object();
         jb.field("success", true);
         jb.field("low_voltage_threshold", static_cast<double>(low_voltage_threshold));
@@ -54,7 +54,7 @@ MGCORE_API char* mg_failsafe_get_status(mg_core_t* core) {
     auto* mav = get_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
 
     auto bat = mav->latest_battery();
@@ -84,11 +84,11 @@ MGCORE_API char* mg_preflight_check(mg_core_t* core) {
     auto* pfcache = get_active_cache(core);
     if (!pfcache) return fail(MG_ERROR_NOT_CONNECTED, "no cache");
 
-    mg::bridge::JsonBuilder jb;
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     bool all_ok = true;
 
-    mg::bridge::JsonBuilder checks_arr;
+    mg::core::telemetry::JsonBuilder checks_arr;
     checks_arr.begin_array();
 
     bool connected = is_active_connected(core);

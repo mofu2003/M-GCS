@@ -11,11 +11,10 @@
  * Both AP and PX4 send RC_CHANNELS. SERVO_OUTPUT_RAW is mainly AP;
  * PX4 uses ACTUATOR_OUTPUT (not yet parsed) but also emits SERVO_OUTPUT_RAW in compat mode.
  *
- * All data read from active vehicle's TelemetryCache.
+ * All data read from active vehicle's mg::core::telemetry::TelemetryCache.
  */
 #include "ffi_internal.h"
-#include "json_serializers.h"
-#include "telemetry_bindings.h"
+#include "core/telemetry/json_serializers.h"
 
 
 
@@ -29,9 +28,9 @@ MGCORE_API char* mg_rc_get_channels(mg_core_t* core) {
     if (!cache) return to_cstr(R"({"channel_count":0,"rssi":0,"channels":[],"valid":false})");
     auto rc = cache->snapshot_rc();
     const bool valid = cache->is_fresh(
-        mg::bridge::TelemetryType::kRcChannels, 500) &&
+        mg::core::telemetry::TelemetryType::kRcChannels, 500) &&
         rc.data.chancount > 0;
-    return to_cstr(mg::bridge::rc_channels_json(rc.data, valid));
+    return to_cstr(mg::core::telemetry::rc_channels_json(rc.data, valid));
 }
 
 // ================================================================
@@ -45,8 +44,8 @@ MGCORE_API char* mg_servo_get_outputs(mg_core_t* core) {
     if (!cache) return to_cstr(R"({"servos":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"valid":false})");
     auto sv = cache->snapshot_servo();
     const bool valid = cache->is_fresh(
-        mg::bridge::TelemetryType::kServoOutput, 500);
-    return to_cstr(mg::bridge::servo_output_json(sv.data, valid));
+        mg::core::telemetry::TelemetryType::kServoOutput, 500);
+    return to_cstr(mg::core::telemetry::servo_output_json(sv.data, valid));
 }
 
 // ================================================================
@@ -60,8 +59,8 @@ MGCORE_API char* mg_rc_get_channel(mg_core_t* core, int channel) {
     auto rc_snap = cache->snapshot_rc();
     const auto& rc = rc_snap.data;
     const bool fresh = cache->is_fresh(
-        mg::bridge::TelemetryType::kRcChannels, 500);
-    mg::bridge::JsonBuilder jb;
+        mg::core::telemetry::TelemetryType::kRcChannels, 500);
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("channel", channel);
     jb.field("value", (int)rc.chan[channel - 1]);
@@ -81,8 +80,8 @@ MGCORE_API char* mg_servo_get_output(mg_core_t* core, int channel) {
     auto sv_snap = cache->snapshot_servo();
     const auto& so = sv_snap.data;
     const bool fresh = cache->is_fresh(
-        mg::bridge::TelemetryType::kServoOutput, 500);
-    mg::bridge::JsonBuilder jb;
+        mg::core::telemetry::TelemetryType::kServoOutput, 500);
+    mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("channel", channel);
     jb.field("value", (int)so.servo[channel - 1]);
