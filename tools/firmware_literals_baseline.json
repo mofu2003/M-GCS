@@ -2,11 +2,6 @@
   "bridge/ffi/ffi_config.cc": {
     "RCMAP_ROLL": "FFI 桥接层：ffi_config.cc 注释中引用 mg_config_get_param_roles 返回值示例，非硬编码使用，是文档说明"
   },
-  "core/src/config/param_file_io.cc": {
-    "ARSPD_OFFSET": "核心参数文件 I/O 层：param_file_io.cc 在参数文件白名单中引用 ARSPD_OFFSET，是参数文件读写层处理固件参数名的合法用途",
-    "FENCE_TOTAL": "核心参数文件 I/O 层：param_file_io.cc 在参数文件白名单中引用 FENCE_TOTAL，是参数文件读写层处理固件参数名的合法用途",
-    "FORMAT_VERSION": "核心参数文件 I/O 层：param_file_io.cc 在参数文件白名单中引用 FORMAT_VERSION，是参数文件读写层处理固件参数名的合法用途"
-  },
   "flutter_shell/lib/components/realtime_waveform.dart": {
     "COMPASS_EXTERNAL*": "前端硬编码固件参数名：realtime_waveform.dart 用 COMPASS_EXTERNAL$suffix 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构"
   },

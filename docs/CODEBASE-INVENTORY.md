@@ -13,8 +13,8 @@
 | 桥接 | C ABI，`bridge/ffi` | 11 个公开头，**154** 个导出（127 已绑定）+ 2 个公开类型 |
 | 核心 | C++17，`core/` | 15 个模块 |
 | 第三方 | `third_party/` | MAVLink 生成头、cJSON（禁止修改） |
-| 测试 | 42 个套件 | 33 core + 6 顶层 + 4 硬件/手工 |
-| 工具 | `tools/` | 20 个脚本 + 2 份基线 JSON（6 个进 preflight 门禁） |
+| 测试 | 41 个套件 | 32 `core/tests` + 5 `tests` + 4 `tests/manual`；默认注册进 CTest 的 34 个 |
+| 工具 | `tools/` | 19 个脚本 + 2 份基线 JSON（6 个进 preflight 门禁） |
 
 依赖方向：`flutter_shell → bridge/ffi → core → third_party`（单向，架构 A1 由编译期强制）。
 
@@ -162,12 +162,12 @@
 | `transport` | 10 | 链路抽象与实现：串口（含 Android USB）、TCP、UDP、内存链路；连接状态机；链路配置与工厂；串口枚举 | `ILink`、`ConnectionManager`、`LinkSession`、`SerialPortDiscovery` |
 | `mavlink` | 13 | MAVLink 适配器（拆为 command/dispatch/handlers/log/mission/params 六个实现文件）、命令队列与 ACK 匹配、消息路由、发送器、任务传输状态机、参数缓存 | `MavlinkAdapter`、`CommandQueue`、`MissionTransfer`、`ParamCache`、`MavlinkRouter` |
 | `vehicle` | 3 | 车辆聚合（遥测缓存 + 子系统）、多机管理（共享链路 + 路由）、链路健康（心跳、通信丢失） | `Vehicle`、`MultiVehicleManager`、`VehicleLinkManager` |
-| `mission` | 9 | 任务文档模型（CAD）、校验、编译、估算、命令目录、QGC `.plan` 与 `waypoints` 互换 | `MissionDocumentService`、`MissionDocument`、`MissionEntity` |
+| `mission` | 9 | 任务文档模型（CAD）、校验、编译、估算、命令目录、QGC `.plan` 与 `waypoints` 互换、Haversine 距离 | `MissionDocumentService`、`MissionDocument`、`MissionEntity`、`geo_math` |
 | `calibration` | 7 | 校准服务（异步状态机 + 取消确认）、校准后校验、5 种策略（陀螺/加速度/罗盘/气压/遥控） | `CalibrationService`、`ICalibrationStrategy` |
 | `firmware` | 2 | 固件识别与适配、ArduPilot 插件（模式表按机型、capability、引导语义、模式角色解析） | `FirmwareAdapter`、`IFirmwarePlugin`、`ArduPilotPlugin` |
-| `config` | 3 | 参数描述符库（含中文翻译与语义角色）、参数文件内容变换、参数变更集 | `ParamDescriptors`、`ParameterChangeSet` |
+| `config` | 1 | 参数描述符库（含中文翻译与语义角色）；参数文件内容变换与变更集已随导出退役删除 | `ParamDescriptors` |
 | `telemetry` | 2 | 遥测环形缓冲、IMU 波形缓冲 | `TelemetryRingBuffer`、`WaveformBuffer` |
-| `settings` | 3 | 飞行日志写入、日志服务、MAVLink 原始日志写入 | `FlightLogWriter`、`FlightLoggingService`、`MavlinkLogWriter` |
+| `settings` | 2 | 飞行日志服务、MAVLink 原始日志写入（`FlightLogWriter` 无任何调用方，已删） | `FlightLoggingService`、`MavlinkLogWriter` |
 | `ftp` | 1 | MAVLink FTP 异步客户端（单会话状态机） | `MavlinkFtpClient` |
 | `log` | 1 | `.tlog` 离线回放 | `FlightLogReplayer` |
 | `sensor` | 1 | 传感器设备 ID 解码（ArduPilot 位段 → 型号名） | `SensorIdDecoder` |
@@ -235,19 +235,23 @@
 
 ---
 
-## 4. 测试（42 套件）
+## 4. 测试（41 个套件）
 
 | 类别 | 数量 | 覆盖 |
 |---|---|---|
-| `core/tests/` | 33 | 单元 + 模拟（`test_sim_*` 用 `MockFlightController` 跑完整 FFI 路径） |
-| `tests/` | 6 | 跨模块契约与全流程（`test_ffi_response_contract`、`test_mp_qgc_features`、`test_sim_full_flow` 等） |
+| `core/tests/` | 32 | 单元 + 模拟（`test_sim_*` 用 `MockFlightController` 跑完整 FFI 路径） |
+| `tests/` | 5 | 跨模块契约与全流程（`test_ffi_response_contract`、`test_mp_qgc_features`、`test_real_fc_dump`、`test_scan_connect`、`test_reconnect`） |
 | `tests/manual/` | 4 | 真实飞控 / SITL 手工验证（默认不注册进 CTest） |
+
+默认 `ctest` 注册 34 个（`offline` + `simulation` 标签）；`hardware`/`manual` 标签的 7 个
+（4 个 manual + `test_real_fc_dump` + `test_scan_connect` + `test_reconnect`）需显式开启
+`MGCORE_REGISTER_HARDWARE_TESTS` 才会跑，避免误连真机。
 
 代表：`test_ffi_contract`（ABI 契约）、`test_bridge_vehicle_session`（多机会话）、`test_mission_document`（任务文档）、`test_mavlink_protocol`（协议层）、`test_sim_ui_paths`（前端调用路径）、`test_bridge_architecture_guards`（架构 A1/A2 文本扫描）
 
 ---
 
-## 5. 门禁与工具（22）
+## 5. 门禁与工具（21）
 
 **preflight 门禁链**（`tools/preflight.sh`，6 项）：
 
@@ -302,7 +306,38 @@
 
 **一处方法论提醒**：可达性分析若只匹配 `name(`，会漏掉**函数指针与模板实参**
 （如 `TelemetryGroup<..., gps_json>` 里没有括号）。本轮的 JSON 序列化器就是
-这样被误判成死代码的——务必用裸名 `name` 复核。
+这样被误判成死代码的——务必用裸名 `name` 复核。
+
+### 6.2 第 5 轮复查（2026-10-12，删除后的孤儿代码）
+
+第 4 轮之后又删了 108 个导出（`848b129`）、PX4/测绘/地形（`1e4ee7e`/`544b693`）、
+事件转发链（`e760aac`）与参数文件 I/O（`4c311f3`），连带留下一批「只服务那些能力」
+的实现。本轮按裸名全仓计数（**注释与字符串先剥离**，并单独复核函数指针/模板实参）逐条确认后清除：
+
+| 位置 | 内容 |
+|---|---|
+| 整类删除 | `FlightLogWriter`（`core/settings/flight_log_writer.{h,cc}`，11 个方法）——唯一「使用」是 `mg_core_t` 里一个从没被调用的成员 |
+| 整文件改名 | `mission_item_factory.{h,cc}` → `geo_math.{h,cc}`：四个静态 builder 全部无调用方，只剩 `haversine_distance`，遂去掉那个名不副实的工厂结构体 |
+| `mission` | `MissionItemFactory::create_waypoint/create_rtl/create_speed_change/create_camera_trigger` |
+| `flight` | `FlightModeManager::is_armed/decode_mode_name/set_takeoff_altitude/takeoff_altitude/set_loiter_radius/loiter_radius` + 两个只被它们读的字段 |
+| `mavlink` | `on_distance_sensor`、`on_video_stream_info`、`param_refresh_status`、`camera_information`、`gimbal_manager_information`、`rally_get_plan`、`fence_get_plan`、`video_request_stream_info`、`cmd_roi_stop`、`StatustextInfoCallback` |
+| `transport` | `SerialPortDiscovery` 的 `refresh`/`best_candidate`/`is_port_available`/`filter_ports` + `PortFilter` 枚举；`link_config.h` 的 `high_latency` |
+| `vehicle` | `MultiVehicleManager::init` 与两个回调 setter（连带删掉 4 处只会调用空回调的派发逻辑）、`VehicleInfo` 的 5 个传感器名字段、`flight_time_s()` 及其累加 |
+| `settings`／`ftp`／`log` | `FlightLoggingService::set_write_callback`、`MavlinkFtpClient::download_path_`、`FlightLogReplayer::replay_all` |
+| `ffi` | `mg_core_t` 的 `core_mtx`/`log_events`/`kMaxLogEvents`/`log_writer` 四个死成员；`ffi_config_extra.cc` 残留的函数横幅；`ffi_api_flight.h` 里指向已删导出的四段悬空注释 |
+| 测试内 | `test_mission_document.cc` 三个未用 helper、`test_sitl_mission_scenario.cc` 的 `ok_data`、两个硬件工具里未用的 `call_json_int`、`test_param_descriptors.cc` 三个未用局部变量、`mock_flight_controller.h` 的 `kFtpPayload` |
+| 工具 | `tools/audit_status.sh`（功能已被 `check_ffi_contract.py --write-catalog` 完整取代）；`firmware_literals_baseline.json` 中指向已删 `param_file_io.cc` 的 3 条僵尸记录 |
+
+同时修掉两处**编译能过但语义错**的地方：`test_ffi_comprehensive.cc` 用
+`state_string(...) == "disconnected"` 比较 `const char*`（比的是指针，靠字面量合并
+碰巧通过——正是 T2 说的假断言），以及 10 处重定义 `CJSON_NESTING_LIMIT` 的无效
+`#define`（cJSON 是独立编译单元，这些定义从来没生效过，其中 2 处还触发重定义告警）。
+
+**刻意保留**：`event_codes.h` 里暂时无人触发的事件码——该头文件写明数值会出现在
+事件 JSON 里，属 append-only 契约，删中间项会让后续码位整体前移；同理保留
+`mavlink_ftp.h` 的协议操作码/结果码表、`calibration_types.h` 的校准命令常量、
+`ModeResult`/`CoordFrame`/`NavCommand` 等域枚举——枚举成员未被使用不等于它是垃圾，
+删掉它们只是把领域事实换成裸数字。
 
 ---
 
@@ -316,8 +351,6 @@
 | 架构建议 | KD-27（**采用轮询**，事件推送 ABI 已删）、KD-47（`JsonMap` typedef 层次倒挂，接受） |
 | 门禁范围 | KD-45（FFI 契约守卫，存量已分类）、KD-50（S6 只拦参数名，数值型固件值待立项） |
 | 合规 | KD-58（枚举标签暂留，待决定） |
-| 待修复 | KD-54（遥控校准的 STATUSTEXT 文本判定口径不一致） |
-| 待验证 | KD-57（遥测回调捕获裸 `ConnectionManager*` 的所有权） |
 
 ---
 

@@ -192,51 +192,14 @@ SerialPortDiscovery::SerialPortDiscovery() = default;
 SerialPortDiscovery::~SerialPortDiscovery() = default;
 
 std::vector<SerialPortInfo> SerialPortDiscovery::enumerate_ports() {
-    if (needs_refresh_) {
-        cached_ports_ = enumerate_ports_impl();
-        needs_refresh_ = false;
-    }
-    return cached_ports_;
+    // 缓存已删除：所有调用方都是短生命周期的临时对象，缓存从不命中，
+    // 而唯一的失效入口 refresh() 无人调用（等于永远不刷新）。
+    return enumerate_ports_impl();
 }
 
-std::vector<SerialPortInfo> SerialPortDiscovery::filter_ports(PortFilter filter) {
-    auto ports = enumerate_ports();
-    std::vector<SerialPortInfo> filtered;
 
-    for (const auto& port : ports) {
-        bool include = false;
-        switch (filter) {
-            case PortFilter::All:                 include = true; break;
-            case PortFilter::LikelyFlightController: include = port.is_likely_fc; break;
-            case PortFilter::AvailableOnly:       include = port.is_available; break;
-        }
-        if (include) filtered.push_back(port);
-    }
-    return filtered;
-}
 
-std::optional<SerialPortInfo> SerialPortDiscovery::best_candidate() {
-    auto fc_ports = filter_ports(PortFilter::LikelyFlightController);
-    if (!fc_ports.empty()) return fc_ports[0];
 
-    auto available = filter_ports(PortFilter::AvailableOnly);
-    if (!available.empty()) return available[0];
-
-    return std::nullopt;
-}
-
-bool SerialPortDiscovery::is_port_available(const std::string& port_name) {
-    auto ports = enumerate_ports();
-    for (const auto& port : ports) {
-        if (port.port_name == port_name) return port.is_available;
-    }
-    return false;
-}
-
-void SerialPortDiscovery::refresh() {
-    needs_refresh_ = true;
-    cached_ports_.clear();
-}
 
 // ================================================================
 // JSON board info loading

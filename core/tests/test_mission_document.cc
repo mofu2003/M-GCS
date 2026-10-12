@@ -5,7 +5,6 @@
 #include "core/mission/cad/mission_interchange.h"
 #include "core/mission/cad/mission_command_catalog.h"
 
-#define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 #include "core/util/json.h"
 
@@ -561,22 +560,8 @@ static void test_ffi_waypoints_interchange() {
 
 // Helpers for asserting the exact QGC ComplexItem JSON shape instead of just
 // checking that the field names appear somewhere in the text.
-static cJSON* json_at(cJSON* object, const char* key) {
-    return object ? cJSON_GetObjectItemCaseSensitive(object, key) : nullptr;
-}
 
-static size_t json_array_size(cJSON* array) {
-    return (array && cJSON_IsArray(array))
-        ? static_cast<size_t>(cJSON_GetArraySize(array))
-        : 0;
-}
 
-static bool json_float_near(cJSON* array, int index, double expected,
-                            double epsilon) {
-    cJSON* item = array ? cJSON_GetArrayItem(array, index) : nullptr;
-    return item && cJSON_IsNumber(item) &&
-           std::fabs(item->valuedouble - expected) < epsilon;
-}
 
 static void test_qgc_plan_preserves_unknown_fields() {
     fprintf(stderr, "\n[Group] QGC .plan unknown-field round-trip\n");

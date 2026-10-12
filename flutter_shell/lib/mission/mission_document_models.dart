@@ -998,3 +998,23 @@ final class MissionInterchangeExport {
         ],
       );
 }
+
+/// 按交换格式导入的结果：新文档 + 原生解析时产生的提示。
+///
+/// [warnings] 与导出侧同源同义（例如导入旧版 QGC `.plan` 时「围栏/Rally 段被忽略」
+/// 这类丢弃事实），必须转达给用户——静默丢数据是这份格式契约里最容易踩的坑。
+final class MissionInterchangeImport {
+  const MissionInterchangeImport({required this.document, this.warnings = const []});
+
+  final MissionDocument document;
+  final List<String> warnings;
+
+  factory MissionInterchangeImport.fromEnvelope(JsonMap json) =>
+      MissionInterchangeImport(
+        document: MissionDocument.fromJson(json['document'] as JsonMap),
+        warnings: [
+          for (final warning in (json['warnings'] as List?) ?? const [])
+            warning.toString(),
+        ],
+      );
+}

@@ -500,11 +500,6 @@ bool MavlinkAdapter::rally_clear(uint8_t target_system, uint8_t target_component
                               MAV_MISSION_TYPE_RALLY, lk);
 }
 
-mg::core::mission::MissionPlan MavlinkAdapter::rally_get_plan() const {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    return impl_->rally.plan;
-}
-
 mg::core::mission::MissionPlanSnapshot
 MavlinkAdapter::rally_get_plan_snapshot() const {
     mg::core::platform::LockGuard lk(impl_->mtx);
@@ -558,11 +553,6 @@ bool MavlinkAdapter::fence_clear(uint8_t target_system, uint8_t target_component
     mg::core::platform::UniqueLock lk(impl_->mtx);
     return mission_type_clear(target_system, target_component, impl_->fence,
                               MAV_MISSION_TYPE_FENCE, lk);
-}
-
-mg::core::mission::MissionPlan MavlinkAdapter::fence_get_plan() const {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    return impl_->fence.plan;
 }
 
 mg::core::mission::MissionPlanSnapshot
@@ -809,13 +799,6 @@ bool MavlinkAdapter::cmd_gimbal_configure(uint8_t target_sys, uint8_t target_com
 }
 
 // 请求视频流信息（MAV_CMD_REQUEST_MESSAGE for VIDEO_STREAM_INFORMATION）
-bool MavlinkAdapter::video_request_stream_info(uint8_t target_sys, uint8_t target_comp) {
-    return send_command_long(target_sys, target_comp,
-        MAV_CMD_REQUEST_MESSAGE, 0,
-        static_cast<float>(MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION),
-        0, 0, 0, 0, 0, 0);
-}
-
 // ================================================================
 // Firmware Flash (STM32 bootloader)
 // Real implementation needs serial bootloader protocol before this path can
@@ -974,12 +957,6 @@ bool MavlinkAdapter::cmd_change_heading(uint8_t target_sys, uint8_t target_comp,
 }
 
 // 取消感兴趣区域
-bool MavlinkAdapter::cmd_roi_stop(uint8_t target_sys, uint8_t target_comp) {
-    return send_command_long(target_sys, target_comp,
-        MAV_CMD_DO_SET_ROI, 0,
-        0, 0, 0, 0, 0, 0, 0);
-}
-
 // 控制云台
 bool MavlinkAdapter::cmd_gimbal_control(uint8_t target_sys, uint8_t target_comp,
                                          float pitch_deg, float yaw_deg) {

@@ -7,7 +7,12 @@
 **F1 成套变更**
 修改 `bridge/ffi/ffi_api*.h` 时，同一次提交必须包含：头文件、实现（`ffi_*.cc`）、测试（`core/tests/`）、API 目录（`bridge/ffi/API_CATALOG.md`）、受影响的文档。
 - 违反后果：契约与实现脱节，前端基于错误假设开发。
-- 验证：`python3 tools/check_api_change_set.py`（默认对比工作区与 `HEAD`，可加 `--base <ref>`）。改动集里出现 `ffi_api*.h` 时就要求另外四类同时出现，缺一类即失败；`--self-test` 用合成改动集验证判定逻辑。脚本只能看见"文件是否出现过"，文档内容是否真的同步仍靠评审。
+- 验证：`python3 tools/check_api_change_set.py`（默认对比工作区与 `HEAD`，可加 `--base <ref>`）。
+  判定看的是 **ABI 声明本身**：脚本把 `ffi_api*.h` 的 `MGCORE_API` 声明与 `typedef` 抽出来（剥离注释、去掉全部空白后比较），只有这些真的变了才要求另外四类同时出现，缺一类即失败。
+  因此**只改注释、只调 include、只重新折行不会触发**——F1 要防的是契约与实现/文档脱节，排版不是契约。
+  删除「零导出的空头」另按基准版本判断，豁免实现与目录两类。
+  `--self-test` 用 7 个合成改动集与 6 个声明提取用例验证判定逻辑。
+  脚本只能看见「声明的文本是否相同」，文档内容是否真的同步仍靠评审。
 
 **F2 无使用方的导出应删除，不得为「将来可能用」保留**
 
@@ -59,4 +64,4 @@ worker 调用各 `mg_command_*`）；被 core/tests 或 tests 引用；被打包
 同步调用的最长耗时建议写在头文件注释中。耗时较长的调用建议同时提供异步形式（见 `architecture.md` 的 UI 线程建议）。
 
 **API 目录 [SHOULD]**
-`API_CATALOG.md` 建议由 `tools/audit_status.sh` 生成或核对，避免手工维护。
+`API_CATALOG.md` 由 `tools/check_ffi_contract.py --write-catalog` 生成，禁止手工维护；preflight 会比对它与实际声明，陈旧即失败。

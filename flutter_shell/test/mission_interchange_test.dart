@@ -224,6 +224,38 @@ void main() {
     expect(backend.lastInterchangeText, contains('QGC WPL 110'));
   });
 
+  testWidgets('导入把原生的解析提示一并带出来', (tester) async {
+    final directory = _tempDirectory();
+    final file = File('${directory.path}${Platform.pathSeparator}old.plan');
+    await tester.runAsync(() async {
+      await file.writeAsString('{"fileType":"Plan","version":1}');
+    });
+
+    final backend = FakeMissionBackend()
+      ..interchangeImportWarnings = const ['old QGC geoFence version 1 is ignored'];
+    final controller = MissionDocumentController(backend: backend)..bindSession(1);
+    await controller.initialize();
+
+    MissionImportResult? result;
+    await _pumpImportHost(
+      tester,
+      controller: controller,
+      directory: directory,
+      onResult: (value) => result = value,
+    );
+    await tester.tap(find.text('打开导入'));
+    await _pumpFrames(tester);
+    await tester.enterText(find.byType(MacosTextField), file.path);
+    await _pumpFrames(tester);
+    await _tapImport(tester, done: () => result != null);
+    await _pumpFrames(tester);
+
+    // 导出侧会显示 warnings，导入侧不能吞掉——静默丢弃围栏/Rally 段是最容易踩的坑。
+    expect(result, isNotNull);
+    expect(result!.warnings, ['old QGC geoFence version 1 is ignored']);
+    expect(controller.interchangeWarnings, result!.warnings);
+  });
+
   testWidgets('导入面板对不存在的文件给出错误且不调用控制器', (tester) async {
     final directory = _tempDirectory();
     final backend = FakeMissionBackend();

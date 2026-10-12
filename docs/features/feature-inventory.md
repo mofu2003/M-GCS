@@ -58,7 +58,9 @@
 
 ### 1.6 任务规划与交换（`flutter_shell/lib/mission/`）
 
-- 文档模型（`mg_mission_doc_*`）：创建、编辑、撤销/重做、校验、估算、上传、回读、比对（verify）。
+- 文档模型（`mg_mission_doc_*`）：创建、编辑、校验、估算、上传、回读、比对（verify）。
+  撤销/重做在 core、FFI 与 Dart 控制器（`MissionDocumentController.undo/redo`）三层都已就绪，
+  **界面尚未接线**（见 §3.1）。
 - 航点编辑、地图绘制、上传/清除带统一确认（KD-08）。
 - 文件互操作：`waypoints`（MP/QGC 的 QGC WPL 110 文本）与 `plan`（QGC JSON）导入导出。
 - 任务命令目录、执行进度（`mg_mission_get_command_catalog`、`mg_mission_get_execution_progress`）。
@@ -110,8 +112,18 @@
 
 ### 3.1 FFI 导出但未绑定前端（27 个，全部有正当定位）
 
-见 §4「未绑定导出明细」。这里不重复列举；**当前没有「能力已实现却不接 UI」的悬空项**——
+见 §4「未绑定导出明细」。这里不重复列举；**导出层没有悬空项**——
 前两轮清理已把所有「无前端绑定、无内部调用方、无未来用途」的导出一律删除。
+
+注意区分两件事：导出层干净，不等于**功能层**都已接 UI。当前仍有已实现却无入口的能力，
+即下面这些（都在本轮盘点中确认）：
+
+| 能力 | 现状 | 缺什么 |
+|---|---|---|
+| 文档撤销/重做 | core + FFI + `MissionDocumentController.undo/redo` 全通，有原生测试 | 没有按钮或快捷键；`can_undo`/`can_redo` 也被 Dart 解码器丢掉 |
+| 气压计校准 | 后端策略完整（`BaroCalibration`）、Dart `CalibrationType.barometer` 可用、有测试 | 「飞控校准」页第三个 Tab 是空占位，且标签写的是「空速计」，与后端 type 3 的语义不符 |
+| 围栏/Rally 核对 | `verifyFence`/`verifyRally` 已实现并绑定，结果在 `fenceVerification`/`rallyVerification` | 零调用点，差异明细无处显示（任务侧同类结果有专门展示） |
+| 参数下载重试 | `requestParameters(force: true)` 已实现 | 失败后自动路径不再触发，界面只有一行红字，没有重试按钮 |
 
 ### 3.2 完全未实现（QGC/MP 有、M-GCS 目前没有）
 

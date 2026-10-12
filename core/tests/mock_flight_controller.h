@@ -547,7 +547,6 @@ private:
     static constexpr uint8_t kFtpOpRead      = 5;
     static constexpr uint8_t kFtpRspAck      = 128;
     static constexpr uint8_t kFtpRspNak      = 129;
-    static constexpr size_t  kFtpPayload     = 251;
     static constexpr size_t  kFtpHeader      = 12;
     static constexpr size_t  kFtpMaxChunk    = 239;
 

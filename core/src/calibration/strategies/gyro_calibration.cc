@@ -7,35 +7,11 @@
  */
 
 #include "core/calibration/strategies/gyro_calibration.h"
+#include "statustext_match.h"
 #include "core/log/logging.h"
 #include <algorithm>
 
 namespace mg::core::calibration {
-
-namespace {
-
-/// 完成短语必须整句匹配，不能用 "success"/"complete" 子串：
-/// "Gyro calibration unsuccessful" 也含 "success"，子串匹配会把飞控报的失败
-/// 读成成功（同目录 compass_calibration.cc 按整句 "Calibration successful" 判定）。
-bool mentions_completion(const std::string& text) {
-    return text.find("calibration successful") != std::string::npos ||
-           text.find("Calibration successful") != std::string::npos ||
-           text.find("calibration complete") != std::string::npos ||
-           text.find("Calibration complete") != std::string::npos;
-}
-
-/// 失败要在完成之前判定："unsuccessful" 本身含 "successful"。
-bool mentions_failure(const std::string& text) {
-    return text.find("failed") != std::string::npos ||
-           text.find("Failed") != std::string::npos ||
-           text.find("FAILED") != std::string::npos ||
-           text.find("unsuccessful") != std::string::npos ||
-           text.find("Unsuccessful") != std::string::npos ||
-           text.find("incomplete") != std::string::npos ||
-           text.find("Incomplete") != std::string::npos;
-}
-
-} // namespace
 
 uint16_t GyroCalibration::mav_command() const {
     return 241;  // MAV_CMD_PREFLIGHT_CALIBRATION
@@ -70,11 +46,11 @@ StatusParseResult GyroCalibration::parse_statustext(
         text.find("gyro") != std::string::npos) {
         result.is_calibration_text = true;
 
-        if (mentions_failure(text)) {
+        if (text::mentions_failure(text)) {
             result.new_stage = CalibrationStage::Failed;
             result.stage_changed = true;
             result.user_message = "Gyroscope calibration failed";
-        } else if (mentions_completion(text)) {
+        } else if (text::mentions_completion(text)) {
             result.new_stage = CalibrationStage::Success;
             result.progress = 100;
             result.current_step = 1;

@@ -119,11 +119,6 @@ std::string FlightModeManager::current_mode() const {
     return current_mode_;
 }
 
-bool FlightModeManager::is_armed() const {
-    mg::core::platform::LockGuard lk(mtx_);
-    return armed_;
-}
-
 // ================================================================
 // Mode switching
 // ================================================================
@@ -150,12 +145,6 @@ FlightModeManager::mode_entries() const {
     mg::core::platform::LockGuard lk(mtx_);
     if (!fw_plugin_) return {};
     return fw_plugin_->available_modes(fw_adapter_.vehicle_kind());
-}
-
-std::string FlightModeManager::decode_mode_name(uint32_t custom_mode) const {
-    mg::core::platform::LockGuard lk(mtx_);
-    if (!fw_plugin_) return {};
-    return fw_plugin_->decode_flight_mode(fw_adapter_.vehicle_kind(), custom_mode);
 }
 
 bool FlightModeManager::mission_mode_exited_while_armed() const {
@@ -194,26 +183,6 @@ bool FlightModeManager::resolve_mode_request(
 // ================================================================
 // Mode-specific parameters
 // ================================================================
-
-void FlightModeManager::set_takeoff_altitude(float altitude_m) {
-    mg::core::platform::LockGuard lk(mtx_);
-    takeoff_altitude_ = altitude_m;
-}
-
-float FlightModeManager::takeoff_altitude() const {
-    mg::core::platform::LockGuard lk(mtx_);
-    return takeoff_altitude_;
-}
-
-void FlightModeManager::set_loiter_radius(float radius_m) {
-    mg::core::platform::LockGuard lk(mtx_);
-    loiter_radius_ = radius_m;
-}
-
-float FlightModeManager::loiter_radius() const {
-    mg::core::platform::LockGuard lk(mtx_);
-    return loiter_radius_;
-}
 
 // ================================================================
 // Mode history

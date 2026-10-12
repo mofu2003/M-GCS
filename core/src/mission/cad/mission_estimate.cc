@@ -1,6 +1,6 @@
 #include "mission_document_internal.h"
 
-#include "core/mission/mission_item_factory.h"
+#include "core/mission/geo_math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -60,7 +60,7 @@ MissionEstimate estimate_document_impl(const MissionDocument& document) {
             finite(entity.latitude) &&
             finite(entity.longitude)) {
             if (has_previous) {
-                const double segment_distance = MissionItemFactory::haversine_distance(
+                const double segment_distance = haversine_distance(
                     previous_lat,
                     previous_lon,
                     entity.latitude,

@@ -72,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   functions — previously a typedef could be deleted without leaving a trace anywhere.
 - `core/src/transport/USBBoardInfo.LICENSE.txt`: Apache-2.0 attribution for the QGC-derived
   board database, including the modification notice the licence requires.
+- **Import warnings are surfaced, not swallowed**: `mg_mission_doc_import_format` returns
+  `warnings` (e.g. "old QGC geoFence version 1 is ignored" when an old `.plan` silently drops
+  its fence), and the exporter's counterpart was already displayed. The import path dropped
+  them: `MissionDocumentFfiBackend` decoded only `document` from the envelope, the controller
+  returned `void`, and `MissionImportResult` carried just a path and a count. Now
+  `MissionInterchangeImport` carries both, `MissionDocumentController.interchangeWarnings`
+  exposes them, and the transfer bar reports "（N 条提示：…）".
 - **Mission file import in the UI**: `mg_mission_doc_import_format` was the one remaining
   half-wired exchange path — export had a Flutter sheet, import had none, so a `.waypoints`
   or `.plan` file could only be read by the native tests. The 航线规划 transfer bar now has a
@@ -88,6 +95,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   invalid excuse, and keeps the ABI/registry/CHANGELOG obligations for deletions.
 
 ### Fixed
+
+- **Calibration result text matching (KD-54)**: the five calibration strategies each carried
+  their own STATUSTEXT interpretation and disagreed with one another. `radio_calibration.cc`
+  matched bare substrings (`"success"`, `"complete"`), so the flight controller's
+  `"RC calibration unsuccessful"` was read as **success**; `compass_calibration.cc` tested for
+  success before failure and had a narrower failure vocabulary, so
+  `"Compass calibration unsuccessful"` matched neither branch and the calibration hung in
+  progress forever. The two predicates now live once in
+  `core/src/calibration/strategies/statustext_match.h` (whole-phrase completion, failure words
+  checked first), the three verbatim copies in gyro/baro/accel are gone, and
+  `test_calibration_strategy_result_semantics` pins all five types.
+- **Telemetry callbacks held a raw `ConnectionManager*` (KD-57)**: under a shared link,
+  `remove_shared_route()` drops the route's manager from `connections_` while the adapter can
+  still be held by a lease and keep dispatching — the callback then dereferenced freed memory
+  after its `Vehicle` lock succeeded. `wire_telemetry_callbacks_for()` now takes the
+  `shared_ptr` and captures a `weak_ptr`; each callback locks it after the `Vehicle` and returns
+  early when the route is gone.
+- **`state_string(...) == "disconnected"` compared pointers, not text**: a test assertion in
+  `test_ffi_comprehensive.cc` relied on string-literal merging to pass. Now compares
+  `std::string` contents — the kind of always-true check T2 exists to prevent.
+- **Ten inert `#define CJSON_NESTING_LIMIT`**: cJSON is a separate translation unit, so these
+  definitions never took effect; two of them also emitted a macro-redefinition warning.
+  All removed.
+
+### Removed (round 5 of the dead-code sweep)
+
+- **`FlightLogWriter`** (`core/settings/flight_log_writer.{h,cc}`): the whole class, 11 methods;
+  its only reference was an `mg_core_t` member that nothing ever called.
+  `FlightLoggingService` is the one the FFI actually uses.
+- **Unused functions with no caller anywhere (28)**: `MissionItemFactory::create_waypoint` /
+  `create_rtl` / `create_speed_change` / `create_camera_trigger`;
+  `FlightModeManager::is_armed` / `decode_mode_name` / `set_takeoff_altitude` /
+  `takeoff_altitude` / `set_loiter_radius` / `loiter_radius`;
+  `MavlinkAdapter::on_distance_sensor` / `on_video_stream_info` / `param_refresh_status` /
+  `camera_information` / `gimbal_manager_information` / `rally_get_plan` / `fence_get_plan` /
+  `video_request_stream_info` / `cmd_roi_stop`; `FlightLogReplayer::replay_all`;
+  `MultiVehicleManager::init`; `FlightLoggingService::set_write_callback`;
+  `SerialPortDiscovery::refresh` / `best_candidate` / `is_port_available` / `filter_ports`.
+  With `filter_ports` gone the `PortFilter` enum went too, and `enumerate_ports()` lost its
+  cache — every caller builds a short-lived object, so the cache never hit and its only
+  invalidator was the dead `refresh()`.
+- **Dead data members**: `VehicleInfo`'s five sensor-name strings, `link_config.h`'s
+  `high_latency`, `MavlinkFtpClient::download_path_`, `mg_core_t`'s `core_mtx` / `log_events` /
+  `kMaxLogEvents`, `flight_time_s_` (written but never read anywhere),
+  `StatustextInfoCallback`, `JsonBuilder::append_object`, `PlatformMutex::owns_lock`.
+- **`MultiVehicleManager`'s vehicle-removed / active-vehicle-changed callbacks**: the setters
+  had no caller, so the callbacks were permanently empty — the four dispatch sites that copied
+  and invoked them are gone too.
+- **`mission_item_factory.{h,cc}` → `geo_math.{h,cc}`**: with all four builders deleted the
+  struct was a "factory" with no factories, holding only `haversine_distance`. Renamed to match
+  what it is, and that function is now a free function.
+- **Dangling comments and stale text**: `ffi_api_flight.h` carried four comment blocks for
+  exports that no longer exist (mode mapping, flight termination, landing gear, a duplicate
+  mode-status note); `ffi_commands.cc`'s header still listed Survey, Terrain and SITL;
+  `ffi_config_extra.cc` still documented `mg_config_write_params`.
+- **`tools/audit_status.sh`**: superseded by `check_ffi_contract.py --write-catalog`, which is
+  also the preflight gate. `ffi-contract.md` now points at the real generator. Three zombie
+  entries for the deleted `param_file_io.cc` were dropped from `firmware_literals_baseline.json`.
+- **Test-local dead code**: three unused helpers in `test_mission_document.cc`, `ok_data` in the
+  SITL scenario tool, `call_json_int` in two hardware tools, three unused locals in
+  `test_param_descriptors.cc`, `kFtpPayload` in the mock flight controller.
+
+**Deliberately kept**: unused members of domain enumerations (`event_codes.h` codes,
+`mavlink_ftp.h` protocol opcodes/results, `calibration_types.h` calibration commands,
+`ModeResult`, `CoordFrame`, `NavCommand`). An enum value having no current call site does not
+make it junk; deleting members of a taxonomy trades documented domain facts for bare numbers.
+`event_codes.h` is append-only by contract in any case — the header states the numbers appear in
+event JSON, so removing a middle entry would renumber everything after it.
+
 
 - **Architectural risks eliminated** (Phase 1 of quality hardening):
   - **KD-49 (ABBA deadlock risk)**: `deliver_frame()` now copies `send_cb` under lock and invokes it 

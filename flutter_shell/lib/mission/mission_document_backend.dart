@@ -72,8 +72,12 @@ abstract interface class MissionDocumentBackend {
   Future<MissionInterchangeExport> exportMissionInterchange(String format);
 
   /// 按交换格式导入任务文本，替换当前文档（元数据、默认值与 revision 保留）。
+  /// 返回新文档与原生的解析提示（与导出侧同源，如旧版 `.plan` 的段被忽略）。
   /// 解析失败抛异常，调用方负责提示。
-  Future<MissionDocument> importMissionInterchange(String format, String text);
+  Future<MissionInterchangeImport> importMissionInterchange(
+    String format,
+    String text,
+  );
 
   Future<void> saveMissionDocument(String filePath);
 

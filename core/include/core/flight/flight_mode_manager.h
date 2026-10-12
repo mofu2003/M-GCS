@@ -81,8 +81,6 @@ public:
     /// Get current mode name
     std::string current_mode() const;
 
-    /// Check if vehicle is armed
-    bool is_armed() const;
 
     // ================================================================
     // Mode switching
@@ -95,8 +93,6 @@ public:
     /// 不可切换的项保留但置灰，而不是从列表里删掉。
     std::vector<mg::core::firmware::FlightModeEntry> mode_entries() const;
 
-    /// 把 custom_mode 数值翻译成模式名（HEARTBEAT 反查、模式映射页都用它）。
-    std::string decode_mode_name(uint32_t custom_mode) const;
 
     /// 本轮飞行是否跑完了任务。
     ///
@@ -128,17 +124,9 @@ public:
     // Mode-specific parameters
     // ================================================================
 
-    /// Set takeoff altitude for guided mode
-    void set_takeoff_altitude(float altitude_m);
 
-    /// Get takeoff altitude
-    float takeoff_altitude() const;
 
-    /// Set loiter radius
-    void set_loiter_radius(float radius_m);
 
-    /// Get loiter radius
-    float loiter_radius() const;
 
     // ================================================================
     // Mode history
@@ -177,8 +165,6 @@ private:
     bool mission_mode_exited_ = false;
 
     // Mode parameters
-    float takeoff_altitude_ = 20.0f;
-    float loiter_radius_ = 50.0f;
 
     // History
     std::vector<ModeChangeEvent> history_;

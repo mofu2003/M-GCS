@@ -545,8 +545,10 @@ static void test_connection_state_after_disconnect_without_active_vehicle() {
     // 断链后 fallback vehicle 的 conn() 必须返回断开基线，而不是解引用空指针。
     auto& conn = core->fallback_vehicle->conn();
     CHECK(!conn.is_connected(), "fallback connection reports connected:false");
-    CHECK(mg::core::transport::ConnectionManager::state_string(conn.state()) ==
-              "disconnected",
+    // state_string() 返回 const char*，直接和字面量比是在比指针（靠字面量合并
+    // 碰巧通过），必须转成 std::string 再比内容。
+    CHECK(std::string(mg::core::transport::ConnectionManager::state_string(
+              conn.state())) == "disconnected",
           "fallback connection reports the disconnected state string");
     CHECK(!conn.heartbeat_alive(5000), "fallback connection reports no live heartbeat");
     CHECK(conn.heartbeat_age_ms() == 0, "fallback connection reports no heartbeat age");

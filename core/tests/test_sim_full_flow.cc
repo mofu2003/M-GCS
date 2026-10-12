@@ -4,7 +4,6 @@
 #include "mock_vehicle_test_env.h"
 #include "ffi_api.h"
 
-#define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 #include "core/util/json.h"
 

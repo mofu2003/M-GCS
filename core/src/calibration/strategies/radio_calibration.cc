@@ -7,6 +7,7 @@
  */
 
 #include "core/calibration/strategies/radio_calibration.h"
+#include "statustext_match.h"
 #include "core/log/logging.h"
 
 namespace mg::core::calibration {
@@ -40,6 +41,8 @@ StatusParseResult RadioCalibration::parse_statustext(
     (void)severity;
     StatusParseResult result;
 
+    // 话题词：飞控在遥控校准期间发的 STATUSTEXT 里带这些字样。保留原来这几段
+    // 是为了不误命中含 "RC" 的无关词（FORCE、SOURCE 之类）；本轮只统一判定口径。
     const bool mentions_radio =
         text.find("RC ") != std::string::npos ||
         text.find("RC1") != std::string::npos ||
@@ -50,21 +53,19 @@ StatusParseResult RadioCalibration::parse_statustext(
     if (!mentions_radio) return result;
 
     result.is_calibration_text = true;
-    if (text.find("complete") != std::string::npos ||
-        text.find("Complete") != std::string::npos ||
-        text.find("success") != std::string::npos ||
-        text.find("Success") != std::string::npos) {
+    // 与 gyro/baro/accel/compass 同一口径：先判失败（"unsuccessful" 含 "successful"），
+    // 再用整句判定完成——裸子串会把 "RC calibration unsuccessful" 读成成功。
+    if (text::mentions_failure(text)) {
+        result.new_stage = CalibrationStage::Failed;
+        result.stage_changed = true;
+        result.user_message = "遥控器校准失败";
+    } else if (text::mentions_completion(text)) {
         result.new_stage = CalibrationStage::Success;
         result.progress = 100;
         result.current_step = 1;
         result.total_steps = 1;
         result.stage_changed = true;
         result.user_message = "遥控器校准完成";
-    } else if (text.find("failed") != std::string::npos ||
-               text.find("Failed") != std::string::npos) {
-        result.new_stage = CalibrationStage::Failed;
-        result.stage_changed = true;
-        result.user_message = "遥控器校准失败";
     } else {
         result.new_stage = CalibrationStage::Calibrating;
         result.stage_changed = (current_stage != CalibrationStage::Calibrating);

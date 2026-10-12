@@ -1,14 +1,10 @@
 #define MGCORE_EXPORTS
 /**
- * ffi_commands.cc - Mission, Survey, Rally, Log, Terrain, Camera, Video,
- *                   Vehicle, Firmware, SITL, Preflight
+ * ffi_commands.cc - 围栏/Rally 回读与车辆清单
  *
- * 任务上传/下载、Rally、围栏协议、测量规划、地形查询、日志、SITL 等。
- *
- * 从早期大文件中按职责拆分而来：
- *   飞行命令      -> ffi_flight_commands.cc
- *
- * Mission JSON parsing uses cJSON consistently across the bridge.
+ * 只剩三个导出：mg_fence_download、mg_rally_download、mg_vehicle_list。
+ * 早期的大文件按职责拆分后，其余能力（PX4、测绘、地形、SITL、固件刷写等）
+ * 已在 0.2.x 的清理中删除，见 CHANGELOG。
  */
 #include "ffi_internal.h"
 #include "core/telemetry/json_builder.h"
@@ -19,7 +15,6 @@
 #include <algorithm>
 
 // cJSON 解析深度限制
-#define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 
 template <typename Sender>

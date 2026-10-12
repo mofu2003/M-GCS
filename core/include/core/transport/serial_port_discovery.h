@@ -21,13 +21,6 @@ struct SerialPortInfo {
     std::string board_name;          // specific board name if known
 };
 
-// 端口过滤条件
-enum class PortFilter {
-    All,                // all serial ports
-    LikelyFlightController, // only likely flight controllers
-    AvailableOnly       // only available (not in use)
-};
-
 // 板卡信息（VID/PID 与板卡类型映射）
 struct BoardInfo {
     uint16_t vendor_id;
@@ -52,18 +45,6 @@ public:
     /// 枚举系统上所有串口
     std::vector<SerialPortInfo> enumerate_ports();
 
-    /// 按条件过滤串口列表
-    std::vector<SerialPortInfo> filter_ports(PortFilter filter);
-
-    /// 获取最佳候选端口（最可能是飞控的端口）
-    std::optional<SerialPortInfo> best_candidate();
-
-    /// 检查指定端口是否可用
-    bool is_port_available(const std::string& port_name);
-
-    /// 刷新端口列表（重新枚举）
-    void refresh();
-
     /// 判定一个端口对应的板卡类别与名称。
     /// 依次尝试：VID/PID 精确匹配 → 端口描述正则兜底 → 制造商正则兜底。
     /// 用于给「用户手工输入、或来自历史记录」的端口分类，这类端口不在
@@ -72,8 +53,6 @@ public:
     bool get_board_info(const SerialPortInfo& port, std::string& board_class, std::string& board_name);
 
 private:
-    std::vector<SerialPortInfo> cached_ports_;  // 缓存的端口列表
-    bool needs_refresh_ = true;
     bool json_loaded_ = false;
     bool json_data_valid_ = false;
 

@@ -16,11 +16,6 @@ namespace mg::core::settings {
 FlightLoggingService::FlightLoggingService() = default;
 FlightLoggingService::~FlightLoggingService() { stop(); }
 
-void FlightLoggingService::set_write_callback(WriteCallback cb) {
-    mg::core::platform::LockGuard lk(mtx_);
-    write_cb_ = std::move(cb);
-}
-
 std::string FlightLoggingService::status_json() const {
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
@@ -63,7 +58,7 @@ bool FlightLoggingService::stop() {
 
 bool FlightLoggingService::append_event(const std::string& source, int severity, const std::string& text) {
     // 锁内只做记账和 JSON 组装；写回调必须在锁外调用，否则会在
-    // MAVLink 读线程上持锁进入 core_mtx 和 FFI 事件回调（仓库禁区）。
+    // MAVLink 读线程上持锁进入外层互斥量与 FFI 事件回调（仓库禁区）。
     WriteCallback cb;
     std::string line;
     {

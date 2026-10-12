@@ -47,15 +47,6 @@ static std::string take(char* p) {
 }
 
 // 解析成功响应，返回 data 子树（调用方 cJSON_Delete root）。
-static cJSON* ok_data(const std::string& json) {
-    cJSON* root = cJSON_Parse(json.c_str());
-    if (!root) return nullptr;
-    cJSON* success = cJSON_GetObjectItemCaseSensitive(root, "success");
-    if (!cJSON_IsTrue(success)) { cJSON_Delete(root); return nullptr; }
-    cJSON* data = cJSON_GetObjectItemCaseSensitive(root, "data");
-    if (!data) { cJSON_Delete(root); return nullptr; }
-    return root;  // caller must delete; use cJSON_GetObjectItem(root,"data")
-}
 
 /// 链路是否已建立：车辆列表里存在 connected=true 的车辆。
 static bool connection_connected(mg_core_t* core) {

@@ -75,7 +75,6 @@
 
       void lock()   { mutex_.lock(); locked_ = true; }
       void unlock() { mutex_.unlock(); locked_ = false; }
-      bool owns_lock() const { return locked_; }
       Mutex& mutex() const { return mutex_; }
 
   private:

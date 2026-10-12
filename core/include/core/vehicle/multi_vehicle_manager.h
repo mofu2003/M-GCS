@@ -23,9 +23,7 @@ namespace mg::core::vehicle {
 // 飞行器添加回调
 using VehicleAddedCallback = std::function<void(Vehicle* vehicle)>;
 // 飞行器移除回调
-using VehicleRemovedCallback = std::function<void(int vehicle_id)>;
 // 活跃飞行器切换回调
-using ActiveVehicleChangedCallback = std::function<void(Vehicle* vehicle)>;
 
 struct ManagedLinkInfo {
     int link_id = -1;
@@ -118,8 +116,6 @@ public:
 
     // 设置飞行器添加/移除/切换回调
     void set_vehicle_added_callback(VehicleAddedCallback cb);
-    void set_vehicle_removed_callback(VehicleRemovedCallback cb);
-    void set_active_vehicle_changed_callback(ActiveVehicleChangedCallback cb);
 
 private:
     // 分配下一个飞行器 ID
@@ -167,8 +163,6 @@ private:
     std::atomic<int> active_vehicle_id_{-1};
 
     VehicleAddedCallback on_vehicle_added_;
-    VehicleRemovedCallback on_vehicle_removed_;
-    ActiveVehicleChangedCallback on_active_vehicle_changed_;
 
     // GCS 心跳定时器
     std::atomic<bool> gcs_heartbeat_enabled_{false};

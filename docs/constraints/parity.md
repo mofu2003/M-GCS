@@ -160,4 +160,4 @@
 5. **终止飞行（DO_FLIGHTTERMINATION）的暴露方式**。
    - 决定：**core 与 FFI 都不提供入口**。该能力的 FFI 导出（`mg_command_terminate_flight`）与旧命名入口均已删除，core 侧也没有对应的下发路径——`safety.md` S3 只规定"若有入口必须确认"，并未要求该入口存在。
    - 理由：该命令让飞控立即切断动力，空中执行等于坠机且不可撤销。QGC 全仓 0 处引用，即刻意不暴露；MP 在 Actions 下拉里以 `Terminate_Flight` 暴露并要求一次 Yes/No 确认。不提供入口比"提供但要求确认"更安全，且 S3 并未要求该入口存在。
-   - 一并澄清：S3 里的"急停"指的是 `COMPONENT_ARM_DISARM` 的 `param2=21196`（MAVLink 官方描述即 emergency stop），**可恢复**，与终止飞行是两件事。该能力已接通（`disarm(force: true)`），界面暂未入口；将来若要加"急停"按钮，应加这一个，且按 S3 做确认。
+   - 一并澄清：S3 里的"急停"指的是 `COMPONENT_ARM_DISARM` 的 `param2=21196`（MAVLink 官方描述即 emergency stop），**可恢复**，与终止飞行是两件事。该能力已接通（`disarm(force: true)`）；界面入口在顶栏（`widgets/mg_top_status_bar.dart` 的 `_EmergencyStopButton`，仅在已解锁时出现），按 S3 长按确认。

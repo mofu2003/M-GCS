@@ -2,7 +2,6 @@
 
 #include "ffi_mission_internal.h"
 
-#define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 #include <set>
 

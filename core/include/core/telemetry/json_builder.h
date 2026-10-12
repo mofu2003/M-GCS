@@ -51,7 +51,6 @@ public:
     void append_string(const std::string& v) { sep(); out_ << "\"" << esc(v) << "\""; }
 
     /// Append a pre-built JsonBuilder's content as a nested element
-    void append_object(const JsonBuilder& other) { sep(); out_ << other.str(); }
 
     std::string str() const { return out_.str(); }
     void reset() { out_.str(""); out_.clear(); after_bracket_ = false; }

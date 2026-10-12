@@ -235,7 +235,6 @@ class MgMetrics {
   static const double fleetPanelInset = 14;
   static const double fleetPanelHeaderInset = 12;
   static const double fleetPanelActionWidth = 76;
-  static const double fleetPanelCloseSize = 24;
   static const double fleetPanelAnchorInset = 12;
 
   /// 复合仪表内部绘制区域直径。

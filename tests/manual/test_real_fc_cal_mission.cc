@@ -49,13 +49,6 @@ static std::string call_json(const char* label, char* (*fn)(mg_core_t*), mg_core
     return out;
 }
 
-static std::string call_json_int(const char* label, char* (*fn)(mg_core_t*, int), mg_core_t* core, int arg) {
-    char* p = fn(core, arg);
-    std::string out = p ? p : "";
-    fprintf(stderr, "[%s] %s\n", label, out.c_str());
-    free_json(p);
-    return out;
-}
 
 static bool json_bool(cJSON* obj, const char* key, bool def = false) {
     cJSON* item = cJSON_GetObjectItemCaseSensitive(obj, key);

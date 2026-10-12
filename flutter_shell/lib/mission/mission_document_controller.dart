@@ -21,6 +21,10 @@ final class MissionDocumentController extends ChangeNotifier {
   MissionVerificationResult? rallyVerification;
   List<MissionCommandDescriptor> commandCatalog = const [];
 
+  /// 最近一次交换格式导入的原生提示（如旧版 `.plan` 的围栏/Rally 段被忽略）。
+  /// 导入成功即为该次导入的提示，其它操作不改动它。
+  List<String> interchangeWarnings = const [];
+
   /// 连接飞控的机型/固件上下文，由 UI 在连接变化时写入。
   ///
   /// 新建任务文档时把它写进 metadata，让文档级校验的机型门禁使用真实机型；
@@ -480,7 +484,9 @@ final class MissionDocumentController extends ChangeNotifier {
   /// 与 [load] 同构——导入的是一份新文档，不是对现有文档的编辑。
   Future<void> importInterchange(String format, String text) =>
       _run('正在导入任务…', () async {
-        document = await backend.importMissionInterchange(format, text);
+        final imported = await backend.importMissionInterchange(format, text);
+        document = imported.document;
+        interchangeWarnings = imported.warnings;
         validation = null;
         compileResult = null;
         estimate = null;
@@ -494,6 +500,7 @@ final class MissionDocumentController extends ChangeNotifier {
 
   Future<void> load(String filePath) => _run('正在加载任务…', () async {
     document = await backend.loadMissionDocument(filePath);
+    interchangeWarnings = const [];
     validation = null;
     compileResult = null;
     estimate = null;

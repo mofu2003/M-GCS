@@ -46,19 +46,9 @@ MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_
 // 模式切换走 mg_command_submit_for_vehicle + mg_command_poll（可选命令只有在
 // COMMAND_ACK 接受后才算成功，safety.md 的 S2）。
 MGCORE_API char* mg_flight_get_modes(mg_core_t* core);
-// 遥控通道 → 飞行模式的映射（对标 MP 的 ConfigFlightModes 页面）：读取
-// FLTMODE1..6、通道参数 FLTMODE_CH|MODE_CH，以及 Copter/Rover 的
-// SIMPLE / SUPER_SIMPLE 位掩码。写回复用 mg_config_write_params。
 MGCORE_API char* mg_command_rtl(mg_core_t* core);
 MGCORE_API char* mg_command_takeoff(mg_core_t* core, float altitude_m);
 MGCORE_API char* mg_command_land(mg_core_t* core);
-// 终止飞行：下发 MAV_CMD_DO_FLIGHTTERMINATION（param1=1）。飞控立即切断动力，
-// 空中执行等于坠机，不可撤销。
-//
-// 它**不是**"上锁/紧急停桨"（那是 COMPONENT_ARM_DISARM + param2=21196，可恢复）。
-// 界面上的任何入口都必须按"终止飞行"如实标注并做二次确认。当前决定：
-// core 保留能力、界面不暴露（QGC 全仓不引用该命令；MP 在 Actions 下拉里以
-// Terminate Flight 暴露并要求一次 Yes/No 确认）。
 // 注意：SET_POSITION_TARGET_* / DO_REPOSITION 之外的引导类命令（改变高度、
 // 引导速度、引导暂停、环绕、ROI、改变航向、设置原点）在 MAVLink 上**没有
 // COMMAND_ACK**。这些入口返回的 success 只表示“已交给发送层”，不代表飞控已
@@ -97,12 +87,6 @@ MGCORE_API char* mg_command_change_heading(mg_core_t* core, float heading_deg,
 // 最长阻塞约 5 s。
 MGCORE_API char* mg_command_set_global_origin(mg_core_t* core, double lat,
                                               double lon, float alt_m);
-// 收放起落架。发 MAV_CMD_AIRFRAME_CONFIGURATION，同样等 COMMAND_ACK；
-// 只有确认才返回 success（S2）。最长阻塞约 5 s。
-
-/// 当前模式/解锁/是否在飞，附 heartbeat_fresh 与 heartbeat_age_ms；
-/// heartbeat_fresh 为 false 时这些值已过期，界面显示为未知而不是当前值（S5）。
-
 
 #ifdef __cplusplus
 }

@@ -7,13 +7,11 @@
 #include "ffi_internal.h"
 #include "core/telemetry/json_serializers.h"
 #include "core/telemetry/telemetry_ring_buffer.h"
-#include "core/settings/flight_log_writer.h"
 
 #include <algorithm>
 #include <chrono>
 #include <string>
 
-#define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 #include "core/util/json.h"
 

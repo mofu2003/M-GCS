@@ -576,11 +576,6 @@ void MavlinkAdapter::on_wind_estimate(WindEstimateCallback cb) {
     impl_->tel.wind_estimate_cb = std::move(cb);
 }
 
-void MavlinkAdapter::on_distance_sensor(DistanceSensorCallback cb) {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    impl_->tel.distance_sensor_cb = std::move(cb);
-}
-
 void MavlinkAdapter::on_adsb_vehicle(AdsbVehicleCallback cb) {
     mg::core::platform::LockGuard lk(impl_->mtx);
     impl_->tel.adsb_vehicle_cb = std::move(cb);
@@ -589,11 +584,6 @@ void MavlinkAdapter::on_adsb_vehicle(AdsbVehicleCallback cb) {
 void MavlinkAdapter::on_mission_reached(MissionReachedCallback cb) {
     mg::core::platform::LockGuard lk(impl_->mtx);
     impl_->tel.mission_reached_cb = std::move(cb);
-}
-
-void MavlinkAdapter::on_video_stream_info(VideoStreamCallback cb) {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    impl_->tel.video_stream_cb = std::move(cb);
 }
 
 void MavlinkAdapter::on_extended_sys_state(ExtendedSysStateCallback cb) {
@@ -845,19 +835,6 @@ int MavlinkAdapter::start_param_refresh(uint8_t target_system,
     return sent;
 }
 
-MavlinkAdapter::ParamRefreshStatus MavlinkAdapter::param_refresh_status() const {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    const auto status = impl_->pc.refresh_status();
-    ParamRefreshStatus output;
-    output.active = status.active;
-    output.total = status.total;
-    output.completed = status.completed;
-    output.pending = status.pending;
-    output.round = status.round;
-    output.failed = status.failed;
-    return output;
-}
-
 uint64_t MavlinkAdapter::message_count() const {
     mg::core::platform::LockGuard lk(impl_->mtx);
     return impl_->msg_count;
@@ -987,14 +964,6 @@ std::vector<CameraInformationInfo> MavlinkAdapter::latest_cameras() const {
     return impl_->tel.cameras;
 }
 
-std::optional<CameraInformationInfo> MavlinkAdapter::camera_information(uint8_t sysid, uint8_t compid) const {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    for (const auto& c : impl_->tel.cameras) {
-        if (c.system_id == sysid && c.component_id == compid) return c;
-    }
-    return std::nullopt;
-}
-
 std::optional<CameraSettingsInfo> MavlinkAdapter::camera_settings(uint8_t sysid, uint8_t compid) const {
     mg::core::platform::LockGuard lk(impl_->mtx);
     for (const auto& c : impl_->tel.camera_settings) {
@@ -1023,14 +992,6 @@ std::vector<StorageInformationInfo> MavlinkAdapter::camera_storage(uint8_t sysid
 std::vector<GimbalManagerInformationInfo> MavlinkAdapter::latest_gimbals() const {
     mg::core::platform::LockGuard lk(impl_->mtx);
     return impl_->tel.gimbal_manager_info;
-}
-
-std::optional<GimbalManagerInformationInfo> MavlinkAdapter::gimbal_manager_information(uint8_t sysid, uint8_t compid) const {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    for (const auto& g : impl_->tel.gimbal_manager_info) {
-        if (g.system_id == sysid && g.component_id == compid) return g;
-    }
-    return std::nullopt;
 }
 
 std::optional<GimbalManagerStatusInfo> MavlinkAdapter::gimbal_manager_status(uint8_t sysid, uint8_t compid) const {

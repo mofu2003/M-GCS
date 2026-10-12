@@ -381,16 +381,17 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   }
 
   @override
-  Future<MissionDocument> importMissionInterchange(
+  Future<MissionInterchangeImport> importMissionInterchange(
     String format,
     String text,
   ) async {
     final nativeFormat = format.toNativeUtf8();
     final nativeText = text.toNativeUtf8();
     try {
-      return _documentFromEnvelope(
-        _readJson(_missionDocImportFormat(_core, nativeFormat, nativeText)),
-      );
+      final raw = _readJson(_missionDocImportFormat(_core, nativeFormat, nativeText));
+      if (raw is! JsonMap) throw const FormatException('任务导入响应格式无效');
+      _requireSuccess(raw);
+      return MissionInterchangeImport.fromEnvelope(raw);
     } finally {
       malloc.free(nativeFormat);
       malloc.free(nativeText);

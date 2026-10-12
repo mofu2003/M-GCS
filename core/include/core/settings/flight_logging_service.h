@@ -17,7 +17,6 @@ public:
     FlightLoggingService();
     ~FlightLoggingService();
 
-    void set_write_callback(WriteCallback cb);
     [[nodiscard]] std::string status_json() const;
     [[nodiscard]] bool is_active() const;
 

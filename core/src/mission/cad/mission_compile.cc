@@ -5,15 +5,6 @@
 namespace mg::core::mission::cad::detail {
 
 // Survey功能已完全删除，保留存根避免编译错误
-SurveyResult expand_survey_entity(const MissionEntity& entity) {
-    (void)entity;
-    SurveyResult result;
-    result.success = false;
-    result.valid = false;
-    result.error = "Survey generation removed (0.2.x ArduPilot-only)";
-    return result;
-}
-
 bool expand_document_entities(
     const MissionDocument& document,
     std::vector<ExpandedEntity>& out,

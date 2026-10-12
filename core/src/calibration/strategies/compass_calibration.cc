@@ -10,6 +10,7 @@
  */
 
 #include "core/calibration/strategies/compass_calibration.h"
+#include "statustext_match.h"
 #include "core/log/logging.h"
 #include "ardupilotmega/mavlink.h"
 #include <algorithm>
@@ -95,28 +96,24 @@ StatusParseResult CompassCalibration::parse_statustext(
 
     if (!result.is_calibration_text) return result;
 
-    // Success detection
-    if (text.find("Calibration successful") != std::string::npos ||
-        text.find("calibration successful") != std::string::npos ||
+    // 失败必须先判："unsuccessful" 含 "successful"、"incomplete" 含 "complete"。
+    // 原来这里把成功判在前面，且失败词表更窄（不含 unsuccessful/incomplete），
+    // "Compass calibration unsuccessful" 两个分支都不命中，校准会一直挂着。
+    if (text::mentions_failure(text)) {
+        result.new_stage = CalibrationStage::Failed;
+        result.stage_changed = true;
+        result.user_message = text;  // 保留飞控原文作为失败原因
+        return result;
+    }
+
+    // 完成判定：整句匹配，外加 ArduPilot 罗盘特有的 "Compass ... calibrated"。
+    if (text::mentions_completion(text) ||
         (text.find("Compass") != std::string::npos &&
-            text.find("calibrated") != std::string::npos &&
-            text.find("fail") == std::string::npos &&
-            text.find("Fail") == std::string::npos)) {
+         text.find("calibrated") != std::string::npos)) {
         result.new_stage = CalibrationStage::Success;
         result.progress = 100;
         result.stage_changed = true;
         result.user_message = "Magnetometer calibration successful";
-        return result;
-    }
-
-    // Failure detection
-    if (text.find("failed") != std::string::npos ||
-        text.find("Failed") != std::string::npos ||
-        text.find("FAILED") != std::string::npos ||
-        text.find("Failed:") != std::string::npos) {
-        result.new_stage = CalibrationStage::Failed;
-        result.stage_changed = true;
-        result.user_message = text;  // Preserve failure reason
         return result;
     }
 

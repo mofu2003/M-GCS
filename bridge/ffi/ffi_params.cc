@@ -13,7 +13,6 @@
 
 #include <unordered_set>
 
-#define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 #include "core/util/json.h"
 

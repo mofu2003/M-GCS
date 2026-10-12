@@ -132,7 +132,7 @@ set(MGCORE_SOURCES
     core/src/transport/tcp_link.cc
     core/src/transport/udp_link.cc
     # Mission management
-    core/src/mission/mission_item_factory.cc
+    core/src/mission/geo_math.cc
     core/src/mission/cad/mission_document.cc
     core/src/mission/cad/mission_validation.cc
     core/src/mission/cad/mission_compile.cc
@@ -146,7 +146,6 @@ set(MGCORE_SOURCES
     # Configuration management
     core/src/config/param_descriptors.cc
     # Settings
-    core/src/settings/flight_log_writer.cc
     core/src/log/flight_log_replayer.cc
     core/src/ftp/mavlink_ftp.cc
     core/src/settings/mavlink_log_writer.cc

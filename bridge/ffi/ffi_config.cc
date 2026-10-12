@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <set>
 
-#define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 
 // get_desc_db() shared via ffi_internal.h

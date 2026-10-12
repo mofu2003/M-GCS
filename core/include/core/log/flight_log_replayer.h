@@ -81,9 +81,6 @@ public:
     /// 重置到文件开头
     void rewind();
 
-    /// 使用回调模式回放（自动调用 message_handler）
-    /// handler 返回 false 可提前终止
-    void replay_all(const std::function<bool(const mavlink_message_t&, uint64_t ts)>& handler);
 
 private:
     /// 读取下一条记录（时间戳前缀 + 完整 MAVLink 帧），成功返回 true。

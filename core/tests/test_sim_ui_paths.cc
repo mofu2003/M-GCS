@@ -14,7 +14,6 @@
 #include "core/transport/link_session.h"
 #include "core/event/event_codes.h"
 #include "core/util/json.h"
-#define CJSON_NESTING_LIMIT 20
 #include "cJSON.h"
 #include "core/vehicle/vehicle.h"
 

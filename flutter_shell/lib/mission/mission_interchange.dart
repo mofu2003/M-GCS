@@ -319,10 +319,17 @@ class _MissionExportSheetState extends State<_MissionExportSheet> {
 
 /// 一次导入的结果：读了哪个文件、导入了多少条实体。
 final class MissionImportResult {
-  const MissionImportResult({required this.path, required this.itemCount});
+  const MissionImportResult({
+    required this.path,
+    required this.itemCount,
+    this.warnings = const [],
+  });
 
   final String path;
   final int itemCount;
+
+  /// 原生解析时给出的提示（与导出侧同源），例如旧版 `.plan` 里被忽略的段。
+  final List<String> warnings;
 }
 
 /// 打开任务导入面板。成功返回 [MissionImportResult]；取消或关闭返回 null。
@@ -423,6 +430,7 @@ class _MissionImportSheetState extends State<_MissionImportSheet> {
         MissionImportResult(
           path: path,
           itemCount: widget.controller.document?.entities.length ?? 0,
+          warnings: widget.controller.interchangeWarnings,
         ),
       );
     } catch (error) {

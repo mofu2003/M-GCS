@@ -218,13 +218,4 @@ void FlightLogReplayer::rewind() {
     }
 }
 
-void FlightLogReplayer::replay_all(
-    const std::function<bool(const mavlink_message_t&, uint64_t)>& handler) {
-    if (!file_) return;
-    rewind();
-    while (next_message()) {
-        if (!handler(current_msg_, current_ts_)) break;
-    }
-}
-
 } // namespace mg::core::log

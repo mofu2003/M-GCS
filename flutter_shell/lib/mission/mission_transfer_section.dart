@@ -398,8 +398,11 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
       controller: widget.mission,
     );
     if (result == null || !mounted) return;
+    final warnings = result.warnings.isEmpty
+        ? ''
+        : '（${result.warnings.length} 条提示：${result.warnings.first}）';
     setState(() {
-      _interchangeNotice = '已从 ${result.path} 导入 ${result.itemCount} 条';
+      _interchangeNotice = '已从 ${result.path} 导入 ${result.itemCount} 条$warnings';
     });
   }
 

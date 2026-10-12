@@ -129,16 +129,13 @@ static void test_chinese_translation_overlay() {
           db.enum_label("copter", "SERIAL1_PROTOCOL", 2).find("MAVLink") != std::string::npos, "SERIAL1_PROTOCOL bilingual option label");
     CHECK(contains_localized_text(db.enum_label("copter", "SERIAL1_PROTOCOL", 7)), "SERIAL1_PROTOCOL compound option label");
 
-    const auto copter_mode = db.get("copter", "FLTMODE1");
     CHECK(db.enum_label("copter", "FLTMODE1", 0) == "自稳 (Stabilize)", "Copter flight mode option label");
 
-    const auto plane_mode = db.get("plane", "FLTMODE1");
     CHECK(db.enum_label("plane", "FLTMODE1", 5) == "电传 A (FBWA)", "Plane flight mode option label");
 
     const auto servo = db.get("copter", "SERVO1_FUNCTION");
     CHECK(contains_localized_text(db.enum_label("copter", "SERVO1_FUNCTION", 6)), "Servo function option label");
 
-    const auto rc_option = db.get("copter", "RC10_OPTION");
     CHECK(db.enum_label("copter", "RC10_OPTION", 9) == "相机触发 (Camera Trigger)", "RC option label");
 
     const auto copter_accel = db.get("copter", "ATC_ACC_P_MAX");

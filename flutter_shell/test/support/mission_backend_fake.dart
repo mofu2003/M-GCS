@@ -74,11 +74,12 @@ final class FakeMissionBackend implements MissionDocumentBackend {
   int interchangeImportCalls = 0;
   String? interchangeImportError;
   MissionDocument? interchangeImportDocument;
+  List<String> interchangeImportWarnings = const [];
   List<String> interchangeWarnings = const [];
   String? lastInterchangeFormat;
 
   @override
-  Future<MissionDocument> importMissionInterchange(
+  Future<MissionInterchangeImport> importMissionInterchange(
     String format,
     String text,
   ) async {
@@ -89,7 +90,10 @@ final class FakeMissionBackend implements MissionDocumentBackend {
       throw StateError(interchangeImportError!);
     }
     _document = interchangeImportDocument ?? const MissionDocument();
-    return _document;
+    return MissionInterchangeImport(
+      document: _document,
+      warnings: interchangeImportWarnings,
+    );
   }
 
   @override

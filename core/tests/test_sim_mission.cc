@@ -7,7 +7,6 @@
 #include "ffi_api.h"
 #include "command_queue.h"
 #include "core/util/json.h"
-#define CJSON_NESTING_LIMIT 20
 #include "cJSON.h"
 
 #include <atomic>

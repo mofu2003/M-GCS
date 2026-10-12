@@ -2,17 +2,15 @@
 /**
  * ffi_config_extra.cc - Additional config FFI functions
  *
- * 配置补充：单参数读写（带元数据）、批量写入、任务请求。
+ * 配置补充：单参数读写（带元数据）。
  *
- * Implements mg_config_read_param, mg_config_write_param, mg_config_write_params,
- * along with configuration extensions.
+ * Implements mg_config_read_param, mg_config_write_param.
  */
 #include "ffi_internal.h"
 #include "core/telemetry/json_serializers.h"
 #include <cstring>
 // get_desc_db() shared via ffi_internal.h
 
-#define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 #include "core/util/json.h"
 
@@ -140,7 +138,3 @@ MGCORE_API char* mg_config_write_param(mg_core_t* core, const char* param_name, 
     }
     return fail(MG_ERROR_SEND_FAILED, "set_param failed");
 }
-
-// ================================================================
-// mg_config_write_params - Write multiple parameters from JSON array
-// ================================================================

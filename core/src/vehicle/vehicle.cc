@@ -257,7 +257,7 @@ bool Vehicle::attach_shared_route(
     }
     link_manager_.add_link(route_id);
     install_connection_state_callback(route_id, connection);
-    wire_telemetry_callbacks_for(connection.get(), route_id);
+    wire_telemetry_callbacks_for(connection, route_id);
     MGC_LOG_INFO("[Vehicle %d] Attached secondary shared route %d",
                  id_, route_id);
     return true;
@@ -717,14 +717,15 @@ void Vehicle::wire_telemetry_callbacks() {
         connections = connections_;
     }
     for (const auto& [route_id, connection] : connections) {
-        wire_telemetry_callbacks_for(connection.get(), route_id);
+        wire_telemetry_callbacks_for(connection, route_id);
     }
 }
 
 void Vehicle::wire_telemetry_callbacks_for(
-    mg::core::transport::ConnectionManager* source,
+    const std::shared_ptr<mg::core::transport::ConnectionManager>& source,
     int route_id) {
-    const auto mav = source ? source->shared_mavlink() : nullptr;
+    if (!source) return;
+    const auto mav = source->shared_mavlink();
     if (!mav) return;
 
     // 把链路适配器绑到本车自己的 .tlog 写入器（ADR-0006）。绑定是幂等的，
@@ -732,6 +733,9 @@ void Vehicle::wire_telemetry_callbacks_for(
     mav->set_log_sink(&mavlink_log_);
 
     std::weak_ptr<Vehicle> weak = shared_from_this();
+    // 回调只持弱引用：共享链路下 remove_shared_route() 会释放本 route 的
+    // ConnectionManager，而适配器仍可能被租约持有并继续派发回调。
+    std::weak_ptr<mg::core::transport::ConnectionManager> weak_source = source;
     mav->set_signing_detected_callback(
         [weak](const mg::core::mavlink::SigningCandidate& candidate) {
             if (auto self = weak.lock()) {
@@ -739,9 +743,11 @@ void Vehicle::wire_telemetry_callbacks_for(
             }
         });
 
-    mav->on_heartbeat([weak, source, route_id](const mg::core::mavlink::HeartbeatInfo& info) {
+    mav->on_heartbeat([weak, weak_source, route_id](const mg::core::mavlink::HeartbeatInfo& info) {
         auto self = weak.lock();
         if (!self) return;
+        auto src = weak_source.lock();
+        if (!src) return;
         self->flight_modes_.update_from_heartbeat(
             info.autopilot_type,
             info.vehicle_type,
@@ -749,36 +755,23 @@ void Vehicle::wire_telemetry_callbacks_for(
             info.custom_mode,
             info.armed,
             info.system_status);
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kHeartbeat, mg::core::event::kHeartbeat);
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kHeartbeat, mg::core::event::kHeartbeat);
 
-        const uint64_t age = source->heartbeat_age_ms();
+        const uint64_t age = src->heartbeat_age_ms();
         if (self->info_.system_id > 0 && age > 5000) {
             self->needs_reidentify_.store(true);
         }
 
-        source->record_heartbeat();
+        src->record_heartbeat();
         self->link_manager_.record_heartbeat(route_id);
         self->refresh_primary_connection();
 
         bool expected = false;
         if (self->requested_firmware_version_.compare_exchange_strong(expected, true)) {
-            const auto mav = source->shared_mavlink();
+            const auto mav = src->shared_mavlink();
             if (mav) {
                 mav->request_autopilot_version(info.system_id, info.component_id);
             }
-        }
-
-        if (info.armed) {
-            int64_t now = static_cast<int64_t>(
-                std::chrono::duration_cast<std::chrono::seconds>(
-                    std::chrono::steady_clock::now().time_since_epoch()).count());
-            if (self->last_armed_timestamp_ms_ > 0) {
-                uint32_t elapsed = static_cast<uint32_t>(now - self->last_armed_timestamp_ms_);
-                self->flight_time_s_.fetch_add(elapsed);
-            }
-            self->last_armed_timestamp_ms_ = now;
-        } else {
-            self->last_armed_timestamp_ms_ = 0;
         }
 
         if (self->info_.system_id == 0 || self->needs_reidentify_.exchange(false)) {
@@ -792,7 +785,7 @@ void Vehicle::wire_telemetry_callbacks_for(
             // ArduPilot 只在首次上电和每次解锁时发一次 HOME_POSITION，GCS 连晚了
             // 就收不到，地图上的 home 会一直空着（QGC 的 APMFirmwarePlugin 有同样
             // 的注释与做法）。识别出系统号之后再要，避免猜 target。
-            if (const auto mav = source->shared_mavlink()) {
+            if (const auto mav = src->shared_mavlink()) {
                 mav->request_home_position(info.system_id, info.component_id);
                 mav->request_message_interval(
                     info.system_id, info.component_id,
@@ -811,53 +804,65 @@ void Vehicle::wire_telemetry_callbacks_for(
     });
 
     // 这一组回调负责把 MAVLink 快照同步进缓存，并按需转成事件抛给上层。
-    mav->on_sys_status([weak, source](const mg::core::mavlink::SysStatusInfo&) {
+    mav->on_sys_status([weak, weak_source](const mg::core::mavlink::SysStatusInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kSysStatus, mg::core::event::kSysStatus);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kSysStatus, mg::core::event::kSysStatus);
     });
-    mav->on_gps([weak, source](const mg::core::mavlink::GpsInfo&) {
+    mav->on_gps([weak, weak_source](const mg::core::mavlink::GpsInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kGps, mg::core::event::kGps);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kGps, mg::core::event::kGps);
     });
-    mav->on_attitude([weak, source](const mg::core::mavlink::AttitudeInfo&) {
+    mav->on_attitude([weak, weak_source](const mg::core::mavlink::AttitudeInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kAttitude, mg::core::event::kAttitude);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kAttitude, mg::core::event::kAttitude);
     });
-    mav->on_vfr_hud([weak, source](const mg::core::mavlink::VfrHudInfo&) {
+    mav->on_vfr_hud([weak, weak_source](const mg::core::mavlink::VfrHudInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kVfrHud, mg::core::event::kTelemetry);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kVfrHud, mg::core::event::kTelemetry);
     });
-    mav->on_firmware_version([weak, source](const mg::core::mavlink::FirmwareVersionInfo&) {
+    mav->on_firmware_version([weak, weak_source](const mg::core::mavlink::FirmwareVersionInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kFirmwareVersion, mg::core::event::kFirmware);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kFirmwareVersion, mg::core::event::kFirmware);
     });
-    mav->on_global_position([weak, source](const mg::core::mavlink::GlobalPositionInfo&) {
+    mav->on_global_position([weak, weak_source](const mg::core::mavlink::GlobalPositionInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kGlobalPosition, mg::core::event::kGlobalPosition);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kGlobalPosition, mg::core::event::kGlobalPosition);
     });
-    mav->on_battery([weak, source](const mg::core::mavlink::BatteryInfo&) {
+    mav->on_battery([weak, weak_source](const mg::core::mavlink::BatteryInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kBattery, mg::core::event::kBattery);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kBattery, mg::core::event::kBattery);
     });
-    mav->on_extended_sys_state([weak, source](const mg::core::mavlink::ExtendedSysStateInfo&) {
+    mav->on_extended_sys_state([weak, weak_source](const mg::core::mavlink::ExtendedSysStateInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kExtendedSysState, mg::core::event::kExtendedSysState);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kExtendedSysState, mg::core::event::kExtendedSysState);
     });
-    mav->on_prearm_check([weak, source](const mg::core::mavlink::PrearmCheckInfo&) {
+    mav->on_prearm_check([weak, weak_source](const mg::core::mavlink::PrearmCheckInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kPrearmCheck, mg::core::event::kPrearmCheck);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kPrearmCheck, mg::core::event::kPrearmCheck);
     });
-    mav->on_vibration([weak, source](const mg::core::mavlink::VibrationInfo&) {
+    mav->on_vibration([weak, weak_source](const mg::core::mavlink::VibrationInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kVibration, mg::core::event::kVibration);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kVibration, mg::core::event::kVibration);
     });
-    mav->on_esc_status([weak, source](const mg::core::mavlink::EscStatusInfo&) {
+    mav->on_esc_status([weak, weak_source](const mg::core::mavlink::EscStatusInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kEscStatus, mg::core::event::kEscStatus);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kEscStatus, mg::core::event::kEscStatus);
     });
-    mav->on_wind_estimate([weak, source](const mg::core::mavlink::WindEstimateInfo&) {
+    mav->on_wind_estimate([weak, weak_source](const mg::core::mavlink::WindEstimateInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->update_and_fire(source, mg::core::telemetry::TelemetryType::kWindEstimate, mg::core::event::kWindEstimate);
+        auto src = weak_source.lock(); if (!src) return;
+        self->update_and_fire(src.get(), mg::core::telemetry::TelemetryType::kWindEstimate, mg::core::event::kWindEstimate);
     });
     mav->on_param([weak](const mg::core::mavlink::ParamInfo& param) {
         auto self = weak.lock(); if (!self) return;
@@ -905,8 +910,9 @@ void Vehicle::wire_telemetry_callbacks_for(
         self->fire_event(mg::core::event::kWaypointReached, jb.str());
     });
 
-    mav->on_imu([weak, source](const mg::core::mavlink::ImuInfo& info) {
+    mav->on_imu([weak, weak_source](const mg::core::mavlink::ImuInfo& info) {
         auto self = weak.lock(); if (!self) return;
+        auto src = weak_source.lock(); if (!src) return;
         // SCALED_IMU/2/3 一次带回加速度、角速度和磁力，刚好凑成同一帧；
         // 每个 IMU 实例写进自己的缓冲，前端按实例号取数。
         auto* buffer = self->waveform(info.instance);
@@ -929,33 +935,38 @@ void Vehicle::wire_telemetry_callbacks_for(
         }
         // 主 IMU 才刷新遥测缓存，其余实例只走波形缓冲。
         if (info.instance == 0) {
-            const auto mav = source->shared_mavlink();
+            const auto mav = src->shared_mavlink();
             self->cache_.update(mg::core::telemetry::TelemetryType::kImu, mav.get());
         }
     });
-    mav->on_pressure([weak, source](const mg::core::mavlink::PressureInfo&) {
+    mav->on_pressure([weak, weak_source](const mg::core::mavlink::PressureInfo&) {
         auto self = weak.lock(); if (!self) return;
-        const auto mav = source->shared_mavlink();
+        auto src = weak_source.lock(); if (!src) return;
+        const auto mav = src->shared_mavlink();
         self->cache_.update(mg::core::telemetry::TelemetryType::kPressure, mav.get());
     });
-    mav->on_rc_channels([weak, source](const mg::core::mavlink::RcChannelsInfo&) {
+    mav->on_rc_channels([weak, weak_source](const mg::core::mavlink::RcChannelsInfo&) {
         auto self = weak.lock(); if (!self) return;
-        const auto mav = source->shared_mavlink();
+        auto src = weak_source.lock(); if (!src) return;
+        const auto mav = src->shared_mavlink();
         self->cache_.update(mg::core::telemetry::TelemetryType::kRcChannels, mav.get());
     });
-    mav->on_servo_output([weak, source](const mg::core::mavlink::ServoOutputInfo&) {
+    mav->on_servo_output([weak, weak_source](const mg::core::mavlink::ServoOutputInfo&) {
         auto self = weak.lock(); if (!self) return;
-        const auto mav = source->shared_mavlink();
+        auto src = weak_source.lock(); if (!src) return;
+        const auto mav = src->shared_mavlink();
         self->cache_.update(mg::core::telemetry::TelemetryType::kServoOutput, mav.get());
     });
-    mav->on_home_position([weak, source](const mg::core::mavlink::HomePositionInfo&) {
+    mav->on_home_position([weak, weak_source](const mg::core::mavlink::HomePositionInfo&) {
         auto self = weak.lock(); if (!self) return;
-        const auto mav = source->shared_mavlink();
+        auto src = weak_source.lock(); if (!src) return;
+        const auto mav = src->shared_mavlink();
         self->cache_.update(mg::core::telemetry::TelemetryType::kHomePosition, mav.get());
     });
-    mav->on_highres_imu([weak, source](const mg::core::mavlink::HighresImuInfo&) {
+    mav->on_highres_imu([weak, weak_source](const mg::core::mavlink::HighresImuInfo&) {
         auto self = weak.lock(); if (!self) return;
-        const auto mav = source->shared_mavlink();
+        auto src = weak_source.lock(); if (!src) return;
+        const auto mav = src->shared_mavlink();
         self->cache_.update(mg::core::telemetry::TelemetryType::kHighresImu, mav.get());
     });
 

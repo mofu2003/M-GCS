@@ -555,7 +555,6 @@ using MagCalibrationProgressCallback = std::function<void(const MagCalibrationPr
 using MagCalibrationReportCallback = std::function<void(const MagCalibrationReportInfo&)>;
 using RcChannelsCallback     = std::function<void(const RcChannelsInfo&)>;
 using ServoOutputCallback    = std::function<void(const ServoOutputInfo&)>;
-using StatustextInfoCallback    = std::function<void(const StatustextInfo&)>;
 using GlobalPositionCallback     = std::function<void(const GlobalPositionInfo&)>;
 using HomePositionCallback       = std::function<void(const HomePositionInfo&)>;
 using StatustextCallback = std::function<void(const std::string& text, uint8_t severity)>;
@@ -685,8 +684,6 @@ public:
     /// 设置感兴趣区域位置
     bool cmd_set_roi(uint8_t target_sys, uint8_t target_comp, double lat, double lon, float alt);
 
-    /// 取消感兴趣区域
-    bool cmd_roi_stop(uint8_t target_sys, uint8_t target_comp);
 
     /// 设置航向（QGC `APMFirmwarePlugin::guidedModeChangeHeading` 用的
     /// MAV_CMD_CONDITION_YAW）：偏转角、最大偏航速率、方向、是否相对当前航向。
@@ -765,8 +762,6 @@ public:
     /// Clear all rally points on FC
     bool rally_clear(uint8_t target_system, uint8_t target_component);
 
-    /// Get the current rally point plan (thread-safe snapshot)
-    mg::core::mission::MissionPlan rally_get_plan() const;
 
     /// Get the cached rally plan and provenance atomically.
     mg::core::mission::MissionPlanSnapshot rally_get_plan_snapshot() const;
@@ -792,8 +787,6 @@ public:
     /// Clear all geofence items on FC
     bool fence_clear(uint8_t target_system, uint8_t target_component);
 
-    /// Get the current geofence plan (thread-safe snapshot)
-    mg::core::mission::MissionPlan fence_get_plan() const;
 
     /// Get the cached geofence plan and provenance atomically.
     mg::core::mission::MissionPlanSnapshot fence_get_plan_snapshot() const;
@@ -899,8 +892,6 @@ public:
                               uint8_t primary_sys, uint8_t primary_comp,
                               uint8_t secondary_sys, uint8_t secondary_comp);
 
-    /// 请求视频流信息
-    bool video_request_stream_info(uint8_t target_system, uint8_t target_component);
 
     // 各消息类型的回调注册方法
     void on_heartbeat(HeartbeatCallback cb);
@@ -928,9 +919,7 @@ public:
     void on_vibration(VibrationCallback cb);
     void on_esc_status(EscStatusCallback cb);
     void on_wind_estimate(WindEstimateCallback cb);
-    void on_distance_sensor(DistanceSensorCallback cb);
     void on_adsb_vehicle(AdsbVehicleCallback cb);
-    void on_video_stream_info(VideoStreamCallback cb);
     void on_mission_reached(MissionReachedCallback cb);
 
     // 获取最新遥测数据的线程安全快照
@@ -964,8 +953,6 @@ public:
 
     /// 获取已发现的相机（CAMERA_INFORMATION）列表
     std::vector<CameraInformationInfo> latest_cameras() const;
-    /// 按 (系统, 组件) 取单个相机的信息/设置/拍摄状态；未收到返回 nullopt
-    std::optional<CameraInformationInfo>   camera_information(uint8_t sysid, uint8_t compid) const;
     std::optional<CameraSettingsInfo>      camera_settings(uint8_t sysid, uint8_t compid) const;
     std::optional<CameraCaptureStatusInfo> camera_capture_status(uint8_t sysid, uint8_t compid) const;
     /// 某个相机组件上报的全部存储卷
@@ -973,7 +960,6 @@ public:
 
     /// 获取已发现的云台管理器（GIMBAL_MANAGER_INFORMATION）列表
     std::vector<GimbalManagerInformationInfo> latest_gimbals() const;
-    std::optional<GimbalManagerInformationInfo>   gimbal_manager_information(uint8_t sysid, uint8_t compid) const;
     std::optional<GimbalManagerStatusInfo>        gimbal_manager_status(uint8_t sysid, uint8_t compid) const;
     std::optional<GimbalDeviceInformationInfo>    gimbal_device_information(uint8_t sysid, uint8_t compid) const;
     std::optional<GimbalDeviceAttitudeStatusInfo> gimbal_device_attitude_status(uint8_t sysid, uint8_t compid) const;
@@ -1030,8 +1016,6 @@ public:
     int start_param_refresh(uint8_t target_system,
                             uint8_t target_component,
                             const std::vector<std::string>& names);
-    /// 当前批量刷新状态。
-    ParamRefreshStatus param_refresh_status() const;
     // 已处理消息总数
     uint64_t message_count() const;
     LinkQualityInfo link_quality() const;

@@ -5,7 +5,6 @@
 #include "core/telemetry/flight_message_log.h"
 #include "core/platform/platform_mutex.h"
 #include "core/sensor/sensor_id_decoder.h"
-#include "core/settings/flight_log_writer.h"
 #include "core/settings/flight_logging_service.h"
 #include "core/settings/mavlink_log_writer.h"
 #include "core/telemetry/telemetry_ring_buffer.h"
@@ -46,11 +45,6 @@ struct VehicleInfo {
     uint32_t baud_rate = 0;
     VehicleState state = VehicleState::Disconnected;
 
-    std::string imu_sensor;
-    std::string mag_sensor;
-    std::string baro_sensor;
-    std::string gyro_sensor;
-    std::string airspeed_sensor;
     std::string serial_port;
     uint32_t serial_baud = 0;
 };
@@ -107,7 +101,7 @@ public:
 
     void wire_telemetry_callbacks();
     void wire_telemetry_callbacks_for(
-        mg::core::transport::ConnectionManager* source,
+        const std::shared_ptr<mg::core::transport::ConnectionManager>& source,
         int route_id);
     void set_identity(uint8_t sysid, uint8_t compid, const std::string& fw_type, const std::string& v_type);
 
@@ -115,7 +109,6 @@ public:
     int vehicle_id() const { return info_.vehicle_id; }
     VehicleState state() const { return state_.load(); }
     const VehicleInfo& info() const { return info_; }
-    uint32_t flight_time_s() const { return flight_time_s_.load(); }
 
     using EventCallback = std::function<void(int, const std::string&)>;
     void set_event_callback(EventCallback cb) {
@@ -267,8 +260,6 @@ private:
     /// 每个 IMU 实例一份独立缓冲，互不共用容量。
     std::array<mg::core::telemetry::WaveformBuffer, kMaxImuInstances> waveforms_;
     std::array<SensorInstanceActivity, kMaxImuInstances> instance_activity_;
-    std::atomic<uint32_t> flight_time_s_{0};
-    std::atomic<int64_t> last_armed_timestamp_ms_{0};
     std::atomic<bool> needs_reidentify_{false};
     std::atomic<bool> requested_firmware_version_{false};
 };

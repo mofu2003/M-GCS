@@ -746,11 +746,11 @@ static void test_interpret_ack() {
 // 策略层结果语义：ACK 只确认受理，STATUSTEXT 必须整句匹配完成短语
 // ================================================================
 
-/// 旧实现用 "success"/"complete" 子串判定完成，飞控报的
+/// 旧实现各写各的文本判定：gyro/baro/accel 用裸子串（飞控报的
 /// "Gyro calibration unsuccessful" / "Barometer calibration incomplete" 都会命中
-/// 成功分支；同时在 MAV_RESULT_ACCEPTED 时直接判 Success，与同目录
-/// radio_calibration.cc:84-88、compass_calibration.cc:187-190 的"ACK 只确认受理"
-/// 自相矛盾。这里把三条策略的语义钉住。
+/// 成功分支），compass 先判成功再判失败且失败词表更窄，radio 既用裸子串话题词又最宽。
+/// 现在五种策略共用 statustext_match.h 的两条谓词。这里把语义钉住：
+/// 失败词必须先判（"unsuccessful" 含 "successful"），完成必须是整句。
 static void test_calibration_strategy_result_semantics() {
     fprintf(stderr, "\n[Group] Calibration strategy result semantics\n");
 
@@ -804,6 +804,49 @@ static void test_calibration_strategy_result_semantics() {
                                    CalibrationStage::Calibrating);
         CHECK(r.new_stage == CalibrationStage::WaitingOrientation,
               "accel orientation prompt still moves to waiting orientation");
+    }
+
+    {
+        // 罗盘：失败必须先判。"Compass calibration unsuccessful" 含 "successful"，
+        // 旧的"先成功后失败 + 窄失败词表"两个分支都不命中，校准会一直挂着。
+        CompassCalibration compass;
+        CHECK(compass.interpret_ack(0, 0, CalibrationStage::Calibrating) ==
+                  CalibrationStage::Calibrating,
+              "compass ACK accepted only confirms the command was accepted");
+        StatusParseResult r = compass.parse_statustext(
+            "Compass calibration unsuccessful", 6, CalibrationStage::Calibrating);
+        CHECK(r.is_calibration_text, "compass 'unsuccessful' is calibration text");
+        CHECK(r.new_stage == CalibrationStage::Failed,
+              "compass 'calibration unsuccessful' is not read as success");
+        r = compass.parse_statustext("Compass calibration incomplete", 6,
+                                     CalibrationStage::Calibrating);
+        CHECK(r.new_stage == CalibrationStage::Failed,
+              "compass 'calibration incomplete' is not read as success");
+        r = compass.parse_statustext("Compass calibrated", 6,
+                                     CalibrationStage::Calibrating);
+        CHECK(r.new_stage == CalibrationStage::Success,
+              "compass 'Compass calibrated' still means success");
+    }
+
+    {
+        // 遥控：旧的裸子串（"success"/"complete"）会把飞控报的失败读成成功。
+        RadioCalibration radio;
+        CHECK(radio.interpret_ack(0, 0, CalibrationStage::Calibrating) ==
+                  CalibrationStage::Calibrating,
+              "radio ACK accepted only confirms the command was accepted");
+        StatusParseResult r = radio.parse_statustext(
+            "RC calibration unsuccessful", 6, CalibrationStage::Calibrating);
+        CHECK(r.is_calibration_text, "radio 'unsuccessful' is calibration text");
+        CHECK(r.new_stage == CalibrationStage::Failed,
+              "radio 'calibration unsuccessful' is not read as success");
+        r = radio.parse_statustext("Radio calibration incomplete", 6,
+                                   CalibrationStage::Calibrating);
+        CHECK(r.new_stage == CalibrationStage::Failed,
+              "radio 'calibration incomplete' is not read as success");
+        r = radio.parse_statustext("RC calibration complete", 6,
+                                   CalibrationStage::Calibrating);
+        CHECK(r.new_stage == CalibrationStage::Success,
+              "radio completion text still means success");
     }
 }
 

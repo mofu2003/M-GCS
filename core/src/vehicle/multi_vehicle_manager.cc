@@ -30,8 +30,6 @@ uint64_t MultiVehicleManager::now_ms() const {
             std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
-void MultiVehicleManager::init() { MGC_LOG_INFO("[MultiVehicle] Manager initialized"); }
-
 Vehicle* MultiVehicleManager::open_vehicle(const mg::core::transport::LinkConfig& config) {
     std::shared_ptr<Vehicle> vehicle;
     int vid = -1;
@@ -597,10 +595,6 @@ bool MultiVehicleManager::close_link(int link_id, bool suppress_rediscovery) {
 
     for (const auto& [vehicle, system_id] : vehicles_to_remove) {
         (void)system_id;
-        VehicleRemovedCallback removed_cb;
-        std::shared_ptr<Vehicle> replacement;
-        bool active_changed = false;
-        ActiveVehicleChangedCallback changed_cb;
         bool found = false;
         {
             mg::core::platform::LockGuard lk(mtx_);
@@ -611,27 +605,13 @@ bool MultiVehicleManager::close_link(int link_id, bool suppress_rediscovery) {
                     break;
                 }
             }
-            if (found) {
-                removed_cb = on_vehicle_removed_;
-                if (active_vehicle_id_.load() == vehicle->vehicle_id()) {
-                    if (!vehicles_.empty()) {
-                        replacement = vehicles_.front();
-                        active_vehicle_id_.store(replacement->vehicle_id());
-                    } else {
-                        active_vehicle_id_.store(-1);
-                    }
-                    active_changed = true;
-                    changed_cb = on_active_vehicle_changed_;
-                }
+            if (found && active_vehicle_id_.load() == vehicle->vehicle_id()) {
+                active_vehicle_id_.store(vehicles_.empty()
+                                             ? -1
+                                             : vehicles_.front()->vehicle_id());
             }
         }
         vehicle->disconnect();
-        if (found) {
-            if (removed_cb) removed_cb(vehicle->vehicle_id());
-            if (active_changed && changed_cb) {
-                changed_cb(replacement ? replacement.get() : nullptr);
-            }
-        }
     }
     return true;
 }
@@ -681,10 +661,7 @@ bool MultiVehicleManager::close_route(int route_id, bool suppress_rediscovery) {
     const bool remove_vehicle = vehicle && vehicle->connection_count() == 0;
     if (close_session) session->close();
 
-    VehicleRemovedCallback removed_cb;
-    ActiveVehicleChangedCallback changed_cb;
     std::shared_ptr<Vehicle> replacement;
-    bool active_changed = false;
     bool found = false;
     if (remove_vehicle) {
         mg::core::platform::LockGuard lk(mtx_);
@@ -697,8 +674,6 @@ bool MultiVehicleManager::close_route(int route_id, bool suppress_rediscovery) {
         }
         if (found) {
             vehicle_sessions_.erase(vehicle_id);
-            removed_cb = on_vehicle_removed_;
-            changed_cb = on_active_vehicle_changed_;
             if (active_vehicle_id_.load() == vehicle_id) {
                 if (!vehicles_.empty()) {
                     replacement = vehicles_.front();
@@ -706,7 +681,6 @@ bool MultiVehicleManager::close_route(int route_id, bool suppress_rediscovery) {
                 } else {
                     active_vehicle_id_.store(-1);
                 }
-                active_changed = true;
             }
         }
     } else if (vehicle && close_session) {
@@ -744,10 +718,6 @@ bool MultiVehicleManager::close_route(int route_id, bool suppress_rediscovery) {
     }
 
     if (remove_vehicle && vehicle) vehicle->disconnect();
-    if (found && removed_cb) removed_cb(vehicle_id);
-    if (active_changed && changed_cb) {
-        changed_cb(replacement ? replacement.get() : nullptr);
-    }
     return true;
 }
 
@@ -761,9 +731,6 @@ bool MultiVehicleManager::close_vehicle(int vehicle_id,
     std::string session_endpoint;
     bool close_session = false;
     uint8_t ignored_system_id = 0;
-    VehicleRemovedCallback removed_cb;
-    ActiveVehicleChangedCallback changed_cb;
-    bool active_changed = false;
 
     {
         mg::core::platform::LockGuard lifecycle_lock(shared_lifecycle_mtx_);
@@ -776,8 +743,6 @@ bool MultiVehicleManager::close_vehicle(int vehicle_id,
                 ignored_system_id = vehicle_to_close->system_id();
                 vehicles_.erase(it);
                 MGC_LOG_INFO("[MultiVehicle] Closed vehicle %d", vehicle_id);
-                removed_cb = on_vehicle_removed_;
-                changed_cb = on_active_vehicle_changed_;
                 if (active_vehicle_id_.load() == vehicle_id) {
                     if (!vehicles_.empty()) {
                         replacement_active = vehicles_.front();
@@ -785,7 +750,6 @@ bool MultiVehicleManager::close_vehicle(int vehicle_id,
                     } else {
                         active_vehicle_id_.store(-1);
                     }
-                    active_changed = true;
                 }
                 break;
             }
@@ -876,10 +840,6 @@ bool MultiVehicleManager::close_vehicle(int vehicle_id,
         }
     }
 
-    if (removed_cb) removed_cb(vehicle_id);
-    if (active_changed && changed_cb) {
-        changed_cb(replacement_active ? replacement_active.get() : nullptr);
-    }
     return vehicle_to_close != nullptr;
 }
 
@@ -943,7 +903,6 @@ void MultiVehicleManager::add_for_test(std::shared_ptr<Vehicle> vehicle) {
 
 void MultiVehicleManager::set_active_vehicle(int vehicle_id) {
     std::shared_ptr<Vehicle> selected;
-    ActiveVehicleChangedCallback cb;
     {
         mg::core::platform::LockGuard lk(mtx_);
         for (auto& ve : vehicles_) {
@@ -951,11 +910,9 @@ void MultiVehicleManager::set_active_vehicle(int vehicle_id) {
         }
         if (selected) {
             active_vehicle_id_.store(vehicle_id);
-            cb = on_active_vehicle_changed_;
         }
     }
-    if (selected && cb) {
-        cb(selected.get());
+    if (selected) {
         MGC_LOG_INFO("[MultiVehicle] Active vehicle set to %d (sysid=%d)",
                      vehicle_id, selected->system_id());
     }
@@ -1069,13 +1026,4 @@ void MultiVehicleManager::set_vehicle_added_callback(VehicleAddedCallback cb) {
     mg::core::platform::LockGuard lk(mtx_);
     on_vehicle_added_ = std::move(cb);
 }
-void MultiVehicleManager::set_vehicle_removed_callback(VehicleRemovedCallback cb) {
-    mg::core::platform::LockGuard lk(mtx_);
-    on_vehicle_removed_ = std::move(cb);
-}
-void MultiVehicleManager::set_active_vehicle_changed_callback(ActiveVehicleChangedCallback cb) {
-    mg::core::platform::LockGuard lk(mtx_);
-    on_active_vehicle_changed_ = std::move(cb);
-}
-
 } // namespace mg::core::vehicle

@@ -201,7 +201,6 @@ private:
 
     // 文件下载结果
     std::vector<uint8_t> file_data_;
-    std::string download_path_;
 
     // 内部方法
     bool send_ftp_request(uint8_t target_sys, uint8_t target_comp,

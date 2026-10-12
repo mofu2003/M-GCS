@@ -22,7 +22,6 @@ struct LinkConfig {
     std::string endpoint;
     uint32_t baud_rate = 115200;
     bool auto_connect = false;
-    bool high_latency = false;
 
     // 从 URI 字符串解析配置
     static LinkConfig from_uri(const std::string& uri);
