@@ -6,14 +6,13 @@
 
 #include <cstdio>
 #include <cstring>
+#include "mgcs_test_check.h"
 
-static int g_pass = 0;
-static int g_fail = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
-#define CHECK(msg, cond) do { \
-    if (cond) { g_pass++; fprintf(stderr, "  [PASS] %s\n", msg); } \
-    else { g_fail++; fprintf(stderr, "  [FAIL] %s\n", msg); } \
-} while (0)
 
 struct TestEnv : MockVehicleTestEnv {
     explicit TestEnv(MockFlightController::Config cfg = {})
@@ -79,41 +78,34 @@ static void test_param_value_write_validation() {
     // PARAM_VALUE replies.
     env.mock->set_param_drop(1);
     char* set_res = mg_params_set(env.core, "WPNAV_SPEED", 10.0f, 0);
-    CHECK("controlled write request is sent",
-          set_res != nullptr && strstr(set_res, "true") != nullptr);
+    CHECK(set_res != nullptr && strstr(set_res, "true") != nullptr, "controlled write request is sent");
     if (set_res) mg_free_string(set_res);
     env.tick(50);
 
     inject_param_value(env, 2, 1, "WPNAV_SPEED", 10.0f,
                        MAV_PARAM_TYPE_REAL32, 36, 0);
-    CHECK("reply from another system does not confirm write",
-          diagnostics_has_state(env, "\"state\":\"pending\""));
+    CHECK(diagnostics_has_state(env, "\"state\":\"pending\""), "reply from another system does not confirm write");
 
     inject_param_value(env, 1, 2, "WPNAV_SPEED", 10.0f,
                        MAV_PARAM_TYPE_REAL32, 36, 0);
-    CHECK("reply from another component does not confirm write",
-          diagnostics_has_state(env, "\"state\":\"pending\""));
+    CHECK(diagnostics_has_state(env, "\"state\":\"pending\""), "reply from another component does not confirm write");
 
     inject_param_value(env, 1, 1, "WPNAV_SPEED", 10.0f,
                        MAV_PARAM_TYPE_INT32, 36, 0);
-    CHECK("reply with a different parameter type does not confirm write",
-          diagnostics_has_state(env, "\"state\":\"pending\""));
+    CHECK(diagnostics_has_state(env, "\"state\":\"pending\""), "reply with a different parameter type does not confirm write");
 
     inject_param_value(env, 1, 1, "WPNAV_SPEED", 9.0f,
                        MAV_PARAM_TYPE_REAL32, 36, 0);
-    CHECK("same-name reply with wrong value does not confirm write",
-          diagnostics_has_state(env, "\"state\":\"pending\""));
+    CHECK(diagnostics_has_state(env, "\"state\":\"pending\""), "same-name reply with wrong value does not confirm write");
 
     char* cached = mg_params_get_by_name(env.core, "WPNAV_SPEED");
-    CHECK("mismatched replies do not update the active cache",
-          cached != nullptr && parse_param_value(cached) > 4.9f &&
-              parse_param_value(cached) < 5.1f);
+    CHECK(cached != nullptr && parse_param_value(cached) > 4.9f &&
+              parse_param_value(cached) < 5.1f, "mismatched replies do not update the active cache");
     if (cached) mg_free_string(cached);
 
     inject_param_value(env, 1, 1, "WPNAV_SPEED", 10.0f,
                        MAV_PARAM_TYPE_REAL32, 36, 0);
-    CHECK("matching source, component, type and value confirms write",
-          diagnostics_has_state(env, "\"state\":\"confirmed\""));
+    CHECK(diagnostics_has_state(env, "\"state\":\"confirmed\""), "matching source, component, type and value confirms write");
 
     // A delayed reply from an older request generation must not confirm a
     // newer write to the same parameter.
@@ -122,20 +114,17 @@ static void test_param_value_write_validation() {
     if (first) mg_free_string(first);
     env.tick(50);
     char* second = mg_params_set(env.core, "WPNAV_SPEED", 12.0f, 0);
-    CHECK("replacement write request is sent",
-          second != nullptr && strstr(second, "true") != nullptr);
+    CHECK(second != nullptr && strstr(second, "true") != nullptr, "replacement write request is sent");
     if (second) mg_free_string(second);
     env.tick(50);
 
     inject_param_value(env, 1, 1, "WPNAV_SPEED", 11.0f,
                        MAV_PARAM_TYPE_REAL32, 36, 0);
-    CHECK("stale-generation value does not confirm replacement write",
-          diagnostics_has_state(env, "\"state\":\"pending\""));
+    CHECK(diagnostics_has_state(env, "\"state\":\"pending\""), "stale-generation value does not confirm replacement write");
 
     inject_param_value(env, 1, 1, "WPNAV_SPEED", 12.0f,
                        MAV_PARAM_TYPE_REAL32, 36, 0);
-    CHECK("current generation value confirms replacement write",
-          diagnostics_has_state(env, "\"state\":\"confirmed\""));
+    CHECK(diagnostics_has_state(env, "\"state\":\"confirmed\""), "current generation value confirms replacement write");
 }
 
 static void test_write_isolated_by_new_download() {
@@ -147,32 +136,26 @@ static void test_write_isolated_by_new_download() {
     // Hold the echo so the write is still pending when the download restarts.
     env.mock->set_param_drop(1);
     char* set_res = mg_params_set(env.core, "WPNAV_SPEED", 10.0f, 0);
-    CHECK("pending write request is sent",
-          set_res != nullptr && strstr(set_res, "true") != nullptr);
+    CHECK(set_res != nullptr && strstr(set_res, "true") != nullptr, "pending write request is sent");
     if (set_res) mg_free_string(set_res);
     env.tick(50);
-    CHECK("write is pending before the download restarts",
-          diagnostics_has_state(env, "\"state\":\"pending\""));
+    CHECK(diagnostics_has_state(env, "\"state\":\"pending\""), "write is pending before the download restarts");
 
     // A reconnect or forced refresh begins a new download. The in-flight write
     // must be failed against the old session instead of crossing into the new
     // one, where a same-name PARAM_VALUE could otherwise confirm it.
     char* restart = mg_params_request_all(env.core);
-    CHECK("new download request is sent after the link restarts",
-          restart != nullptr && strstr(restart, "\"success\":true") != nullptr);
+    CHECK(restart != nullptr && strstr(restart, "\"success\":true") != nullptr, "new download request is sent after the link restarts");
     if (restart) mg_free_string(restart);
     env.tick(50);
-    CHECK("in-flight write is failed by the new download",
-          diagnostics_has_state(
-              env, "parameter write cancelled by a new parameter download"));
-    CHECK("cancelled write is no longer pending",
-          !diagnostics_has_state(env, "\"state\":\"pending\""));
+    CHECK(diagnostics_has_state(
+              env, "parameter write cancelled by a new parameter download"), "in-flight write is failed by the new download");
+    CHECK(!diagnostics_has_state(env, "\"state\":\"pending\""), "cancelled write is no longer pending");
 
     // A late echo from the old request must not resurrect a confirmed state.
     inject_param_value(env, 1, 1, "WPNAV_SPEED", 10.0f,
                        MAV_PARAM_TYPE_REAL32, 36, 0);
-    CHECK("late echo after restart does not confirm the cancelled write",
-          !diagnostics_has_state(env, "\"state\":\"confirmed\""));
+    CHECK(!diagnostics_has_state(env, "\"state\":\"confirmed\""), "late echo after restart does not confirm the cancelled write");
 }
 
 static void test_download_index_completion_and_source_filter() {
@@ -182,23 +165,20 @@ static void test_download_index_completion_and_source_filter() {
     env.mock->set_param_list_no_response(true);
 
     char* request = mg_params_request_all(env.core);
-    CHECK("indexed download request is sent",
-          request != nullptr && strstr(request, "\"success\":true") != nullptr);
+    CHECK(request != nullptr && strstr(request, "\"success\":true") != nullptr, "indexed download request is sent");
     if (request) mg_free_string(request);
     env.tick(50);
 
     inject_param_value(env, 2, 1, "WRONG_SYSTEM", 1.0f,
                        MAV_PARAM_TYPE_REAL32, 3, 0);
     char* wrong = mg_params_get_by_name(env.core, "WRONG_SYSTEM");
-    CHECK("other system parameter is not cached by active download",
-          wrong != nullptr && strstr(wrong, "\"found\":false") != nullptr);
+    CHECK(wrong != nullptr && strstr(wrong, "\"found\":false") != nullptr, "other system parameter is not cached by active download");
     if (wrong) mg_free_string(wrong);
 
     inject_param_value(env, 1, 2, "WRONG_COMPONENT", 1.0f,
                        MAV_PARAM_TYPE_REAL32, 3, 0);
     char* progress = mg_params_get_progress(env.core);
-    CHECK("other component parameter does not advance download",
-          parse_progress_received(progress) == 0 && parse_progress_total(progress) == 0);
+    CHECK(parse_progress_received(progress) == 0 && parse_progress_total(progress) == 0, "other component parameter does not advance download");
     if (progress) mg_free_string(progress);
 
     inject_param_value(env, 1, 1, "IDX0", 1.0f,
@@ -209,16 +189,13 @@ static void test_download_index_completion_and_source_filter() {
                        MAV_PARAM_TYPE_REAL32, 3, 2);
 
     progress = mg_params_get_progress(env.core);
-    CHECK("duplicate index does not complete a missing-index download",
-          parse_progress_received(progress) == 2 && parse_progress_total(progress) == 3);
+    CHECK(parse_progress_received(progress) == 2 && parse_progress_total(progress) == 3, "duplicate index does not complete a missing-index download");
     if (progress) mg_free_string(progress);
-    CHECK("download remains active until index 1 arrives",
-          env.mav->param_download_active());
+    CHECK(env.mav->param_download_active(), "download remains active until index 1 arrives");
 
     inject_param_value(env, 1, 1, "IDX1", 2.0f,
                        MAV_PARAM_TYPE_REAL32, 3, 1);
-    CHECK("download completes after all 0..count-1 indices arrive",
-          !env.mav->param_download_active() && !env.mav->param_download_failed());
+    CHECK(!env.mav->param_download_active() && !env.mav->param_download_failed(), "download completes after all 0..count-1 indices arrive");
 }
 
 static void test_refresh_source_filter() {
@@ -229,30 +206,26 @@ static void test_refresh_source_filter() {
 
     env.mock->set_param_drop(1);
     char* request = mg_params_refresh(env.core, "[\"WPNAV_SPEED\"]");
-    CHECK("refresh request is sent",
-          request != nullptr && strstr(request, "\"success\":true") != nullptr);
+    CHECK(request != nullptr && strstr(request, "\"success\":true") != nullptr, "refresh request is sent");
     if (request) mg_free_string(request);
     env.tick(50);
 
     char* status = mg_params_get_refresh_status(env.core);
-    CHECK("refresh waits for its target reply",
-          status != nullptr && strstr(status, "\"active\":true") != nullptr &&
-              strstr(status, "\"pending\":1") != nullptr);
+    CHECK(status != nullptr && strstr(status, "\"active\":true") != nullptr &&
+              strstr(status, "\"pending\":1") != nullptr, "refresh waits for its target reply");
     if (status) mg_free_string(status);
 
     inject_param_value(env, 2, 1, "WPNAV_SPEED", 5.0f,
                        MAV_PARAM_TYPE_REAL32, 36, 0);
     status = mg_params_get_refresh_status(env.core);
-    CHECK("reply from another system does not complete refresh",
-          status != nullptr && strstr(status, "\"active\":true") != nullptr);
+    CHECK(status != nullptr && strstr(status, "\"active\":true") != nullptr, "reply from another system does not complete refresh");
     if (status) mg_free_string(status);
 
     inject_param_value(env, 1, 1, "WPNAV_SPEED", 5.0f,
                        MAV_PARAM_TYPE_REAL32, 36, 0);
     status = mg_params_get_refresh_status(env.core);
-    CHECK("matching target reply completes refresh",
-          status != nullptr && strstr(status, "\"active\":false") != nullptr &&
-              strstr(status, "\"completed\":1") != nullptr);
+    CHECK(status != nullptr && strstr(status, "\"active\":false") != nullptr &&
+              strstr(status, "\"completed\":1") != nullptr, "matching target reply completes refresh");
     if (status) mg_free_string(status);
 }
 
@@ -263,7 +236,7 @@ static void test_full_download() {
     env.tick(1100);
 
     char* res = mg_params_request_all(env.core);
-    CHECK("request_all returns success", res != nullptr && strstr(res, "true") != nullptr);
+    CHECK(res != nullptr && strstr(res, "true") != nullptr, "request_all returns success");
     mg_free_string(res);
 
     int received = 0;
@@ -277,9 +250,9 @@ static void test_full_download() {
         if (total > 0 && received >= total) break;
     }
 
-    CHECK("total > 0", total > 0);
-    CHECK("total >= 25", total >= 25);
-    CHECK("received == total (download complete)", total > 0 && received >= total);
+    CHECK(total > 0, "total > 0");
+    CHECK(total >= 25, "total >= 25");
+    CHECK(total > 0 && received >= total, "received == total (download complete)");
 
     fprintf(stderr, "  (params: received=%d total=%d)\n", received, total);
 }
@@ -290,25 +263,20 @@ static void test_cancel_download() {
     env.tick(1100);
 
     char* res = mg_params_request_all(env.core);
-    CHECK("cancel test request starts",
-          res != nullptr && strstr(res, "\"success\":true") != nullptr);
+    CHECK(res != nullptr && strstr(res, "\"success\":true") != nullptr, "cancel test request starts");
     if (res) mg_free_string(res);
 
     char* cancel = mg_operations_cancel(env.core, "params");
-    CHECK("active parameter download can be cancelled through operations",
-          cancel != nullptr && strstr(cancel, "\"canceled\":true") != nullptr);
+    CHECK(cancel != nullptr && strstr(cancel, "\"canceled\":true") != nullptr, "active parameter download can be cancelled through operations");
     if (cancel) mg_free_string(cancel);
 
     char* snapshot = mg_operations_get_snapshot(env.core);
-    CHECK("parameter operation reports cancelled terminal state",
-          snapshot != nullptr && strstr(snapshot, "\"state\":\"cancelled\"") != nullptr);
-    CHECK("parameter cancellation keeps its reason",
-          snapshot != nullptr && strstr(snapshot, "parameter download cancelled") != nullptr);
+    CHECK(snapshot != nullptr && strstr(snapshot, "\"state\":\"cancelled\"") != nullptr, "parameter operation reports cancelled terminal state");
+    CHECK(snapshot != nullptr && strstr(snapshot, "parameter download cancelled") != nullptr, "parameter cancellation keeps its reason");
     if (snapshot) mg_free_string(snapshot);
 
     res = mg_params_request_all(env.core);
-    CHECK("parameter download can restart after cancellation",
-          res != nullptr && strstr(res, "\"success\":true") != nullptr);
+    CHECK(res != nullptr && strstr(res, "\"success\":true") != nullptr, "parameter download can restart after cancellation");
     if (res) mg_free_string(res);
 
     int received = 0;
@@ -321,7 +289,7 @@ static void test_cancel_download() {
         if (progress) mg_free_string(progress);
         if (total > 0 && received >= total) break;
     }
-    CHECK("parameter download completes after restart", total > 0 && received >= total);
+    CHECK(total > 0 && received >= total, "parameter download completes after restart");
 }
 
 static void test_param_get() {
@@ -342,20 +310,20 @@ static void test_param_get() {
     }
 
     char* json = mg_params_get_by_name(env.core, "WPNAV_SPEED");
-    CHECK("get WPNAV_SPEED not null", json != nullptr);
-    CHECK("get WPNAV_SPEED found", strstr(json, "\"found\":true") != nullptr);
+    CHECK(json != nullptr, "get WPNAV_SPEED not null");
+    CHECK(strstr(json, "\"found\":true") != nullptr, "get WPNAV_SPEED found");
 
     const char* vp = strstr(json, "\"value\":");
-    CHECK("value field present", vp != nullptr);
+    CHECK(vp != nullptr, "value field present");
     if (vp) {
         const float val = static_cast<float>(atof(vp + 8));
-        CHECK("WPNAV_SPEED == 5.0", val > 4.9f && val < 5.1f);
+        CHECK(val > 4.9f && val < 5.1f, "WPNAV_SPEED == 5.0");
         fprintf(stderr, "  (WPNAV_SPEED = %g)\n", val);
     }
     mg_free_string(json);
 
     char* notfound = mg_params_get_by_name(env.core, "NONEXISTENT_PARAM");
-    CHECK("not found param returns found:false", strstr(notfound, "\"found\":false") != nullptr);
+    CHECK(strstr(notfound, "\"found\":false") != nullptr, "not found param returns found:false");
     mg_free_string(notfound);
 }
 
@@ -379,7 +347,7 @@ static void test_param_set() {
     env.mock->received_params_set.clear();
 
     char* set_res = mg_params_set(env.core, "WPNAV_SPEED", 10.0f, 0);
-    CHECK("set returns success", set_res != nullptr && strstr(set_res, "true") != nullptr);
+    CHECK(set_res != nullptr && strstr(set_res, "true") != nullptr, "set returns success");
     mg_free_string(set_res);
 
     env.tick(100);
@@ -391,24 +359,21 @@ static void test_param_set() {
             break;
         }
     }
-    CHECK("mock received WPNAV_SPEED set", found);
+    CHECK(found, "mock received WPNAV_SPEED set");
 
     char* json = mg_params_get_by_name(env.core, "WPNAV_SPEED");
     const char* vp = strstr(json, "\"value\":");
     if (vp) {
         const float val = static_cast<float>(atof(vp + 8));
-        CHECK("WPNAV_SPEED updated to 10.0", val > 9.9f && val < 10.1f);
+        CHECK(val > 9.9f && val < 10.1f, "WPNAV_SPEED updated to 10.0");
         fprintf(stderr, "  (WPNAV_SPEED = %g after set)\n", val);
     }
     mg_free_string(json);
 
     char* diagnostics = mg_system_get_diagnostics(env.core);
-    CHECK("system diagnostics exposes parameter_history",
-          diagnostics != nullptr && strstr(diagnostics, "\"parameter_history\"") != nullptr);
-    CHECK("parameter history records the requested parameter",
-          diagnostics != nullptr && strstr(diagnostics, "\"name\":\"WPNAV_SPEED\"") != nullptr);
-    CHECK("parameter history marks a readback as confirmed",
-          diagnostics != nullptr && strstr(diagnostics, "\"state\":\"confirmed\"") != nullptr);
+    CHECK(diagnostics != nullptr && strstr(diagnostics, "\"parameter_history\"") != nullptr, "system diagnostics exposes parameter_history");
+    CHECK(diagnostics != nullptr && strstr(diagnostics, "\"name\":\"WPNAV_SPEED\"") != nullptr, "parameter history records the requested parameter");
+    CHECK(diagnostics != nullptr && strstr(diagnostics, "\"state\":\"confirmed\"") != nullptr, "parameter history marks a readback as confirmed");
     if (diagnostics) mg_free_string(diagnostics);
 }
 
@@ -420,25 +385,20 @@ static void test_config_write_rejects_read_only() {
     env.mock->received_params_set.clear();
 
     char* single = mg_config_write_param(env.core, "BARO1_DEVID", 1.0f);
-    CHECK("single read-only write is rejected",
-          single != nullptr && strstr(single, "read-only") != nullptr);
-    CHECK("single read-only write sends no PARAM_SET",
-          env.mock->received_params_set.empty());
+    CHECK(single != nullptr && strstr(single, "read-only") != nullptr, "single read-only write is rejected");
+    CHECK(env.mock->received_params_set.empty(), "single read-only write sends no PARAM_SET");
     if (single) mg_free_string(single);
 
     const char* batch =
         "[{\"name\":\"WPNAV_SPEED\",\"value\":8.0},"
         "{\"name\":\"BARO1_DEVID\",\"value\":1.0}]";
     char* batch_result = mg_config_write_params(env.core, batch);
-    CHECK("batch write reports one valid and one failed item",
-          batch_result != nullptr && strstr(batch_result, "\"written\":1") != nullptr &&
-              strstr(batch_result, "\"failed\":1") != nullptr);
-    CHECK("batch write exposes metadata failure",
-          batch_result != nullptr && strstr(batch_result, "read-only") != nullptr);
+    CHECK(batch_result != nullptr && strstr(batch_result, "\"written\":1") != nullptr &&
+              strstr(batch_result, "\"failed\":1") != nullptr, "batch write reports one valid and one failed item");
+    CHECK(batch_result != nullptr && strstr(batch_result, "read-only") != nullptr, "batch write exposes metadata failure");
     env.tick(1);
-    CHECK("batch write only sends the valid PARAM_SET",
-          env.mock->received_params_set.size() == 1 &&
-              env.mock->received_params_set.front() == "WPNAV_SPEED");
+    CHECK(env.mock->received_params_set.size() == 1 &&
+              env.mock->received_params_set.front() == "WPNAV_SPEED", "batch write only sends the valid PARAM_SET");
     if (batch_result) mg_free_string(batch_result);
 }
 
@@ -456,19 +416,14 @@ static void test_bulk_param_refresh() {
         env.core,
         "[\"WPNAV_SPEED\",\"WPNAV_*\",\"WPNAV_SPEED\",\"DOES_NOT_EXIST\"]");
     env.tick(1);
-    CHECK("bulk refresh resolves exact names and prefixes",
-          result != nullptr && strstr(result, "\"resolved\":3") != nullptr);
-    CHECK("bulk refresh reports unknown names",
-          result != nullptr && strstr(result, "\"DOES_NOT_EXIST\"") != nullptr);
-    CHECK("bulk refresh reports duplicate requests",
-          result != nullptr && strstr(result, "\"duplicates\":2") != nullptr);
-    CHECK("bulk refresh sends each resolved name once",
-          env.mock->received_param_reads.size() == 3);
+    CHECK(result != nullptr && strstr(result, "\"resolved\":3") != nullptr, "bulk refresh resolves exact names and prefixes");
+    CHECK(result != nullptr && strstr(result, "\"DOES_NOT_EXIST\"") != nullptr, "bulk refresh reports unknown names");
+    CHECK(result != nullptr && strstr(result, "\"duplicates\":2") != nullptr, "bulk refresh reports duplicate requests");
+    CHECK(env.mock->received_param_reads.size() == 3, "bulk refresh sends each resolved name once");
     if (result) mg_free_string(result);
     char* status = mg_params_get_refresh_status(env.core);
-    CHECK("bulk refresh status completes after PARAM_VALUE replies",
-          status != nullptr && strstr(status, "\"active\":false") != nullptr &&
-              strstr(status, "\"completed\":3") != nullptr);
+    CHECK(status != nullptr && strstr(status, "\"active\":false") != nullptr &&
+              strstr(status, "\"completed\":3") != nullptr, "bulk refresh status completes after PARAM_VALUE replies");
     if (status) mg_free_string(status);
 }
 
@@ -483,30 +438,23 @@ static void test_unclassified_parameter_group() {
     if (!load_all_params(env)) return;
 
     char* groups = mg_config_get_groups(env.core);
-    CHECK("unclassified parameter group is exposed",
-          groups != nullptr && strstr(groups, "\"name\":\"other\"") != nullptr);
+    CHECK(groups != nullptr && strstr(groups, "\"name\":\"other\"") != nullptr, "unclassified parameter group is exposed");
     if (groups) mg_free_string(groups);
 
     char* descriptor = mg_config_get_group_descriptor(env.core, "other");
-    CHECK("unclassified descriptor keeps raw parameter name",
-          descriptor != nullptr && strstr(descriptor, "\"param_name\":\"MGC_UNKNOWN\"") != nullptr);
-    CHECK("unclassified descriptor marks missing metadata",
-          descriptor != nullptr && strstr(descriptor, "\"found\":false") != nullptr);
-    CHECK("unclassified descriptor infers MAVLink type",
-          descriptor != nullptr && strstr(descriptor, "\"type\":\"float\"") != nullptr);
+    CHECK(descriptor != nullptr && strstr(descriptor, "\"param_name\":\"MGC_UNKNOWN\"") != nullptr, "unclassified descriptor keeps raw parameter name");
+    CHECK(descriptor != nullptr && strstr(descriptor, "\"found\":false") != nullptr, "unclassified descriptor marks missing metadata");
+    CHECK(descriptor != nullptr && strstr(descriptor, "\"type\":\"float\"") != nullptr, "unclassified descriptor infers MAVLink type");
     if (descriptor) mg_free_string(descriptor);
 
     char* values = mg_config_read_group(env.core, "other");
-    CHECK("unclassified group carries live value",
-          values != nullptr && strstr(values, "\"value\":42") != nullptr);
+    CHECK(values != nullptr && strstr(values, "\"value\":42") != nullptr, "unclassified group carries live value");
     if (values) mg_free_string(values);
 
     char* coverage = mg_config_get_metadata_coverage(env.core);
-    CHECK("metadata coverage reports loaded parameters",
-          coverage != nullptr && strstr(coverage, "\"total\":36") != nullptr);
-    CHECK("metadata coverage reports fallback and missing name",
-          coverage != nullptr && strstr(coverage, "\"fallback\":1") != nullptr &&
-              strstr(coverage, "\"MGC_UNKNOWN\"") != nullptr);
+    CHECK(coverage != nullptr && strstr(coverage, "\"total\":36") != nullptr, "metadata coverage reports loaded parameters");
+    CHECK(coverage != nullptr && strstr(coverage, "\"fallback\":1") != nullptr &&
+              strstr(coverage, "\"MGC_UNKNOWN\"") != nullptr, "metadata coverage reports fallback and missing name");
     if (coverage) mg_free_string(coverage);
 }
 
@@ -522,8 +470,7 @@ static void test_metadata_profile_for_rover() {
     if (!load_all_params(env)) return;
 
     char* coverage = mg_config_get_metadata_coverage(env.core);
-    CHECK("Rover uses an explicit parameter profile",
-          coverage != nullptr && strstr(coverage, "\"profile\":\"rover\"") != nullptr);
+    CHECK(coverage != nullptr && strstr(coverage, "\"profile\":\"rover\"") != nullptr, "Rover uses an explicit parameter profile");
     if (coverage) mg_free_string(coverage);
 }
 
@@ -545,27 +492,22 @@ static void test_config_uses_ardupilot_profile_metadata() {
     }
 
     char* groups = mg_config_get_groups(env.core);
-    CHECK("copter metadata exposes BATT group", strstr(groups, "\"name\":\"BATT\"") != nullptr);
+    CHECK(strstr(groups, "\"name\":\"BATT\"") != nullptr, "copter metadata exposes BATT group");
     mg_free_string(groups);
 
     char* descriptor = mg_config_get_group_descriptor(env.core, "BATT");
-    CHECK("BATT_MONITOR official display name",
-          strstr(descriptor, "\"display_name\":\"电池监测器\"") != nullptr);
-    CHECK("BATT_MONITOR bilingual enum option",
-          strstr(descriptor, "模拟电压和电流") != nullptr &&
-          strstr(descriptor, "Analog Voltage and Current") != nullptr);
-    CHECK("BATT_MONITOR enum option keeps explicit English field",
-          strstr(descriptor,
-                 "\"english_label\":\"Analog Voltage and Current\"") != nullptr);
+    CHECK(strstr(descriptor, "\"display_name\":\"电池监测器\"") != nullptr, "BATT_MONITOR official display name");
+    CHECK(strstr(descriptor, "模拟电压和电流") != nullptr &&
+          strstr(descriptor, "Analog Voltage and Current") != nullptr, "BATT_MONITOR bilingual enum option");
+    CHECK(strstr(descriptor,
+                 "\"english_label\":\"Analog Voltage and Current\"") != nullptr, "BATT_MONITOR enum option keeps explicit English field");
     mg_free_string(descriptor);
 
     char* values = mg_config_read_group(env.core, "BATT");
-    CHECK("BATT_MONITOR bilingual live display value",
-          strstr(values, "模拟电压和电流") != nullptr &&
-          strstr(values, "Analog Voltage and Current") != nullptr);
-    CHECK("BATT_MONITOR live value exposes English field",
-          strstr(values,
-                 "\"display_value_en\":\"Analog Voltage and Current\"") != nullptr);
+    CHECK(strstr(values, "模拟电压和电流") != nullptr &&
+          strstr(values, "Analog Voltage and Current") != nullptr, "BATT_MONITOR bilingual live display value");
+    CHECK(strstr(values,
+                 "\"display_value_en\":\"Analog Voltage and Current\"") != nullptr, "BATT_MONITOR live value exposes English field");
     mg_free_string(values);
 }
 
@@ -594,11 +536,11 @@ static void test_geofence_get_uses_loaded_ardupilot_params() {
     }
 
     char* fence = mg_geofence_get_config(env.core);
-    CHECK("FENCE_ENABLE maps to enabled true", strstr(fence, "\"enabled\":true") != nullptr);
-    CHECK("FENCE_ALT_MAX maps to max_altitude 100", strstr(fence, "\"max_altitude\":100") != nullptr);
-    CHECK("FENCE_ALT_MIN maps to min_altitude -10", strstr(fence, "\"min_altitude\":-10") != nullptr);
-    CHECK("FENCE_ACTION maps to action 1", strstr(fence, "\"action\":1") != nullptr);
-    CHECK("FENCE_MARGIN maps to breach_distance 2", strstr(fence, "\"breach_distance\":2") != nullptr);
+    CHECK(strstr(fence, "\"enabled\":true") != nullptr, "FENCE_ENABLE maps to enabled true");
+    CHECK(strstr(fence, "\"max_altitude\":100") != nullptr, "FENCE_ALT_MAX maps to max_altitude 100");
+    CHECK(strstr(fence, "\"min_altitude\":-10") != nullptr, "FENCE_ALT_MIN maps to min_altitude -10");
+    CHECK(strstr(fence, "\"action\":1") != nullptr, "FENCE_ACTION maps to action 1");
+    CHECK(strstr(fence, "\"breach_distance\":2") != nullptr, "FENCE_MARGIN maps to breach_distance 2");
     mg_free_string(fence);
 }
 
@@ -626,38 +568,34 @@ static void test_change_set_requires_loaded_params() {
     const char* request = "[{\"name\":\"WPNAV_SPEED\",\"value\":6}]";
 
     char* prepared = mg_params_prepare_change_set(env.core, request);
-    CHECK("prepare rejects before params load",
-          prepared != nullptr && strstr(prepared, "\"success\":false") != nullptr);
+    CHECK(prepared != nullptr && strstr(prepared, "\"success\":false") != nullptr, "prepare rejects before params load");
     if (prepared) mg_free_string(prepared);
 
     char* committed = mg_params_commit_change_set(env.core, request);
-    CHECK("commit rejects before params load",
-          committed != nullptr && strstr(committed, "\"success\":false") != nullptr);
+    CHECK(committed != nullptr && strstr(committed, "\"success\":false") != nullptr, "commit rejects before params load");
     if (committed) mg_free_string(committed);
 }
 
 static void test_change_set_rejects_malformed_json() {
     fprintf(stderr, "\n[Group] Change set malformed JSON\n");
     TestEnv env;
-    CHECK("params loaded for malformed json", load_all_params(env));
+    CHECK(load_all_params(env), "params loaded for malformed json");
 
     char* not_array = mg_params_prepare_change_set(env.core, "{\"name\":\"A\"}");
-    CHECK("prepare rejects non-array json",
-          not_array != nullptr && strstr(not_array, "\"success\":false") != nullptr);
+    CHECK(not_array != nullptr && strstr(not_array, "\"success\":false") != nullptr, "prepare rejects non-array json");
     if (not_array) mg_free_string(not_array);
 
     char* missing_value = mg_params_prepare_change_set(
         env.core, "[{\"name\":\"WPNAV_SPEED\"}]");
-    CHECK("prepare rejects entry without numeric value",
-          missing_value != nullptr &&
-              strstr(missing_value, "\"success\":false") != nullptr);
+    CHECK(missing_value != nullptr &&
+              strstr(missing_value, "\"success\":false") != nullptr, "prepare rejects entry without numeric value");
     if (missing_value) mg_free_string(missing_value);
 }
 
 static void test_change_set_planning() {
     fprintf(stderr, "\n[Group] Change set planning\n");
     TestEnv env;
-    CHECK("params loaded for planning", load_all_params(env));
+    CHECK(load_all_params(env), "params loaded for planning");
 
     // 重名取最后一次，未知参数与未变化参数分别计数。
     const char* request =
@@ -666,31 +604,25 @@ static void test_change_set_planning() {
         "{\"name\":\"NOT_A_REAL_PARAM\",\"value\":1},"
         "{\"name\":\"WPNAV_RADIUS\",\"value\":2}]";
     char* json = mg_params_prepare_change_set(env.core, request);
-    CHECK("duplicates collapse to one ready change",
-          json != nullptr && strstr(json, "\"ready\":1") != nullptr);
-    CHECK("unchanged change counted",
-          json != nullptr && strstr(json, "\"unchanged\":1") != nullptr);
-    CHECK("unknown change counted",
-          json != nullptr && strstr(json, "\"unknown\":1") != nullptr);
-    CHECK("last duplicate value wins",
-          json != nullptr && strstr(json, "\"value\":7") != nullptr);
+    CHECK(json != nullptr && strstr(json, "\"ready\":1") != nullptr, "duplicates collapse to one ready change");
+    CHECK(json != nullptr && strstr(json, "\"unchanged\":1") != nullptr, "unchanged change counted");
+    CHECK(json != nullptr && strstr(json, "\"unknown\":1") != nullptr, "unknown change counted");
+    CHECK(json != nullptr && strstr(json, "\"value\":7") != nullptr, "last duplicate value wins");
     if (json) mg_free_string(json);
 }
 
 static void test_change_set_commit_orders_enable_last() {
     fprintf(stderr, "\n[Group] Change set commit ordering\n");
     TestEnv env;
-    CHECK("params loaded for commit", load_all_params(env));
+    CHECK(load_all_params(env), "params loaded for commit");
     env.mock->received_params_set.clear();
 
     const char* request =
         "[{\"name\":\"COMPASS_ENABLE\",\"value\":0},"
         "{\"name\":\"WPNAV_SPEED\",\"value\":8}]";
     char* json = mg_params_commit_change_set(env.core, request);
-    CHECK("both ready changes written",
-          json != nullptr && strstr(json, "\"written\":2") != nullptr);
-    CHECK("commit success when everything resolved",
-          json != nullptr && strstr(json, "\"success\":true") != nullptr);
+    CHECK(json != nullptr && strstr(json, "\"written\":2") != nullptr, "both ready changes written");
+    CHECK(json != nullptr && strstr(json, "\"success\":true") != nullptr, "commit success when everything resolved");
     if (json) mg_free_string(json);
 
     env.tick(100);
@@ -705,16 +637,18 @@ static void test_change_set_commit_orders_enable_last() {
             enable_index = static_cast<int>(i);
         }
     }
-    CHECK("both PARAM_SET reached the flight controller",
-          speed_index >= 0 && enable_index >= 0);
-    CHECK("_ENABLE parameter is written after its dependents",
-          speed_index >= 0 && enable_index > speed_index);
+    CHECK(speed_index >= 0 && enable_index >= 0, "both PARAM_SET reached the flight controller");
+    CHECK(speed_index >= 0 && enable_index > speed_index, "_ENABLE parameter is written after its dependents");
 
     char* unknown_only = mg_params_commit_change_set(
         env.core, "[{\"name\":\"NOT_A_REAL_PARAM\",\"value\":1}]");
-    CHECK("commit reports failure when a change is unresolved",
-          unknown_only != nullptr &&
-              strstr(unknown_only, "\"success\":false") != nullptr);
+    CHECK(unknown_only != nullptr &&
+              strstr(unknown_only, "\"success\":false") != nullptr, "commit reports failure when a change is unresolved");
+    // F4：success:false 必须带统一错误对象（含 code/name/message）。
+    CHECK(unknown_only != nullptr &&
+              strstr(unknown_only, "\"error\":{\"code\":") != nullptr &&
+              strstr(unknown_only, "\"name\":") != nullptr &&
+              strstr(unknown_only, "\"message\":") != nullptr, "commit failure carries the unified error object");
     if (unknown_only) mg_free_string(unknown_only);
 }
 

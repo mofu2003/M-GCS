@@ -23,12 +23,12 @@
 #include "core/log/tlog_format.h"
 #include "core/settings/mavlink_log_writer.h"
 #include "core/video/video_decoder.h"
+#include "mgcs_test_check.h"
 
-static int g_pass = 0, g_fail = 0;
-#define CHECK(cond, msg) do { \
-    if (cond) { g_pass++; fprintf(stderr, "  [PASS] %s\n", msg); } \
-    else { g_fail++; fprintf(stderr, "  [FAIL] %s\n", msg); } \
-} while(0)
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
 static bool json_has(const char* json, const char* key) {
     return json && strstr(json, key) != nullptr;

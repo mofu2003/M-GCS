@@ -18,16 +18,15 @@
 #include <cstring>
 #include <memory>
 #include <vector>
+#include "mgcs_test_check.h"
 
 namespace {
 
-int g_passed = 0;
-int g_failed = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_passed = mgcs_test::passed();
+static int& g_failed = mgcs_test::failed();
 
-#define CHECK(cond, message) do { \
-    if (cond) { g_passed++; fprintf(stderr, "  [PASS] %s\n", message); } \
-    else { g_failed++; fprintf(stderr, "  [FAIL] %s\n", message); } \
-} while (0)
 
 std::vector<uint8_t> pack_msg(mavlink_message_t& message) {
     uint8_t buffer[MAVLINK_MAX_PACKET_LEN];

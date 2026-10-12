@@ -18,14 +18,13 @@
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 #include "core/util/json.h"
+#include "mgcs_test_check.h"
 
-static int g_pass = 0;
-static int g_fail = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
-#define CHECK(cond, msg) do { \
-    if (cond) { g_pass++; fprintf(stderr, "  [PASS] %s\n", msg); } \
-    else { g_fail++; fprintf(stderr, "  [FAIL] %s\n", msg); } \
-} while (0)
 
 /// 注入一帧 SCALED_IMU/2/3，instance 对应 IMU1/2/3。
 static void inject_scaled_imu(MockVehicleTestEnv& env, int instance, int16_t xacc, int16_t xmag) {

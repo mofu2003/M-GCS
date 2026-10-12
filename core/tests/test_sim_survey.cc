@@ -11,15 +11,15 @@
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
+#include "mgcs_test_check.h"
 
 using namespace mg::core::mission;
 
-static int g_pass = 0, g_fail = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
-#define CHECK(c, m) do { \
-    if (c) { g_pass++; fprintf(stderr, "  [PASS] %s\n", m); } \
-    else   { g_fail++; fprintf(stderr, "  [FAIL] %s\n", m); } \
-} while(0)
 
 static bool json_has(const char* json, const char* key) {
     return json && strstr(json, key) != nullptr;
@@ -110,6 +110,29 @@ static void test_cross_grid() {
     // Cross grid total distance should be significantly more
     CHECK(cross.total_distance_m > single.total_distance_m * 1.5,
           "cross grid total_distance > 1.5x single");
+
+    // RTL (MAV_CMD_NAV_RETURN_TO_LAUNCH=20) 只允许出现一次。历史缺陷：pass1
+    // 未关 return_to_start（默认 true），其尾部已带一个 RTL，合并后又补一个，
+    // 导致任务中段出现返航命令，飞机中途返航。
+    auto count_rtl = [](const SurveyResult& r) {
+        int n = 0;
+        for (const auto& item : r.items) {
+            if (item.command == 20) ++n;
+        }
+        return n;
+    };
+    SurveyConfig rtl_cfg = cfg;
+    rtl_cfg.return_to_start = true;
+    const auto single_rtl = SurveyCalculator::generate_grid(rtl_cfg);
+    const auto cross_rtl  = SurveyCalculator::generate_cross_grid(rtl_cfg);
+    CHECK(count_rtl(single_rtl) == 1,
+          "single grid ends with exactly one RTL");
+    CHECK(count_rtl(cross_rtl) == 1,
+          "cross grid ends with exactly one RTL (no mid-mission RTL)");
+    if (count_rtl(cross_rtl) == 1) {
+        CHECK(cross_rtl.items.back().command == 20,
+              "cross grid RTL is the last item");
+    }
 }
 
 // ================================================================
@@ -211,6 +234,18 @@ static void test_survey_json_roundtrip() {
     }
     CHECK(has_trigger, "has camera trigger command (206)");
     CHECK(has_speed, "has speed change command (178)");
+
+    // DO_CHANGE_SPEED 的 param1 是速度类型、param2 是速度(m/s)（MAV_CMD 定义）。
+    // 历史缺陷：create_speed_change 把二者写反，飞控读到 param1=speed（越界枚举）、
+    // param2=0。这里钉住布局。
+    for (const auto& item : r.items) {
+        if (item.command != 178) continue;
+        CHECK(item.param1 == 0.0f || item.param1 == 1.0f,
+              "DO_CHANGE_SPEED param1 is a speed type (0/1)");
+        CHECK(std::abs(item.param2 - cfg.speed_ms) < 1e-3f,
+              "DO_CHANGE_SPEED param2 carries the requested speed");
+        break;
+    }
 
     // Last item should be RTL (command 20)
     CHECK(!r.items.empty() && r.items.back().command == 20,

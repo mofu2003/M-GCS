@@ -1,4 +1,4 @@
-﻿/**
+/**
  * test_ffi_contract.cc - FFI bridge contract tests
  *
  * Tests: create/destroy lifecycle, null safety, subsystem routing,
@@ -13,14 +13,13 @@
 #include <cstdio>
 #include <cstring>
 #include <thread>
+#include "mgcs_test_check.h"
 
-static int g_pass = 0;
-static int g_fail = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
-#define CHECK(cond, msg) do { \
-    if (cond) { g_pass++; fprintf(stderr, "  [PASS] %s\n", msg); } \
-    else { g_fail++; fprintf(stderr, "  [FAIL] %s\n", msg); } \
-} while(0)
 
 // Helper: check JSON contains a key
 static bool json_has(const char* json, const char* key) {
@@ -471,6 +470,10 @@ int main() {
         char* channels = mg_rc_get_channels(core);
         CHECK(json_has(channels, "\"valid\":true"),
               "fresh RC channel snapshot is valid");
+        // 有数据时键名必须是 channel_count（与空缓存兜底、契约测试一致）。
+        // 历史缺陷：成功路径写 chancount，同一函数在两种情况下键名不同。
+        CHECK(json_has(channels, "\"channel_count\":8"),
+              "fresh RC snapshot reports channel_count (not chancount)");
         mg_free_string(channels);
 
         char* channel = mg_rc_get_channel(core, 1);

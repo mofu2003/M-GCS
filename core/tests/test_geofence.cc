@@ -1,4 +1,4 @@
-﻿/**
+/**
  * test_geofence.cc - Unit tests for GeofenceManager (no hardware required)
  *
  * Tests: point-in-polygon, area calculation, validation, import/export.
@@ -7,17 +7,14 @@
 #include <iostream>
 #include <cmath>
 #include <cassert>
+#include "mgcs_test_check.h"
 
-static int passed = 0;
-static int failed = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& passed = mgcs_test::passed();
+static int& failed = mgcs_test::failed();
 
-#define TEST(name, expr) do { \
-    if (expr) { passed++; std::cout << "  PASS: " << name << std::endl; } \
-    else { failed++; std::cout << "  FAIL: " << name << std::endl; } \
-} while(0)
 
-#define TEST_NEAR(name, got, expected, eps) \
-    TEST(name, std::abs((got) - (expected)) < (eps))
 
 int main() {
     std::cout << "=== GeofenceManager Unit Tests ===" << std::endl;
@@ -27,30 +24,30 @@ int main() {
     // ---- Point management ----
     {
         std::cout << "\n[Group] Point management" << std::endl;
-        TEST("initial empty", gm.point_count() == 0);
+        CHECK(gm.point_count() == 0, "initial empty");
 
         gm.add_point(39.9, 116.4, 100.0);
         gm.add_point(39.91, 116.4, 100.0);
         gm.add_point(39.91, 116.41, 100.0);
         gm.add_point(39.9, 116.41, 100.0);
-        TEST("4 points added", gm.point_count() == 4);
+        CHECK(gm.point_count() == 4, "4 points added");
 
         auto pts = gm.get_points();
-        TEST("points retrievable", pts.size() == 4);
-        TEST_NEAR("point 0 lat", pts[0].lat, 39.9, 1e-10);
-        TEST_NEAR("point 0 lon", pts[0].lon, 116.4, 1e-10);
-        TEST_NEAR("point 0 alt", pts[0].alt, 100.0f, 1e-5f);
+        CHECK(pts.size() == 4, "points retrievable");
+        CHECK_NEAR(pts[0].lat, 39.9, 1e-10, "point 0 lat");
+        CHECK_NEAR(pts[0].lon, 116.4, 1e-10, "point 0 lon");
+        CHECK_NEAR(pts[0].alt, 100.0f, 1e-5f, "point 0 alt");
 
         gm.remove_point(1);
-        TEST("remove reduces count", gm.point_count() == 3);
+        CHECK(gm.point_count() == 3, "remove reduces count");
 
         gm.update_point(0, 39.95, 116.45, 200.0);
         auto pts2 = gm.get_points();
-        TEST_NEAR("update lat", pts2[0].lat, 39.95, 1e-10);
-        TEST_NEAR("update alt", pts2[0].alt, 200.0f, 1e-5f);
+        CHECK_NEAR(pts2[0].lat, 39.95, 1e-10, "update lat");
+        CHECK_NEAR(pts2[0].alt, 200.0f, 1e-5f, "update alt");
 
         gm.clear_points();
-        TEST("clear empties", gm.point_count() == 0);
+        CHECK(gm.point_count() == 0, "clear empties");
     }
 
     // ---- Point-in-polygon (ray casting) ----
@@ -63,11 +60,11 @@ int main() {
         gm.add_point(1, 1);
         gm.add_point(1, 0);
 
-        TEST("center is inside", gm.is_inside_fence(0.5, 0.5));
-        TEST("outside left", !gm.is_inside_fence(0.5, -0.1));
-        TEST("outside right", !gm.is_inside_fence(0.5, 1.1));
-        TEST("outside above", !gm.is_inside_fence(1.1, 0.5));
-        TEST("outside below", !gm.is_inside_fence(-0.1, 0.5));
+        CHECK(gm.is_inside_fence(0.5, 0.5), "center is inside");
+        CHECK(!gm.is_inside_fence(0.5, -0.1), "outside left");
+        CHECK(!gm.is_inside_fence(0.5, 1.1), "outside right");
+        CHECK(!gm.is_inside_fence(1.1, 0.5), "outside above");
+        CHECK(!gm.is_inside_fence(-0.1, 0.5), "outside below");
 
         // Triangle
         gm.clear_points();
@@ -75,8 +72,8 @@ int main() {
         gm.add_point(0, 10);
         gm.add_point(10, 5);
 
-        TEST("triangle center inside", gm.is_inside_fence(3, 5));
-        TEST("triangle outside", !gm.is_inside_fence(8, 7));
+        CHECK(gm.is_inside_fence(3, 5), "triangle center inside");
+        CHECK(!gm.is_inside_fence(8, 7), "triangle outside");
     }
 
     // ---- Area calculation ----
@@ -91,8 +88,8 @@ int main() {
 
         double area = gm.calculate_area();
         // 1 deg lat ~ 111km, 1 deg lon at equator ~ 111km, area ~ 12321 km2
-        TEST("area > 0", area > 0);
-        TEST_NEAR("area ~12321 km2", area, 12321000000.0, 500000000.0);
+        CHECK(area > 0, "area > 0");
+        CHECK_NEAR(area, 12321000000.0, 500000000.0, "area ~12321 km2");
     }
 
     // ---- Perimeter ----
@@ -105,9 +102,9 @@ int main() {
         gm.add_point(1, 0);
 
         double perim = gm.calculate_perimeter();
-        TEST("perimeter > 0", perim > 0);
+        CHECK(perim > 0, "perimeter > 0");
         // 4 sides x ~111km each ~ 444km
-        TEST_NEAR("perimeter ~444km", perim, 444000.0, 50000.0);
+        CHECK_NEAR(perim, 444000.0, 50000.0, "perimeter ~444km");
     }
 
     // ---- Validation ----
@@ -115,18 +112,18 @@ int main() {
         std::cout << "\n[Group] Validation" << std::endl;
         gm.clear_points();
         auto v1 = gm.validate();
-        TEST("too few points", !v1.valid);
-        TEST("has error", !v1.error.empty());
+        CHECK(!v1.valid, "too few points");
+        CHECK(!v1.error.empty(), "has error");
 
         gm.add_point(0, 0);
         gm.add_point(0, 1);
         gm.add_point(1, 1);
         gm.add_point(1, 0);
         auto v2 = gm.validate();
-        TEST("valid square", v2.valid);
-        TEST("no error", v2.error.empty());
-        TEST("area computed", v2.area_m2 > 0);
-        TEST("perimeter computed", v2.perimeter_m > 0);
+        CHECK(v2.valid, "valid square");
+        CHECK(v2.error.empty(), "no error");
+        CHECK(v2.area_m2 > 0, "area computed");
+        CHECK(v2.perimeter_m > 0, "perimeter computed");
     }
 
     // ---- JSON export/import round-trip ----
@@ -144,19 +141,19 @@ int main() {
         gm.set_config(cfg);
 
         std::string json = gm.export_json();
-        TEST("export non-empty", !json.empty());
+        CHECK(!json.empty(), "export non-empty");
 
         mg::core::geofence::GeofenceManager gm2;
-        TEST("import succeeds", gm2.import_json(json));
-        TEST("imported point count", gm2.point_count() == 3);
+        CHECK(gm2.import_json(json), "import succeeds");
+        CHECK(gm2.point_count() == 3, "imported point count");
 
         auto imported_cfg = gm2.get_config();
-        TEST("imported config enabled", imported_cfg.enabled);
-        TEST_NEAR("imported max_alt", imported_cfg.max_altitude, 120.0f, 0.1f);
+        CHECK(imported_cfg.enabled, "imported config enabled");
+        CHECK_NEAR(imported_cfg.max_altitude, 120.0f, 0.1f, "imported max_alt");
 
         auto pts = gm2.get_points();
-        TEST_NEAR("imported lat", pts[0].lat, 39.9, 1e-10);
-        TEST_NEAR("imported alt", pts[0].alt, 50.0f, 1e-5f);
+        CHECK_NEAR(pts[0].lat, 39.9, 1e-10, "imported lat");
+        CHECK_NEAR(pts[0].alt, 50.0f, 1e-5f, "imported alt");
     }
 
     // ---- KML export ----
@@ -168,10 +165,10 @@ int main() {
         gm.add_point(39.91, 116.41, 0);
 
         std::string kml = gm.export_kml("TestFence");
-        TEST("kml has header", kml.find("<?xml") != std::string::npos);
-        TEST("kml has name", kml.find("TestFence") != std::string::npos);
-        TEST("kml has coordinates", kml.find("<coordinates>") != std::string::npos);
-        TEST("kml is closed ring", kml.find("39.9,") != std::string::npos);
+        CHECK(kml.find("<?xml") != std::string::npos, "kml has header");
+        CHECK(kml.find("TestFence") != std::string::npos, "kml has name");
+        CHECK(kml.find("<coordinates>") != std::string::npos, "kml has coordinates");
+        CHECK(kml.find("39.9,") != std::string::npos, "kml is closed ring");
     }
 
     // ---- Haversine distance ----
@@ -184,9 +181,9 @@ int main() {
         gm.add_point(1, 0);
 
         double d = gm.distance_to_fence(0.5, 0.5);
-        TEST("distance from center > 0", d > 0);
+        CHECK(d > 0, "distance from center > 0");
         double d2 = gm.distance_to_fence(5, 5);
-        TEST("distance from far point > distance from center", d2 > d);
+        CHECK(d2 > d, "distance from far point > distance from center");
     }
 
     std::cout << "\n=== " << passed << " passed, " << failed << " failed ===" << std::endl;

@@ -6,19 +6,13 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include "mgcs_test_check.h"
 
-static int g_pass = 0;
-static int g_fail = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
-#define CHECK(condition, message) do { \
-    if (condition) { \
-        ++g_pass; \
-        fprintf(stderr, "  [PASS] %s\n", message); \
-    } else { \
-        ++g_fail; \
-        fprintf(stderr, "  [FAIL] %s\n", message); \
-    } \
-} while (0)
 
 /// ArduPilot 把任务位置存成 float 度，往返会产生约 0.1–0.5 m 的量化误差。
 /// 核对必须用米制容差比较经纬度，而不是整数精确比较，否则每次上传都报差异。

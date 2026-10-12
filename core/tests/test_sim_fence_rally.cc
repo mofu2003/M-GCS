@@ -17,14 +17,13 @@
 #include <cstring>
 #include <functional>
 #include <thread>
+#include "mgcs_test_check.h"
 
-static int g_pass = 0;
-static int g_fail = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
-#define CHECK(msg, cond) do { \
-    if (cond) { g_pass++; fprintf(stderr, "  [PASS] %s\n", msg); } \
-    else { g_fail++; fprintf(stderr, "  [FAIL] %s\n", msg); } \
-} while (0)
 
 static unsigned long long document_revision(mg_core_t* core) {
     char* json = mg_mission_doc_get(core);
@@ -79,7 +78,7 @@ static int json_array_size(const char* json, const char* section,
 static void test_parallel_transfer_guard() {
     fprintf(stderr, "\n[Fence / Rally transfer guard]\n");
     MockVehicleTestEnv env;
-    CHECK("guard test vehicle connects", env.wait_connected());
+    CHECK(env.wait_connected(), "guard test vehicle connects");
 
     mg::core::mission::MissionPlan plan;
     mg::core::mission::MissionItem item{};
@@ -92,11 +91,9 @@ static void test_parallel_transfer_guard() {
     item.mission_type = MAV_MISSION_TYPE_FENCE;
     plan.items.push_back(item);
 
-    CHECK("first fence upload starts", env.mav->fence_upload(1, 1, plan));
-    CHECK("second fence upload is rejected while active",
-          !env.mav->fence_upload(1, 1, plan));
-    CHECK("mission upload is rejected while fence transfer is active",
-          !env.mav->mission_upload(1, 1, plan));
+    CHECK(env.mav->fence_upload(1, 1, plan), "first fence upload starts");
+    CHECK(!env.mav->fence_upload(1, 1, plan), "second fence upload is rejected while active");
+    CHECK(!env.mav->mission_upload(1, 1, plan), "mission upload is rejected while fence transfer is active");
 }
 
 int main() {
@@ -105,8 +102,8 @@ int main() {
     test_parallel_transfer_guard();
 
     MockVehicleTestEnv env({}, false);
-    CHECK("core created", env.core != nullptr);
-    CHECK("mock vehicle connects", env.wait_connected());
+    CHECK(env.core != nullptr, "core created");
+    CHECK(env.wait_connected(), "mock vehicle connects");
 
     char* result =
         mg_mission_doc_create(env.core, R"({"metadata":{"name":"Fence Rally"}})");
@@ -147,129 +144,110 @@ int main() {
         }
     })";
     result = mg_mission_doc_import_format(env.core, "plan", plan);
-    CHECK("plan with fence and rally imports", result && strstr(result, "\"success\":true"));
+    CHECK(result && strstr(result, "\"success\":true"), "plan with fence and rally imports");
     if (result) mg_free_string(result);
 
     const unsigned long long revision = document_revision(env.core);
-    CHECK("document revision is available for upload", revision != 0);
+    CHECK(revision != 0, "document revision is available for upload");
 
     fprintf(stderr, "\n[Fence upload]\n");
     result = mg_mission_doc_upload_fence(env.core, revision);
-    CHECK("fence upload starts", result && strstr(result, "\"success\":true"));
+    CHECK(result && strstr(result, "\"success\":true"), "fence upload starts");
     if (result) mg_free_string(result);
 
     const bool fence_arrived = wait_for(env, [&]() {
         return env.mock->stored_mission_type(MAV_MISSION_TYPE_FENCE).size() == 5;
     });
-    CHECK("fence reaches the vehicle as five items", fence_arrived);
+    CHECK(fence_arrived, "fence reaches the vehicle as five items");
 
     result = mg_operations_get_snapshot(env.core);
-    CHECK("operations snapshot exposes fence and rally progress",
-          result && strstr(result, "\"fence\"") && strstr(result, "\"rally\"") &&
+    CHECK(result && strstr(result, "\"fence\"") && strstr(result, "\"rally\"") &&
               strstr(result, "\"fence_transfer\"") &&
-              strstr(result, "\"rally_transfer\""));
+              strstr(result, "\"rally_transfer\""), "operations snapshot exposes fence and rally progress");
     if (result) mg_free_string(result);
 
     const auto& fence = env.mock->stored_mission_type(MAV_MISSION_TYPE_FENCE);
     if (fence.size() == 5) {
-        CHECK("polygon vertex keeps count and fence mission type",
-              fence[0].command == 5001 && fence[0].param1 == 3.0f &&
-                  fence[0].mission_type == MAV_MISSION_TYPE_FENCE);
-        CHECK("polygon vertices arrive in order",
-              fence[2].command == 5001 && fence[2].seq == 2);
-        CHECK("exclusion circle keeps its radius",
-              fence[3].command == 5004 &&
-                  static_cast<int>(fence[3].param1) == 90);
-        CHECK("breach-return point keeps its altitude",
-              fence[4].command == 5000 &&
-                  static_cast<int>(fence[4].z) == 35);
+        CHECK(fence[0].command == 5001 && fence[0].param1 == 3.0f &&
+                  fence[0].mission_type == MAV_MISSION_TYPE_FENCE, "polygon vertex keeps count and fence mission type");
+        CHECK(fence[2].command == 5001 && fence[2].seq == 2, "polygon vertices arrive in order");
+        CHECK(fence[3].command == 5004 &&
+                  static_cast<int>(fence[3].param1) == 90, "exclusion circle keeps its radius");
+        CHECK(fence[4].command == 5000 &&
+                  static_cast<int>(fence[4].z) == 35, "breach-return point keeps its altitude");
     }
 
     fprintf(stderr, "\n[Fence download / import]\n");
     result = mg_fence_download(env.core);
-    CHECK("fence download starts", result && strstr(result, "\"success\":true"));
+    CHECK(result && strstr(result, "\"success\":true"), "fence download starts");
     if (result) mg_free_string(result);
-    CHECK("fence download completes",
-          wait_for(env, [&]() {
+    CHECK(wait_for(env, [&]() {
               return env.mav->fence_get_plan_snapshot()
                          .provenance.last_completed_download_revision != 0;
-          }));
+          }), "fence download completes");
     result = mg_mission_doc_import_fence_from_vehicle(env.core);
-    CHECK("fence imports back into the document",
-          result && strstr(result, "\"success\":true"));
-    CHECK("imported fence keeps its polygon",
-          json_array_size(result, "geo_fence", "polygons") == 1);
-    CHECK("imported fence keeps its circle",
-          json_array_size(result, "geo_fence", "circles") == 1);
+    CHECK(result && strstr(result, "\"success\":true"), "fence imports back into the document");
+    CHECK(json_array_size(result, "geo_fence", "polygons") == 1, "imported fence keeps its polygon");
+    CHECK(json_array_size(result, "geo_fence", "circles") == 1, "imported fence keeps its circle");
     if (result) mg_free_string(result);
 
     result = mg_mission_doc_verify_fence(env.core, 1e-6);
-    CHECK("fence verify matches after import",
-          result && strstr(result, "\"matches\":true"));
+    CHECK(result && strstr(result, "\"matches\":true"), "fence verify matches after import");
     if (result) mg_free_string(result);
 
     fprintf(stderr, "\n[Rally upload]\n");
     const unsigned long long rally_revision = document_revision(env.core);
     result = mg_mission_doc_upload_rally(env.core, rally_revision);
-    CHECK("rally upload starts", result && strstr(result, "\"success\":true"));
+    CHECK(result && strstr(result, "\"success\":true"), "rally upload starts");
     if (result) mg_free_string(result);
 
     const bool rally_arrived = wait_for(env, [&]() {
         return env.mock->stored_mission_type(MAV_MISSION_TYPE_RALLY).size() == 2;
     });
-    CHECK("rally points reach the vehicle", rally_arrived);
+    CHECK(rally_arrived, "rally points reach the vehicle");
     const auto& rally = env.mock->stored_mission_type(MAV_MISSION_TYPE_RALLY);
     if (rally.size() == 2) {
-        CHECK("rally item uses NAV_RALLY_POINT and rally mission type",
-              rally[0].command == 5100 &&
+        CHECK(rally[0].command == 5100 &&
                   rally[0].mission_type == MAV_MISSION_TYPE_RALLY &&
-                  rally[0].frame == MAV_FRAME_GLOBAL_RELATIVE_ALT);
-        CHECK("rally altitude is preserved",
-              static_cast<int>(rally[1].z) == 40);
+                  rally[0].frame == MAV_FRAME_GLOBAL_RELATIVE_ALT, "rally item uses NAV_RALLY_POINT and rally mission type");
+        CHECK(static_cast<int>(rally[1].z) == 40, "rally altitude is preserved");
     }
 
     fprintf(stderr, "\n[Rally download / import]\n");
     result = mg_rally_download(env.core);
-    CHECK("rally download starts", result && strstr(result, "\"success\":true"));
+    CHECK(result && strstr(result, "\"success\":true"), "rally download starts");
     if (result) mg_free_string(result);
-    CHECK("rally download completes",
-          wait_for(env, [&]() {
+    CHECK(wait_for(env, [&]() {
               return env.mav->rally_get_plan_snapshot()
                          .provenance.last_completed_download_revision != 0;
-          }));
+          }), "rally download completes");
     result = mg_mission_doc_import_rally_from_vehicle(env.core);
-    CHECK("rally points import back into the document",
-          result && strstr(result, "\"success\":true"));
-    CHECK("imported document keeps both rally points",
-          json_array_size(result, nullptr, "rally_points") == 2);
+    CHECK(result && strstr(result, "\"success\":true"), "rally points import back into the document");
+    CHECK(json_array_size(result, nullptr, "rally_points") == 2, "imported document keeps both rally points");
     if (result) mg_free_string(result);
 
     result = mg_mission_doc_verify_rally(env.core, 1e-6);
-    CHECK("rally verify matches after import",
-          result && strstr(result, "\"matches\":true"));
+    CHECK(result && strstr(result, "\"matches\":true"), "rally verify matches after import");
     if (result) mg_free_string(result);
 
     fprintf(stderr, "\n[Fence clear]\n");
     result = mg_mission_doc_clear_fence(env.core);
-    CHECK("fence clear starts", result && strstr(result, "\"success\":true"));
+    CHECK(result && strstr(result, "\"success\":true"), "fence clear starts");
     if (result) mg_free_string(result);
-    CHECK("fence cleared on the vehicle",
-          wait_for(env, [&]() {
+    CHECK(wait_for(env, [&]() {
               return env.mock->stored_mission_type(MAV_MISSION_TYPE_FENCE).empty();
-          }));
+          }), "fence cleared on the vehicle");
 
     fprintf(stderr, "\n[Fence verify after clear]\n");
     result = mg_fence_download(env.core);
     if (result) mg_free_string(result);
-    CHECK("cleared fence downloads again",
-          wait_for(env, [&]() {
+    CHECK(wait_for(env, [&]() {
               const auto snapshot = env.mav->fence_get_plan_snapshot();
               return snapshot.provenance.completed_download_count >= 2;
-          }));
+          }), "cleared fence downloads again");
     result = mg_mission_doc_verify_fence(env.core, 1e-6);
-    CHECK("verify reports a mismatch once the vehicle fence is cleared",
-          result && strstr(result, "\"matches\":false") &&
-              strstr(result, "polygon_count") && strstr(result, "breach_return"));
+    CHECK(result && strstr(result, "\"matches\":false") &&
+              strstr(result, "polygon_count") && strstr(result, "breach_return"), "verify reports a mismatch once the vehicle fence is cleared");
     if (result) mg_free_string(result);
 
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);

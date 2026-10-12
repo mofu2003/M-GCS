@@ -10,10 +10,12 @@
 #include <cstdio>
 #include <thread>
 #include <chrono>
+#include "mgcs_test_check.h"
 
-static int g_pass=0, g_fail=0;
-#define CHECK(m,c) do{if(c){g_pass++;fprintf(stderr,"  [PASS] %s\n",m);}else{g_fail++;fprintf(stderr,"  [FAIL] %s\n",m);}}while(0)
-#define CHECK_NEAR(n,a,b,e) CHECK(n, std::abs((a)-(b))<(e))
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
 struct TestEnv {
     mg::core::transport::InMemoryLink link;
@@ -49,11 +51,11 @@ static void test_heartbeat() {
     env.gcs.on_heartbeat([&](const mg::core::mavlink::HeartbeatInfo& h) { received=true; hb=h; });
 
     env.tick(1100);  // trigger 1 Hz heartbeat
-    CHECK("heartbeat received", received);
-    CHECK("sysid=1", hb.system_id == 1);
-    CHECK("autopilot=ArduPilot", hb.autopilot_type == 3);
-    CHECK("vehicle=quadrotor", hb.vehicle_type == 2);
-    CHECK("not armed", !hb.armed);
+    CHECK(received, "heartbeat received");
+    CHECK(hb.system_id == 1, "sysid=1");
+    CHECK(hb.autopilot_type == 3, "autopilot=ArduPilot");
+    CHECK(hb.vehicle_type == 2, "vehicle=quadrotor");
+    CHECK(!hb.armed, "not armed");
 }
 
 static void test_gps() {
@@ -64,11 +66,11 @@ static void test_gps() {
     env.gcs.on_gps([&](const mg::core::mavlink::GpsInfo& g) { received=true; gps=g; });
 
     env.tick(200);  // 10 Hz telemetry
-    CHECK("GPS received", received);
-    CHECK("lat=Beijing", gps.lat == 399042000);
-    CHECK("lon=Beijing", gps.lon == 1164074000);
-    CHECK("sats=12", gps.satellites_visible == 12);
-    CHECK("fix=3D", gps.fix_type == 3);
+    CHECK(received, "GPS received");
+    CHECK(gps.lat == 399042000, "lat=Beijing");
+    CHECK(gps.lon == 1164074000, "lon=Beijing");
+    CHECK(gps.satellites_visible == 12, "sats=12");
+    CHECK(gps.fix_type == 3, "fix=3D");
 }
 
 static void test_attitude() {
@@ -83,10 +85,10 @@ static void test_attitude() {
     env.gcs.on_attitude([&](const mg::core::mavlink::AttitudeInfo& a) { received=true; att=a; });
 
     env.tick(150);
-    CHECK("attitude received", received);
-    CHECK_NEAR("roll", att.roll, 0.25f, 0.01f);
-    CHECK_NEAR("pitch", att.pitch, -0.1f, 0.01f);
-    CHECK_NEAR("yaw", att.yaw, 1.57f, 0.02f);
+    CHECK(received, "attitude received");
+    CHECK_NEAR(att.roll, 0.25f, 0.01f, "roll");
+    CHECK_NEAR(att.pitch, -0.1f, 0.01f, "pitch");
+    CHECK_NEAR(att.yaw, 1.57f, 0.02f, "yaw");
 }
 
 static void test_battery() {
@@ -100,9 +102,9 @@ static void test_battery() {
     env.gcs.on_battery([&](const mg::core::mavlink::BatteryInfo& b) { received=true; batt=b; });
 
     env.tick(1100);  // 1 Hz
-    CHECK("battery received", received);
-    CHECK_NEAR("voltage", batt.voltage_v, 11.4f, 0.1f);
-    CHECK("remaining", batt.battery_remaining == 65);
+    CHECK(received, "battery received");
+    CHECK_NEAR(batt.voltage_v, 11.4f, 0.1f, "voltage");
+    CHECK(batt.battery_remaining == 65, "remaining");
 }
 
 static void test_vfr_hud() {
@@ -119,11 +121,11 @@ static void test_vfr_hud() {
     env.gcs.on_vfr_hud([&](const mg::core::mavlink::VfrHudInfo& v) { received=true; vfr=v; });
 
     env.tick(150);
-    CHECK("VFR received", received);
-    CHECK_NEAR("airspeed", vfr.airspeed, 8.5f, 0.1f);
-    CHECK_NEAR("groundspeed", vfr.groundspeed, 7.2f, 0.1f);
-    CHECK("throttle=55", vfr.throttle == 55);
-    CHECK_NEAR("climb", vfr.climb, 1.5f, 0.1f);
+    CHECK(received, "VFR received");
+    CHECK_NEAR(vfr.airspeed, 8.5f, 0.1f, "airspeed");
+    CHECK_NEAR(vfr.groundspeed, 7.2f, 0.1f, "groundspeed");
+    CHECK(vfr.throttle == 55, "throttle=55");
+    CHECK_NEAR(vfr.climb, 1.5f, 0.1f, "climb");
 }
 
 static void test_global_position() {
@@ -138,10 +140,10 @@ static void test_global_position() {
     env.gcs.on_global_position([&](const mg::core::mavlink::GlobalPositionInfo& gp) { received=true; gpos=gp; });
 
     env.tick(150);
-    CHECK("global pos received", received);
-    CHECK("lat matches", gpos.lat == 399042000);
-    CHECK("lon matches", gpos.lon == 1164074000);
-    CHECK("alt matches", gpos.alt == 50000);
+    CHECK(received, "global pos received");
+    CHECK(gpos.lat == 399042000, "lat matches");
+    CHECK(gpos.lon == 1164074000, "lon matches");
+    CHECK(gpos.alt == 50000, "alt matches");
 }
 
 static void test_no_heartbeat_when_disabled() {
@@ -151,7 +153,7 @@ static void test_no_heartbeat_when_disabled() {
     bool received = false;
     env.gcs.on_heartbeat([&](const mg::core::mavlink::HeartbeatInfo&) { received=true; });
     env.tick(2000);
-    CHECK("no heartbeat when disabled", !received);
+    CHECK(!received, "no heartbeat when disabled");
 }
 
 int main() {

@@ -24,17 +24,16 @@
 #include <sys/socket.h>
 #include <termios.h>
 #include <unistd.h>
+#include "mgcs_test_check.h"
 #endif
 
 namespace {
 
-int g_passed = 0;
-int g_failed = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_passed = mgcs_test::passed();
+static int& g_failed = mgcs_test::failed();
 
-#define CHECK(condition, message) do { \
-    if (condition) { ++g_passed; fprintf(stderr, "  [PASS] %s\n", message); } \
-    else { ++g_failed; fprintf(stderr, "  [FAIL] %s\n", message); } \
-} while (0)
 
 std::vector<uint8_t> pack_heartbeat(uint8_t system_id) {
     mavlink_message_t message{};

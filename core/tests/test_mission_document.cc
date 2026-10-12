@@ -16,22 +16,16 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include "mgcs_test_check.h"
 
 using namespace mg::core::mission;
 using namespace mg::core::mission::cad;
 
-static int g_pass = 0;
-static int g_fail = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
-#define CHECK(condition, message) do { \
-    if (condition) { \
-        ++g_pass; \
-        fprintf(stderr, "  [PASS] %s\n", message); \
-    } else { \
-        ++g_fail; \
-        fprintf(stderr, "  [FAIL] %s\n", message); \
-    } \
-} while (0)
 
 static bool report_has_code(const MissionValidationReport& report,
                             const std::string& code) {
@@ -236,9 +230,25 @@ static void test_validation_compile_and_estimate() {
     loiter.entities[1].params = {2.0f, 0.0f, 100.0f, 0.0f};
     report = MissionDocumentService::validate_document(loiter);
     CHECK(report.valid, "loiter radius uses MAVLink param3");
+    // 半径 0 合法：MAVLink 只规定正值=顺时针 / 负值=逆时针，QGC 的
+    // MavCmdInfoCommon.json 给 param3 userMin=-100 且不要求为正；多旋翼更是
+    // 完全不读这个字段（ArduCopter do_loiter_unlimited 用 WP_LOITER_RAD，
+    // QGC 在 MavCmdInfoMultiRotor.json 对 17 号命令写了 paramRemove:3）。
     loiter.entities[1].params[2] = 0.0f;
     report = MissionDocumentService::validate_document(loiter);
-    CHECK(!report.valid, "zero loiter radius fails catalog validation");
+    CHECK(report.valid, "zero loiter radius is accepted (fly-controller default)");
+    // 负值表示反向盘旋，同样合法。
+    loiter.entities[1].params[2] = -60.0f;
+    report = MissionDocumentService::validate_document(loiter);
+    CHECK(report.valid, "negative loiter radius selects counter-clockwise");
+    // 超出 QGC 的 userMin/userMax 才拒绝。
+    loiter.entities[1].params[2] = -500.0f;
+    report = MissionDocumentService::validate_document(loiter);
+    CHECK(!report.valid, "loiter radius below the catalog minimum is rejected");
+    // 非有限值仍然是错误。
+    loiter.entities[1].params[2] = std::numeric_limits<float>::quiet_NaN();
+    report = MissionDocumentService::validate_document(loiter);
+    CHECK(!report.valid, "non-finite loiter radius is rejected");
 
     MissionDocument changing_speed;
     changing_speed.defaults.speed_ms = 10.0f;
@@ -619,6 +629,28 @@ static void test_waypoints_interchange() {
     error.clear();
     CHECK(!import_waypoints_text("QGC WPL 110\n", dummy, error),
           "header without rows is rejected");
+}
+
+/// 命令 → 实体类型必须覆盖 NAV_WAYPOINT。历史缺陷：该 switch 漏了 case 16，
+/// 普通航点被导入成 type="command"，与命令目录对该命令期待的 "waypoint" 冲突，
+/// 且校验对 "command" 放行，静默掩盖类型错误。
+static void test_entity_type_for_command() {
+    fprintf(stderr, "\n[Group] Command to entity type\n");
+    CHECK(std::string(mission_entity_type_for_command(
+              static_cast<uint16_t>(NavCommand::NavWaypoint))) == "waypoint",
+          "NAV_WAYPOINT -> waypoint");
+    CHECK(std::string(mission_entity_type_for_command(
+              static_cast<uint16_t>(NavCommand::NavTakeoff))) == "takeoff",
+          "NAV_TAKEOFF -> takeoff");
+    CHECK(std::string(mission_entity_type_for_command(
+              static_cast<uint16_t>(NavCommand::NavLand))) == "land",
+          "NAV_LAND -> land");
+    CHECK(std::string(mission_entity_type_for_command(
+              static_cast<uint16_t>(NavCommand::NavReturnToLaunch))) == "rtl",
+          "NAV_RETURN_TO_LAUNCH -> rtl");
+    CHECK(std::string(mission_entity_type_for_command(
+              static_cast<uint16_t>(NavCommand::DoSetSpeed))) == "command",
+          "non-navigation command stays 'command'");
 }
 
 static void test_ffi_waypoints_interchange() {
@@ -2091,6 +2123,50 @@ static void test_mission_vehicle_capability() {
               "a PX4 document is not judged by the ArduPilot capability table");
     }
 
+    // NAV_LOITER_UNLIM(17) 按设计不在 13 条命令目录里（docs/mission-capability-table.md:55：
+    // 「NAV_LOITER_UNLIM(17) 未单列，其无限圈语义由飞控按 NAV_LOITER_TURNS 处理」），
+    // 因此它会被 command_unsupported 拦下——这是既定行为，此处钉住它，
+    // 避免有人误以为 17 号命令可以绕过目录直接上传。
+    {
+        MissionDocument unlim = valid_document();
+        unlim.entities[1].type = "loiter";
+        unlim.entities[1].command =
+            static_cast<uint16_t>(NavCommand::NavLoiterUnlim);
+        unlim.entities[1].params = {0.0f, 0.0f, 0.0f, 0.0f};
+
+        const auto report = MissionDocumentService::validate_document(unlim);
+        CHECK(!report.valid, "NAV_LOITER_UNLIM is not in the command catalog");
+        CHECK(report_has_code(report, "entity.command_unsupported"),
+              "NAV_LOITER_UNLIM reports entity.command_unsupported");
+    }
+
+    // 目录内的盘旋命令（18/19）接受半径 0 与负值：MAVLink 定义正值=顺时针、
+    // 负值=逆时针（common.xml MAV_CMD_NAV_LOITER_*），QGC 的 MavCmdInfoCommon.json
+    // 给 param3 userMin=-100 且不要求为正。历史实现把下限写成 0.01，
+    // 会拒绝 QGC/MP 导出的合法任务。
+    {
+        MissionDocument loiter = valid_document();
+        loiter.entities[1].type = "loiter";
+        loiter.entities[1].command =
+            static_cast<uint16_t>(NavCommand::NavLoiterTurns);
+        loiter.entities[1].params = {2.0f, 0.0f, 0.0f, 0.0f};
+
+        auto report = MissionDocumentService::validate_document(loiter);
+        CHECK(report.valid, "NAV_LOITER_TURNS accepts radius 0");
+
+        loiter.entities[1].params[2] = -80.0f;
+        report = MissionDocumentService::validate_document(loiter);
+        CHECK(report.valid, "NAV_LOITER_TURNS accepts a negative (CCW) radius");
+
+        loiter.entities[1].params[2] = 100.0f;
+        report = MissionDocumentService::validate_document(loiter);
+        CHECK(report.valid, "NAV_LOITER_TURNS accepts the QGC upper bound");
+
+        loiter.entities[1].params[2] = -500.0f;
+        report = MissionDocumentService::validate_document(loiter);
+        CHECK(!report.valid, "a radius outside the QGC range is rejected");
+    }
+
     // 上传前的运行时门禁：直接对已编译计划做机型检查。
     {
         MissionPlan plan;
@@ -2186,11 +2262,96 @@ static void test_mission_vehicle_capability() {
     }
 }
 
+/// RTL（MAV_CMD_NAV_RETURN_TO_LAUNCH = 20）的高度必须参与校验：
+/// mission_compile.cc:188-190 无条件把 entity.altitude_m 写进任务项（只有非有限值
+/// 才回落默认高度），所以"有限但非法"的高度（负数）会原样下发。旧实现里
+/// position_command() 不含 RTL，三项校验被整体跳过。
+/// 坐标则只在"确实给了"时校验：AP_Mission::stored_in_location() 不含 RTL，
+/// 从飞控下载回来的 RTL 坐标是 NaN（mission_document.cc 同名判断），把"没给坐标"
+/// 当成错误会误报每一份正常下载的任务。
+static void test_rtl_altitude_and_coordinates_are_validated() {
+    fprintf(stderr, "\n[Group] RTL altitude and coordinate validation\n");
+
+    auto make_rtl_document = []() {
+        MissionDocument document = valid_document();
+        MissionEntity rtl;
+        rtl.id = "rtl-1";
+        rtl.type = "rtl";
+        rtl.command = static_cast<uint16_t>(NavCommand::NavReturnToLaunch);
+        rtl.altitude_m = 50.0f;
+        document.entities.push_back(rtl);
+        return document;
+    };
+
+    // 基线：没有坐标的 RTL 合法——这正是从飞控下载回来的形态。
+    {
+        MissionDocument document = make_rtl_document();
+        CHECK(std::isnan(document.entities.back().latitude) &&
+                  std::isnan(document.entities.back().longitude),
+              "the RTL fixture really carries no coordinate (NaN)");
+        auto report = MissionDocumentService::validate_document(document);
+        CHECK(report.valid, "RTL without coordinates stays valid");
+    }
+
+    // 验收点：有限但非法的高度必须被拒绝。
+    {
+        MissionDocument document = make_rtl_document();
+        document.entities.back().altitude_m = -5.0f;
+        auto report = MissionDocumentService::validate_document(document);
+        CHECK(!report.valid, "negative RTL altitude fails validation");
+        CHECK(report_has_code(report, "entity.altitude"),
+              "negative RTL altitude reports entity.altitude");
+        bool blamed_rtl = false;
+        for (const auto& diagnostic : report.diagnostics) {
+            if (diagnostic.code == "entity.altitude" &&
+                diagnostic.entity_id == "rtl-1") {
+                blamed_rtl = true;
+            }
+        }
+        CHECK(blamed_rtl, "the altitude diagnostic points at the RTL entity");
+    }
+
+    // 编译口径与校验口径一致：RTL 的高度会进任务项，所以非法值必须挡在编译之前。
+    {
+        MissionDocument document = make_rtl_document();
+        auto compiled = MissionDocumentService::compile_document(document);
+        CHECK(compiled.valid && !compiled.plan.items.empty() &&
+                  compiled.plan.items.back().z == 50.0f,
+              "a legal RTL altitude is written into the compiled plan");
+
+        document.entities.back().altitude_m = -5.0f;
+        auto rejected = MissionDocumentService::compile_document(document);
+        CHECK(!rejected.valid && rejected.plan.items.empty(),
+              "a negative RTL altitude is rejected before it reaches the plan");
+    }
+
+    // 提供了却越界的坐标必须被拒绝。
+    {
+        MissionDocument document = make_rtl_document();
+        document.entities.back().latitude = 120.0;
+        document.entities.back().longitude = 116.0;
+        auto report = MissionDocumentService::validate_document(document);
+        CHECK(!report.valid, "out-of-range RTL latitude fails validation");
+        CHECK(report_has_code(report, "entity.latitude"),
+              "out-of-range RTL latitude reports entity.latitude");
+    }
+    {
+        MissionDocument document = make_rtl_document();
+        document.entities.back().latitude = 39.9;
+        document.entities.back().longitude = 200.0;
+        auto report = MissionDocumentService::validate_document(document);
+        CHECK(!report.valid, "out-of-range RTL longitude fails validation");
+        CHECK(report_has_code(report, "entity.longitude"),
+              "out-of-range RTL longitude reports entity.longitude");
+    }
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Tests ===\n");
     test_document_editing_history();
     test_document_roundtrip();
     test_validation_compile_and_estimate();
+    test_rtl_altitude_and_coordinates_are_validated();
     test_geofence_rally_validation();
     test_geofence_compile();
     test_fence_rally_plan_roundtrip();
@@ -2202,6 +2363,7 @@ int main() {
     test_ffi_contract();
     test_ffi_survey_entity_roundtrip();
     test_waypoints_interchange();
+    test_entity_type_for_command();
     test_ffi_waypoints_interchange();
     test_frame_mission_command_import();
     test_land_start_location_override_per_firmware();

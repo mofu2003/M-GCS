@@ -1,4 +1,4 @@
-﻿/**
+/**
  * test_ffi_response_contract.cc - Telemetry response contract tests (no hardware)
  *
  * Validates:
@@ -61,10 +61,86 @@ static void test_failure_envelope_shape() {
     }
 }
 
+// F4 + 参数文件内容变换：成功路径必须回解析结果，失败路径必须回统一 error 对象。
+// 旧实现里 mg_param_file_import_csv 恒回 success:true 且丢掉解析数组，导出函数在
+// 非法输入时回空串（不是合法 JSON）。
+static void test_param_file_transform_contract() {
+    fprintf(stderr, "[Group] Parameter file transform contract\n");
+    auto* core = mg_create();
+
+    // CSV 导入：返回解析出的参数数组，字段名与同族的 .param 导入一致
+    // （items 数组 + count + 统一 error 对象）。
+    {
+        char* r = mg_param_file_import_csv(
+            core, "name,value,type\nINS_GYROFFS_X,0.5,9\nINS_GYROFFS_Y,-0.25,9\n");
+        check(contains(r, "\"success\":true"), "csv import: success true");
+        check(contains(r, "\"count\":2"), "csv import: count is 2");
+        check(contains(r, "\"items\":["), "csv import: items array present");
+        check(contains(r, "\"name\":\"INS_GYROFFS_X\""), "csv import: name field");
+        check(contains(r, "\"value\":0.5"), "csv import: value field");
+        check(contains(r, "\"type\":9"), "csv import: type field");
+        mg_free_string(r);
+    }
+
+    // 垃圾输入：表头之后没有一条能解析 → success:false + 统一 error 对象。
+    {
+        char* r = mg_param_file_import_csv(core, "not a csv\nstill not a csv\n");
+        check(contains(r, "\"success\":false"), "csv import garbage: success false");
+        check(contains(r, "\"count\":0"), "csv import garbage: count 0");
+        check(contains(r, "\"error\":{"), "csv import garbage: error is an object");
+        check(contains(r, "\"code\":-4"), "csv import garbage: numeric code");
+        check(contains(r, "\"name\":\""), "csv import garbage: symbolic name");
+        check(contains(r, "\"message\":\""), "csv import garbage: message");
+        check(!contains(r, "\"error\":\""), "csv import garbage: no bare error string");
+        mg_free_string(r);
+    }
+
+    // 空输入：同样是带 error 对象的失败响应。
+    {
+        char* r = mg_param_file_import_csv(core, "");
+        check(contains(r, "\"success\":false"), "csv import empty: success false");
+        check(contains(r, "\"error\":{"), "csv import empty: error is an object");
+        mg_free_string(r);
+    }
+
+    // 导出：非法输入回合法 JSON（error 对象），不再回空串。
+    {
+        char* r = mg_param_file_export(core, "");
+        check(r != nullptr && r[0] != '\0',
+              "param export empty input: not an empty string");
+        check(contains(r, "\"success\":false"), "param export empty input: success false");
+        check(contains(r, "\"error\":{"), "param export empty input: error object");
+        mg_free_string(r);
+    }
+    {
+        char* r = mg_param_file_export_csv(core, "{\"not\":\"an array\"}");
+        check(r != nullptr && r[0] != '\0',
+              "csv export invalid json: not an empty string");
+        check(contains(r, "\"success\":false"), "csv export invalid json: success false");
+        check(contains(r, "\"error\":{"), "csv export invalid json: error object");
+        mg_free_string(r);
+    }
+
+    // F4：未知 operation_id 的 success:false 必须带 error 对象（原先只有 reason）。
+    {
+        char* r = mg_operations_cancel(core, "no-such-operation");
+        check(contains(r, "\"success\":false"), "operations_cancel unknown id: success false");
+        check(contains(r, "\"reason\":\"unknown operation\""),
+              "operations_cancel unknown id: reason kept for the UI");
+        check(contains(r, "\"error\":{"), "operations_cancel unknown id: error object");
+        check(contains(r, "\"code\":-4"), "operations_cancel unknown id: numeric code");
+        check(!contains(r, "\"error\":\""), "operations_cancel unknown id: no bare error string");
+        mg_free_string(r);
+    }
+
+    mg_destroy(core);
+}
+
 int main() {
     fprintf(stderr, "=== FFI Telemetry Response Contract Tests ===\n\n");
 
     test_failure_envelope_shape();
+    test_param_file_transform_contract();
 
     // ---- Null core tests (error envelope) ----
     {

@@ -11,6 +11,7 @@
 #include "ardupilotmega/mavlink.h"
 #include <iostream>
 #include <cstring>
+#include "mgcs_test_check.h"
 
 // Build a valid MAVLink v1 HEARTBEAT in code (avoids CRC issues)
 static std::vector<uint8_t> build_heartbeat() {
@@ -24,39 +25,37 @@ static std::vector<uint8_t> build_heartbeat() {
     return std::vector<uint8_t>(buf, buf + len);
 }
 
-static int tests_passed = 0;
-static int tests_failed = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& tests_passed = mgcs_test::passed();
+static int& tests_failed = mgcs_test::failed();
 
-#define TEST(name, expr) do { \
-    if (expr) { tests_passed++; std::cout << "  PASS: " << name << std::endl; } \
-    else { tests_failed++; std::cout << "  FAIL: " << name << std::endl; } \
-} while(0)
 
 int main() {
     std::cout << "=== InMemory Link Test ===" << std::endl;
 
     mg_core_t* core = mg_create();
-    TEST("mg_create", core != nullptr);
+    CHECK(core != nullptr, "mg_create");
 
     char* ver = mg_get_version();
-    TEST("version", ver != nullptr);
+    CHECK(ver != nullptr, "version");
     mg_free_string(ver);
 
     char* state = mg_connection_get_state(core);
-    TEST("initial disconnected", strstr(state, "false") != nullptr);
+    CHECK(strstr(state, "false") != nullptr, "initial disconnected");
     mg_free_string(state);
 
     // InMemoryLink basic ops
     mg::core::transport::InMemoryLink link;
-    TEST("not open initially", !link.is_open());
-    TEST("open succeeds", link.open());
-    TEST("is open", link.is_open());
+    CHECK(!link.is_open(), "not open initially");
+    CHECK(link.open(), "open succeeds");
+    CHECK(link.is_open(), "is open");
 
     uint8_t test_byte = 0x42;
     link.send(&test_byte, 1);
     auto sent = link.take_outgoing();
-    TEST("send captures", sent.size() == 1 && sent[0] == 0x42);
-    TEST("take clears", link.take_outgoing().empty());
+    CHECK(sent.size() == 1 && sent[0] == 0x42, "send captures");
+    CHECK(link.take_outgoing().empty(), "take clears");
 
     // MavlinkAdapter + InMemoryLink
     mg::core::mavlink::MavlinkAdapter mavlink;
@@ -79,14 +78,14 @@ int main() {
     // Build and inject a valid heartbeat
     auto hb_bytes = build_heartbeat();
     link.inject_incoming(hb_bytes.data(), hb_bytes.size());
-    TEST("heartbeat received", heartbeat_received);
+    CHECK(heartbeat_received, "heartbeat received");
 
     auto hb = mavlink.latest_heartbeat();
-    TEST("sysid=1", hb.has_value() && hb->system_id == 1);
-    TEST("type=2 (quadrotor)", hb.has_value() && hb->vehicle_type == 2);
-    TEST("autopilot=3 (ardupilot)", hb.has_value() && hb->autopilot_type == 3);
-    TEST("armed", hb.has_value() && hb->armed);
-    TEST("flight_mode=Stabilize", hb.has_value() && std::string(hb->flight_mode) == "Stabilize");
+    CHECK(hb.has_value() && hb->system_id == 1, "sysid=1");
+    CHECK(hb.has_value() && hb->vehicle_type == 2, "type=2 (quadrotor)");
+    CHECK(hb.has_value() && hb->autopilot_type == 3, "autopilot=3 (ardupilot)");
+    CHECK(hb.has_value() && hb->armed, "armed");
+    CHECK(hb.has_value() && std::string(hb->flight_mode) == "Stabilize", "flight_mode=Stabilize");
 
     // ConnectionManager with InMemoryLink
     mg::core::transport::ConnectionManager conn;
@@ -105,28 +104,28 @@ int main() {
     // Note: manual wiring bypasses connect() state machine.
     // Real usage always goes through connect().
     // Skip connected assertion for manually-wired test.
-    TEST("get_mavlink", conn.get_mavlink() != nullptr);
-    TEST("get_link", conn.get_link() != nullptr);
+    CHECK(conn.get_mavlink() != nullptr, "get_mavlink");
+    CHECK(conn.get_link() != nullptr, "get_link");
 
     auto* inmem = dynamic_cast<mg::core::transport::InMemoryLink*>(conn.get_link());
-    TEST("dynamic_cast InMemoryLink", inmem != nullptr);
+    CHECK(inmem != nullptr, "dynamic_cast InMemoryLink");
     if (inmem) {
         inmem->inject_incoming(hb_bytes.data(), hb_bytes.size());
         auto hb2 = conn.get_mavlink()->latest_heartbeat();
-        TEST("heartbeat via conn", hb2.has_value() && hb2->system_id == 1);
-        TEST("armed via conn", hb2.has_value() && hb2->armed);
-        TEST("mode via conn", hb2.has_value() && std::string(hb2->flight_mode) == "Stabilize");
+        CHECK(hb2.has_value() && hb2->system_id == 1, "heartbeat via conn");
+        CHECK(hb2.has_value() && hb2->armed, "armed via conn");
+        CHECK(hb2.has_value() && std::string(hb2->flight_mode) == "Stabilize", "mode via conn");
     }
 
     // Send heartbeat GCS -> FC (tests the send path)
     conn.get_mavlink()->send_heartbeat();
     auto outgoing = inmem->take_outgoing();
-    TEST("GCS heartbeat sent", outgoing.size() > 6);
+    CHECK(outgoing.size() > 6, "GCS heartbeat sent");
 
     conn.disconnect();
-    TEST("disconnected", !conn.is_connected());
+    CHECK(!conn.is_connected(), "disconnected");
     mg_destroy(core);
-    TEST("destroy", true);
+    CHECK(true, "destroy");
 
     std::cout << "\n=== " << tests_passed << " passed, " << tests_failed << " failed ===" << std::endl;
     return tests_failed > 0 ? 1 : 0;

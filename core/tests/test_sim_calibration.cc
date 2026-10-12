@@ -2,7 +2,10 @@
  * test_sim_calibration.cc - Calibration tests via MockFlightController + FFI
  */
 #include "mock_vehicle_test_env.h"
+#include "core/calibration/strategies/accel_calibration.h"
+#include "core/calibration/strategies/baro_calibration.h"
 #include "core/calibration/strategies/compass_calibration.h"
+#include "core/calibration/strategies/gyro_calibration.h"
 #include "core/calibration/strategies/radio_calibration.h"
 #include "core/calibration/calibration_types.h"
 #include "core/transport/connection_manager.h"
@@ -19,19 +22,18 @@
 #include <chrono>
 #include <memory>
 #include <thread>
+#include "mgcs_test_check.h"
 
 using namespace mg::core::calibration;
 
-static int g_pass = 0;
-static int g_fail = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 constexpr uint16_t kAccelCalVehiclePosCommand = 42429;
 constexpr uint32_t kAccelCalVehiclePosSuccess = 16777215;
 constexpr uint16_t kStartMagCalCommand = 42424;
 
-#define CHECK(cond, msg) do { \
-    if (cond) { g_pass++; fprintf(stderr, "  [PASS] %s\n", msg); } \
-    else { g_fail++; fprintf(stderr, "  [FAIL] %s\n", msg); } \
-} while (0)
 
 struct TestEnv : MockVehicleTestEnv {
     explicit TestEnv(const MockFlightController::Config& cfg = MockFlightController::Config(),
@@ -41,10 +43,10 @@ struct TestEnv : MockVehicleTestEnv {
               load_default_params,
               [](mg::core::mavlink::MavlinkAdapter& mav, mg_core_t* core) {
                   mav.on_statustext([core](const std::string& text, uint8_t severity) {
-                      mg_calibration_process_statustext(core, text.c_str(), severity);
+                      get_active_calibration(core).process_statustext(text, severity);
                   });
                   mav.on_command_ack([core](const mg::core::mavlink::CommandAckInfo& ack) {
-                      mg_calibration_process_command_ack(core, ack.command, ack.result, ack.progress);
+                      get_active_calibration(core).process_command_ack(ack.command, ack.result, ack.progress);
                   });
               }) {}
 
@@ -157,14 +159,14 @@ static void test_cancel_waits_for_the_vehicle_ack() {
     if (pending) mg_free_string(pending);
 
     // 与取消无关的命令 ACK 不能当作停止确认。
-    mg_calibration_process_command_ack(env.core, 42424 /*DO_START_MAG_CAL*/, 0, 0);
+    get_active_calibration(env.core).process_command_ack(42424 /*DO_START_MAG_CAL*/, 0, 0);
     char* still = mg_calibration_get_status(env.core);
     CHECK(still && strstr(still, "\"stage\":\"cancelling\"") != nullptr,
           "an unrelated ACK does not end the cancellation");
     if (still) mg_free_string(still);
 
     // 飞控对 DO_CANCEL_MAG_CAL 的 ACK 才是真正的停止确认。
-    mg_calibration_process_command_ack(env.core, 42426 /*DO_CANCEL_MAG_CAL*/, 0, 0);
+    get_active_calibration(env.core).process_command_ack(42426 /*DO_CANCEL_MAG_CAL*/, 0, 0);
     char* done = mg_calibration_get_status(env.core);
     CHECK(done && strstr(done, "\"active\":false") != nullptr &&
               strstr(done, "\"stage\":\"cancelled\"") != nullptr,
@@ -659,7 +661,7 @@ static void test_failure_reason_keeps_flight_controller_text() {
     for (int i = 0; i < 20; i++) env.tick(50);
 
     // 注入一条飞控的失败文本。
-    mg_calibration_process_statustext(env.core, "Compass 1 calibration failed", 6);
+    get_active_calibration(env.core).process_statustext("Compass 1 calibration failed", 6);
 
     char* status = mg_calibration_get_status(env.core);
     std::string json = status ? status : "";
@@ -728,8 +730,107 @@ static void test_interpret_ack() {
 
 
 // ================================================================
-// 取消必须到达飞控（S8）+ 校准必须超时（S4）
+// 策略层结果语义：ACK 只确认受理，STATUSTEXT 必须整句匹配完成短语
 // ================================================================
+
+/// 旧实现用 "success"/"complete" 子串判定完成，飞控报的
+/// "Gyro calibration unsuccessful" / "Barometer calibration incomplete" 都会命中
+/// 成功分支；同时在 MAV_RESULT_ACCEPTED 时直接判 Success，与同目录
+/// radio_calibration.cc:84-88、compass_calibration.cc:187-190 的"ACK 只确认受理"
+/// 自相矛盾。这里把三条策略的语义钉住。
+static void test_calibration_strategy_result_semantics() {
+    fprintf(stderr, "\n[Group] Calibration strategy result semantics\n");
+
+    {
+        GyroCalibration gyro;
+        CHECK(gyro.interpret_ack(0, 0, CalibrationStage::Calibrating) ==
+                  CalibrationStage::Calibrating,
+              "gyro ACK accepted only confirms the command was accepted");
+        StatusParseResult r = gyro.parse_statustext(
+            "Gyro calibration unsuccessful", 6, CalibrationStage::Calibrating);
+        CHECK(r.is_calibration_text, "gyro failure text is calibration text");
+        CHECK(r.new_stage == CalibrationStage::Failed,
+              "gyro 'calibration unsuccessful' is not read as success");
+        r = gyro.parse_statustext("Gyro calibration successful", 6,
+                                  CalibrationStage::Calibrating);
+        CHECK(r.new_stage == CalibrationStage::Success,
+              "gyro completion text still means success");
+        r = gyro.parse_statustext("[cal] calibration done: gyro", 6,
+                                  CalibrationStage::Calibrating);
+        CHECK(r.new_stage == CalibrationStage::Success,
+              "PX4 gyro done text means success");
+    }
+
+    {
+        BaroCalibration baro;
+        CHECK(baro.interpret_ack(0, 0, CalibrationStage::Calibrating) ==
+                  CalibrationStage::Calibrating,
+              "baro ACK accepted only confirms the command was accepted");
+        StatusParseResult r = baro.parse_statustext(
+            "Barometer calibration incomplete", 6, CalibrationStage::Calibrating);
+        CHECK(r.new_stage == CalibrationStage::Failed,
+              "baro 'calibration incomplete' is not read as success");
+        r = baro.parse_statustext("Barometer 1 calibration complete", 6,
+                                  CalibrationStage::Calibrating);
+        CHECK(r.new_stage == CalibrationStage::Success,
+              "ArduPilot baro completion text still means success");
+    }
+
+    {
+        AccelCalibration accel;
+        CHECK(accel.interpret_ack(0, 0, CalibrationStage::Calibrating) ==
+                  CalibrationStage::Calibrating,
+              "accel ACK accepted only confirms the command was accepted");
+        StatusParseResult r = accel.parse_statustext(
+            "Accelerometer calibration unsuccessful", 6,
+            CalibrationStage::Calibrating);
+        CHECK(r.new_stage == CalibrationStage::Failed,
+              "accel 'calibration unsuccessful' is not read as success");
+        r = accel.parse_statustext("Accelerometer calibration successful", 6,
+                                   CalibrationStage::Calibrating);
+        CHECK(r.new_stage == CalibrationStage::Success,
+              "accel completion text still means success");
+        // 六面校准的姿态提示不能被当成失败（"Place vehicle ... and press any key."）。
+        r = accel.parse_statustext("Place vehicle level and press any key.", 6,
+                                   CalibrationStage::Calibrating);
+        CHECK(r.new_stage == CalibrationStage::WaitingOrientation,
+              "accel orientation prompt still moves to waiting orientation");
+    }
+}
+
+/// 端到端：飞控用 STATUSTEXT 报失败时，即使参数缓存里能读回旧的陀螺偏移
+/// （旧实现会据此判成功），也必须落 Failed。
+static void test_calibration_failure_text_beats_parameter_readback() {
+    fprintf(stderr, "\n[Group] Failure text beats a readable parameter cache\n");
+    TestEnv env(MockFlightController::Config(), /*load_default_params=*/true);
+    for (int i = 0; i < 15; i++) env.tick(100);
+    env.request_params();
+
+    // 飞控不回 ACK：结果完全由 STATUSTEXT 决定。ArduPilot 的陀螺校准 ACK 是
+    // 同步完成信号（服务层另行补偿），这里单独验证文本路径。
+    env.mock->set_cmd_no_response(true);
+
+    char* start = mg_calibration_start(env.core, 0 /*gyro*/, 0);
+    CHECK(start && strstr(start, "\"success\":true") != nullptr,
+          "gyro calibration starts for the failure-text test");
+    if (start) mg_free_string(start);
+    for (int i = 0; i < 10; i++) env.tick(50);
+
+    env.mock->send_statustext("Gyro calibration unsuccessful", 6);
+    for (int i = 0; i < 10; i++) env.tick(50);
+
+    char* status = mg_calibration_get_status(env.core);
+    std::string json = status ? status : "";
+    if (status) mg_free_string(status);
+    // 失败文本走失败路径（陀螺会按重试策略再发一次），绝不能落成功。
+    CHECK(json.find("\"stage\":\"success\"") == std::string::npos,
+          "the failure text is not turned into a success");
+    CHECK(json.find("\"failure_reason\":\"Gyroscope calibration failed\"") !=
+              std::string::npos,
+          "the flight controller's failure text is kept as the reason");
+}
+
+
 
 static void test_non_magnetometer_cancel_reaches_vehicle() {
     fprintf(stderr, "\n[Group] Cancel reaches the vehicle for every type\n");
@@ -912,6 +1013,8 @@ int main() {
     test_failure_reason_keeps_flight_controller_text();
     test_parse_statustext_edge_cases();
     test_interpret_ack();
+    test_calibration_strategy_result_semantics();
+    test_calibration_failure_text_beats_parameter_readback();
     test_non_magnetometer_cancel_reaches_vehicle();
     test_px4_compass_calibration_uses_preflight_calibration();
     test_px4_calibration_cancel_is_refused();

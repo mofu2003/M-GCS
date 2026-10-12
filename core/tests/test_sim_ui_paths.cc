@@ -19,14 +19,13 @@
 #include <filesystem>
 #include <string>
 #include <thread>
+#include "mgcs_test_check.h"
 
-static int g_pass = 0;
-static int g_fail = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
-#define CHECK(cond, msg) do { \
-    if (cond) { g_pass++; fprintf(stderr, "  [PASS] %s\n", msg); } \
-    else { g_fail++; fprintf(stderr, "  [FAIL] %s\n", msg); } \
-} while (0)
 
 namespace {
 
@@ -326,6 +325,89 @@ void test_log_download_reports_saved_bytes() {
         CHECK(n == 8 && std::memcmp(got, payload, 8) == 0,
               "downloaded file content matches the LOG_DATA payload");
     }
+    std::filesystem::remove(path, ec);
+}
+
+// 溢出守卫不能误伤正常路径：连续多帧（ofs 递增）与"补前面的洞"（ofs 小于当前
+// download_ofs）都必须照常接收。只有 ofs 超过已请求前沿才丢弃。
+void test_log_download_accepts_in_order_and_resent_holes() {
+    fprintf(stderr, "\n[Group] LOG_DATA guard leaves normal and resent frames intact\n");
+    TestEnv env;
+    env.connect();
+
+    env.mock->send_log_entry(11, 1700000000u, 180u);
+    env.tick(50);
+
+    const auto path =
+        std::filesystem::temp_directory_path() / "mgcs_log_inorder_test.bin";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    char* start = mg_onboard_log_download(env.core, 11, path.string().c_str());
+    CHECK(json_has(start, "\"success\":true"), "log download starts");
+    if (start) mg_free_string(start);
+    env.tick(10);
+
+    uint8_t block[90];
+    for (int i = 0; i < 90; ++i) block[i] = static_cast<uint8_t>(i);
+    // 正常递增：0 → 90。第二帧的 ofs 正好等于前沿，必须接受。
+    env.mock->send_log_data(11, 0, block, 90);
+    env.mock->send_log_data(11, 90, block, 90);
+
+    char* status = mg_onboard_log_download_status(env.core);
+    CHECK(json_has(status, "\"state\":\"completed\""),
+          "two in-order blocks complete a declared-size download");
+    CHECK(json_has(status, "\"saved_bytes\":180"), "both blocks were written");
+    if (status) mg_free_string(status);
+
+    FILE* f = fopen(path.string().c_str(), "rb");
+    CHECK(f != nullptr, "in-order download wrote a file");
+    if (f) {
+        uint8_t got[180] = {};
+        const size_t n = fread(got, 1, sizeof(got), f);
+        fclose(f);
+        CHECK(n == 180, "file holds all 180 bytes");
+        CHECK(got[0] == 0 && got[89] == 89 && got[90] == 0 && got[179] == 89,
+              "both blocks landed at the right offsets");
+    }
+    std::filesystem::remove(path, ec);
+}
+
+// 飞控给的 LOG_DATA.ofs 是 uint32，ofs+count 会回绕。当 download_size 未知（0，
+// 即 LOG_ENTRY 里没有这个 id 的大小）时，越界保护条件 `download_size > 0 && ...`
+// 不生效，回绕后的下标会写到 download_data 之外 → 堆越界写。
+// 这里注入一条 ofs 接近 UINT32_MAX 的 LOG_DATA，断言进程既不崩也不越界。
+void test_log_download_rejects_wrapping_offset() {
+    fprintf(stderr, "\n[Group] LOG_DATA with a wrapping offset is rejected\n");
+    TestEnv env;
+    env.connect();
+
+    // 只声明另一个 id 的条目：请求的 id 不在列表里 → download_size 保持 0。
+    env.mock->send_log_entry(5, 1700000000u, 8u);
+    env.tick(50);
+
+    const auto path =
+        std::filesystem::temp_directory_path() / "mgcs_log_wrap_test.bin";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+
+    // id=9 不在日志列表里（没有 size），下载仍会被受理。
+    char* start = mg_onboard_log_download(env.core, 9, path.string().c_str());
+    CHECK(json_has(start, "\"success\":true"), "download of an unsized log is accepted");
+    if (start) mg_free_string(start);
+    env.tick(10);
+
+    // ofs 取一个会让 ofs+count 回绕的值；count=16 是 LOG_DATA 的固定载荷长度。
+    const uint8_t payload[16] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    env.mock->send_log_data(9, 0xFFFFFFF0u, payload, 16);
+    env.tick(10);
+
+    // 走到这里说明没有越界写穿崩进程；状态必须是失败或结束，而不是"已完成"。
+    char* status = mg_onboard_log_download_status(env.core);
+    CHECK(status != nullptr, "status is still queryable after a wrapping offset");
+    CHECK(!json_has(status, "\"completed\":true"),
+          "a wrapping offset never reports a completed download");
+    if (status) mg_free_string(status);
     std::filesystem::remove(path, ec);
 }
 
@@ -1126,6 +1208,8 @@ int main() {
     test_home_position_is_requested_on_identify();
     test_log_list_reports_real_entries();
     test_log_download_reports_saved_bytes();
+    test_log_download_accepts_in_order_and_resent_holes();
+    test_log_download_rejects_wrapping_offset();
     test_log_download_write_failure_is_visible();
     test_log_download_status_has_no_side_effect();
     test_log_download_cancel_sends_request_end();

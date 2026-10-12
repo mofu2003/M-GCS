@@ -1,4 +1,4 @@
-﻿/**
+/**
  * test_mavlink_protocol.cc - MAVLink protocol layer tests (no hardware)
  *
  * Tests MavlinkAdapter encode/decode. Pattern inspired by QGC MockLink + MP.
@@ -15,19 +15,19 @@
 #include <cstring>
 #include <cmath>
 #include <thread>
+#include <mutex>
 #include <chrono>
 #include <vector>
 #include <atomic>
 #include <algorithm>
 #include <array>
+#include "mgcs_test_check.h"
 
-static int g_passed = 0;
-static int g_failed = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_passed = mgcs_test::passed();
+static int& g_failed = mgcs_test::failed();
 
-#define CHECK(name, expr) do { \
-    if (expr) { g_passed++; fprintf(stderr, "  [PASS] %s\n", name); } \
-    else { g_failed++; fprintf(stderr, "  [FAIL] %s\n", name); } \
-} while(0)
 
 static std::vector<uint8_t> pack_msg(mavlink_message_t& msg) {
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
@@ -63,13 +63,13 @@ static void test_heartbeat_ardupilot_fw() {
     mavlink_msg_heartbeat_pack(1, 1, &msg, MAV_TYPE_FIXED_WING, MAV_AUTOPILOT_ARDUPILOTMEGA,
         MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 17, MAV_STATE_STANDBY);
     f.inject(msg);
-    CHECK("AP FW heartbeat received", received);
-    CHECK("AP FW sysid=1", last.system_id == 1);
-    CHECK("AP FW type=1 (fixed_wing)", last.vehicle_type == 1);
-    CHECK("AP FW autopilot=3", last.autopilot_type == 3);
-    CHECK("AP FW not armed", !last.armed);
-    CHECK("AP FW custom_mode=17", last.custom_mode == 17);
-    CHECK("AP FW flight_mode not empty", strlen(last.flight_mode) > 0);
+    CHECK(received, "AP FW heartbeat received");
+    CHECK(last.system_id == 1, "AP FW sysid=1");
+    CHECK(last.vehicle_type == 1, "AP FW type=1 (fixed_wing)");
+    CHECK(last.autopilot_type == 3, "AP FW autopilot=3");
+    CHECK(!last.armed, "AP FW not armed");
+    CHECK(last.custom_mode == 17, "AP FW custom_mode=17");
+    CHECK(strlen(last.flight_mode) > 0, "AP FW flight_mode not empty");
 }
 
 static void test_heartbeat_px4_copter() {
@@ -82,11 +82,11 @@ static void test_heartbeat_px4_copter() {
     mavlink_msg_heartbeat_pack(1, 1, &msg, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_PX4,
         MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 50593792, MAV_STATE_ACTIVE);
     f.inject(msg);
-    CHECK("PX4 heartbeat received", received);
-    CHECK("PX4 autopilot=12", last.autopilot_type == 12);
-    CHECK("PX4 type=2 (quadrotor)", last.vehicle_type == 2);
-    CHECK("PX4 armed", last.armed);
-    CHECK("PX4 flight_mode decoded", strlen(last.flight_mode) > 0);
+    CHECK(received, "PX4 heartbeat received");
+    CHECK(last.autopilot_type == 12, "PX4 autopilot=12");
+    CHECK(last.vehicle_type == 2, "PX4 type=2 (quadrotor)");
+    CHECK(last.armed, "PX4 armed");
+    CHECK(strlen(last.flight_mode) > 0, "PX4 flight_mode decoded");
 }
 
 static void test_param_value_decode() {
@@ -109,16 +109,16 @@ static void test_param_value_decode() {
     pack_param("SERVO5_FUNCTION", 4.0f, MAV_PARAM_TYPE_UINT16, 3, 0);
     pack_param("ARMING_CHECK", 1.0f, MAV_PARAM_TYPE_INT32, 3, 1);
     pack_param("BATT_CAPACITY", 3300.0f, MAV_PARAM_TYPE_REAL32, 3, 2);
-    CHECK("3 params received", cnt == 3);
-    CHECK("params_received=3", f.adapter.params_received() == 3);
+    CHECK(cnt == 3, "3 params received");
+    CHECK(f.adapter.params_received() == 3, "params_received=3");
     auto p1 = f.adapter.get_param_by_name("SERVO5_FUNCTION");
-    CHECK("SERVO5_FUNCTION found", p1.has_value());
-    CHECK("SERVO5_FUNCTION=4", p1.has_value() && p1->value == 4.0f);
-    CHECK("SERVO5_FUNCTION type UINT16", p1.has_value() && p1->type == MAV_PARAM_TYPE_UINT16);
+    CHECK(p1.has_value(), "SERVO5_FUNCTION found");
+    CHECK(p1.has_value() && p1->value == 4.0f, "SERVO5_FUNCTION=4");
+    CHECK(p1.has_value() && p1->type == MAV_PARAM_TYPE_UINT16, "SERVO5_FUNCTION type UINT16");
     auto p2 = f.adapter.get_param_by_name("BATT_CAPACITY");
-    CHECK("BATT_CAPACITY=3300", p2.has_value() && p2->value == 3300.0f);
-    CHECK("NONEXISTENT=nullopt", !f.adapter.get_param_by_name("NONEXISTENT").has_value());
-    CHECK("all_params()=3", f.adapter.all_params().size() == 3);
+    CHECK(p2.has_value() && p2->value == 3300.0f, "BATT_CAPACITY=3300");
+    CHECK(!f.adapter.get_param_by_name("NONEXISTENT").has_value(), "NONEXISTENT=nullopt");
+    CHECK(f.adapter.all_params().size() == 3, "all_params()=3");
 }
 
 static void test_param_name_encoding() {
@@ -135,11 +135,11 @@ static void test_param_name_encoding() {
     mavlink_msg_param_value_encode(1, 1, &msg, &pv);
     f.inject(msg);
     auto p = f.adapter.get_param_by_name("SERIAL6_PROTOCOL");
-    CHECK("16-char param decoded", p.has_value());
-    CHECK("value=2", p.has_value() && p->value == 2.0f);
+    CHECK(p.has_value(), "16-char param decoded");
+    CHECK(p.has_value() && p->value == 2.0f, "value=2");
     if (p.has_value()) {
-        CHECK("name length=16", p->name.length() == 16);
-        CHECK("name matches exactly", p->name == "SERIAL6_PROTOCOL");
+        CHECK(p->name.length() == 16, "name length=16");
+        CHECK(p->name == "SERIAL6_PROTOCOL", "name matches exactly");
     }
 }
 
@@ -148,7 +148,7 @@ static void test_param_error_rejects_pending_write() {
     TestFixture f;
     const auto status = f.adapter.set_param_status(
         1, 1, "TEST_PARAM", 5.0f, MAV_PARAM_TYPE_REAL32);
-    CHECK("PARAM_SET accepted", static_cast<bool>(status));
+    CHECK(static_cast<bool>(status), "PARAM_SET accepted");
 
     mavlink_message_t msg;
     mavlink_msg_param_error_pack(
@@ -161,12 +161,10 @@ static void test_param_error_rejects_pending_write() {
         history.begin(), history.end(), [](const auto& item) {
             return item.name == "TEST_PARAM";
         });
-    CHECK("PARAM_ERROR leaves a write record", record != history.end());
-    CHECK("PARAM_ERROR marks write failed",
-          record != history.end() && record->state == "failed");
-    CHECK("PARAM_ERROR keeps rejection reason",
-          record != history.end() &&
-              record->error.find("out of range") != std::string::npos);
+    CHECK(record != history.end(), "PARAM_ERROR leaves a write record");
+    CHECK(record != history.end() && record->state == "failed", "PARAM_ERROR marks write failed");
+    CHECK(record != history.end() &&
+              record->error.find("out of range") != std::string::npos, "PARAM_ERROR keeps rejection reason");
 }
 
 static void test_command_ack() {
@@ -191,9 +189,9 @@ static void test_command_ack() {
     f.inject(msg);
     waiter.join();
     f.adapter.tick();  // 回调在锁外派发
-    CHECK("ACK callback fired", ack_cb);
-    CHECK("queued command returned the ACK", got_ack.load());
-    CHECK("ACK result ACCEPTED", ack_result.load() == MAV_RESULT_ACCEPTED);
+    CHECK(ack_cb, "ACK callback fired");
+    CHECK(got_ack.load(), "queued command returned the ACK");
+    CHECK(ack_result.load() == MAV_RESULT_ACCEPTED, "ACK result ACCEPTED");
 }
 
 static void test_command_ack_timeout() {
@@ -205,10 +203,9 @@ static void test_command_ack_timeout() {
     auto result = f.adapter.wait_for_command(ticket, 200);
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start).count();
-    CHECK("waiting without an ACK returns nullopt", !result.has_value());
-    CHECK("wait respected the timeout", elapsed >= 150 && elapsed < 500);
-    CHECK("an unacknowledged command can still be cancelled",
-          f.adapter.cancel_command(ticket));
+    CHECK(!result.has_value(), "waiting without an ACK returns nullopt");
+    CHECK(elapsed >= 150 && elapsed < 500, "wait respected the timeout");
+    CHECK(f.adapter.cancel_command(ticket), "an unacknowledged command can still be cancelled");
 }
 
 static void test_gps_decode() {
@@ -219,11 +216,40 @@ static void test_gps_decode() {
     mavlink_message_t msg;
     { mavlink_gps_raw_int_t g = {}; g.fix_type=3; g.lat=310000000; g.lon=1210000000; g.alt=100000; g.vel=150; g.cog=2500; g.satellites_visible=12; mavlink_msg_gps_raw_int_encode(1,1,&msg,&g); }
     f.inject(msg);
-    CHECK("GPS received", received);
+    CHECK(received, "GPS received");
     auto gps = f.adapter.latest_gps();
-    CHECK("fix_type=3 (3D)", gps.has_value() && gps->fix_type == 3);
-    CHECK("lat=310000000", gps.has_value() && gps->lat == 310000000);
-    CHECK("satellites=12", gps.has_value() && gps->satellites_visible == 12);
+    CHECK(gps.has_value() && gps->fix_type == 3, "fix_type=3 (3D)");
+    CHECK(gps.has_value() && gps->lat == 310000000, "lat=310000000");
+    CHECK(gps.has_value() && gps->satellites_visible == 12, "satellites=12");
+}
+
+static void test_adsb_callsign_is_bounded_and_terminated() {
+    fprintf(stderr, "\n[Group] ADSB_VEHICLE callsign copy is bounded\n");
+    TestFixture f;
+    bool received = false;
+    mg::core::mavlink::AdsbVehicleInfo got{};
+    f.adapter.on_adsb_vehicle([&](const mg::core::mavlink::AdsbVehicleInfo& v) {
+        received = true;
+        got = v;
+    });
+
+    // 方言里 callsign 是 char[9]（"8+null"），本结构体是 char[10]。用 8 字符
+    // callsign（无内嵌 NUL）+ 非零 emitter_type，精确复现"多读 1 字节"的场景：
+    // 旧实现 memcpy(sizeof(dst)) 会把紧跟 callsign 之后的 emitter_type 字节写进
+    // callsign[9]，既越界读又破坏字符串。
+    char callsign[9] = {'A', 'B', 'C', '1', '2', '3', '4', '5', '\0'};
+    mavlink_message_t msg;
+    mavlink_msg_adsb_vehicle_pack(
+        1, 1, &msg, 0xABCDEF, 310000000, 1210000000,
+        ADSB_ALTITUDE_TYPE_GEOMETRIC, 100000, 9000, 5000, 0,
+        callsign, ADSB_EMITTER_TYPE_LIGHT, 3, 0, 1200);
+    f.inject(msg);
+
+    CHECK(received, "ADSB_VEHICLE received");
+    CHECK(got.callsign[8] == '\0', "callsign is NUL-terminated");
+    CHECK(std::strcmp(got.callsign, "ABC12345") == 0, "callsign holds the 8 transmitted characters");
+    CHECK(got.callsign[9] == '\0', "callsign[9] stays untouched (emitter_type is not copied in)");
+    CHECK(got.emitter_type == ADSB_EMITTER_TYPE_LIGHT, "emitter_type is decoded separately");
 }
 
 static void test_attitude_decode() {
@@ -234,11 +260,11 @@ static void test_attitude_decode() {
     mavlink_message_t msg;
     mavlink_msg_attitude_pack(1, 1, &msg, 0, 0.05f, -0.02f, 1.57f, 0.01f, -0.005f, 0.002f);
     f.inject(msg);
-    CHECK("Attitude received", received);
+    CHECK(received, "Attitude received");
     auto att = f.adapter.latest_attitude();
-    CHECK("roll ~0.05", att.has_value() && fabs(att->roll - 0.05f) < 0.001f);
-    CHECK("pitch ~-0.02", att.has_value() && fabs(att->pitch + 0.02f) < 0.001f);
-    CHECK("yaw ~1.57", att.has_value() && fabs(att->yaw - 1.57f) < 0.001f);
+    CHECK(att.has_value() && fabs(att->roll - 0.05f) < 0.001f, "roll ~0.05");
+    CHECK(att.has_value() && fabs(att->pitch + 0.02f) < 0.001f, "pitch ~-0.02");
+    CHECK(att.has_value() && fabs(att->yaw - 1.57f) < 0.001f, "yaw ~1.57");
 }
 
 static void test_rc_channels_decode() {
@@ -249,11 +275,11 @@ static void test_rc_channels_decode() {
     mavlink_message_t msg;
     { mavlink_rc_channels_t r = {}; r.chancount=8; r.rssi=255; r.chan1_raw=1500; r.chan2_raw=1500; r.chan3_raw=1100; r.chan4_raw=1500; r.chan5_raw=1800; r.chan6_raw=1200; r.chan7_raw=1500; r.chan8_raw=1500; mavlink_msg_rc_channels_encode(1,1,&msg,&r); }
     f.inject(msg);
-    CHECK("RC received", received);
+    CHECK(received, "RC received");
     auto rc = f.adapter.latest_rc_channels();
-    CHECK("chancount=8", rc.has_value() && rc->chancount == 8);
-    CHECK("chan[0]=1500", rc.has_value() && rc->chan[0] == 1500);
-    CHECK("chan[2]=1100", rc.has_value() && rc->chan[2] == 1100);
+    CHECK(rc.has_value() && rc->chancount == 8, "chancount=8");
+    CHECK(rc.has_value() && rc->chan[0] == 1500, "chan[0]=1500");
+    CHECK(rc.has_value() && rc->chan[2] == 1100, "chan[2]=1100");
 }
 
 static void test_servo_output_decode() {
@@ -264,18 +290,18 @@ static void test_servo_output_decode() {
     mavlink_message_t msg;
     { mavlink_servo_output_raw_t s = {}; s.time_usec=123456; s.port=0; s.servo1_raw=1500; s.servo2_raw=1500; s.servo3_raw=1100; s.servo4_raw=1500; s.servo5_raw=1800; s.servo6_raw=1200; s.servo7_raw=1500; s.servo8_raw=1500; mavlink_msg_servo_output_raw_encode(1,1,&msg,&s); }
     f.inject(msg);
-    CHECK("Servo received", received == 1);
+    CHECK(received == 1, "Servo received");
     auto sv = f.adapter.latest_servo_output();
-    CHECK("servo[0]=1500", sv.has_value() && sv->servo[0] == 1500);
-    CHECK("servo[2]=1100", sv.has_value() && sv->servo[2] == 1100);
-    CHECK("time_usec decoded", sv.has_value() && sv->time_usec == 123456);
+    CHECK(sv.has_value() && sv->servo[0] == 1500, "servo[0]=1500");
+    CHECK(sv.has_value() && sv->servo[2] == 1100, "servo[2]=1100");
+    CHECK(sv.has_value() && sv->time_usec == 123456, "time_usec decoded");
 
     { mavlink_servo_output_raw_t s = {}; s.time_usec=654321; s.port=1; s.servo1_raw=1900; mavlink_msg_servo_output_raw_encode(1,1,&msg,&s); }
     f.inject(msg);
     sv = f.adapter.latest_servo_output();
-    CHECK("port 1 does not fire 1-16 callback", received == 1);
-    CHECK("port 1 does not overwrite servo 1", sv.has_value() && sv->servo[0] == 1500);
-    CHECK("port 1 does not overwrite timestamp", sv.has_value() && sv->time_usec == 123456);
+    CHECK(received == 1, "port 1 does not fire 1-16 callback");
+    CHECK(sv.has_value() && sv->servo[0] == 1500, "port 1 does not overwrite servo 1");
+    CHECK(sv.has_value() && sv->time_usec == 123456, "port 1 does not overwrite timestamp");
 }
 
 static void test_statustext_decode() {
@@ -288,9 +314,9 @@ static void test_statustext_decode() {
     f.inject(msg);
     mavlink_msg_statustext_pack(1, 1, &msg, 6, "Flight mode LOITER", 0, 0);
     f.inject(msg);
-    CHECK("2 statustexts", count == 2);
-    CHECK("last text matches", f.adapter.last_statustext() == "Flight mode LOITER");
-    CHECK("severity=6 (info)", f.adapter.last_statustext_severity() == 6);
+    CHECK(count == 2, "2 statustexts");
+    CHECK(f.adapter.last_statustext() == "Flight mode LOITER", "last text matches");
+    CHECK(f.adapter.last_statustext_severity() == 6, "severity=6 (info)");
 }
 
 static void test_global_position_decode() {
@@ -301,11 +327,11 @@ static void test_global_position_decode() {
     mavlink_message_t msg;
     mavlink_msg_global_position_int_pack(1, 1, &msg, 0, 310000000, 1210000000, 100000, 50000, 100, 200, 50, 5400);
     f.inject(msg);
-    CHECK("Global pos received", received);
+    CHECK(received, "Global pos received");
     auto gp = f.adapter.latest_global_position();
-    CHECK("lat=310000000", gp.has_value() && gp->lat == 310000000);
-    CHECK("alt=100000mm", gp.has_value() && gp->alt == 100000);
-    CHECK("hdg=5400", gp.has_value() && gp->hdg == 5400);
+    CHECK(gp.has_value() && gp->lat == 310000000, "lat=310000000");
+    CHECK(gp.has_value() && gp->alt == 100000, "alt=100000mm");
+    CHECK(gp.has_value() && gp->hdg == 5400, "hdg=5400");
 }
 
 static void test_home_position_decode() {
@@ -316,10 +342,10 @@ static void test_home_position_decode() {
     mavlink_message_t msg;
     { mavlink_home_position_t h = {}; h.latitude=310000000; h.longitude=1210000000; h.altitude=50000; h.q[0]=1; mavlink_msg_home_position_encode(1,1,&msg,&h); }
     f.inject(msg);
-    CHECK("Home pos received", received);
+    CHECK(received, "Home pos received");
     auto hp = f.adapter.latest_home_position();
-    CHECK("home lat=310000000", hp.has_value() && hp->latitude == 310000000);
-    CHECK("home alt=50000mm", hp.has_value() && hp->altitude == 50000);
+    CHECK(hp.has_value() && hp->latitude == 310000000, "home lat=310000000");
+    CHECK(hp.has_value() && hp->altitude == 50000, "home alt=50000mm");
 }
 
 /// SCALED_IMU/2/3 是三条独立消息，分别代表 IMU1/2/3。
@@ -358,18 +384,15 @@ static void test_scaled_imu_instances() {
     }
     f.inject(msg);
 
-    CHECK("three IMU frames delivered", instances.size() == 3);
-    CHECK("SCALED_IMU -> instance 0", instances.size() == 3 && instances[0] == 0);
-    CHECK("SCALED_IMU2 -> instance 1", instances.size() == 3 && instances[1] == 1);
-    CHECK("SCALED_IMU3 -> instance 2", instances.size() == 3 && instances[2] == 2);
-    CHECK("instance payloads stay attributed to their message",
-          accel_x.size() == 3 && accel_x[0] == 100 && accel_x[1] == 200 && accel_x[2] == 300);
+    CHECK(instances.size() == 3, "three IMU frames delivered");
+    CHECK(instances.size() == 3 && instances[0] == 0, "SCALED_IMU -> instance 0");
+    CHECK(instances.size() == 3 && instances[1] == 1, "SCALED_IMU2 -> instance 1");
+    CHECK(instances.size() == 3 && instances[2] == 2, "SCALED_IMU3 -> instance 2");
+    CHECK(accel_x.size() == 3 && accel_x[0] == 100 && accel_x[1] == 200 && accel_x[2] == 300, "instance payloads stay attributed to their message");
 
     auto primary = f.adapter.latest_imu();
-    CHECK("latest_imu() still reports the primary IMU",
-          primary.has_value() && primary->instance == 0 && primary->xacc == 100);
-    CHECK("latest_imu() keeps the primary magnetometer reading",
-          primary.has_value() && primary->xmag == 250);
+    CHECK(primary.has_value() && primary->instance == 0 && primary->xacc == 100, "latest_imu() still reports the primary IMU");
+    CHECK(primary.has_value() && primary->xmag == 250, "latest_imu() keeps the primary magnetometer reading");
 }
 
 static void test_pressure_decode() {
@@ -380,10 +403,39 @@ static void test_pressure_decode() {
     mavlink_message_t msg;
     { mavlink_scaled_pressure_t p = {}; p.press_abs=1013.25f; p.temperature=2500; mavlink_msg_scaled_pressure_encode(1,1,&msg,&p); }
     f.inject(msg);
-    CHECK("Pressure received", received);
+    CHECK(received, "Pressure received");
     auto pr = f.adapter.latest_pressure();
-    CHECK("abs ~1013.25 hPa", pr.has_value() && fabs(pr->press_abs - 1013.25f) < 0.1f);
-    CHECK("temp=2500 (25C)", pr.has_value() && pr->temperature == 2500);
+    CHECK(pr.has_value() && fabs(pr->press_abs - 1013.25f) < 0.1f, "abs ~1013.25 hPa");
+    CHECK(pr.has_value() && pr->temperature == 2500, "temp=2500 (25C)");
+}
+
+// HIGHRES_IMU 的 abs_pressure/diff_pressure 方言单位就是 hPa
+// （mavlink_msg_highres_imu.h: "float abs_pressure; /*< [hPa] ...*/"），
+// 与 SCALED_PRESSURE.press_abs 相同。曾经这条路径额外除以 100，导致对外读数
+// 恒小 100 倍。这里钉住"原样透传"，与 test_pressure_decode 同口径。
+static void test_highres_imu_pressure_is_not_rescaled() {
+    fprintf(stderr, "\n[Group] HIGHRES_IMU pressure passes through unchanged\n");
+    TestFixture f;
+    bool received = false;
+    mg::core::mavlink::HighresImuInfo got{};
+    f.adapter.on_highres_imu([&](const mg::core::mavlink::HighresImuInfo& v) {
+        received = true;
+        got = v;
+    });
+
+    mavlink_message_t msg;
+    {
+        mavlink_highres_imu_t hi = {};
+        hi.abs_pressure = 1013.25f;   // hPa
+        hi.diff_pressure = 12.5f;     // hPa
+        hi.temperature = 25.0f;
+        mavlink_msg_highres_imu_encode(1, 1, &msg, &hi);
+    }
+    f.inject(msg);
+
+    CHECK(received, "HIGHRES_IMU received");
+    CHECK(fabs(got.abs_pressure - 1013.25f) < 0.1f, "abs_pressure stays in hPa");
+    CHECK(fabs(got.diff_pressure - 12.5f) < 0.1f, "diff_pressure stays in hPa");
 }
 
 static void test_sys_status_decode() {
@@ -394,10 +446,10 @@ static void test_sys_status_decode() {
     mavlink_message_t msg;
     { mavlink_sys_status_t s = {}; s.onboard_control_sensors_present=0x1FFF; s.onboard_control_sensors_enabled=0x14001; s.onboard_control_sensors_health=0x31FFEF; s.voltage_battery=12600; mavlink_msg_sys_status_encode(1,1,&msg,&s); }
     f.inject(msg);
-    CHECK("SYS_STATUS received", received);
+    CHECK(received, "SYS_STATUS received");
     auto ss = f.adapter.latest_sys_status();
-    CHECK("sensors_present=0x1FFF", ss.has_value() && ss->onboard_control_sensors_present == 0x1FFF);
-    CHECK("voltage=12600", ss.has_value() && ss->battery_voltage == 12600);
+    CHECK(ss.has_value() && ss->onboard_control_sensors_present == 0x1FFF, "sensors_present=0x1FFF");
+    CHECK(ss.has_value() && ss->battery_voltage == 12600, "voltage=12600");
 }
 static void test_battery_status_decode() {
     fprintf(stderr, "\n[Group] BATTERY_STATUS decode\n");
@@ -414,12 +466,12 @@ static void test_battery_status_decode() {
     b.battery_remaining = 90;  // 90%
     mavlink_msg_battery_status_encode(1, 1, &msg, &b);
     f.inject(msg);
-    CHECK("Battery received", received);
+    CHECK(received, "Battery received");
     auto bat = f.adapter.latest_battery();
-    CHECK("voltage ~12.6V", bat.has_value() && fabs(bat->voltage_v - 12.6f) < 0.1f);
-    CHECK("current ~15A", bat.has_value() && fabs(bat->current_a - 15.0f) < 0.5f);
-    CHECK("consumed=2500mAh", bat.has_value() && bat->consumed_mah == 2500);
-    CHECK("remaining=90", bat.has_value() && bat->battery_remaining == 90);
+    CHECK(bat.has_value() && fabs(bat->voltage_v - 12.6f) < 0.1f, "voltage ~12.6V");
+    CHECK(bat.has_value() && fabs(bat->current_a - 15.0f) < 0.5f, "current ~15A");
+    CHECK(bat.has_value() && bat->consumed_mah == 2500, "consumed=2500mAh");
+    CHECK(bat.has_value() && bat->battery_remaining == 90, "remaining=90");
 }
 
 static void test_vibration_decode() {
@@ -430,10 +482,10 @@ static void test_vibration_decode() {
     mavlink_message_t msg;
     { mavlink_vibration_t v = {}; v.vibration_x=0.5f; v.vibration_y=0.3f; v.vibration_z=0.8f; v.clipping_0=10; v.clipping_1=20; v.clipping_2=30; mavlink_msg_vibration_encode(1,1,&msg,&v); }
     f.inject(msg);
-    CHECK("Vibration received", received);
+    CHECK(received, "Vibration received");
     auto vib = f.adapter.latest_vibration();
-    CHECK("vib_x ~0.5", vib.has_value() && fabs(vib->vibration_x - 0.5f) < 0.01f);
-    CHECK("clipping_0=10", vib.has_value() && vib->clipping_0 == 10);
+    CHECK(vib.has_value() && fabs(vib->vibration_x - 0.5f) < 0.01f, "vib_x ~0.5");
+    CHECK(vib.has_value() && vib->clipping_0 == 10, "clipping_0=10");
 }
 
 static void test_multi_message_interleave() {
@@ -461,23 +513,23 @@ static void test_multi_message_interleave() {
             f.inject(msg);
         }
     }
-    CHECK("10 attitudes", att_cnt == 10);
-    CHECK("5 GPS updates", gps_cnt == 5);
-    CHECK("1 heartbeat", hb_cnt == 1);
-    CHECK("1 param", param_cnt == 1);
-    CHECK("msg_count=17", f.adapter.message_count() == 17);
+    CHECK(att_cnt == 10, "10 attitudes");
+    CHECK(gps_cnt == 5, "5 GPS updates");
+    CHECK(hb_cnt == 1, "1 heartbeat");
+    CHECK(param_cnt == 1, "1 param");
+    CHECK(f.adapter.message_count() == 17, "msg_count=17");
 }
 
 static void test_heartbeat_alive() {
     fprintf(stderr, "\n[Group] Heartbeat alive/age\n");
     TestFixture f;
-    CHECK("age=0 initially", f.adapter.heartbeat_age_ms() == 0);
-    CHECK("alive=false initially", !f.adapter.heartbeat_alive(5000));
+    CHECK(f.adapter.heartbeat_age_ms() == 0, "age=0 initially");
+    CHECK(!f.adapter.heartbeat_alive(5000), "alive=false initially");
     mavlink_message_t msg;
     mavlink_msg_heartbeat_pack(1, 1, &msg, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, 0, 0, MAV_STATE_STANDBY);
     f.inject(msg);
-    CHECK("alive=true after HB", f.adapter.heartbeat_alive(5000));
-    CHECK("age < 100ms", f.adapter.heartbeat_age_ms() < 100);
+    CHECK(f.adapter.heartbeat_alive(5000), "alive=true after HB");
+    CHECK(f.adapter.heartbeat_age_ms() < 100, "age < 100ms");
 }
 
 static void test_link_quality() {
@@ -497,10 +549,10 @@ static void test_link_quality() {
     inject_heartbeat(1, 1, 11);
     inject_heartbeat(1, 1, 14);
     const auto missing = f.adapter.link_quality();
-    CHECK("link has enough samples", !missing.measuring);
-    CHECK("link received=3", missing.received == 3);
-    CHECK("link lost=2", missing.lost == 2);
-    CHECK("link quality=60", missing.quality_pct == 60);
+    CHECK(!missing.measuring, "link has enough samples");
+    CHECK(missing.received == 3, "link received=3");
+    CHECK(missing.lost == 2, "link lost=2");
+    CHECK(missing.quality_pct == 60, "link quality=60");
 
     TestFixture wrapping;
     auto inject_wrapping_heartbeat = [&](uint8_t sequence) {
@@ -515,9 +567,9 @@ static void test_link_quality() {
     inject_wrapping_heartbeat(255);
     inject_wrapping_heartbeat(0);
     const auto wrapped = wrapping.adapter.link_quality();
-    CHECK("link wrap has enough samples", !wrapped.measuring);
-    CHECK("link wrap has no loss", wrapped.lost == 0);
-    CHECK("link wrap quality=100", wrapped.quality_pct == 100);
+    CHECK(!wrapped.measuring, "link wrap has enough samples");
+    CHECK(wrapped.lost == 0, "link wrap has no loss");
+    CHECK(wrapped.quality_pct == 100, "link wrap quality=100");
 }
 
 std::vector<uint8_t> pack_signed_heartbeat(
@@ -559,18 +611,14 @@ static void test_signing_is_per_adapter() {
 
     TestFixture signed_link;
     TestFixture unsigned_link;
-    CHECK("signed adapter accepts a valid signing key",
-          signed_link.adapter.set_signing_key(key.data(), key.size()));
-    CHECK("signing is enabled only on the configured adapter",
-          signed_link.adapter.signing_enabled() &&
-              !unsigned_link.adapter.signing_enabled());
+    CHECK(signed_link.adapter.set_signing_key(key.data(), key.size()), "signed adapter accepts a valid signing key");
+    CHECK(signed_link.adapter.signing_enabled() &&
+              !unsigned_link.adapter.signing_enabled(), "signing is enabled only on the configured adapter");
 
-    CHECK("signed adapter emits heartbeat",
-          signed_link.adapter.send_heartbeat());
+    CHECK(signed_link.adapter.send_heartbeat(), "signed adapter emits heartbeat");
     const auto signed_bytes = signed_link.link.take_outgoing();
-    CHECK("signed outgoing frame carries the signing flag",
-          signed_bytes.size() > 2 &&
-              (signed_bytes[2] & MAVLINK_IFLAG_SIGNED) != 0);
+    CHECK(signed_bytes.size() > 2 &&
+              (signed_bytes[2] & MAVLINK_IFLAG_SIGNED) != 0, "signed outgoing frame carries the signing flag");
 
     const auto unsigned_heartbeat = pack_signed_heartbeat(
         9, key, 42, 1);
@@ -583,12 +631,10 @@ static void test_signing_is_per_adapter() {
             0, MAV_STATE_ACTIVE);
         unsigned_bytes = pack_msg(message);
     }
-    CHECK("signed adapter rejects unsigned inbound traffic",
-          !signed_link.adapter.feed_raw(unsigned_bytes.data(),
-                                        unsigned_bytes.size()));
-    CHECK("unsigned adapter still accepts unsigned traffic",
-          unsigned_link.adapter.feed_raw(unsigned_bytes.data(),
-                                         unsigned_bytes.size()));
+    CHECK(!signed_link.adapter.feed_raw(unsigned_bytes.data(),
+                                        unsigned_bytes.size()), "signed adapter rejects unsigned inbound traffic");
+    CHECK(unsigned_link.adapter.feed_raw(unsigned_bytes.data(),
+                                         unsigned_bytes.size()), "unsigned adapter still accepts unsigned traffic");
 
     constexpr uint64_t kSigningEpochMicros = 1420070400000000ULL;
     const uint64_t now_micros = static_cast<uint64_t>(
@@ -598,22 +644,17 @@ static void test_signing_is_per_adapter() {
     const uint64_t timestamp_ticks = (now_micros - kSigningEpochMicros) / 10ULL;
     const auto signed_heartbeat =
         pack_signed_heartbeat(9, key, 42, timestamp_ticks);
-    CHECK("signed adapter accepts matching signed traffic",
-          signed_link.adapter.feed_raw(signed_heartbeat.data(),
-                                       signed_heartbeat.size()));
+    CHECK(signed_link.adapter.feed_raw(signed_heartbeat.data(),
+                                       signed_heartbeat.size()), "signed adapter accepts matching signed traffic");
     const auto heartbeat = signed_link.adapter.latest_heartbeat();
-    CHECK("signed heartbeat reaches telemetry",
-          heartbeat.has_value() && heartbeat->system_id == 9);
-    CHECK("signed adapter reports a valid signature",
-          signed_link.adapter.signing_status() ==
-              MAVLINK_SIGNING_STATUS_OK);
+    CHECK(heartbeat.has_value() && heartbeat->system_id == 9, "signed heartbeat reaches telemetry");
+    CHECK(signed_link.adapter.signing_status() ==
+              MAVLINK_SIGNING_STATUS_OK, "signed adapter reports a valid signature");
 
     signed_link.adapter.clear_signing_key();
-    CHECK("clearing the key disables signing",
-          !signed_link.adapter.signing_enabled());
-    CHECK("cleared adapter accepts unsigned traffic again",
-          signed_link.adapter.feed_raw(unsigned_bytes.data(),
-                                       unsigned_bytes.size()));
+    CHECK(!signed_link.adapter.signing_enabled(), "clearing the key disables signing");
+    CHECK(signed_link.adapter.feed_raw(unsigned_bytes.data(),
+                                       unsigned_bytes.size()), "cleared adapter accepts unsigned traffic again");
     (void)unsigned_heartbeat;
 }
 
@@ -637,25 +678,18 @@ static void test_signing_candidate_auto_detect() {
     candidate.name = "KeyAlpha";
     candidate.key = key;
     fixture.adapter.set_signing_candidates({candidate});
-    CHECK("candidate count is retained",
-          fixture.adapter.signing_candidate_count() == 1);
+    CHECK(fixture.adapter.signing_candidate_count() == 1, "candidate count is retained");
     const auto first = pack_signed_heartbeat(21, key, 7, timestamp_ticks);
-    CHECK("signed packet triggers candidate matching",
-          fixture.adapter.feed_raw(first.data(), first.size()));
-    CHECK("matching key is automatically enabled",
-          fixture.adapter.signing_enabled());
-    CHECK("auto-detected key name is retained",
-          fixture.adapter.signing_key_name() == "KeyAlpha");
-    CHECK("auto-detection is marked in status",
-          fixture.adapter.signing_auto_detected());
+    CHECK(fixture.adapter.feed_raw(first.data(), first.size()), "signed packet triggers candidate matching");
+    CHECK(fixture.adapter.signing_enabled(), "matching key is automatically enabled");
+    CHECK(fixture.adapter.signing_key_name() == "KeyAlpha", "auto-detected key name is retained");
+    CHECK(fixture.adapter.signing_auto_detected(), "auto-detection is marked in status");
 
     // The next matching packet goes through normal timestamp/stream checks.
     const auto second =
         pack_signed_heartbeat(21, key, 7, timestamp_ticks + 1);
-    CHECK("auto-detected key validates later signed traffic",
-          fixture.adapter.feed_raw(second.data(), second.size()));
-    CHECK("auto-detected key reports OK after validation",
-          fixture.adapter.signing_status() == MAVLINK_SIGNING_STATUS_OK);
+    CHECK(fixture.adapter.feed_raw(second.data(), second.size()), "auto-detected key validates later signed traffic");
+    CHECK(fixture.adapter.signing_status() == MAVLINK_SIGNING_STATUS_OK, "auto-detected key reports OK after validation");
 }
 
 static void test_signing_detection_rejects_replay_and_mixed_chunk() {
@@ -670,10 +704,9 @@ static void test_signing_detection_rejects_replay_and_mixed_chunk() {
     TestFixture old;
     old.adapter.set_signing_candidates({candidate});
     const auto stale = pack_signed_heartbeat(21, key, 7, ticks - 12000000ULL);
-    CHECK("old first signed heartbeat is rejected",
-          !old.adapter.feed_raw(stale.data(), stale.size()));
-    CHECK("stale packet does not update heartbeat", !old.adapter.latest_heartbeat());
-    CHECK("stale packet does not select a key", !old.adapter.signing_enabled());
+    CHECK(!old.adapter.feed_raw(stale.data(), stale.size()), "old first signed heartbeat is rejected");
+    CHECK(!old.adapter.latest_heartbeat(), "stale packet does not update heartbeat");
+    CHECK(!old.adapter.signing_enabled(), "stale packet does not select a key");
 
     TestFixture mixed;
     mixed.adapter.set_signing_candidates({candidate});
@@ -682,10 +715,10 @@ static void test_signing_detection_rejects_replay_and_mixed_chunk() {
     const auto valid = pack_signed_heartbeat(21, key, 7, ticks);
     auto chunk = valid;
     chunk.insert(chunk.end(), valid.begin(), valid.end());
-    CHECK("valid first packet accepted", mixed.adapter.feed_raw(chunk.data(), chunk.size()));
-    CHECK("duplicate first packet in same chunk is rejected", count == 1);
-    CHECK("later replay is rejected", !mixed.adapter.feed_raw(valid.data(), valid.size()));
-    CHECK("later replay does not update heartbeat", count == 1);
+    CHECK(mixed.adapter.feed_raw(chunk.data(), chunk.size()), "valid first packet accepted");
+    CHECK(count == 1, "duplicate first packet in same chunk is rejected");
+    CHECK(!mixed.adapter.feed_raw(valid.data(), valid.size()), "later replay is rejected");
+    CHECK(count == 1, "later replay does not update heartbeat");
 }
 
 static void test_tx_sequence_is_isolated_per_adapter() {
@@ -693,42 +726,38 @@ static void test_tx_sequence_is_isolated_per_adapter() {
     TestFixture first;
     TestFixture second;
 
-    CHECK("first adapter sends first heartbeat", first.adapter.send_heartbeat());
-    CHECK("second adapter sends first heartbeat", second.adapter.send_heartbeat());
-    CHECK("first adapter sends second heartbeat", first.adapter.send_heartbeat());
+    CHECK(first.adapter.send_heartbeat(), "first adapter sends first heartbeat");
+    CHECK(second.adapter.send_heartbeat(), "second adapter sends first heartbeat");
+    CHECK(first.adapter.send_heartbeat(), "first adapter sends second heartbeat");
 
     const auto first_frames = first.link.take_outgoing();
     const auto second_frames = second.link.take_outgoing();
-    CHECK("both adapters produced MAVLink frames",
-          first_frames.size() > 8 && second_frames.size() > 8);
+    CHECK(first_frames.size() > 8 && second_frames.size() > 8, "both adapters produced MAVLink frames");
     const uint8_t initial_sequence = first_frames[4];
-    CHECK("each adapter starts its own TX sequence independently",
-          second_frames[4] == initial_sequence);
-    CHECK("one adapter advances only its own TX sequence",
-          first_frames.size() > 25 && first_frames[25] == initial_sequence + 1);
+    CHECK(second_frames[4] == initial_sequence, "each adapter starts its own TX sequence independently");
+    CHECK(first_frames.size() > 25 && first_frames[25] == initial_sequence + 1, "one adapter advances only its own TX sequence");
 
     TestFixture third;
-    CHECK("third adapter sends heartbeat", third.adapter.send_heartbeat());
+    CHECK(third.adapter.send_heartbeat(), "third adapter sends heartbeat");
     const auto third_frames = third.link.take_outgoing();
-    CHECK("a later adapter does not inherit another adapter sequence",
-          third_frames.size() > 8 && third_frames[4] == initial_sequence);
+    CHECK(third_frames.size() > 8 && third_frames[4] == initial_sequence, "a later adapter does not inherit another adapter sequence");
 }
 
 static void test_send_heartbeat() {
     fprintf(stderr, "\n[Group] Send path - GCS heartbeat\n");
     TestFixture f;
     bool ok = f.adapter.send_heartbeat();
-    CHECK("send_heartbeat ok", ok);
+    CHECK(ok, "send_heartbeat ok");
     auto outgoing = f.link.take_outgoing();
-    CHECK("outgoing bytes > 6", outgoing.size() > 6);
+    CHECK(outgoing.size() > 6, "outgoing bytes > 6");
     mavlink_message_t msg = {};
     mavlink_status_t status = {};
     bool parsed = false;
     for (size_t i = 0; i < outgoing.size(); i++) {
         if (mavlink_parse_char(MAVLINK_COMM_0, outgoing[i], &msg, &status)) { parsed = true; break; }
     }
-    CHECK("outgoing is valid MAVLink", parsed);
-    CHECK("outgoing is HEARTBEAT (id=0)", parsed && msg.msgid == 0);
+    CHECK(parsed, "outgoing is valid MAVLink");
+    CHECK(parsed && msg.msgid == 0, "outgoing is HEARTBEAT (id=0)");
 }
 
 // A4 回归（ADR-0005）：持锁派发路径不得在 impl_->mtx 内调用 send_cb。
@@ -758,7 +787,7 @@ static void test_send_callback_never_runs_under_the_adapter_lock() {
     });
 
     // 先由 GCS 发起下载：这一步本身就是公开发送路径的临时解锁发送。
-    CHECK("mission download starts", adapter.mission_download(1, 1));
+    CHECK(adapter.mission_download(1, 1), "mission download starts");
     (void)link.take_outgoing();  // 只统计随后由处理器发出的请求帧
 
     mavlink_message_t count{};
@@ -778,10 +807,121 @@ static void test_send_callback_never_runs_under_the_adapter_lock() {
         }
     }
 
-    CHECK("MISSION_REQUEST_INT is flushed after the lock is released", requests == 1);
-    CHECK("the send callback ran", sends >= 1);
-    CHECK("send callback re-entered adapter state without deadlocking",
-          reentries == sends);
+    CHECK(requests == 1, "MISSION_REQUEST_INT is flushed after the lock is released");
+    CHECK(sends >= 1, "the send callback ran");
+    CHECK(reentries == sends, "send callback re-entered adapter state without deadlocking");
+}
+
+// 并发发送不得互相覆盖：多个公开入口曾共享 impl_->msg，pack 后解锁再发，
+// 另一线程可在其间覆盖缓冲，导致发出别人的消息。这里两个线程各自高频调用
+// 不同入口，断言每条发出的帧都是「调用者自己的」消息类型。
+static void test_concurrent_sends_do_not_cross_contaminate() {
+    fprintf(stderr, "\n[Group] Concurrent sends keep their own message\n");
+
+    mg::core::transport::InMemoryLink link;
+    mg::core::mavlink::MavlinkAdapter adapter;
+    link.open();
+    std::mutex out_mtx;
+    std::vector<uint32_t> seen_ids;
+    adapter.set_send_callback([&](const uint8_t* data, size_t size) -> bool {
+        mavlink_message_t parsed{};
+        mavlink_status_t status{};
+        for (size_t i = 0; i < size; ++i) {
+            if (mavlink_parse_char(MAVLINK_COMM_1, data[i], &parsed, &status)) {
+                std::lock_guard<std::mutex> lk(out_mtx);
+                seen_ids.push_back(parsed.msgid);
+            }
+        }
+        return link.send(data, size);
+    });
+
+    // 线程 A 只发 HEARTBEAT，线程 B 只发 COMMAND_LONG(GET_HOME)。
+    std::thread a([&]{
+        for (int i = 0; i < 2000; ++i) adapter.send_heartbeat();
+    });
+    std::thread b([&]{
+        for (int i = 0; i < 2000; ++i) adapter.request_home_position(1, 1);
+    });
+    a.join();
+    b.join();
+
+    size_t heartbeat_id = MAVLINK_MSG_ID_HEARTBEAT;
+    size_t command_id   = MAVLINK_MSG_ID_COMMAND_LONG;
+    size_t foreign = 0;
+    for (uint32_t id : seen_ids) {
+        if (id != heartbeat_id && id != command_id) ++foreign;
+    }
+    CHECK(seen_ids.size() >= 4000, "concurrent senders produced frames");
+    CHECK(foreign == 0, "every emitted frame is one of the two expected messages");
+    if (foreign != 0) {
+        fprintf(stderr, "  %zu foreign frames out of %zu\n", foreign, seen_ids.size());
+    }
+}
+
+// send_setup_signing 曾把 impl_->msg 在解锁后继续传给发送路径：send_message_with_mode()
+// 只持有 send_mtx 就读取该消息的 msgid/len/sysid 重新 finalize，而 impl_->msg 会被
+// 持 mtx 的其它发送入口并发改写 → 发出撕裂帧或被改写成别的消息类型。
+// 这里让 SETUP_SIGNING 与 COMMAND_LONG 高频交错，断言每一帧 SETUP_SIGNING 都是
+// 完整的 23 字节（6+1+16），而不是被 COMMAND_LONG 覆盖后的残帧。
+static void test_setup_signing_does_not_share_scratch_buffer() {
+    fprintf(stderr, "\n[Group] SETUP_SIGNING does not share the scratch buffer\n");
+
+    mg::core::transport::InMemoryLink link;
+    mg::core::mavlink::MavlinkAdapter adapter;
+    link.open();
+    std::mutex out_mtx;
+    std::vector<std::pair<uint32_t, size_t>> seen;  // (msgid, len)
+    adapter.set_send_callback([&](const uint8_t* data, size_t size) -> bool {
+        mavlink_message_t parsed{};
+        mavlink_status_t status{};
+        for (size_t i = 0; i < size; ++i) {
+            if (mavlink_parse_char(MAVLINK_COMM_1, data[i], &parsed, &status)) {
+                const uint32_t parsed_id = parsed.msgid;  // msgid 是位域，先取值
+                const size_t parsed_len = parsed.len;
+                std::lock_guard<std::mutex> lk(out_mtx);
+                seen.emplace_back(parsed_id, parsed_len);
+            }
+        }
+        return link.send(data, size);
+    });
+
+    uint8_t key[32];
+    for (size_t i = 0; i < sizeof(key); ++i) key[i] = static_cast<uint8_t>(i + 1);
+
+    std::atomic<int> signing_sent{0};
+    std::thread a([&]{
+        for (int i = 0; i < 600; ++i) {
+            if (adapter.send_setup_signing(1, 1, key, sizeof(key), 0)) {
+                signing_sent.fetch_add(1);
+            }
+        }
+    });
+    // 另一线程用真正会写 impl_->msg 的入口制造竞争：send_command_queued()
+    // 在持 mtx 时把 COMMAND_LONG 打进 impl_->msg（多数其它入口已改局部缓冲，
+    // 拿它们做对手测不到这条竞态）。
+    std::thread b([&]{
+        for (int i = 0; i < 600; ++i) {
+            adapter.send_command_queued(1, 1, MAV_CMD_GET_HOME_POSITION,
+                                        0, 0, 0, 0, 0, 0, 0);
+        }
+    });
+    a.join();
+    b.join();
+
+    size_t setup_frames = 0;
+    size_t torn_setup = 0;
+    for (const auto& [id, len] : seen) {
+        if (id != MAVLINK_MSG_ID_SETUP_SIGNING) continue;
+        ++setup_frames;
+        // SETUP_SIGNING 载荷 = 32 字节 key + 8 字节 timestamp，长度恒定。
+        if (len != MAVLINK_MSG_ID_SETUP_SIGNING_LEN) ++torn_setup;
+    }
+    CHECK(setup_frames > 0, "SETUP_SIGNING frames were emitted");
+    CHECK(torn_setup == 0, "every SETUP_SIGNING frame has its own intact payload");
+    if (torn_setup != 0) {
+        fprintf(stderr, "  %zu torn SETUP_SIGNING frames out of %zu\n",
+                torn_setup, setup_frames);
+    }
 }
 
 static void test_feed_raw_reports_valid_frames() {
@@ -789,16 +929,41 @@ static void test_feed_raw_reports_valid_frames() {
     mg::core::mavlink::MavlinkAdapter adapter;
 
     const uint8_t noise[] = {0x01, 0x02, 0x03, 0x7f, 0xff};
-    CHECK("noise is not valid MAVLink traffic",
-          !adapter.feed_raw(noise, sizeof(noise)));
+    CHECK(!adapter.feed_raw(noise, sizeof(noise)), "noise is not valid MAVLink traffic");
 
     mavlink_message_t msg{};
     mavlink_msg_heartbeat_pack(
         1, 1, &msg, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
         MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 0, MAV_STATE_ACTIVE);
     const auto bytes = pack_msg(msg);
-    CHECK("valid MAVLink frame is reported",
-          adapter.feed_raw(bytes.data(), bytes.size()));
+    CHECK(adapter.feed_raw(bytes.data(), bytes.size()), "valid MAVLink frame is reported");
+}
+
+// 一帧只能派发一次。历史上适配器为了兼容 ArduPilot 的 MAG_CAL_PROGRESS(191)
+// 额外挂了一个自造解析器，而该消息本就在方言 CRC 表内，于是同一帧被 compat
+// 解析器与官方解析器各派发一次，回调被重复计数。按回调计数钉住。
+static void test_mag_cal_progress_dispatched_exactly_once() {
+    fprintf(stderr, "\n[Group] MAG_CAL_PROGRESS dispatched exactly once\n");
+    mg::core::mavlink::MavlinkAdapter adapter;
+
+    int progress_count = 0;
+    adapter.on_mag_cal_progress(
+        [&](const mg::core::mavlink::MagCalibrationProgressInfo&) {
+            ++progress_count;
+        });
+
+    // 非零 completion_mask：MAVLink 会裁剪尾部零字节，全零 mask 会把 payload 裁到
+    // MIN_LEN(17)，而 compat 解析器只在该路径触发，用全零 mask 测不到重复派发。
+    uint8_t completion_mask[10] = {0x2c, 0xd5, 0x01, 0, 0, 0, 0, 0, 0, 0x01};
+    mavlink_message_t progress{};
+    mavlink_msg_mag_cal_progress_pack(
+        9, MAV_COMP_ID_AUTOPILOT1, &progress,
+        0, 1, MAG_CAL_RUNNING_STEP_ONE, 1, 63, completion_mask,
+        0.0f, 0.0f, 1.0f);
+    const auto bytes = pack_msg(progress);
+    adapter.feed_raw(bytes.data(), bytes.size());
+    CHECK(progress_count == 1, "one MAG_CAL_PROGRESS frame fires the callback exactly once");
+    CHECK((adapter.feed_raw(bytes.data(), bytes.size()), progress_count == 2), "a second frame still fires exactly once more");
 }
 
 // QGC keeps parsing state per link; MP uses one parser per MAVLinkInterface.
@@ -813,22 +978,20 @@ static void test_independent_link_parsers() {
         MAV_AUTOPILOT_ARDUPILOTMEGA, 1, 15, MAV_STATE_ACTIVE);
     const auto bytes_a = pack_msg(a), bytes_b = pack_msg(b);
     const auto split_a = bytes_a.size() / 2, split_b = bytes_b.size() / 2;
-    CHECK("link A partial frame", !first.feed_raw(bytes_a.data(), split_a));
-    CHECK("link B partial frame", !second.feed_raw(bytes_b.data(), split_b));
-    CHECK("link A completes its own frame",
-          first.feed_raw(bytes_a.data() + split_a, bytes_a.size() - split_a));
-    CHECK("link B completes its own frame",
-          second.feed_raw(bytes_b.data() + split_b, bytes_b.size() - split_b));
+    CHECK(!first.feed_raw(bytes_a.data(), split_a), "link A partial frame");
+    CHECK(!second.feed_raw(bytes_b.data(), split_b), "link B partial frame");
+    CHECK(first.feed_raw(bytes_a.data() + split_a, bytes_a.size() - split_a), "link A completes its own frame");
+    CHECK(second.feed_raw(bytes_b.data() + split_b, bytes_b.size() - split_b), "link B completes its own frame");
     const auto hb_a = first.latest_heartbeat(), hb_b = second.latest_heartbeat();
-    CHECK("link A contains only sysid 1", hb_a && hb_a->system_id == 1);
-    CHECK("link B contains only sysid 2", hb_b && hb_b->system_id == 2);
+    CHECK(hb_a && hb_a->system_id == 1, "link A contains only sysid 1");
+    CHECK(hb_b && hb_b->system_id == 2, "link B contains only sysid 2");
 
     // Corruption on one link cannot poison the other or prevent recovery.
     auto corrupt = bytes_a;
     corrupt.back() ^= 0xff;
-    CHECK("bad CRC is rejected", !first.feed_raw(corrupt.data(), corrupt.size()));
-    CHECK("parser recovers after bad CRC", first.feed_raw(bytes_a.data(), bytes_a.size()));
-    CHECK("other link still parses", second.feed_raw(bytes_b.data(), bytes_b.size()));
+    CHECK(!first.feed_raw(corrupt.data(), corrupt.size()), "bad CRC is rejected");
+    CHECK(first.feed_raw(bytes_a.data(), bytes_a.size()), "parser recovers after bad CRC");
+    CHECK(second.feed_raw(bytes_b.data(), bytes_b.size()), "other link still parses");
 }
 
 
@@ -866,14 +1029,14 @@ static void test_camera_state_cache() {
         f.inject(msg);
     }
     auto cameras = f.adapter.latest_cameras();
-    CHECK("CAMERA_INFORMATION cached", cameras.size() == 1);
+    CHECK(cameras.size() == 1, "CAMERA_INFORMATION cached");
     if (!cameras.empty()) {
-        CHECK("camera sysid/compid", cameras[0].system_id == kSys && cameras[0].component_id == kComp);
-        CHECK("camera flags", cameras[0].flags == 0x3);
-        CHECK("camera resolution_h", cameras[0].resolution_h == 4000);
-        CHECK("camera focal_length", cameras[0].focal_length == 3.5f);
-        CHECK("camera vendor_name", std::string(cameras[0].vendor_name) == "ACME");
-        CHECK("camera model_name", std::string(cameras[0].model_name) == "CamX");
+        CHECK(cameras[0].system_id == kSys && cameras[0].component_id == kComp, "camera sysid/compid");
+        CHECK(cameras[0].flags == 0x3, "camera flags");
+        CHECK(cameras[0].resolution_h == 4000, "camera resolution_h");
+        CHECK(cameras[0].focal_length == 3.5f, "camera focal_length");
+        CHECK(std::string(cameras[0].vendor_name) == "ACME", "camera vendor_name");
+        CHECK(std::string(cameras[0].model_name) == "CamX", "camera model_name");
     }
 
     // CAMERA_SETTINGS (260)
@@ -888,10 +1051,10 @@ static void test_camera_state_cache() {
         f.inject(msg);
     }
     auto settings = f.adapter.camera_settings(kSys, kComp);
-    CHECK("CAMERA_SETTINGS cached", settings.has_value());
+    CHECK(settings.has_value(), "CAMERA_SETTINGS cached");
     if (settings) {
-        CHECK("settings mode_id", settings->mode_id == 1);
-        CHECK("settings zoom_level", settings->zoom_level == 2.5f);
+        CHECK(settings->mode_id == 1, "settings mode_id");
+        CHECK(settings->zoom_level == 2.5f, "settings zoom_level");
     }
 
     // CAMERA_CAPTURE_STATUS (262)
@@ -907,12 +1070,12 @@ static void test_camera_state_cache() {
         f.inject(msg);
     }
     auto capture = f.adapter.camera_capture_status(kSys, kComp);
-    CHECK("CAMERA_CAPTURE_STATUS cached", capture.has_value());
+    CHECK(capture.has_value(), "CAMERA_CAPTURE_STATUS cached");
     if (capture) {
-        CHECK("capture recording", capture->video_status == 1);
-        CHECK("capture image_status", capture->image_status == 1);
-        CHECK("capture image_count", capture->image_count == 7);
-        CHECK("capture available_capacity", capture->available_capacity == 1024.0f);
+        CHECK(capture->video_status == 1, "capture recording");
+        CHECK(capture->image_status == 1, "capture image_status");
+        CHECK(capture->image_count == 7, "capture image_count");
+        CHECK(capture->available_capacity == 1024.0f, "capture available_capacity");
     }
 
     // STORAGE_INFORMATION (261)
@@ -931,10 +1094,10 @@ static void test_camera_state_cache() {
         f.inject(msg);
     }
     auto storage = f.adapter.camera_storage(kSys, kComp);
-    CHECK("STORAGE_INFORMATION cached", storage.size() == 1);
+    CHECK(storage.size() == 1, "STORAGE_INFORMATION cached");
     if (!storage.empty()) {
-        CHECK("storage total", storage[0].total_capacity == 32000.0f);
-        CHECK("storage name", std::string(storage[0].name) == "SD");
+        CHECK(storage[0].total_capacity == 32000.0f, "storage total");
+        CHECK(std::string(storage[0].name) == "SD", "storage name");
     }
 
     // CAMERA_IMAGE_CAPTURED (263) 用 image_index+1 抬高 photo 下限
@@ -947,7 +1110,7 @@ static void test_camera_state_cache() {
         f.inject(msg);
     }
     auto after = f.adapter.camera_capture_status(kSys, kComp);
-    CHECK("CAMERA_IMAGE_CAPTURED raises photo count", after && after->image_count == 10);
+    CHECK(after && after->image_count == 10, "CAMERA_IMAGE_CAPTURED raises photo count");
 }
 
 // dispatcher 曾把 261/254 写错：261 应是 STORAGE_INFORMATION（不是 CAMERA_INFORMATION），
@@ -966,7 +1129,7 @@ static void test_camera_dispatcher_id_regression() {
         mavlink_msg_camera_information_encode(kSys, kComp, &msg, &ci);
         f.inject(msg);
     }
-    CHECK("259 reaches camera cache", f.adapter.latest_cameras().size() == 1);
+    CHECK(f.adapter.latest_cameras().size() == 1, "259 reaches camera cache");
 
     // 261 是 STORAGE_INFORMATION：必须落在存储缓存，不能污染 cameras。
     {
@@ -977,9 +1140,8 @@ static void test_camera_dispatcher_id_regression() {
         mavlink_msg_storage_information_encode(kSys, kComp, &msg, &si);
         f.inject(msg);
     }
-    CHECK("261 lands in storage, not cameras",
-          f.adapter.camera_storage(kSys, kComp).size() == 1 &&
-              f.adapter.latest_cameras().size() == 1);
+    CHECK(f.adapter.camera_storage(kSys, kComp).size() == 1 &&
+              f.adapter.latest_cameras().size() == 1, "261 lands in storage, not cameras");
 
     // 254 是 DEBUG：绝不能被当成 CAMERA_CAPTURE_STATUS。
     {
@@ -991,8 +1153,7 @@ static void test_camera_dispatcher_id_regression() {
         mavlink_msg_debug_encode(kSys, kComp, &msg, &dbg);
         f.inject(msg);
     }
-    CHECK("254 DEBUG does not create capture status",
-          !f.adapter.camera_capture_status(kSys, kComp).has_value());
+    CHECK(!f.adapter.camera_capture_status(kSys, kComp).has_value(), "254 DEBUG does not create capture status");
 }
 
 static void test_gimbal_state_cache() {
@@ -1015,10 +1176,10 @@ static void test_gimbal_state_cache() {
         f.inject(msg);
     }
     auto gimbals = f.adapter.latest_gimbals();
-    CHECK("GIMBAL_MANAGER_INFORMATION cached", gimbals.size() == 1);
+    CHECK(gimbals.size() == 1, "GIMBAL_MANAGER_INFORMATION cached");
     if (!gimbals.empty()) {
-        CHECK("gimbal cap_flags", gimbals[0].cap_flags == 0x5);
-        CHECK("gimbal pitch range", gimbals[0].pitch_min == -90.0f && gimbals[0].pitch_max == 30.0f);
+        CHECK(gimbals[0].cap_flags == 0x5, "gimbal cap_flags");
+        CHECK(gimbals[0].pitch_min == -90.0f && gimbals[0].pitch_max == 30.0f, "gimbal pitch range");
     }
 
     // GIMBAL_MANAGER_STATUS (281)
@@ -1033,10 +1194,10 @@ static void test_gimbal_state_cache() {
         f.inject(msg);
     }
     auto gstatus = f.adapter.gimbal_manager_status(kSys, kComp);
-    CHECK("GIMBAL_MANAGER_STATUS cached", gstatus.has_value());
+    CHECK(gstatus.has_value(), "GIMBAL_MANAGER_STATUS cached");
     if (gstatus) {
-        CHECK("gimbal manager flags", gstatus->flags == 0x2);
-        CHECK("gimbal primary control", gstatus->primary_control_sysid == 1 && gstatus->primary_control_compid == 190);
+        CHECK(gstatus->flags == 0x2, "gimbal manager flags");
+        CHECK(gstatus->primary_control_sysid == 1 && gstatus->primary_control_compid == 190, "gimbal primary control");
     }
 
     // GIMBAL_DEVICE_INFORMATION (283)
@@ -1051,10 +1212,10 @@ static void test_gimbal_state_cache() {
         f.inject(msg);
     }
     auto ginfo = f.adapter.gimbal_device_information(kSys, kComp);
-    CHECK("GIMBAL_DEVICE_INFORMATION cached", ginfo.has_value());
+    CHECK(ginfo.has_value(), "GIMBAL_DEVICE_INFORMATION cached");
     if (ginfo) {
-        CHECK("gimbal device vendor", std::string(ginfo->vendor_name) == "GMB");
-        CHECK("gimbal device model", std::string(ginfo->model_name) == "G1");
+        CHECK(std::string(ginfo->vendor_name) == "GMB", "gimbal device vendor");
+        CHECK(std::string(ginfo->model_name) == "G1", "gimbal device model");
     }
 
     // GIMBAL_DEVICE_ATTITUDE_STATUS (285)，单位四元数 = 无旋转
@@ -1069,10 +1230,10 @@ static void test_gimbal_state_cache() {
         f.inject(msg);
     }
     auto att = f.adapter.gimbal_device_attitude_status(kSys, kComp);
-    CHECK("GIMBAL_DEVICE_ATTITUDE_STATUS cached", att.has_value());
+    CHECK(att.has_value(), "GIMBAL_DEVICE_ATTITUDE_STATUS cached");
     if (att) {
-        CHECK("attitude quaternion identity", att->q[0] == 1.0f && att->q[1] == 0.0f);
-        CHECK("attitude flags", att->flags == 0x4);
+        CHECK(att->q[0] == 1.0f && att->q[1] == 0.0f, "attitude quaternion identity");
+        CHECK(att->flags == 0x4, "attitude flags");
     }
 }
 
@@ -1098,11 +1259,11 @@ static void test_video_stream_state() {
         f.inject(msg);
     }
     auto streams = f.adapter.latest_video_streams();
-    CHECK("VIDEO_STREAM_INFORMATION cached", streams.size() == 1);
+    CHECK(streams.size() == 1, "VIDEO_STREAM_INFORMATION cached");
     if (!streams.empty()) {
-        CHECK("stream uri", std::string(streams[0].uri) == "rtsp://192.168.1.10:8554/main");
-        CHECK("stream resolution", streams[0].width == 1280 && streams[0].height == 720);
-        CHECK("stream flags/running", (streams[0].flags & 0x1) != 0);
+        CHECK(std::string(streams[0].uri) == "rtsp://192.168.1.10:8554/main", "stream uri");
+        CHECK(streams[0].width == 1280 && streams[0].height == 720, "stream resolution");
+        CHECK((streams[0].flags & 0x1) != 0, "stream flags/running");
     }
 
     // VIDEO_STREAM_STATUS (270)
@@ -1118,11 +1279,72 @@ static void test_video_stream_state() {
         f.inject(msg);
     }
     auto statuses = f.adapter.latest_video_stream_status();
-    CHECK("VIDEO_STREAM_STATUS cached", statuses.size() == 1);
+    CHECK(statuses.size() == 1, "VIDEO_STREAM_STATUS cached");
     if (!statuses.empty()) {
-        CHECK("stream status framerate", statuses[0].framerate == 30);
-        CHECK("stream status bitrate", statuses[0].bitrate == 4000000);
+        CHECK(statuses[0].framerate == 30, "stream status framerate");
+        CHECK(statuses[0].bitrate == 4000000, "stream status bitrate");
     }
+}
+
+// MISSION_CURRENT / MISSION_ITEM_REACHED 是飞控主动上报的任务执行进度，不是任务
+// 传输报文。同文件其余 5 个 mission handler 都校验来源（transfer_matches_target），
+// 这两个旧实现却无条件写本机状态：一链路多机（mavlink_router）时别的飞机能把本机
+// 的进度改写掉。
+static void test_mission_progress_ignores_foreign_source() {
+    fprintf(stderr, "\n[Group] Mission progress source validation\n");
+
+    TestFixture f;
+    // 本机身份：心跳 (1,1) + 一次指向 (1,1) 的任务事务。
+    mavlink_message_t hb;
+    mavlink_msg_heartbeat_pack(1, 1, &hb, MAV_TYPE_QUADROTOR,
+        MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 3,
+        MAV_STATE_ACTIVE);
+    f.inject(hb);
+    CHECK(f.adapter.mission_download(1, 1), "mission download starts for the owning vehicle");
+
+    mavlink_message_t cur;
+    mavlink_msg_mission_current_pack(1, 1, &cur, 3, 0, 0, 0, 0, 0, 0);
+    f.inject(cur);
+    CHECK(f.adapter.mission_get_execution_progress().current_seq == 3, "own MISSION_CURRENT is accepted");
+
+    // 别的飞机 (2,1) 的同名帧必须被忽略。
+    mavlink_msg_mission_current_pack(2, 1, &cur, 7, 0, 0, 0, 0, 0, 0);
+    f.inject(cur);
+    CHECK(f.adapter.mission_get_execution_progress().current_seq == 3, "foreign MISSION_CURRENT does not move our current index");
+
+    // 到达事件同理：别人的到达不算本机到达。
+    mavlink_message_t reached;
+    mavlink_msg_mission_item_reached_pack(2, 1, &reached, 5);
+    f.inject(reached);
+    auto progress = f.adapter.mission_get_execution_progress();
+    CHECK(progress.reached_count == 0 && !progress.has_reached, "foreign MISSION_ITEM_REACHED is ignored");
+
+    mavlink_msg_mission_item_reached_pack(1, 1, &reached, 5);
+    f.inject(reached);
+    progress = f.adapter.mission_get_execution_progress();
+    CHECK(progress.reached_count == 1 && progress.last_reached_seq == 5, "own MISSION_ITEM_REACHED is counted");
+}
+
+// 还没有任何任务事务时（target_sys == 0，例如刚连上就观察在飞的任务），来源校验
+// 回退到本机已识别的心跳身份：自己的进度照收，别人的仍丢。
+static void test_mission_progress_before_any_transfer_uses_heartbeat_identity() {
+    fprintf(stderr, "\n[Group] Mission progress before any transfer\n");
+
+    TestFixture f;
+    mavlink_message_t hb;
+    mavlink_msg_heartbeat_pack(1, 1, &hb, MAV_TYPE_QUADROTOR,
+        MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 3,
+        MAV_STATE_ACTIVE);
+    f.inject(hb);
+
+    mavlink_message_t cur;
+    mavlink_msg_mission_current_pack(2, 1, &cur, 9, 0, 0, 0, 0, 0, 0);
+    f.inject(cur);
+    CHECK(f.adapter.mission_get_execution_progress().current_seq == 0, "foreign MISSION_CURRENT is ignored before any transfer");
+
+    mavlink_msg_mission_current_pack(1, 1, &cur, 2, 0, 0, 0, 0, 0, 0);
+    f.inject(cur);
+    CHECK(f.adapter.mission_get_execution_progress().current_seq == 2, "own MISSION_CURRENT is accepted through the heartbeat identity");
 }
 
 int main() {
@@ -1138,6 +1360,7 @@ int main() {
     test_command_ack();
     test_command_ack_timeout();
     test_gps_decode();
+    test_adsb_callsign_is_bounded_and_terminated();
     test_attitude_decode();
     test_rc_channels_decode();
     test_servo_output_decode();
@@ -1146,6 +1369,7 @@ int main() {
     test_home_position_decode();
     test_scaled_imu_instances();
     test_pressure_decode();
+    test_highres_imu_pressure_is_not_rescaled();
     test_sys_status_decode();
     test_battery_status_decode();
     test_vibration_decode();
@@ -1159,6 +1383,11 @@ int main() {
     test_signing_candidate_auto_detect();
     test_signing_detection_rejects_replay_and_mixed_chunk();
     test_feed_raw_reports_valid_frames();
+    test_mag_cal_progress_dispatched_exactly_once();
+    test_concurrent_sends_do_not_cross_contaminate();
+    test_mission_progress_ignores_foreign_source();
+    test_mission_progress_before_any_transfer_uses_heartbeat_identity();
+    test_setup_signing_does_not_share_scratch_buffer();
     test_camera_state_cache();
     test_camera_dispatcher_id_regression();
     test_gimbal_state_cache();

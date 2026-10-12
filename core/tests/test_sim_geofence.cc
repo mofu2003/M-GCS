@@ -10,15 +10,15 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include "mgcs_test_check.h"
 
 using namespace mg::core::geofence;
 
-static int g_pass = 0, g_fail = 0;
+// 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
+// 汇总行与退出码保持原样。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
-#define CHECK(c, m) do { \
-    if (c) { g_pass++; fprintf(stderr, "  [PASS] %s\n", m); } \
-    else   { g_fail++; fprintf(stderr, "  [FAIL] %s\n", m); } \
-} while(0)
 
 static bool contains(const std::string& haystack, const char* needle) {
     return haystack.find(needle) != std::string::npos;
