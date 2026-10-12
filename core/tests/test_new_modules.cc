@@ -475,7 +475,8 @@ static void test_failsafe_ffi() {
 static void test_replayer() {
     fprintf(stderr, "\n[Group] tlog record -> replay round-trip\n");
 
-    const char* test_file = "test_replay.tlog";
+    const std::string test_file_str = mgcs_test::unique_temp_name("test_replay.tlog");
+    const char* test_file = test_file_str.c_str();
     std::vector<uint16_t> sent_ids;
     size_t bytes_recorded = 0;
 
@@ -539,7 +540,8 @@ static void test_replayer() {
 
     // 3) 截断检测：时间戳 + 半条帧 -> 不产出消息且报告 truncated
     {
-        const char* truncated_file = "test_replay_truncated.tlog";
+        const std::string truncated_file_str = mgcs_test::unique_temp_name("test_replay_truncated.tlog");
+        const char* truncated_file = truncated_file_str.c_str();
         FILE* f = fopen(truncated_file, "wb");
         CHECK(f != nullptr, "create truncated tlog file");
         if (f) {

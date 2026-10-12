@@ -26,6 +26,11 @@
 #include <fstream>
 #include <iomanip>
 #include <thread>
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace mg::core::calibration {
 
@@ -773,7 +778,14 @@ uint64_t CalibrationService::wall_clock_now_ms() const {
 std::string CalibrationService::history_storage_path() const {
     namespace fs = std::filesystem;
 #if defined(MGCORE_TEST_BUILD)
-    return (fs::temp_directory_path() / "M-GCS-test" / "calibration-history.v1").string();
+    // 每进程唯一路径，避免并发测试时互相覆盖。必须与 test_sim_calibration.cc 同步。
+    return (fs::temp_directory_path() / ("M-GCS-test-" + std::to_string(
+#if defined(_WIN32)
+        ::_getpid()
+#else
+        ::getpid()
+#endif
+    )) / "calibration-history.v1").string();
 #else
     const char* home = std::getenv("HOME");
 #if defined(_WIN32)
