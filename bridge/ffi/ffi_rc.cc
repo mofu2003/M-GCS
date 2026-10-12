@@ -50,41 +50,7 @@ MGCORE_API char* mg_servo_get_outputs(mg_core_t* core) {
 // ================================================================
 // Get individual RC channel value (1-indexed)
 // ================================================================
-MGCORE_API char* mg_rc_get_channel(mg_core_t* core, int channel) {
-    CHECK_CORE(core);
-    if (channel < 1 || channel > 18) return to_cstr(R"({"value":0,"valid":false})");
-    auto* cache = get_active_cache(core);
-    if (!cache) return to_cstr(R"({"value":0,"valid":false})");
-    auto rc_snap = cache->snapshot_rc();
-    const auto& rc = rc_snap.data;
-    const bool fresh = cache->is_fresh(
-        mg::core::telemetry::TelemetryType::kRcChannels, 500);
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("channel", channel);
-    jb.field("value", (int)rc.chan[channel - 1]);
-    jb.field("valid", fresh && rc.chancount >= channel);
-    jb.end_object();
-    return to_cstr(jb.str());
-}
 
 // ================================================================
 // Get individual servo output value (1-indexed)
 // ================================================================
-MGCORE_API char* mg_servo_get_output(mg_core_t* core, int channel) {
-    CHECK_CORE(core);
-    if (channel < 1 || channel > 16) return to_cstr(R"({"value":0,"valid":false})");
-    auto* cache = get_active_cache(core);
-    if (!cache) return to_cstr(R"({"value":0,"valid":false})");
-    auto sv_snap = cache->snapshot_servo();
-    const auto& so = sv_snap.data;
-    const bool fresh = cache->is_fresh(
-        mg::core::telemetry::TelemetryType::kServoOutput, 500);
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("channel", channel);
-    jb.field("value", (int)so.servo[channel - 1]);
-    jb.field("valid", fresh && so.servo[channel - 1] > 0);
-    jb.end_object();
-    return to_cstr(jb.str());
-}

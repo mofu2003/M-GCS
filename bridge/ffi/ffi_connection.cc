@@ -5,8 +5,7 @@
  * 生命周期管理、事件回调、连接建立/断开、数据流间隔设置。
  *
  * mg_create, mg_destroy, mg_set_event_callback,
- * mg_connection_list_ports, mg_connection_connect, mg_connection_disconnect,
- * mg_connection_get_state, mg_stream_set_interval
+ * mg_connection_list_ports, mg_stream_set_interval
  */
 #include "ffi_internal.h"
 #include "core/platform/platform_filesystem.h"
@@ -106,10 +105,6 @@ MGCORE_API void mg_destroy(mg_core_t* core) {
     delete core;
 }
 
-MGCORE_API void mg_set_event_callback(mg_core_t* core, mg_event_callback_t cb, void* user_data) {
-    if (!core) return;
-    core->events.set(cb, user_data);
-}
 
 MGCORE_API char* mg_connection_list_ports(mg_core_t* core) {
     CHECK_CORE(core);
@@ -135,52 +130,9 @@ MGCORE_API char* mg_connection_list_ports(mg_core_t* core) {
     return to_cstr(jb.str());
 }
 
-MGCORE_API char* mg_connection_connect(mg_core_t* core, const char* port, int baud) {
-    CHECK_CORE(core);
-    if (!port) return fail(MG_ERROR_INVALID_PARAM, "null port");
-
-    std::string endpoint = "serial://";
-    endpoint += port;
-    endpoint += "?baud=";
-    endpoint += std::to_string(baud);
-    const int vehicle_id = mg_vehicle_open(core, endpoint.c_str());
-    if (vehicle_id < 0) {
-        mg::core::telemetry::JsonBuilder jb;
-        jb.begin_object();
-        jb.field("success", false);
-        write_error(jb, MG_ERROR_SEND_FAILED,
-                    std::string("无法打开串口: ") + port);
-        jb.end_object();
-        return to_cstr(jb.str());
-    }
-    // Convenience connection calls select their newly opened vehicle so the
-    // active-target command API has an explicit current target.
-    core->vehicles.set_active_vehicle(vehicle_id);
-    return ok();
-}
-
-MGCORE_API char* mg_connection_disconnect(mg_core_t* core) {
-    CHECK_CORE(core);
-    if (auto* active = core->vehicles.active_vehicle()) {
-        core->vehicles.close_vehicle(active->vehicle_id());
-    } else if (core->fallback_vehicle) {
-        core->fallback_vehicle->disconnect();
-    }
-    return ok();
-}
 
 
-MGCORE_API char* mg_connection_connect_udp(mg_core_t* core, const char* endpoint) {
-    CHECK_CORE(core);
-    if (!endpoint || endpoint[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null endpoint");
 
-    std::string uri = "udp://";
-    uri += endpoint;
-    const int vehicle_id = mg_vehicle_open(core, uri.c_str());
-    if (vehicle_id < 0) return fail(MG_ERROR_SEND_FAILED, "udp connect failed");
-    core->vehicles.set_active_vehicle(vehicle_id);
-    return ok();
-}
 
 MGCORE_API char* mg_stream_set_interval(mg_core_t* core, int msg_id, int interval_us) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);

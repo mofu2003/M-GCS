@@ -37,14 +37,6 @@ int main() {
     mg_core_t* core = mg_create();
     CHECK(core != nullptr, "mg_create");
 
-    char* ver = mg_get_version();
-    CHECK(ver != nullptr, "version");
-    mg_free_string(ver);
-
-    char* state = mg_connection_get_state(core);
-    CHECK(strstr(state, "false") != nullptr, "initial disconnected");
-    mg_free_string(state);
-
     // InMemoryLink basic ops
     mg::core::transport::InMemoryLink link;
     CHECK(!link.is_open(), "not open initially");

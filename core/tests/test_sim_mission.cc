@@ -6,6 +6,9 @@
 #include "mock_vehicle_test_env.h"
 #include "ffi_api.h"
 #include "command_queue.h"
+#include "core/util/json.h"
+#define CJSON_NESTING_LIMIT 20
+#include "cJSON.h"
 
 #include <atomic>
 #include <chrono>
@@ -112,19 +115,75 @@ static int count_outgoing_messages(const std::vector<uint8_t>& bytes, uint32_t m
     return count;
 }
 
+// ---- 任务文档 FFI 辅助（旧 MissionManager FFI 已删除，统一走文档路径）----
+
+/// 用 QGC WPL 110 文本导入 {lat, lon, alt} 三个数组，再上传文档。
+static bool upload_waypoints(TestEnv& env,
+                             const std::vector<std::array<double, 3>>& wps) {
+    std::string text = "QGC WPL 110\n";
+    for (size_t i = 0; i < wps.size(); ++i) {
+        char line[192];
+        std::snprintf(line, sizeof(line),
+                      "%zu\t0\t3\t16\t0\t0\t0\t0\t%.7f\t%.7f\t%.3f\t1\n",
+                      i, wps[i][0], wps[i][1], wps[i][2]);
+        text += line;
+    }
+    char* imported =
+        mg_mission_doc_import_format(env.core, "waypoints", text.c_str());
+    const std::string imported_json = imported ? imported : "";
+    if (imported) mg_free_string(imported);
+    if (imported_json.find("\"success\":true") == std::string::npos) return false;
+
+    char* doc = mg_mission_doc_get(env.core);
+    uint64_t revision = 0;
+    {
+        cJSON* root = doc ? mg::core::json::parse(doc) : nullptr;
+        cJSON* rev = root ? cJSON_GetObjectItemCaseSensitive(root, "revision") : nullptr;
+        if (cJSON_IsNumber(rev)) revision = static_cast<uint64_t>(rev->valuedouble);
+        cJSON_Delete(root);
+    }
+    if (doc) mg_free_string(doc);
+
+    char* uploaded = mg_mission_doc_upload(env.core, revision);
+    const std::string uploaded_json = uploaded ? uploaded : "";
+    if (uploaded) mg_free_string(uploaded);
+    return uploaded_json.find("\"success\":true") != std::string::npos;
+}
+
+/// 当前任务文档的快照 JSON（成功时含 document 与 revision）。
+static std::string mission_document_json(mg_core_t* core) {
+    char* doc = mg_mission_doc_get(core);
+    std::string out = doc ? doc : "";
+    if (doc) mg_free_string(doc);
+    return out;
+}
+
+/// 从飞控回读任务并返回文档快照 JSON（下载路径）。
+static std::string vehicle_document_json(mg_core_t* core) {
+    char* imported = mg_mission_doc_import_from_vehicle(core);
+    std::string out = imported ? imported : "";
+    if (imported) mg_free_string(imported);
+    return out;
+}
+
+/// 任务传输进度：取自操作快照的 mission 区段。
+static std::string mission_transfer_json(mg_core_t* core) {
+    char* snapshot = mg_operations_get_snapshot(core);
+    std::string out = snapshot ? snapshot : "";
+    if (snapshot) mg_free_string(snapshot);
+    return out;
+}
+
 static void test_mission_upload() {
     fprintf(stderr, "\n[Group] Mission upload\n");
     TestEnv env;
 
     for (int i = 0; i < 15; i++) env.tick(100);
 
-    const char* json_wps =
-        "[{\"lat\":39.9,\"lon\":116.4,\"alt\":50,\"command\":16,\"frame\":3},"
-        "{\"lat\":39.91,\"lon\":116.41,\"alt\":60,\"command\":16,\"frame\":3},"
-        "{\"lat\":39.92,\"lon\":116.42,\"alt\":70,\"command\":16,\"frame\":3}]";
-
-    char* result = mg_mission_upload(env.core, json_wps);
-    if (result) mg_free_string(result);
+    CHECK(upload_waypoints(env, {{39.9, 116.4, 50.0},
+                                 {39.91, 116.41, 60.0},
+                                 {39.92, 116.42, 70.0}}),
+          "mission document upload starts");
 
     for (int i = 0; i < 50; i++) env.tick(50);
 
@@ -136,10 +195,17 @@ static void test_mission_upload() {
           home.frame == MAV_FRAME_GLOBAL,
           "injected item 0 is ArduPilot home waypoint");
 
-    char* plan = mg_mission_get_plan(env.core);
-    const bool presented_count_is_three = plan && strstr(plan, "\"count\":3");
-    if (plan) mg_free_string(plan);
-    CHECK(presented_count_is_three, "presented mission plan hides injected home item");
+    {
+        char* doc = mg_mission_doc_get(env.core);
+        cJSON* root = doc ? mg::core::json::parse(doc) : nullptr;
+        cJSON* document = root ? cJSON_GetObjectItemCaseSensitive(root, "document") : nullptr;
+        cJSON* entities = document
+            ? cJSON_GetObjectItemCaseSensitive(document, "entities") : nullptr;
+        const int count = cJSON_IsArray(entities) ? cJSON_GetArraySize(entities) : -1;
+        if (doc) mg_free_string(doc);
+        CHECK(count == 3, "presented mission plan hides injected home item");
+        cJSON_Delete(root);
+    }
 }
 
 static void test_mission_upload_compat_request() {
@@ -149,17 +215,13 @@ static void test_mission_upload_compat_request() {
 
     for (int i = 0; i < 15; i++) env.tick(100);
 
-    const char* json_wps =
-        "[{\"lat\":39.9,\"lon\":116.4,\"alt\":50,\"command\":16,\"frame\":3}]";
-
-    char* result = mg_mission_upload(env.core, json_wps);
-    if (result) mg_free_string(result);
+    CHECK(upload_waypoints(env, {{39.9, 116.4, 50.0}}),
+          "compat upload starts");
 
     for (int i = 0; i < 50; i++) env.tick(50);
 
-    char* progress = mg_mission_get_progress(env.core);
-    const bool sent_one = progress && strstr(progress, "\"sent\":1");
-    if (progress) mg_free_string(progress);
+    const std::string progress = mission_transfer_json(env.core);
+    const bool sent_one = progress.find("\"sent\":1") != std::string::npos;
 
     CHECK(env.mock->mission_items_received == 2, "compat request upload includes injected home + 1 mission item");
     CHECK(sent_one, "compat mission upload updates sent progress");
@@ -189,9 +251,9 @@ static void test_mission_download() {
     bool progress_done = false;
     for (int i = 0; i < 80; i++) {
         env.tick(50);
-        char* prog = mg_mission_get_progress(env.core);
+        char* prog = mg_operations_get_snapshot(env.core);
         if (prog) {
-            if (strstr(prog, "\"complete\":true") || strstr(prog, "\"done\":true")) {
+            if (strstr(prog, "\"state\":\"idle\"")) {
                 progress_done = true;
                 mg_free_string(prog);
                 break;
@@ -200,9 +262,8 @@ static void test_mission_download() {
         }
     }
 
-    char* plan = mg_mission_get_plan(env.core);
-    const bool has_plan = (plan != nullptr);
-    if (plan) mg_free_string(plan);
+    const std::string plan = vehicle_document_json(env.core);
+    const bool has_plan = plan.find("\"entities\"") != std::string::npos;
 
     CHECK(progress_done || has_plan, "download completed or plan retrieved");
 }
@@ -231,10 +292,9 @@ static void test_mission_download_compat_item() {
         env.tick(50);
     }
 
-    char* plan = mg_mission_get_plan(env.core);
-    const bool has_lat = plan && strstr(plan, "\"lat\":39.9");
-    const bool has_lon = plan && strstr(plan, "\"lon\":116.4");
-    if (plan) mg_free_string(plan);
+    const std::string plan = vehicle_document_json(env.core);
+    const bool has_lat = plan.find("\"lat\":39.9") != std::string::npos;
+    const bool has_lon = plan.find("\"lon\":116.4") != std::string::npos;
 
     CHECK(has_lat && has_lon, "compat mission item download preserves coordinates");
 }
@@ -273,13 +333,10 @@ static void test_mission_plan_json_land_start() {
         if (started) mg_free_string(started);
         for (int i = 0; i < 80; i++) env.tick(50);
 
-        char* plan = mg_mission_get_plan(env.core);
-        const bool keeps_land_start =
-            plan != nullptr && strstr(plan, "\"lat\":47.5") != nullptr &&
-            strstr(plan, "\"lon\":85.4") != nullptr;
-        const bool keeps_waypoint =
-            plan != nullptr && strstr(plan, "\"lat\":39.9") != nullptr;
-        if (plan) mg_free_string(plan);
+        const std::string plan = vehicle_document_json(env.core);
+        const bool keeps_land_start = plan.find("\"lat\":47.5") != std::string::npos &&
+                                      plan.find("\"lon\":85.4") != std::string::npos;
+        const bool keeps_waypoint = plan.find("\"lat\":39.9") != std::string::npos;
         CHECK(keeps_land_start,
               "ArduPilot plan JSON keeps DO_LAND_START coordinates");
         CHECK(keeps_waypoint, "ArduPilot plan JSON keeps the waypoint coordinates");

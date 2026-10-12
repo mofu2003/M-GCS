@@ -26,27 +26,6 @@
 // ================================================================
 // 1. Connection state
 // ================================================================
-MGCORE_API char* mg_connection_get_state(mg_core_t* core) {
-    CHECK_CORE_RET(core, mg::bridge::ffi::response::error(MG_ERROR_NULL_CORE, "null core"));
-
-    auto& conn = get_active_conn(core);
-    bool connected = conn.is_connected();
-    uint64_t age_ms = conn.heartbeat_age_ms();
-    bool alive = conn.heartbeat_alive(5000);
-    const char* state_str = mg::core::transport::ConnectionManager::state_string(conn.state());
-
-    mg::core::telemetry::JsonBuilder data;
-    data.begin_object();
-    data.field("connected", connected);
-    data.field("state", state_str);
-    data.field("heartbeat_alive", alive);
-    data.field("heartbeat_age_ms", (unsigned long long)age_ms);
-    // S5：armed/mode 只在 heartbeat_fresh 为 true 时代表当前状态。
-    data.field("heartbeat_fresh", connected && age_ms <= 3000);
-    data.end_object();
-
-    return mg::bridge::ffi::response::ok(data.str());
-}
 
 // ================================================================
 // 2. Vehicle summary

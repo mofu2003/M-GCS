@@ -131,40 +131,9 @@ static void test_rtl() {
     CHECK(found_rtl, "mock received RTL cmd");
 }
 
-static void test_mode_change() {
-    fprintf(stderr, "\n[Group] MODE CHANGE command\n");
-    TestEnv env;
-    CHECK(env.wait_connected(), "connected after heartbeat");
-
-    env.start_pump();
-    char* result = mg_flight_set_mode(env.core, "Guided");
-    env.stop_pump();
-    // Named mode switching uses the direct MAVLink sender; drain the link
-    // before inspecting the mock's received command list.
-    env.tick(20);
-
-    CHECK(result != nullptr, "set_mode returned non-null");
-    CHECK(is_success(result), "set_mode success:true");
-    if (result) {
-        fprintf(stderr, "    set_mode result: %s\n", result);
-        mg_free_string(result);
-    }
-
-    bool found_mode_cmd = false;
-    for (const auto& cmd : env.mock->received_cmds) {
-        if (cmd.command == MAV_CMD_DO_SET_MODE &&
-            (static_cast<int>(cmd.p1) & static_cast<int>(MAV_MODE_FLAG_CUSTOM_MODE_ENABLED)) != 0 &&
-            static_cast<int>(cmd.p2) == 4) {
-            found_mode_cmd = true;
-            break;
-        }
-    }
-    CHECK(found_mode_cmd, "set_mode sends CUSTOM_MODE_ENABLED base flag and Guided custom mode");
-}
-
-/// 飞行模式操作台：模式表按机型给，按名字切换，非法模式被拒。
+/// 飞行模式操作台：模式表按机型给，槽位参数带模式名选项。
 static void test_flight_mode_catalog() {
-    fprintf(stderr, "\n[Group] Flight mode catalog and switching\n");
+    fprintf(stderr, "\n[Group] Flight mode catalog\n");
     TestEnv env;
     CHECK(env.wait_connected(), "connected before reading the mode catalog");
 
@@ -175,40 +144,6 @@ static void test_flight_mode_catalog() {
     CHECK(json_has(catalog, "\"name\":\"Loiter\""), "copter catalog contains Loiter");
     CHECK(json_has(catalog, "\"current_mode\":\"Stabilize\""), "catalog reports the heartbeat mode");
     if (catalog) mg_free_string(catalog);
-
-    env.start_pump();
-    char* set = mg_flight_set_mode(env.core, "Loiter");
-    env.stop_pump();
-    env.tick(20);
-    CHECK(is_success(set), "setting a known mode by name succeeds after the ACK");
-    CHECK(json_has(set, "\"custom_mode\":5"), "Loiter maps to the copter custom_mode 5");
-    if (set) mg_free_string(set);
-
-    char* bad = mg_flight_set_mode(env.core, "NotAMode");
-    CHECK(is_failure(bad) && json_has(bad, "unknown flight mode"),
-          "unknown mode name is rejected");
-    if (bad) mg_free_string(bad);
-
-    // S2：飞控拒绝时不能报成功。
-    env.mock->set_next_cmd_result(MAV_RESULT_DENIED);
-    env.start_pump();
-    char* denied = mg_flight_set_mode(env.core, "Loiter");
-    env.stop_pump();
-    env.tick(20);
-    CHECK(is_failure(denied) && json_has(denied, "\"result_str\":\"denied\""),
-          "a denied mode change is reported as a failure");
-    if (denied) mg_free_string(denied);
-
-    // S2：没有 ACK 时必须超时失败，而不是谎报成功。
-    env.mock->set_cmd_no_response(true);
-    env.start_pump();
-    char* timeout = mg_flight_set_mode(env.core, "Loiter");
-    env.stop_pump();
-    env.tick(20);
-    CHECK(is_failure(timeout) && json_has(timeout, "\"name\":\"TIMEOUT\""),
-          "a mode change without an ACK times out instead of reporting success");
-    if (timeout) mg_free_string(timeout);
-    env.mock->set_cmd_no_response(false);
 
     // 模式档位参数要带上模式名选项，参数控件才会渲染成名称下拉（MP 的做法）。
     char* slot = mg_config_read_param(env.core, "FLTMODE1");
@@ -225,7 +160,7 @@ static void test_mode_state_reports_freshness() {
     TestEnv env;
     CHECK(env.wait_connected(), "connected before reading mode state");
 
-    char* status = mg_flight_get_mode_status(env.core);
+    char* status = mg_flight_get_modes(env.core);
     CHECK(json_has(status, "\"heartbeat_fresh\":true"),
           "mode status is fresh while heartbeats keep arriving");
     if (status) mg_free_string(status);
@@ -240,14 +175,9 @@ static void test_mode_state_reports_freshness() {
           "vehicle summary reports heartbeat freshness");
     if (summary) mg_free_string(summary);
 
-    char* conn = mg_connection_get_state(env.core);
-    CHECK(json_has(conn, "\"heartbeat_fresh\":true"),
-          "connection state reports heartbeat freshness");
-    if (conn) mg_free_string(conn);
-
     // 从未连上的核心：状态是未知，而不是“未解锁”。
     mg_core_t* bare = mg_create();
-    char* unknown = mg_flight_get_mode_status(bare);
+    char* unknown = mg_flight_get_modes(bare);
     CHECK(json_has(unknown, "\"heartbeat_fresh\":false") &&
               json_has(unknown, "\"heartbeat_age_ms\":-1"),
           "an unconnected core reports mode state as unknown, not disarmed");
@@ -266,7 +196,7 @@ static void test_mode_status_tracks_latest_heartbeat() {
     TestEnv env;
     CHECK(env.wait_connected(), "connected after heartbeat");
 
-    char* initial = mg_flight_get_mode_status(env.core);
+    char* initial = mg_flight_get_modes(env.core);
     CHECK(mode_status_is(initial, "Stabilize", 0, false), "initial mode status is Stabilize from heartbeat");
     if (initial) {
         fprintf(stderr, "    initial mode status: %s\n", initial);
@@ -286,7 +216,7 @@ static void test_mode_status_tracks_latest_heartbeat() {
     env.link->inject_incoming(bytes.data(), len);
     env.tick(10);
 
-    char* updated = mg_flight_get_mode_status(env.core);
+    char* updated = mg_flight_get_modes(env.core);
     CHECK(mode_status_is(updated, "AltHold", 2, true), "mode status refreshes to AltHold from latest heartbeat");
     if (updated) {
         fprintf(stderr, "    updated mode status: %s\n", updated);
@@ -431,41 +361,6 @@ static void test_param_list_no_response() {
     }
 }
 
-static void test_mission_retry_on_drop() {
-    fprintf(stderr, "\n[Group] MISSION RETRY (first request dropped)\n");
-    TestEnv env;
-    CHECK(env.wait_connected(), "connected after heartbeat");
-
-    std::vector<mavlink_mission_item_int_t> items(3);
-    memset(items.data(), 0, sizeof(mavlink_mission_item_int_t) * items.size());
-    for (int i = 0; i < 3; i++) {
-        items[i].seq = static_cast<uint16_t>(i);
-        items[i].frame = MAV_FRAME_GLOBAL_RELATIVE_ALT_INT;
-        items[i].command = MAV_CMD_NAV_WAYPOINT;
-        items[i].autocontinue = 1;
-        items[i].x = 399042000 + (i * 1000);
-        items[i].y = 1164074000 + (i * 1000);
-        items[i].z = 50.0f + (i * 25.0f);
-        items[i].mission_type = MAV_MISSION_TYPE_MISSION;
-    }
-    env.mock->set_mission(items);
-    env.mock->set_mission_first_attempt_drop(true);
-
-    env.start_pump();
-    char* mission_json = strdup("[{\"lat\":39.9042,\"lon\":116.4074,\"alt\":100},"
-                                "{\"lat\":39.9043,\"lon\":116.4075,\"alt\":50},"
-                                "{\"lat\":39.9044,\"lon\":116.4076,\"alt\":75}]");
-    char* result = mg_mission_upload(env.core, mission_json);
-    free(mission_json);
-    env.stop_pump();
-
-    CHECK(result != nullptr, "mission upload returned non-null");
-    if (result) {
-        fprintf(stderr, "    mission result: %s\n", result);
-        mg_free_string(result);
-    }
-}
-
 // 直接覆盖 mg_command_* 入口（审计 TEST-002）。别名路径已有测试，这里固定
 // 命令编码本身，尤其是 guided_point 的经纬度单位。
 static void test_safety_command_encoding() {
@@ -557,7 +452,7 @@ static void test_safety_command_encoding() {
 }
 
 // S2：EKF 全局原点与起落架都必须以 COMMAND_ACK 为准。
-static void test_global_origin_and_landing_gear_wait_for_ack() {
+static void test_global_origin_wait_for_ack() {
     fprintf(stderr, "\n[Group] GLOBAL ORIGIN / LANDING GEAR ACK\n");
 
     {
@@ -596,23 +491,6 @@ static void test_global_origin_and_landing_gear_wait_for_ack() {
         CHECK(is_failure(result),
               "a rejected set_global_origin is reported as a failure, not a success");
         if (result) mg_free_string(result);
-    }
-
-    {
-        TestEnv env;
-        CHECK(env.wait_connected(), "landing gear: connected after heartbeat");
-        env.mock->received_cmds.clear();
-        env.start_pump();
-        char* result = mg_command_landing_gear(env.core, true);
-        env.stop_pump();
-        CHECK(is_success(result), "landing gear reports success after the ACK");
-        if (result) mg_free_string(result);
-
-        bool sent = false;
-        for (const auto& cmd : env.mock->received_cmds) {
-            if (cmd.command == MAV_CMD_AIRFRAME_CONFIGURATION && cmd.p1 == 1.0f) sent = true;
-        }
-        CHECK(sent, "landing gear deploy sends AIRFRAME_CONFIGURATION param1=1");
     }
 }
 
@@ -655,44 +533,13 @@ static void test_set_home_encoding() {
           "rejected set_home never reaches the flight controller");
 }
 
-static void test_flight_mode_state_setters() {
-    fprintf(stderr, "\n[Group] FLIGHT MODE STATE SETTERS\n");
-    TestEnv env;
-
-    char* takeoff = mg_flight_set_takeoff_altitude(env.core, 30.0f);
-    CHECK(is_success(takeoff), "set takeoff altitude accepted");
-    if (takeoff) mg_free_string(takeoff);
-
-    char* too_high = mg_flight_set_takeoff_altitude(env.core, 500.0f);
-    CHECK(is_failure(too_high), "takeoff altitude out of range rejected");
-    if (too_high) mg_free_string(too_high);
-
-    char* readback = mg_flight_get_takeoff_altitude(env.core);
-    CHECK(json_has(readback, "\"altitude_m\":30"), "takeoff altitude readback matches");
-    if (readback) mg_free_string(readback);
-
-    char* loiter = mg_flight_set_loiter_radius(env.core, 100.0f);
-    CHECK(is_success(loiter), "set loiter radius accepted");
-    if (loiter) mg_free_string(loiter);
-
-    char* too_small = mg_flight_set_loiter_radius(env.core, 1.0f);
-    CHECK(is_failure(too_small), "loiter radius out of range rejected");
-    if (too_small) mg_free_string(too_small);
-
-    char* radius = mg_flight_get_loiter_radius(env.core);
-    CHECK(json_has(radius, "\"radius_m\":100"), "loiter radius readback matches");
-    if (radius) mg_free_string(radius);
-}
-
 int main() {
     fprintf(stderr, "=== Command Simulation Tests ===\n");
     test_arm();
     test_takeoff();
     test_rtl();
-    test_mode_change();
     test_safety_command_encoding();
-    test_global_origin_and_landing_gear_wait_for_ack();
-    test_flight_mode_state_setters();
+    test_global_origin_wait_for_ack();
     test_set_home_encoding();
     test_mode_state_reports_freshness();
     test_mode_status_tracks_latest_heartbeat();
@@ -703,7 +550,6 @@ int main() {
     test_safe_cmd_retry_on_drop();
     test_queued_send_failure_invokes_callback();
     test_param_list_no_response();
-    test_mission_retry_on_drop();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

@@ -96,13 +96,6 @@ static bool parse_cal_status(const std::string& json, CalStatusSnapshot& status)
     return true;
 }
 
-static void event_callback(mg_event_type_t type, char* json, void*) {
-    if (type == MG_EVENT_STATUSTEXT) {
-        std::lock_guard<std::mutex> lk(g_print_mtx);
-        std::fprintf(stderr, "[event:statustext] %s\n", json ? json : "");
-    }
-    free_json(json);
-}
 
 static CalStatusSnapshot poll_cal_status(mg_core_t* core, int timeout_ms) {
     CalStatusSnapshot last;
@@ -155,8 +148,6 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "[FAIL] mg_create failed\n");
         return 1;
     }
-    mg_set_event_callback(core, event_callback, nullptr);
-
     std::string endpoint = std::string("serial://") + port + "?baud=115200";
     int vehicle_id = mg_vehicle_open(core, endpoint.c_str());
     std::fprintf(stderr, "[vehicle_open] id=%d endpoint=%s\n", vehicle_id, endpoint.c_str());
@@ -173,21 +164,17 @@ int main(int argc, char** argv) {
     std::string mode;
     if (!parse_summary(summary, armed, mode)) {
         std::fprintf(stderr, "[FAIL] unable to parse vehicle summary\n");
-        mg_connection_disconnect(core);
-        mg_destroy(core);
+            mg_destroy(core);
         return 1;
     }
     std::fprintf(stderr, "[safety] armed=%s mode=%s\n", armed ? "true" : "false", mode.c_str());
     if (armed) {
         std::fprintf(stderr, "[ABORT] vehicle is armed; calibration was not started\n");
-        mg_connection_disconnect(core);
-        mg_destroy(core);
+            mg_destroy(core);
         return 2;
     }
 
-    call_json("prearm", mg_vehicle_get_prearm_check, core);
     call_json("sensor_health", mg_sensors_get_health, core);
-    call_json("statustext_before", mg_sensors_get_statustext, core);
     call_json("cal_status_before", mg_calibration_get_status, core);
 
     std::fprintf(stderr, "\n--- Starting gyroscope calibration ---\n");
@@ -198,19 +185,14 @@ int main(int argc, char** argv) {
     if (start_json.find("\"success\":true") == std::string::npos) {
         std::fprintf(stderr, "[FAIL] gyro calibration command was not accepted by bridge\n");
         call_json("cal_status_after_start_fail", mg_calibration_get_status, core);
-        mg_connection_disconnect(core);
-        mg_destroy(core);
+            mg_destroy(core);
         return 1;
     }
 
     CalStatusSnapshot final_status = poll_cal_status(core, 30000);
 
     call_json("cal_status_final", mg_calibration_get_status, core);
-    call_json_int("cal_history_gyro", mg_calibration_get_history, core, 0);
-    call_json("cal_retry", mg_calibration_get_retry_info, core);
-    call_json("statustext_after", mg_sensors_get_statustext, core);
 
-    mg_connection_disconnect(core);
     mg_destroy(core);
 
     const bool ok = !final_status.active && final_status.stage == "success";

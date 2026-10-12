@@ -56,11 +56,6 @@ MGCORE_API char* mg_rally_download(mg_core_t* core) {
         });
 }
 
-MGCORE_API char* mg_rally_get_plan(mg_core_t* core) {
-    return export_connected_plan_json(core, [](auto& mav) {
-        return mav.rally_get_plan();
-    });
-}
 
 // ================================================================
 // Geofence Protocol (MAVLink MISSION_TYPE_FENCE)
@@ -73,11 +68,6 @@ MGCORE_API char* mg_fence_download(mg_core_t* core) {
         });
 }
 
-MGCORE_API char* mg_fence_get_plan(mg_core_t* core) {
-    return export_connected_plan_json(core, [](auto& mav) {
-        return mav.fence_get_plan();
-    });
-}
 
 // ================================================================
 // Multi-vehicle
@@ -129,31 +119,7 @@ MGCORE_API char* mg_vehicle_list(mg_core_t* core) {
     return to_cstr(jb.str());
 }
 
-MGCORE_API char* mg_vehicle_count(mg_core_t* core) {
-    CHECK_CORE(core);
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("count", static_cast<int>(core->vehicles.vehicle_count()));
-    jb.end_object();
-    return to_cstr(jb.str());
-}
 
 // ================================================================
 // Firmware flash
 // ================================================================
-
-MGCORE_API char* mg_firmware_flash(mg_core_t* core, const char* firmware_path) {
-    CHECK_CORE(core);
-    (void)firmware_path;
-    return fail(MG_ERROR_NOT_SUPPORTED, "firmware flash not yet implemented");
-}
-
-MGCORE_API char* mg_firmware_flash_status(mg_core_t* core) {
-    CHECK_CORE(core);
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("flashing", false);
-    jb.field("progress", 0);
-    jb.end_object();
-    return to_cstr(jb.str());
-}

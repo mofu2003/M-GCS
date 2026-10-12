@@ -83,6 +83,37 @@ static bool wait_for_mode(mg_core_t* core, const char* expected_mode, int timeou
     return false;
 }
 
+/// 通过 submit/poll 同步切换模式（旧的同步 mg_flight_set_mode 已删除）。
+static bool set_mode_sync(mg_core_t* core, const char* mode) {
+    const int vid = mg_vehicle_get_active(core);
+    const std::string body =
+        std::string("{\"command\":\"set_mode\",\"args\":{\"mode\":\"") + mode + "\"}}";
+    char* submitted = mg_command_submit_for_vehicle(core, vid, body.c_str());
+    std::string submitted_json = submitted ? submitted : "";
+    free_json(submitted);
+
+    uint64_t ticket = 0;
+    cJSON* root = cJSON_Parse(submitted_json.c_str());
+    cJSON* ticket_json = root ? cJSON_GetObjectItemCaseSensitive(root, "ticket") : nullptr;
+    if (cJSON_IsNumber(ticket_json)) ticket = static_cast<uint64_t>(ticket_json->valuedouble);
+    if (root) cJSON_Delete(root);
+    if (ticket == 0) return false;
+
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(12);
+    while (std::chrono::steady_clock::now() < deadline) {
+        char* polled = mg_command_poll(core, ticket);
+        const std::string polled_json = polled ? polled : "";
+        free_json(polled);
+        if (polled_json.find("\"state\":\"complete\"") != std::string::npos) {
+            std::fprintf(stderr, "[set_mode %s] %s\n", mode, polled_json.c_str());
+            return polled_json.find("\"result\":{\"success\":true") != std::string::npos;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    return false;
+}
+
 int main(int argc, char** argv) {
     const char* port = argc > 1 ? argv[1] : std::getenv("MG_TEST_SERIAL");
     if (!port || !port[0]) {
@@ -110,48 +141,33 @@ int main(int argc, char** argv) {
     std::this_thread::sleep_for(std::chrono::seconds(4));
 
     std::string summary_json = call_json("summary_before", mg_vehicle_get_summary, core);
-    call_json("available_modes", mg_flight_get_available_modes, core);
-    call_json("mode_status_before", mg_flight_get_mode_status, core);
+    call_json("available_modes", mg_flight_get_modes, core);
+    call_json("mode_status_before", mg_flight_get_modes, core);
 
     SummarySnapshot before;
     if (!parse_summary(summary_json, before)) {
         std::fprintf(stderr, "[FAIL] unable to parse vehicle summary\n");
-        mg_connection_disconnect(core);
-        mg_destroy(core);
+            mg_destroy(core);
         return 1;
     }
     std::fprintf(stderr, "[safety] armed=%s mode=%s\n", before.armed ? "true" : "false", before.mode.c_str());
     if (before.armed) {
         std::fprintf(stderr, "[ABORT] vehicle is armed; mode switch test skipped\n");
-        mg_connection_disconnect(core);
-        mg_destroy(core);
+            mg_destroy(core);
         return 2;
     }
 
     std::fprintf(stderr, "\n--- Switch to AltHold ---\n");
-    char* alt_hold = mg_flight_set_mode(core, "AltHold");
-    std::string alt_hold_json = alt_hold ? alt_hold : "";
-    std::fprintf(stderr, "[set_mode_alt_hold] %s\n", alt_hold_json.c_str());
-    free_json(alt_hold);
-
     const bool switched_to_alt_hold =
-        alt_hold_json.find("\"success\":true") != std::string::npos &&
-        wait_for_mode(core, "AltHold", 6000);
-    call_json("mode_status_after_alt_hold", mg_flight_get_mode_status, core);
+        set_mode_sync(core, "AltHold") && wait_for_mode(core, "AltHold", 6000);
+    call_json("mode_status_after_alt_hold", mg_flight_get_modes, core);
 
     std::fprintf(stderr, "\n--- Switch back to Stabilize ---\n");
-    char* stabilize = mg_flight_set_mode(core, "Stabilize");
-    std::string stabilize_json = stabilize ? stabilize : "";
-    std::fprintf(stderr, "[set_mode_stabilize] %s\n", stabilize_json.c_str());
-    free_json(stabilize);
-
     const bool switched_back =
-        stabilize_json.find("\"success\":true") != std::string::npos &&
-        wait_for_mode(core, "Stabilize", 6000);
+        set_mode_sync(core, "Stabilize") && wait_for_mode(core, "Stabilize", 6000);
     call_json("summary_after", mg_vehicle_get_summary, core);
-    call_json("mode_status_after", mg_flight_get_mode_status, core);
+    call_json("mode_status_after", mg_flight_get_modes, core);
 
-    mg_connection_disconnect(core);
     mg_destroy(core);
 
     const bool ok = switched_to_alt_hold && switched_back;

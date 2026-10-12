@@ -178,26 +178,19 @@ set(MGCORE_SOURCES
     bridge/ffi/ffi_commands.cc
     bridge/ffi/ffi_flight_modes.cc
     bridge/ffi/ffi_log_commands.cc
-    bridge/ffi/ffi_preflight_commands.cc
     bridge/ffi/ffi_flight_commands.cc
-    bridge/ffi/ffi_flight_mode_state.cc
     bridge/ffi/ffi_calibration.cc
-    bridge/ffi/ffi_health.cc
     bridge/ffi/ffi_rc.cc
     bridge/ffi/ffi_utility.cc
-    bridge/ffi/ffi_logging.cc
     bridge/ffi/ffi_telemetry_summary.cc
     bridge/ffi/ffi_telemetry_navigation.cc
     bridge/ffi/ffi_telemetry_sensors.cc
-    bridge/ffi/ffi_sensor_decode.cc
     bridge/ffi/ffi_mission_commands.cc
     bridge/ffi/ffi_mission_document.cc
     bridge/ffi/ffi_mission_shared.cc
     bridge/ffi/ffi_mission_interchange.cc
     bridge/ffi/ffi_mission_catalog.cc
     bridge/ffi/ffi_payload_commands.cc
-    bridge/ffi/ffi_sitl_commands.cc
-    bridge/ffi/ffi_vehicle_info.cc
     bridge/ffi/ffi_vehicle_session.cc
     bridge/ffi/ffi_mission_bridge.cc
     bridge/ffi/ffi_config.cc
@@ -205,8 +198,6 @@ set(MGCORE_SOURCES
     bridge/ffi/ffi_telemetry.cc
     bridge/ffi/ffi_vehicle_manager.cc
     bridge/ffi/ffi_serial.cc
-    bridge/ffi/ffi_actuator.cc
-    bridge/ffi/ffi_rc_config.cc
 )
 
 # cJSON (C source, compile as part of the library)

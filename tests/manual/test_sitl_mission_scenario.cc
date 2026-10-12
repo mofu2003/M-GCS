@@ -57,12 +57,19 @@ static cJSON* ok_data(const std::string& json) {
     return root;  // caller must delete; use cJSON_GetObjectItem(root,"data")
 }
 
+/// 链路是否已建立：车辆列表里存在 connected=true 的车辆。
 static bool connection_connected(mg_core_t* core) {
-    std::string state = take(mg_connection_get_state(core));
-    cJSON* root = ok_data(state);
+    std::string json = take(mg_vehicle_list(core));
+    cJSON* root = cJSON_Parse(json.c_str());
     if (!root) return false;
-    cJSON* data = cJSON_GetObjectItemCaseSensitive(root, "data");
-    bool connected = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(data, "connected"));
+    bool connected = false;
+    cJSON* item = nullptr;
+    cJSON_ArrayForEach(item, root) {
+        if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "connected"))) {
+            connected = true;
+            break;
+        }
+    }
     cJSON_Delete(root);
     return connected;
 }
@@ -176,10 +183,10 @@ int main() {
         return 0;
     }
     const std::string endpoint = endpoint_env;
-    // mg_connection_connect_udp 会自己补 "udp://" 前缀，这里接受两种写法。
     std::string host_port = endpoint;
     const std::string scheme = "udp://";
     if (host_port.rfind(scheme, 0) == 0) host_port = host_port.substr(scheme.size());
+    const std::string udp_uri = scheme + host_port;
 
     fprintf(stderr, "=== SITL Mission Scenario ===\n");
     fprintf(stderr, "endpoint: udp://%s\n", host_port.c_str());
@@ -189,9 +196,8 @@ int main() {
     if (!core) { fprintf(stderr, "mg_create failed\n"); return 1; }
 
     // ---- 1. 新连接 ----
-    std::string connect_result = take(mg_connection_connect_udp(core, host_port.c_str()));
-    CHECK(connect_result.find("\"success\":true") != std::string::npos,
-          "connect request accepted");
+    const int link_id = mg_connection_open(core, udp_uri.c_str());
+    CHECK(link_id > 0, "connect request accepted");
     const bool connected = wait_connected(core, 20000);
     CHECK(connected, "link reaches connected state (heartbeat received)");
     if (!connected) {
@@ -276,18 +282,17 @@ int main() {
     CHECK(verified, "read-back matches the document (1 m tolerance)");
     EVIDENCE("verify_matches", verified ? "true" : "false");
     EVIDENCE("verify_json", verify.c_str());
-    std::string plan = take(mg_mission_get_plan(core));
+    std::string plan = take(mg_mission_doc_get(core));
     EVIDENCE("readback_plan_bytes", std::to_string(plan.size()).c_str());
 
     // ---- 6. 断链 ----
-    take(mg_connection_disconnect(core));
+    take(mg_connection_close(core, link_id));
     const bool went_down = wait_disconnected(core, 8000);
     CHECK(went_down, "link reports disconnected after disconnect");
     EVIDENCE("disconnect_state", went_down ? "disconnected" : "still_connected");
 
     // ---- 7. 重连 + 再次回读核验（恢复）----
-    std::string reconnect = take(mg_connection_connect_udp(core, host_port.c_str()));
-    CHECK(reconnect.find("\"success\":true") != std::string::npos, "reconnect request accepted");
+    CHECK(mg_connection_open(core, udp_uri.c_str()) > 0, "reconnect request accepted");
     const bool reconnected = wait_connected(core, 20000);
     CHECK(reconnected, "link recovers: connected again after reconnect");
     EVIDENCE("reconnect_state", reconnected ? "connected" : "failed");
@@ -303,12 +308,16 @@ int main() {
               "flight controller served the mission again after reconnect");
 
         // 飞控侧持久化证据：回读计划仍含上传的三条航点。
-        std::string readback2 = take(mg_mission_get_plan(core));
+        std::string readback2 = take(mg_mission_doc_get(core));
         EVIDENCE("reconnect_readback_json", readback2.c_str());
         {
             cJSON* root = cJSON_Parse(readback2.c_str());
-            cJSON* items = root ? cJSON_GetObjectItemCaseSensitive(root, "items") : nullptr;
-            cJSON* count = root ? cJSON_GetObjectItemCaseSensitive(root, "count") : nullptr;
+            cJSON* document = root
+                ? cJSON_GetObjectItemCaseSensitive(root, "document") : nullptr;
+            cJSON* items = document
+                ? cJSON_GetObjectItemCaseSensitive(document, "entities") : nullptr;
+            cJSON* count = document
+                ? cJSON_GetObjectItemCaseSensitive(document, "entity_count") : nullptr;
             const bool held = cJSON_IsArray(items) &&
                               array_has_coord(items, -35.3632610, 149.1652300) &&
                               array_has_coord(items, -35.3628000, 149.1660000) &&

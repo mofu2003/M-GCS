@@ -20,12 +20,27 @@ static void test_present_plan_hides_ardupilot_home_item() {
 
     for (int i = 0; i < 15; i++) env.tick(100);
 
-    const char* json_wps =
-        "[{\"lat\":39.9,\"lon\":116.4,\"alt\":50,\"command\":16,\"frame\":3}]";
-    char* result = mg_mission_upload(env.core, json_wps);
-    if (result) mg_free_string(result);
+    // 飞控里的任务在 seq 0 放 Home（ArduPilot 约定），seq 1 是首个航点。
+    std::vector<mavlink_mission_item_int_t> items(2);
+    memset(items.data(), 0, items.size() * sizeof(mavlink_mission_item_int_t));
+    items[0].seq = 0;
+    items[0].frame = MAV_FRAME_GLOBAL;
+    items[0].command = MAV_CMD_NAV_WAYPOINT;
+    items[0].x = static_cast<int32_t>(39.9042 * 1e7);
+    items[0].y = static_cast<int32_t>(116.4074 * 1e7);
+    items[0].z = 0.0f;
+    items[1].seq = 1;
+    items[1].frame = MAV_FRAME_GLOBAL_RELATIVE_ALT;
+    items[1].command = MAV_CMD_NAV_WAYPOINT;
+    items[1].autocontinue = 1;
+    items[1].x = static_cast<int32_t>(39.9 * 1e7);
+    items[1].y = static_cast<int32_t>(116.4 * 1e7);
+    items[1].z = 50.0f;
+    env.mock->set_mission(items);
 
-    for (int i = 0; i < 50; i++) env.tick(50);
+    char* started = mg_mission_download(env.core);
+    if (started) mg_free_string(started);
+    for (int i = 0; i < 80; i++) env.tick(50);
 
     mg::core::mission::cad::MissionHome home;
     bool home_present = false;

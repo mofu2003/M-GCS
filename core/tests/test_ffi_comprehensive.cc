@@ -41,11 +41,8 @@ static void check_failure_and_free(char* result, const char* label) {
 static void test_null_core() {
     fprintf(stderr, "\n[Group] Null core safety\n");
     // All functions should handle null core gracefully
-    CHECK(is_failure(mg_connection_get_state(nullptr)), "connection_get_state null");
-    CHECK(mg_connection_disconnect(nullptr) == nullptr || is_failure(mg_connection_disconnect(nullptr)), "disconnect null");
+    CHECK(is_failure(mg_connection_get_session_state(nullptr, 0)), "connection_get_session_state null");
     CHECK(is_failure(mg_firmware_get_type(nullptr)), "firmware_get_type null");
-    CHECK(is_failure(mg_health_get_all(nullptr)), "health_get_all null");
-    CHECK(is_failure(mg_preflight_check(nullptr)), "preflight_check null");
     CHECK(is_failure(mg_rc_get_channels(nullptr)), "rc_get_channels null");
     CHECK(is_failure(mg_servo_get_outputs(nullptr)), "servo_get_outputs null");
     CHECK(is_failure(mg_params_request_all(nullptr)), "params_request_all null");
@@ -60,11 +57,6 @@ static void test_lifecycle() {
     mg_core_t* core = mg_create();
     CHECK(core != nullptr, "mg_create returns non-null");
 
-    // State before connection
-    char* state = mg_connection_get_state(core);
-    CHECK(contains(state, "\"connected\":false"), "initial state: not connected");
-    mg_free_string(state);
-
     // Vehicle list should be empty
     char* list = mg_vehicle_list(core);
     CHECK(contains(list, "\"count\":0") || contains(list, "[]") || contains(list, "\"count\":0,"), "empty vehicle list");
@@ -72,10 +64,6 @@ static void test_lifecycle() {
 
     // Active vehicle should be -1
     CHECK(mg_vehicle_get_active(core) == -1, "no active vehicle");
-
-    // Version
-    const char* ver = mg_get_version();
-    CHECK(ver != nullptr && ver[0] != '\0', "version non-empty");
 
     // Error system
     mg_clear_last_error();
@@ -91,23 +79,12 @@ static void test_disconnected_telemetry_getters() {
     // Telemetry getters use one response contract when disconnected.
     char* r;
     r = mg_vehicle_get_summary(core);  CHECK(is_success(r), "vehicle summary success"); mg_free_string(r);
-    r = mg_vehicle_get_battery(core);  CHECK(is_success(r), "battery success"); mg_free_string(r);
-    r = mg_vehicle_get_gps(core);      CHECK(is_success(r), "GPS success"); mg_free_string(r);
     r = mg_vehicle_get_attitude(core); CHECK(is_success(r), "attitude success"); mg_free_string(r);
     r = mg_vehicle_get_global_position(core); CHECK(is_success(r), "global position success"); mg_free_string(r);
-    r = mg_vehicle_get_rc_channels(core); CHECK(is_success(r), "RC channels success"); mg_free_string(r);
-    r = mg_vehicle_get_servo_output(core); CHECK(is_success(r), "servo outputs success"); mg_free_string(r);
     r = mg_vehicle_get_home_position(core); CHECK(is_success(r), "home position success"); mg_free_string(r);
     r = mg_vehicle_get_vfr_hud(core);  CHECK(is_success(r), "VFR HUD success"); mg_free_string(r);
-    r = mg_vehicle_get_imu(core);      CHECK(is_success(r), "IMU success"); mg_free_string(r);
-    r = mg_vehicle_get_pressure(core); CHECK(is_success(r), "pressure success"); mg_free_string(r);
-    r = mg_vehicle_get_highres_imu(core); CHECK(is_success(r), "high resolution IMU success"); mg_free_string(r);
     r = mg_vehicle_get_extended_sys_state(core); CHECK(is_success(r), "extended system state success"); mg_free_string(r);
     r = mg_vehicle_get_firmware_version(core); CHECK(is_success(r), "firmware version success"); mg_free_string(r);
-    r = mg_vehicle_get_vibration(core); CHECK(is_success(r), "vibration success"); mg_free_string(r);
-    r = mg_vehicle_get_esc_status(core); CHECK(is_success(r), "ESC status success"); mg_free_string(r);
-    r = mg_vehicle_get_wind_estimate(core); CHECK(is_success(r), "wind estimate success"); mg_free_string(r);
-    r = mg_vehicle_get_prearm_check(core); CHECK(is_success(r), "pre-arm check success"); mg_free_string(r);
 
     mg_destroy(core);
 }
@@ -121,10 +98,9 @@ static void test_disconnected_commands() {
     check_failure_and_free(mg_command_rtl(core), "rtl disconnected -> fail");
     check_failure_and_free(mg_command_takeoff(core, 10), "takeoff disconnected -> fail");
     check_failure_and_free(mg_command_land(core), "land disconnected -> fail");
-    check_failure_and_free(mg_flight_set_mode(core, "Stabilize"), "set_mode disconnected -> fail");
-
-    // Params
-    CHECK(is_failure(mg_params_set(core, "TEST", 1.0f, 0)), "params_set disconnected -> fail");
+    check_failure_and_free(
+        mg_command_submit_for_vehicle(core, 0, R"({"command":"set_mode","args":{"mode":"Stabilize"}})"),
+        "set_mode disconnected -> fail");
 
     // Mission
     check_failure_and_free(mg_mission_download(core), "mission_download disconnected -> fail");
@@ -137,16 +113,8 @@ static void test_disconnected_health() {
     mg_core_t* core = mg_create();
 
     char* r;
-    r = mg_health_get_all(core);
-    CHECK(r != nullptr && contains(r, "\"connected\":false"), "health disconnected");
-    mg_free_string(r);
-
     r = mg_firmware_get_type(core);
     CHECK(r != nullptr, "firmware_type no crash");
-    mg_free_string(r);
-
-    r = mg_preflight_check(core);
-    CHECK(r != nullptr, "preflight_check no crash");
     mg_free_string(r);
 
     r = mg_rc_get_channels(core);
@@ -244,20 +212,6 @@ static void test_disconnected_config() {
     mg_destroy(core);
 }
 
-static void test_disconnected_stubs() {
-    fprintf(stderr, "\n[Group] Stub functions (should return NOT_SUPPORTED)\n");
-    mg_core_t* core = mg_create();
-
-    // Never launch a host-installed simulator as part of an offline test.
-    check_failure_and_free(mg_sitl_start(nullptr, ""), "SITL start rejects a null core");
-    char* stopped = mg_sitl_stop(core);
-    CHECK(is_success(stopped), "stopping an idle simulator succeeds");
-    mg_free_string(stopped);
-    CHECK(is_failure(mg_firmware_flash(core, "")), "firmware_flash -> NOT_SUPPORTED");
-
-    mg_destroy(core);
-}
-
 static void test_error_system() {
     fprintf(stderr, "\n[Group] Error system\n");
 
@@ -268,31 +222,6 @@ static void test_error_system() {
     CHECK(mg_get_last_error() == MG_ERROR_NULL_CORE, "set/get error round-trip");
     mg_clear_last_error();
     CHECK(mg_get_last_error() == MG_ERROR_NONE, "clear after set");
-}
-
-static void test_sensor_decode() {
-    fprintf(stderr, "\n[Group] Sensor decode (offline)\n");
-    mg_core_t* core = mg_create();
-
-    // These should work without connection (offline decode)
-    char* r;
-    r = mg_sensor_decode_device_id(core, 0x00010001, "ins");
-    CHECK(r != nullptr, "decode_device_id ins no crash");
-    mg_free_string(r);
-
-    r = mg_sensor_decode_device_id(core, 0x00010001, "compass");
-    CHECK(r != nullptr, "decode_device_id compass no crash");
-    mg_free_string(r);
-
-    r = mg_sensor_decode_device_id(core, 0x00010001, "baro");
-    CHECK(r != nullptr, "decode_device_id baro no crash");
-    mg_free_string(r);
-
-    r = mg_sensor_decode_type_param(core, 0, "ins");
-    CHECK(r != nullptr, "decode_type_param no crash");
-    mg_free_string(r);
-
-    mg_destroy(core);
 }
 
 // ================================================================
@@ -600,7 +529,7 @@ static void test_completed_command_is_reclaimable_without_poll() {
 /// 会把 `connections_` 整个 swap 走，而 fallback vehicle 永远可以被
 /// `resolve_vehicle()` 选中。于是这条**纯公开 FFI 调用序列**在第二步之后就在
 /// `ConnectionManager::state_`（偏移 0x74）上空指针解引用崩溃（实测
-/// EXC_BAD_ACCESS, address=0x74，mg_connection_get_state + 96）。
+/// EXC_BAD_ACCESS, address=0x74，连接状态读取路径 + 96）。
 ///
 /// 修复后 conn() 在没有路由时返回一个永不接线的 ConnectionManager，语义就是
 /// "这辆车没有连接"：connected:false / state:"disconnected" / 无心跳、无链路、
@@ -611,30 +540,21 @@ static void test_connection_state_after_disconnect_without_active_vehicle() {
     CHECK(mg_vehicle_get_active(core) == -1,
           "no active vehicle before the disconnect (fallback stays reachable)");
 
-    char* disconnected = mg_connection_disconnect(core);
-    CHECK(is_success(disconnected), "disconnecting the fallback vehicle succeeds");
-    mg_free_string(disconnected);
+    core->fallback_vehicle->disconnect();
 
-    // 断链后 fallback vehicle 仍会被 resolve_vehicle() 解析到：这里必须返回
-    // 断开基线，而不是解引用空指针。
-    char* state = mg_connection_get_state(core);
-    CHECK(is_success(state), "connection state is readable after the disconnect");
-    CHECK(contains(state, "\"connected\":false"), "state reports connected:false");
-    CHECK(contains(state, "\"state\":\"disconnected\""),
-          "state reports the disconnected state string");
-    CHECK(contains(state, "\"heartbeat_alive\":false"), "state reports no live heartbeat");
-    CHECK(contains(state, "\"heartbeat_age_ms\":0"), "state reports no heartbeat age");
-    mg_free_string(state);
+    // 断链后 fallback vehicle 的 conn() 必须返回断开基线，而不是解引用空指针。
+    auto& conn = core->fallback_vehicle->conn();
+    CHECK(!conn.is_connected(), "fallback connection reports connected:false");
+    CHECK(mg::core::transport::ConnectionManager::state_string(conn.state()) ==
+              "disconnected",
+          "fallback connection reports the disconnected state string");
+    CHECK(!conn.heartbeat_alive(5000), "fallback connection reports no live heartbeat");
+    CHECK(conn.heartbeat_age_ms() == 0, "fallback connection reports no heartbeat age");
 
     // 同族读接口同样取道 Vehicle::conn()，都必须安全且返回断开语义。
     char* diagnostics = mg_connection_get_diagnostics(core);
     CHECK(is_success(diagnostics), "connection diagnostics survive the disconnect");
     mg_free_string(diagnostics);
-
-    char* health = mg_health_get_all(core);
-    CHECK(health != nullptr && contains(health, "\"connected\":false"),
-          "health reports disconnected instead of crashing");
-    mg_free_string(health);
 
     mg_destroy(core);
 }
@@ -650,9 +570,7 @@ int main() {
     test_firmware_type_normalization_contract();
     test_backend_hardening_contracts();
     test_disconnected_config();
-    test_disconnected_stubs();
     test_error_system();
-    test_sensor_decode();
     test_session_adapter_access_survives_concurrent_disconnect();
     test_command_ack_wait_survives_concurrent_disconnect();
     test_command_queue_reclaims_never_polled_slots();

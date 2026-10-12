@@ -60,13 +60,14 @@ int main() {
 
     fprintf(stderr, "\n[Step 1] Initial state\n");
     CHECK(env.core != nullptr, "core created");
-    char* state = mg_connection_get_state(env.core);
-    CHECK(state && strstr(state, "false"), "initially disconnected");
-    mg_free_string(state);
+    char* links = mg_connection_list(env.core);
+    CHECK(links != nullptr && strcmp(links, "[]") == 0, "initially disconnected");
+    mg_free_string(links);
 
     fprintf(stderr, "\n[Step 2] Heartbeat & vehicle detection\n");
     env.tick(1500);
-    state = mg_connection_get_state(env.core);
+    char* state =
+        mg_connection_get_session_state(env.core, mg_vehicle_get_active(env.core));
     CHECK(state != nullptr, "heartbeat drives state");
     mg_free_string(state);
 
@@ -111,12 +112,26 @@ int main() {
     mg_free_string(pv);
 
     fprintf(stderr, "\n[Step 4] Mission upload\n");
-    const char* mission_json = R"([
-        {"lat":39.9,"lon":116.4,"alt":50,"command":16,"frame":3},
-        {"lat":39.91,"lon":116.41,"alt":60,"command":16,"frame":3},
-        {"lat":39.92,"lon":116.42,"alt":70,"command":16,"frame":3}
-    ])";
-    char* mr = mg_mission_upload(env.core, mission_json);
+    const char* waypoints_text =
+        "QGC WPL 110\n"
+        "0\t0\t3\t16\t0\t0\t0\t0\t39.9000000\t116.4000000\t50.000\t1\n"
+        "1\t0\t3\t16\t0\t0\t0\t0\t39.9100000\t116.4100000\t60.000\t1\n"
+        "2\t0\t3\t16\t0\t0\t0\t0\t39.9200000\t116.4200000\t70.000\t1\n";
+    char* imported =
+        mg_mission_doc_import_format(env.core, "waypoints", waypoints_text);
+    CHECK(imported != nullptr && strstr(imported, "\"success\":true") != nullptr,
+          "waypoint document imported");
+    mg_free_string(imported);
+    uint64_t revision = 0;
+    {
+        char* doc = mg_mission_doc_get(env.core);
+        cJSON* root = doc ? cJSON_Parse(doc) : nullptr;
+        cJSON* rev = root ? cJSON_GetObjectItemCaseSensitive(root, "revision") : nullptr;
+        if (cJSON_IsNumber(rev)) revision = static_cast<uint64_t>(rev->valuedouble);
+        if (root) cJSON_Delete(root);
+        mg_free_string(doc);
+    }
+    char* mr = mg_mission_doc_upload(env.core, revision);
     CHECK(mr != nullptr, "mission upload started");
     mg_free_string(mr);
 

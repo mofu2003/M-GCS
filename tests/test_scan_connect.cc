@@ -56,23 +56,16 @@ int main(int argc, char* argv[]) {
 
     dump("summary",    mg_vehicle_get_summary(core));
     dump("firmware",   mg_vehicle_get_firmware_version(core));
-    dump("gps",        mg_vehicle_get_gps(core));
+    dump("dashboard",  mg_telemetry_get_dashboard_snapshot(core));
     dump("global_pos", mg_vehicle_get_global_position(core));
     dump("attitude",   mg_vehicle_get_attitude(core));
-    dump("battery",    mg_vehicle_get_battery(core));
     dump("vfr_hud",    mg_vehicle_get_vfr_hud(core));
-    dump("imu",        mg_vehicle_get_imu(core));
-    dump("pressure",   mg_vehicle_get_pressure(core));
-    dump("rc",         mg_vehicle_get_rc_channels(core));
-    dump("servo",      mg_vehicle_get_servo_output(core));
+    dump("rc",         mg_rc_get_channels(core));
+    dump("servo",      mg_servo_get_outputs(core));
     dump("home",       mg_vehicle_get_home_position(core));
     dump("ext_state",  mg_vehicle_get_extended_sys_state(core));
-    dump("vibration",  mg_vehicle_get_vibration(core));
-    dump("esc",        mg_vehicle_get_esc_status(core));
-    dump("wind",       mg_vehicle_get_wind_estimate(core));
-    dump("prearm",     mg_vehicle_get_prearm_check(core));
-    dump("health",     mg_health_get_all(core));
-    dump("modes",      mg_flight_get_available_modes(core));
+    dump("health",     mg_sensors_get_health(core));
+    dump("modes",      mg_flight_get_modes(core));
 
     // Request params
     fprintf(stderr, "\n--- Requesting parameters ---\n");
@@ -132,10 +125,9 @@ int main(int argc, char* argv[]) {
 
     // Final battery check with updated data
     fprintf(stderr, "\n--- Final Battery Status ---\n");
-    dump("battery", mg_vehicle_get_battery(core));
+    dump("battery", mg_telemetry_get_dashboard_snapshot(core));
 
     // Cleanup
-    mg_connection_disconnect(core);
     mg_destroy(core);
     fprintf(stderr, "\nDone.\n");
     return 0;

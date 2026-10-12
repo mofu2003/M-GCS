@@ -43,15 +43,12 @@ MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_
 // mg_flight_get_modes 返回 available / current_mode / armed / modes[{id,name,settable}]，
 // 以及 heartbeat_fresh / heartbeat_age_ms：heartbeat_fresh 为 false 时 armed 与
 // current_mode 来自最后一帧，调用方必须按“未知”处理，不能当成当前值（S5）。
-// mg_flight_set_mode 按名字切换，内部转成 base_mode + custom_mode，并等待
-// COMMAND_ACK 后才返回成功（safety.md 的 S2）。它是同步调用，最长等待约 5 s，
-// 界面线程应改用 mg_command_submit_for_vehicle + mg_command_poll。
+// 模式切换走 mg_command_submit_for_vehicle + mg_command_poll（可选命令只有在
+// COMMAND_ACK 接受后才算成功，safety.md 的 S2）。
 MGCORE_API char* mg_flight_get_modes(mg_core_t* core);
-MGCORE_API char* mg_flight_set_mode(mg_core_t* core, const char* mode_name);
 // 遥控通道 → 飞行模式的映射（对标 MP 的 ConfigFlightModes 页面）：读取
 // FLTMODE1..6、通道参数 FLTMODE_CH|MODE_CH，以及 Copter/Rover 的
 // SIMPLE / SUPER_SIMPLE 位掩码。写回复用 mg_config_write_params。
-MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core);
 MGCORE_API char* mg_command_rtl(mg_core_t* core);
 MGCORE_API char* mg_command_takeoff(mg_core_t* core, float altitude_m);
 MGCORE_API char* mg_command_land(mg_core_t* core);
@@ -62,7 +59,6 @@ MGCORE_API char* mg_command_land(mg_core_t* core);
 // 界面上的任何入口都必须按"终止飞行"如实标注并做二次确认。当前决定：
 // core 保留能力、界面不暴露（QGC 全仓不引用该命令；MP 在 Actions 下拉里以
 // Terminate Flight 暴露并要求一次 Yes/No 确认）。
-MGCORE_API char* mg_command_terminate_flight(mg_core_t* core);
 // 注意：SET_POSITION_TARGET_* / DO_REPOSITION 之外的引导类命令（改变高度、
 // 引导速度、引导暂停、环绕、ROI、改变航向、设置原点）在 MAVLink 上**没有
 // COMMAND_ACK**。这些入口返回的 success 只表示“已交给发送层”，不代表飞控已
@@ -70,7 +66,6 @@ MGCORE_API char* mg_command_terminate_flight(mg_core_t* core);
 MGCORE_API char* mg_command_guided_point(mg_core_t* core,
                                          double lat, double lon, float alt,
                                          float yaw, float speed);
-MGCORE_API char* mg_command_guided_velocity(mg_core_t* core, float vx, float vy, float vz);
 MGCORE_API char* mg_command_guided_pause(mg_core_t* core);
 // 在当前位置改变高度（QGC `APMFirmwarePlugin::guidedModeChangeAltitude`）。
 // altitude_change_m 为正表示上升；底层用 LOCAL_OFFSET_NED 只偏移 z。
@@ -87,7 +82,6 @@ MGCORE_API char* mg_command_set_home(mg_core_t* core,
 //   altitude=**AMSL 高度**（QGC 用 home AMSL + 相对高度）。
 MGCORE_API char* mg_command_orbit(mg_core_t* core, const char* json_config);
 MGCORE_API char* mg_command_set_roi(mg_core_t* core, double lat, double lon, float alt);
-MGCORE_API char* mg_command_stop_roi(mg_core_t* core);
 // 机头转向点击方向（QGC 地图菜单的 “Set Heading”）。
 //
 // heading_deg 为相对当前航向的转角（度），direction 为 ±1，yaw_rate_dps 为
@@ -105,24 +99,10 @@ MGCORE_API char* mg_command_set_global_origin(mg_core_t* core, double lat,
                                               double lon, float alt_m);
 // 收放起落架。发 MAV_CMD_AIRFRAME_CONFIGURATION，同样等 COMMAND_ACK；
 // 只有确认才返回 success（S2）。最长阻塞约 5 s。
-MGCORE_API char* mg_command_landing_gear(mg_core_t* core, bool deploy);
 
-MGCORE_API char* mg_flight_get_available_modes(mg_core_t* core);
 /// 当前模式/解锁/是否在飞，附 heartbeat_fresh 与 heartbeat_age_ms；
 /// heartbeat_fresh 为 false 时这些值已过期，界面显示为未知而不是当前值（S5）。
-MGCORE_API char* mg_flight_get_mode_status(mg_core_t* core);
-MGCORE_API char* mg_flight_get_mode_history(mg_core_t* core);
-MGCORE_API char* mg_flight_get_takeoff_altitude(mg_core_t* core);
-MGCORE_API char* mg_flight_set_takeoff_altitude(mg_core_t* core, float altitude_m);
-MGCORE_API char* mg_flight_get_loiter_radius(mg_core_t* core);
-MGCORE_API char* mg_flight_set_loiter_radius(mg_core_t* core, float radius_m);
 
-MGCORE_API char* mg_preflight_check(mg_core_t* core);
-MGCORE_API char* mg_battery_failsafe_configure(mg_core_t* core,
-                                                int low_voltage_action,
-                                                float low_voltage_threshold,
-                                                float critical_voltage_threshold);
-MGCORE_API char* mg_failsafe_get_status(mg_core_t* core);
 
 #ifdef __cplusplus
 }

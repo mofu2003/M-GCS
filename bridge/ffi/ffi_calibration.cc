@@ -100,26 +100,7 @@ MGCORE_API char* mg_calibration_get_status(mg_core_t* core) {
     return to_cstr(cal_status_json(cal.get_status()));
 }
 
-MGCORE_API char* mg_calibration_get_history(mg_core_t* core, int type) {
-    CHECK_CORE(core);
-    if (type < 0 || type > 4) return to_cstr("[]");
-    auto& cal = get_active_calibration(core);
-    cal.poll();
-    auto history = cal.get_history(static_cast<mg::core::calibration::CalibrationType>(type));
-    return to_cstr(cal_history_json(history));
-}
 
-MGCORE_API char* mg_calibration_get_retry_info(mg_core_t* core) {
-    CHECK_CORE(core);
-    auto& cal = get_active_calibration(core);
-    cal.poll();
-    auto status = cal.get_status();
-    mg::core::calibration::RetryInfo info;
-    info.retry_count = status.retry_count;
-    info.max_retries = status.max_retries;
-    info.last_failure = status.failure_reason;
-    return to_cstr(cal_retry_json(info));
-}
 
 MGCORE_API char* mg_calibration_accel_confirm(mg_core_t* core, int position) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
@@ -140,17 +121,4 @@ MGCORE_API char* mg_calibration_accel_confirm(mg_core_t* core, int position) {
         active_target_sys(core), active_target_comp(core),
         42429, 0, static_cast<float>(position), 0, 0, 0, 0, 0, 0);
     return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "failed to confirm accelerometer position");
-}
-
-MGCORE_API char* mg_calibration_start_airspeed(mg_core_t* core) {
-    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    if (get_active_calibration(core).is_active()) {
-        return fail(MG_ERROR_CALIBRATION, "calibration already in progress");
-    }
-    auto mav = shared_active_mavlink(core);
-    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    const bool sent = mav->send_command_long(
-        active_target_sys(core), active_target_comp(core),
-        241, 0, 0, 0, 0, 0, 0, 2, 0);
-    return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "failed to start airspeed calibration");
 }

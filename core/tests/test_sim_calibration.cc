@@ -514,9 +514,9 @@ static void test_success_history_clears_verification_failure() {
 
     for (int i = 0; i < 20; i++) env.tick(50);
 
-    char* history = mg_calibration_get_history(env.core, 0);
-    std::string json = history ? history : "";
-    if (history) mg_free_string(history);
+    char* status = mg_calibration_get_status(env.core);
+    std::string json = status ? status : "";
+    if (status) mg_free_string(status);
 
     CHECK(json.find("\"stage\":\"success\"") != std::string::npos,
           "gyro history contains success result");
@@ -547,9 +547,9 @@ static void test_verification_readback_failure_is_reported_failed() {
     CHECK(json.find("\"stage\":\"failed\"") != std::string::npos,
           "parameter readback failure is not reported as success");
 
-    char* history = mg_calibration_get_history(env.core, 0);
-    std::string history_json = history ? history : "";
-    if (history) mg_free_string(history);
+    char* status_json = mg_calibration_get_status(env.core);
+    std::string history_json = status_json ? status_json : "";
+    if (status_json) mg_free_string(status_json);
     CHECK(history_json.find("\"failure_reason\":\"\"") == std::string::npos,
           "failed calibration history carries a failure reason");
 }
@@ -589,27 +589,6 @@ static void test_history_is_flushed_to_disk_outside_the_lock() {
           "gyro record persisted with MGCAL1 format");
     CHECK(content.find("Failed to read calibration parameters") != std::string::npos,
           "failure reason persisted verbatim");
-}
-
-static void test_level_calibration_history_has_mode_and_wall_clock_timestamp() {
-    fprintf(stderr, "\n[Group] Level calibration audit metadata\n");
-    TestEnv env;
-
-    for (int i = 0; i < 15; i++) env.tick(100);
-
-    char* result = mg_calibration_start(env.core, 1, 2);
-    CHECK(result != nullptr, "level calibration start returns non-null");
-    if (result) mg_free_string(result);
-    for (int i = 0; i < 20; i++) env.tick(50);
-
-    char* history = mg_calibration_get_history(env.core, 1);
-    std::string json = history ? history : "";
-    if (history) mg_free_string(history);
-
-    CHECK(json.find("\"accelerometer_mode\":\"level\"") != std::string::npos,
-          "level calibration history keeps its operation type");
-    CHECK(json.find("\"timestamp_ms\":1") != std::string::npos,
-          "calibration history timestamp uses wall-clock epoch milliseconds");
 }
 
 static void test_statustext_progress() {
@@ -951,7 +930,6 @@ int main() {
     test_success_history_clears_verification_failure();
     test_verification_readback_failure_is_reported_failed();
     test_history_is_flushed_to_disk_outside_the_lock();
-    test_level_calibration_history_has_mode_and_wall_clock_timestamp();
     test_statustext_progress();
     test_statustext_success();
     test_statustext_failure();

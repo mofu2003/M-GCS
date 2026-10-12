@@ -77,7 +77,7 @@ static void test_param_value_write_validation() {
     // Drop the mock's automatic echo so the test can inject controlled
     // PARAM_VALUE replies.
     env.mock->set_param_drop(1);
-    char* set_res = mg_params_set(env.core, "WPNAV_SPEED", 10.0f, 0);
+    char* set_res = mg_config_write_param(env.core, "WPNAV_SPEED", 10.0f);
     CHECK(set_res != nullptr && strstr(set_res, "true") != nullptr, "controlled write request is sent");
     if (set_res) mg_free_string(set_res);
     env.tick(50);
@@ -110,10 +110,10 @@ static void test_param_value_write_validation() {
     // A delayed reply from an older request generation must not confirm a
     // newer write to the same parameter.
     env.mock->set_param_drop(2);
-    char* first = mg_params_set(env.core, "WPNAV_SPEED", 11.0f, 0);
+    char* first = mg_config_write_param(env.core, "WPNAV_SPEED", 11.0f);
     if (first) mg_free_string(first);
     env.tick(50);
-    char* second = mg_params_set(env.core, "WPNAV_SPEED", 12.0f, 0);
+    char* second = mg_config_write_param(env.core, "WPNAV_SPEED", 12.0f);
     CHECK(second != nullptr && strstr(second, "true") != nullptr, "replacement write request is sent");
     if (second) mg_free_string(second);
     env.tick(50);
@@ -135,7 +135,7 @@ static void test_write_isolated_by_new_download() {
 
     // Hold the echo so the write is still pending when the download restarts.
     env.mock->set_param_drop(1);
-    char* set_res = mg_params_set(env.core, "WPNAV_SPEED", 10.0f, 0);
+    char* set_res = mg_config_write_param(env.core, "WPNAV_SPEED", 10.0f);
     CHECK(set_res != nullptr && strstr(set_res, "true") != nullptr, "pending write request is sent");
     if (set_res) mg_free_string(set_res);
     env.tick(50);
@@ -196,37 +196,6 @@ static void test_download_index_completion_and_source_filter() {
     inject_param_value(env, 1, 1, "IDX1", 2.0f,
                        MAV_PARAM_TYPE_REAL32, 3, 1);
     CHECK(!env.mav->param_download_active() && !env.mav->param_download_failed(), "download completes after all 0..count-1 indices arrive");
-}
-
-static void test_refresh_source_filter() {
-    fprintf(stderr, "\n[Group] Parameter refresh source filtering\n");
-    TestEnv env;
-    env.tick(1100);
-    if (!load_all_params(env)) return;
-
-    env.mock->set_param_drop(1);
-    char* request = mg_params_refresh(env.core, "[\"WPNAV_SPEED\"]");
-    CHECK(request != nullptr && strstr(request, "\"success\":true") != nullptr, "refresh request is sent");
-    if (request) mg_free_string(request);
-    env.tick(50);
-
-    char* status = mg_params_get_refresh_status(env.core);
-    CHECK(status != nullptr && strstr(status, "\"active\":true") != nullptr &&
-              strstr(status, "\"pending\":1") != nullptr, "refresh waits for its target reply");
-    if (status) mg_free_string(status);
-
-    inject_param_value(env, 2, 1, "WPNAV_SPEED", 5.0f,
-                       MAV_PARAM_TYPE_REAL32, 36, 0);
-    status = mg_params_get_refresh_status(env.core);
-    CHECK(status != nullptr && strstr(status, "\"active\":true") != nullptr, "reply from another system does not complete refresh");
-    if (status) mg_free_string(status);
-
-    inject_param_value(env, 1, 1, "WPNAV_SPEED", 5.0f,
-                       MAV_PARAM_TYPE_REAL32, 36, 0);
-    status = mg_params_get_refresh_status(env.core);
-    CHECK(status != nullptr && strstr(status, "\"active\":false") != nullptr &&
-              strstr(status, "\"completed\":1") != nullptr, "matching target reply completes refresh");
-    if (status) mg_free_string(status);
 }
 
 static void test_full_download() {
@@ -346,7 +315,7 @@ static void test_param_set() {
 
     env.mock->received_params_set.clear();
 
-    char* set_res = mg_params_set(env.core, "WPNAV_SPEED", 10.0f, 0);
+    char* set_res = mg_config_write_param(env.core, "WPNAV_SPEED", 10.0f);
     CHECK(set_res != nullptr && strstr(set_res, "true") != nullptr, "set returns success");
     mg_free_string(set_res);
 
@@ -389,126 +358,14 @@ static void test_config_write_rejects_read_only() {
     CHECK(env.mock->received_params_set.empty(), "single read-only write sends no PARAM_SET");
     if (single) mg_free_string(single);
 
-    const char* batch =
-        "[{\"name\":\"WPNAV_SPEED\",\"value\":8.0},"
-        "{\"name\":\"BARO1_DEVID\",\"value\":1.0}]";
-    char* batch_result = mg_config_write_params(env.core, batch);
-    CHECK(batch_result != nullptr && strstr(batch_result, "\"written\":1") != nullptr &&
-              strstr(batch_result, "\"failed\":1") != nullptr, "batch write reports one valid and one failed item");
-    CHECK(batch_result != nullptr && strstr(batch_result, "read-only") != nullptr, "batch write exposes metadata failure");
+    char* valid = mg_config_write_param(env.core, "WPNAV_SPEED", 8.0f);
+    CHECK(valid != nullptr && strstr(valid, "\"success\":true") != nullptr,
+          "writable parameter is accepted");
     env.tick(1);
     CHECK(env.mock->received_params_set.size() == 1 &&
-              env.mock->received_params_set.front() == "WPNAV_SPEED", "batch write only sends the valid PARAM_SET");
-    if (batch_result) mg_free_string(batch_result);
-}
-
-static void test_bulk_param_refresh() {
-    fprintf(stderr, "\n[Group] Bulk parameter refresh\n");
-    TestEnv env;
-
-    env.tick(1100);
-    char* load = mg_params_request_all(env.core);
-    if (load) mg_free_string(load);
-    if (!load_all_params(env)) return;
-
-    env.mock->received_param_reads.clear();
-    char* result = mg_params_refresh(
-        env.core,
-        "[\"WPNAV_SPEED\",\"WPNAV_*\",\"WPNAV_SPEED\",\"DOES_NOT_EXIST\"]");
-    env.tick(1);
-    CHECK(result != nullptr && strstr(result, "\"resolved\":3") != nullptr, "bulk refresh resolves exact names and prefixes");
-    CHECK(result != nullptr && strstr(result, "\"DOES_NOT_EXIST\"") != nullptr, "bulk refresh reports unknown names");
-    CHECK(result != nullptr && strstr(result, "\"duplicates\":2") != nullptr, "bulk refresh reports duplicate requests");
-    CHECK(env.mock->received_param_reads.size() == 3, "bulk refresh sends each resolved name once");
-    if (result) mg_free_string(result);
-    char* status = mg_params_get_refresh_status(env.core);
-    CHECK(status != nullptr && strstr(status, "\"active\":false") != nullptr &&
-              strstr(status, "\"completed\":3") != nullptr, "bulk refresh status completes after PARAM_VALUE replies");
-    if (status) mg_free_string(status);
-}
-
-static void test_unclassified_parameter_group() {
-    fprintf(stderr, "\n[Group] Unclassified parameter metadata fallback\n");
-    TestEnv env;
-    env.mock->add_param("MGC_UNKNOWN", 42.0f, MAV_PARAM_TYPE_REAL32);
-
-    env.tick(1100);
-    char* load = mg_params_request_all(env.core);
-    if (load) mg_free_string(load);
-    if (!load_all_params(env)) return;
-
-    char* groups = mg_config_get_groups(env.core);
-    CHECK(groups != nullptr && strstr(groups, "\"name\":\"other\"") != nullptr, "unclassified parameter group is exposed");
-    if (groups) mg_free_string(groups);
-
-    char* descriptor = mg_config_get_group_descriptor(env.core, "other");
-    CHECK(descriptor != nullptr && strstr(descriptor, "\"param_name\":\"MGC_UNKNOWN\"") != nullptr, "unclassified descriptor keeps raw parameter name");
-    CHECK(descriptor != nullptr && strstr(descriptor, "\"found\":false") != nullptr, "unclassified descriptor marks missing metadata");
-    CHECK(descriptor != nullptr && strstr(descriptor, "\"type\":\"float\"") != nullptr, "unclassified descriptor infers MAVLink type");
-    if (descriptor) mg_free_string(descriptor);
-
-    char* values = mg_config_read_group(env.core, "other");
-    CHECK(values != nullptr && strstr(values, "\"value\":42") != nullptr, "unclassified group carries live value");
-    if (values) mg_free_string(values);
-
-    char* coverage = mg_config_get_metadata_coverage(env.core);
-    CHECK(coverage != nullptr && strstr(coverage, "\"total\":36") != nullptr, "metadata coverage reports loaded parameters");
-    CHECK(coverage != nullptr && strstr(coverage, "\"fallback\":1") != nullptr &&
-              strstr(coverage, "\"MGC_UNKNOWN\"") != nullptr, "metadata coverage reports fallback and missing name");
-    if (coverage) mg_free_string(coverage);
-}
-
-static void test_metadata_profile_for_rover() {
-    fprintf(stderr, "\n[Group] Vehicle parameter profile mapping\n");
-    MockFlightController::Config config;
-    config.vehicle = MockFlightController::Rover;
-    TestEnv env(config);
-
-    env.tick(1100);
-    char* load = mg_params_request_all(env.core);
-    if (load) mg_free_string(load);
-    if (!load_all_params(env)) return;
-
-    char* coverage = mg_config_get_metadata_coverage(env.core);
-    CHECK(coverage != nullptr && strstr(coverage, "\"profile\":\"rover\"") != nullptr, "Rover uses an explicit parameter profile");
-    if (coverage) mg_free_string(coverage);
-}
-
-static void test_config_uses_ardupilot_profile_metadata() {
-    fprintf(stderr, "\n[Group] Config metadata profile\n");
-    TestEnv env;
-
-    env.tick(1100);
-    char* res = mg_params_request_all(env.core);
-    mg_free_string(res);
-
-    for (int i = 0; i < 50; i++) {
-        env.tick(50);
-        char* prog = mg_params_get_progress(env.core);
-        const int r = parse_progress_received(prog);
-        const int t = parse_progress_total(prog);
-        mg_free_string(prog);
-        if (t > 0 && r >= t) break;
-    }
-
-    char* groups = mg_config_get_groups(env.core);
-    CHECK(strstr(groups, "\"name\":\"BATT\"") != nullptr, "copter metadata exposes BATT group");
-    mg_free_string(groups);
-
-    char* descriptor = mg_config_get_group_descriptor(env.core, "BATT");
-    CHECK(strstr(descriptor, "\"display_name\":\"电池监测器\"") != nullptr, "BATT_MONITOR official display name");
-    CHECK(strstr(descriptor, "模拟电压和电流") != nullptr &&
-          strstr(descriptor, "Analog Voltage and Current") != nullptr, "BATT_MONITOR bilingual enum option");
-    CHECK(strstr(descriptor,
-                 "\"english_label\":\"Analog Voltage and Current\"") != nullptr, "BATT_MONITOR enum option keeps explicit English field");
-    mg_free_string(descriptor);
-
-    char* values = mg_config_read_group(env.core, "BATT");
-    CHECK(strstr(values, "模拟电压和电流") != nullptr &&
-          strstr(values, "Analog Voltage and Current") != nullptr, "BATT_MONITOR bilingual live display value");
-    CHECK(strstr(values,
-                 "\"display_value_en\":\"Analog Voltage and Current\"") != nullptr, "BATT_MONITOR live value exposes English field");
-    mg_free_string(values);
+              env.mock->received_params_set.front() == "WPNAV_SPEED",
+          "only the writable parameter reaches PARAM_SET");
+    if (valid) mg_free_string(valid);
 }
 
 static bool load_all_params(TestEnv& env) {
@@ -527,117 +384,16 @@ static bool load_all_params(TestEnv& env) {
     return false;
 }
 
-static void test_change_set_requires_loaded_params() {
-    fprintf(stderr, "\n[Group] Change set requires loaded params\n");
-    TestEnv env;
-    env.tick(1100);
-
-    const char* request = "[{\"name\":\"WPNAV_SPEED\",\"value\":6}]";
-
-    char* prepared = mg_params_prepare_change_set(env.core, request);
-    CHECK(prepared != nullptr && strstr(prepared, "\"success\":false") != nullptr, "prepare rejects before params load");
-    if (prepared) mg_free_string(prepared);
-
-    char* committed = mg_params_commit_change_set(env.core, request);
-    CHECK(committed != nullptr && strstr(committed, "\"success\":false") != nullptr, "commit rejects before params load");
-    if (committed) mg_free_string(committed);
-}
-
-static void test_change_set_rejects_malformed_json() {
-    fprintf(stderr, "\n[Group] Change set malformed JSON\n");
-    TestEnv env;
-    CHECK(load_all_params(env), "params loaded for malformed json");
-
-    char* not_array = mg_params_prepare_change_set(env.core, "{\"name\":\"A\"}");
-    CHECK(not_array != nullptr && strstr(not_array, "\"success\":false") != nullptr, "prepare rejects non-array json");
-    if (not_array) mg_free_string(not_array);
-
-    char* missing_value = mg_params_prepare_change_set(
-        env.core, "[{\"name\":\"WPNAV_SPEED\"}]");
-    CHECK(missing_value != nullptr &&
-              strstr(missing_value, "\"success\":false") != nullptr, "prepare rejects entry without numeric value");
-    if (missing_value) mg_free_string(missing_value);
-}
-
-static void test_change_set_planning() {
-    fprintf(stderr, "\n[Group] Change set planning\n");
-    TestEnv env;
-    CHECK(load_all_params(env), "params loaded for planning");
-
-    // 重名取最后一次，未知参数与未变化参数分别计数。
-    const char* request =
-        "[{\"name\":\"WPNAV_SPEED\",\"value\":6},"
-        "{\"name\":\"WPNAV_SPEED\",\"value\":7},"
-        "{\"name\":\"NOT_A_REAL_PARAM\",\"value\":1},"
-        "{\"name\":\"WPNAV_RADIUS\",\"value\":2}]";
-    char* json = mg_params_prepare_change_set(env.core, request);
-    CHECK(json != nullptr && strstr(json, "\"ready\":1") != nullptr, "duplicates collapse to one ready change");
-    CHECK(json != nullptr && strstr(json, "\"unchanged\":1") != nullptr, "unchanged change counted");
-    CHECK(json != nullptr && strstr(json, "\"unknown\":1") != nullptr, "unknown change counted");
-    CHECK(json != nullptr && strstr(json, "\"value\":7") != nullptr, "last duplicate value wins");
-    if (json) mg_free_string(json);
-}
-
-static void test_change_set_commit_orders_enable_last() {
-    fprintf(stderr, "\n[Group] Change set commit ordering\n");
-    TestEnv env;
-    CHECK(load_all_params(env), "params loaded for commit");
-    env.mock->received_params_set.clear();
-
-    const char* request =
-        "[{\"name\":\"COMPASS_ENABLE\",\"value\":0},"
-        "{\"name\":\"WPNAV_SPEED\",\"value\":8}]";
-    char* json = mg_params_commit_change_set(env.core, request);
-    CHECK(json != nullptr && strstr(json, "\"written\":2") != nullptr, "both ready changes written");
-    CHECK(json != nullptr && strstr(json, "\"success\":true") != nullptr, "commit success when everything resolved");
-    if (json) mg_free_string(json);
-
-    env.tick(100);
-
-    int speed_index = -1;
-    int enable_index = -1;
-    for (size_t i = 0; i < env.mock->received_params_set.size(); i++) {
-        if (env.mock->received_params_set[i] == "WPNAV_SPEED") {
-            speed_index = static_cast<int>(i);
-        }
-        if (env.mock->received_params_set[i] == "COMPASS_ENABLE") {
-            enable_index = static_cast<int>(i);
-        }
-    }
-    CHECK(speed_index >= 0 && enable_index >= 0, "both PARAM_SET reached the flight controller");
-    CHECK(speed_index >= 0 && enable_index > speed_index, "_ENABLE parameter is written after its dependents");
-
-    char* unknown_only = mg_params_commit_change_set(
-        env.core, "[{\"name\":\"NOT_A_REAL_PARAM\",\"value\":1}]");
-    CHECK(unknown_only != nullptr &&
-              strstr(unknown_only, "\"success\":false") != nullptr, "commit reports failure when a change is unresolved");
-    // F4：success:false 必须带统一错误对象（含 code/name/message）。
-    CHECK(unknown_only != nullptr &&
-              strstr(unknown_only, "\"error\":{\"code\":") != nullptr &&
-              strstr(unknown_only, "\"name\":") != nullptr &&
-              strstr(unknown_only, "\"message\":") != nullptr, "commit failure carries the unified error object");
-    if (unknown_only) mg_free_string(unknown_only);
-}
-
 int main() {
     fprintf(stderr, "=== Parameter Simulation Tests ===\n");
     test_full_download();
     test_download_index_completion_and_source_filter();
     test_param_value_write_validation();
     test_write_isolated_by_new_download();
-    test_refresh_source_filter();
     test_cancel_download();
     test_param_get();
     test_param_set();
     test_config_write_rejects_read_only();
-    test_bulk_param_refresh();
-    test_unclassified_parameter_group();
-    test_metadata_profile_for_rover();
-    test_change_set_requires_loaded_params();
-    test_change_set_rejects_malformed_json();
-    test_change_set_planning();
-    test_change_set_commit_orders_enable_last();
-    test_config_uses_ardupilot_profile_metadata();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

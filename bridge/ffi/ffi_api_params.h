@@ -8,8 +8,6 @@ extern "C" {
 #endif
 
 MGCORE_API char* mg_params_request_all(mg_core_t* core);
-MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names);
-MGCORE_API char* mg_params_get_refresh_status(mg_core_t* core);
 MGCORE_API char* mg_params_get_all(mg_core_t* core);
 MGCORE_API char* mg_params_get_progress(mg_core_t* core);
 MGCORE_API char* mg_params_get_by_name(mg_core_t* core, const char* param_name);
@@ -19,19 +17,10 @@ MGCORE_API char* mg_params_get_by_name(mg_core_t* core, const char* param_name);
 // "已交给发送层"（send-only）；调用方必须用本接口或回读参数值确认结果，
 // 不能把发送成功当成写入完成（safety.md S2 的写入确认语义）。
 MGCORE_API char* mg_params_get_write_status(mg_core_t* core);
-MGCORE_API char* mg_params_set(mg_core_t* core, const char* param_name, float param_value, int param_type);
-MGCORE_API char* mg_params_prepare_change_set(mg_core_t* core, const char* json_params);
-MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_params);
 
 MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name);
 MGCORE_API char* mg_config_write_param(mg_core_t* core, const char* param_name, float value);
-MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json_params);
-MGCORE_API char* mg_config_get_metadata_coverage(mg_core_t* core);
 
-MGCORE_API char* mg_param_file_export(mg_core_t* core, const char* json);
-MGCORE_API char* mg_param_file_import(mg_core_t* core, const char* content);
-MGCORE_API char* mg_param_file_export_csv(mg_core_t* core, const char* json);
-MGCORE_API char* mg_param_file_import_csv(mg_core_t* core, const char* content);
 
 #ifdef __cplusplus
 }

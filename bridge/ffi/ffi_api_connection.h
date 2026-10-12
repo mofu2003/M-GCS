@@ -26,7 +26,6 @@ MGCORE_API char* mg_connection_list(mg_core_t* core);
 /// Opens a vehicle session from a URI or bare serial device path.
 MGCORE_API int mg_vehicle_open(mg_core_t* core, const char* endpoint);
 /// Closes one vehicle session and all of its routes.
-MGCORE_API char* mg_vehicle_close(mg_core_t* core, int vehicle_id);
 /// Lists vehicles with `heartbeat_fresh`, `primary_heartbeat_age_ms` and
 /// `communication_lost`; consumers must not use armed/mode from a stale item.
 MGCORE_API char* mg_vehicle_list(mg_core_t* core);
@@ -56,21 +55,14 @@ MGCORE_API char* mg_vehicle_send_setup_signing(mg_core_t* core,
                                                const char* key_hex,
                                                uint64_t initial_timestamp);
 MGCORE_API int mg_vehicle_get_active(mg_core_t* core);
-MGCORE_API char* mg_discover_devices(mg_core_t* core, const char* transport_type);
 
 MGCORE_API char* mg_connection_list_ports(mg_core_t* core);
 /// Convenience wrappers for opening one serial/TCP/UDP session and selecting
 /// it as the active command target.
-MGCORE_API char* mg_connection_connect(mg_core_t* core, const char* port, int baud);
-MGCORE_API char* mg_connection_disconnect(mg_core_t* core);
-MGCORE_API char* mg_connection_connect_udp(mg_core_t* core, const char* endpoint);
-MGCORE_API char* mg_connection_get_state(mg_core_t* core);
 MGCORE_API char* mg_connection_get_diagnostics(mg_core_t* core);
 
 MGCORE_API char* mg_stream_set_interval(mg_core_t* core, int msg_id, int interval_us);
 
-MGCORE_API char* mg_connection_get_heartbeat_age(mg_core_t* core);
-MGCORE_API char* mg_connection_check_heartbeat(mg_core_t* core, int timeout_ms);
 
 #ifdef __cplusplus
 }

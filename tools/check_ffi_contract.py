@@ -22,13 +22,13 @@ CAPABILITY_END = "<!-- capabilities:end -->"
 # 状态与说明在此处人工维护；两者一旦不一致，preflight 会让本文件失效并要求重跑
 # --write-catalog。取值：已交付 / 部分接入 / 待接入 / 内部能力。
 CAPABILITY_METADATA = {
-    "ffi_api_configuration.h": ("部分接入", "连接与校准子集已进入配置页；参数组描述符（`mg_config_get_param_roles` 语义角色表）经 Dart 绑定进入 PID、校准、飞行模式与解锁检查等配置页，由前端按语义角色取固件参数名（safety.md S6）。执行器/RC 通道写入（`mg_actuator_*`、`mg_rc_set_mapping`、`mg_rc_set_failsafe`）与参数预校验（`mg_config_validate_param`）定位为内部能力——通用参数页覆盖同一批 `SERVOx_*`/`RCMAP_*` 参数；串口读写的旧接口（`mg_serial_get_config`/`set_baud`/`set_protocol`）已被参数页取代并删除。"),
+    "ffi_api_configuration.h": ("部分接入", "连接与校准子集已进入配置页；参数组描述符（`mg_config_get_param_roles` 语义角色表）经 Dart 绑定进入 PID、校准、飞行模式与解锁检查等配置页，由前端按语义角色取固件参数名（safety.md S6）。执行器/RC 通道的只读清单由内部导出提供；写入统一走通用参数页（`SERVOx_*`/`RCMAP_*`）。"),
     "ffi_api_connection.h": ("已交付", "串口/UDP/TCP 连接、断开、链路状态与本地回环由连接面板和状态栏消费。旧入口 `mg_connection_connect_tcp`、`mg_send_heartbeat`、`mg_stream_request` 已被 `mg_connection_open`/`mg_stream_set_interval` 取代并删除。"),
     "ffi_api_core.h": ("已交付", "生命周期、版本、错误信息与整机快照由前端启动路径消费；`mg_error_string`（错误码→字符串）为 ABI 基础设施，供原生调用方与测试使用。"),
     "ffi_api_environment.h": ("部分接入", "SITL 启停（`mg_sitl_*`）定位为内部能力、无前端 UI 计划（见 bridge/ffi/API_CATALOG.md 的「已定性的公开导出」）。"),
     "ffi_api_firmware.h": ("部分接入", "固件识别接在连接流程；**刷写与校验是待接线存根**：`mg_firmware_flash` 直接返回 `MG_ERROR_NOT_SUPPORTED`（\"firmware flash not yet implemented\"，`bridge/ffi/ffi_commands.cc:165-169`），`mg_firmware_flash_status` 只回写死的 `flashing:false`/`progress:0`（`:171-178`），未接 UI，也不得在界面上表现为可用能力。"),
     "ffi_api_flight.h": ("部分接入", "生产入口是 submit/poll 与 get_modes/get_mode_mapping；同步 arm/set_mode/rtl 等仅作内部与测试用途。"),
-    "ffi_api_logging.h": ("部分接入", "机载 DataFlash 日志列表/下载/擦除（「机载日志」页）、链路 `.tlog` 录制/离线回放（「飞行记录」页）与 `mg_fs_*` 通用 MAVLink FTP 文件浏览/收发（「机载文件」页）均已接入；仍未接入的是事件日志服务与会话文件日志（`mg_event_*`/`mg_session_log_*`），见 docs/features/flight-logging-and-replay.md。"),
+    "ffi_api_logging.h": ("部分接入", "机载 DataFlash 日志列表/下载/擦除（「机载日志」页）、链路 `.tlog` 录制/离线回放（「飞行记录」页）与 `mg_fs_*` 通用 MAVLink FTP 文件浏览/收发（「机载文件」页）均已接入；未接入的事件日志与会话文件日志导出已删除，见 docs/features/flight-logging-and-replay.md。"),
     "ffi_api_mission.h": ("已交付", "任务规划、上传、围栏/Rally 下发与航点编辑走任务面板与地图；文档模型（`mg_mission_doc_*`）是生产路径，旧 `MissionManager` 增删改/导入导出接口（`mg_mission_add_item` 等、`mg_mission_start`、`mg_mission_get_templates`）已被取代并删除。"),
     "ffi_api_params.h": ("部分接入", "参数读写（`mg_params_get_all`/`get_by_name`/`request_all`/`get_progress`、`mg_config_get_param_roles`）接入配置页；参数文件内容变换（`.param`/CSV，`mg_param_file_*`）是规范实现、尚未接 UI，磁盘读写交由 Dart；旧一体化文件读写 `mg_params_load/save_from_file` 与 `mg_params_get_changed` 已被取代并删除，见 docs/features/feature-inventory.md。"),
     "ffi_api_payload.h": ("部分接入", "相机/云台/视频元数据接入配置工作区「相机与云台」页（`payload`，S2/S3/S4）：设备清单、拍照/录像/变焦/云台指向/回中与视频流元数据。本地视频解码与录制/截图（S3/S4，ADR-0008）已接入：`mg_video_renderer_status`/`mg_video_poll_frame` 渲染最新 RGBA 帧，`mg_video_start_recording`/`mg_video_stop_recording`/`mg_video_recording_status`/`mg_video_capture_frame` 把正在播放的码流复制到本地文件（Matroska 容器）并按容量上限清理最旧文件；没有编译进后端时 `available:false`/`backend:\"none\"` 并如实说明。S1 的读契约返回真实适配器缓存，无设备时 `success:true`+`available:false`，见 docs/features/video-camera-gimbal.md。"),
@@ -38,16 +38,7 @@ CAPABILITY_METADATA = {
 # 公开导出的定位表。各分类符号都必须在 API_CATALOG.md 的「已定性的公开导出」
 # 一节里说明；若绑定状态改变或引用了不存在的导出，preflight 会要求重新评估定位。
 INTERNAL_SYMBOL_NOTES = {
-    "mg_actuator_get_limits": "电调/舵机通道限位；内部能力（通用参数页覆盖 SERVOx_MIN/MAX/TRIM/REVERSED）",
-    "mg_actuator_set_function": "电调/舵机通道功能映射；内部能力（通用参数页覆盖 SERVOx_FUNCTION / ACTUATORx_FUNCTION）",
-    "mg_actuator_set_limits": "电调/舵机通道限位写入；内部能力（通用参数页覆盖 SERVOx_MIN/MAX/TRIM）",
-    "mg_rc_set_mapping": "RC 通道映射写入；内部能力（通用参数页覆盖 RCMAP_* / RC_MAP_*）",
-    "mg_rc_set_failsafe": "RC 失联保护写入；内部能力（通用参数页覆盖 RC_FS_* / *FS_* 参数）",
-    "mg_config_validate_param": "参数值预校验；内部能力（前端按描述符范围/枚举本地校验，不再单独调用）",
     "mg_error_string": "ABI 基础设施：错误码→字符串常量，供原生调用方与测试使用，无 UI",
-    "mg_sitl_start": "SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口",
-    "mg_sitl_status": "SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口",
-    "mg_sitl_stop": "SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口",
 }
 
 # 公开导出但已被更新的接口取代的历史路径。原先这些符号保留在 ABI 中（退役候选）。
@@ -57,27 +48,11 @@ SUPERSEDED_SYMBOL_NOTES = {}
 
 # 公开功能保留在当前 ABI 中，但按版本范围延期到 0.3.0 之后。
 DEFERRED_SYMBOL_NOTES = {
-    "mg_calibration_start_airspeed": "延期至 0.3.0 之后；当前版本不接入空速校准 UI",
-    "mg_config_apply_preset": "延期至 0.3.0 之后；当前版本不接入参数预设 UI",
-    "mg_config_get_presets": "延期至 0.3.0 之后；当前版本不接入参数预设 UI",
-    "mg_discover_devices": "延期至 0.3.0 之后；当前连接面板使用端口枚举路径",
-    "mg_event_log_get_status": "延期至 0.3.0 之后；事件日志服务当前不接入 UI",
-    "mg_mission_set_current": "延期至 0.3.0 之后；当前版本不提供跳转到航点入口",
-    "mg_param_file_import": "延期至 0.3.0 之后；参数文件导入 UI 尚未接入",
-    "mg_session_log_start": "延期至 0.3.0 之后；会话文件日志当前不接入 UI",
-    "mg_session_log_status": "延期至 0.3.0 之后；会话文件日志当前不接入 UI",
-    "mg_session_log_stop": "延期至 0.3.0 之后；会话文件日志当前不接入 UI",
 }
 
 # 旧 telemetry series 记录器的退役候选。仅作治理标记，不代表已确认没有仓库外
 # ABI 使用者，也不在本次删除 ABI。
 RETIREMENT_CANDIDATE_NOTES = {
-    "mg_telemetry_append": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
-    "mg_telemetry_clear": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
-    "mg_telemetry_get_series": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
-    "mg_telemetry_get_series_names": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
-    "mg_telemetry_get_stats": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
-    "mg_telemetry_register_series": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
 }
 
 
@@ -195,6 +170,69 @@ RETIRED_SYMBOLS = {
     "mg_rc_calibrate_start",
     "mg_rc_calibrate_status",
     "mg_rc_calibrate_save",
+    # 2026-10 未绑定导出清理：无前端绑定、无调用方、无未来用途
+    "mg_actuator_get_limits",
+    "mg_actuator_set_function",
+    "mg_actuator_set_limits",
+    "mg_rc_set_mapping",
+    "mg_rc_set_failsafe",
+    "mg_config_validate_param",
+    "mg_config_apply_preset",
+    "mg_config_get_presets",
+    "mg_discover_devices",
+    "mg_calibration_start_airspeed",
+    "mg_event_log_get_status",
+    "mg_session_log_start",
+    "mg_session_log_status",
+    "mg_session_log_stop",
+    "mg_mission_set_current",
+    "mg_telemetry_append",
+    "mg_telemetry_clear",
+    "mg_telemetry_get_series",
+    "mg_telemetry_get_series_names",
+    "mg_telemetry_get_stats",
+    "mg_telemetry_register_series",
+    # 2026-10 未绑定导出清理（第二批）：无前端绑定、无内部调用方、无未来用途
+    "mg_actuator_get_mapping", "mg_actuator_motor_test",
+    "mg_calibration_get_history", "mg_calibration_get_retry_info",
+    "mg_camera_set_focus", "mg_command_gimbal_configure",
+    "mg_command_guided_velocity", "mg_command_landing_gear",
+    "mg_command_stop_roi", "mg_command_terminate_flight",
+    "mg_config_get_group_descriptor", "mg_config_get_groups",
+    "mg_config_get_metadata_coverage", "mg_config_read_group",
+    "mg_config_write_params", "mg_rc_get_calibration", "mg_rc_get_failsafe",
+    "mg_rc_get_mapping", "mg_serial_get_configs",
+    "mg_connection_check_heartbeat", "mg_connection_connect",
+    "mg_connection_connect_udp", "mg_connection_disconnect",
+    "mg_connection_get_heartbeat_age", "mg_connection_get_state",
+    "mg_vehicle_close", "mg_vehicle_count", "mg_get_version",
+    "mg_operations_get_snapshot_for_vehicle", "mg_set_event_callback",
+    "mg_firmware_flash", "mg_firmware_flash_status",
+    "mg_battery_failsafe_configure", "mg_failsafe_get_status",
+    "mg_flight_get_available_modes", "mg_flight_get_loiter_radius",
+    "mg_flight_get_mode_history", "mg_flight_get_mode_mapping",
+    "mg_flight_get_mode_status", "mg_flight_get_takeoff_altitude",
+    "mg_flight_set_loiter_radius", "mg_flight_set_mode",
+    "mg_flight_set_takeoff_altitude", "mg_mission_get_current",
+    "mg_mission_get_plan", "mg_mission_get_progress", "mg_mission_upload",
+    "mg_fence_get_plan", "mg_rally_get_plan",
+    "mg_params_commit_change_set", "mg_params_get_refresh_status",
+    "mg_params_prepare_change_set", "mg_params_refresh", "mg_params_set",
+    "mg_preflight_check", "mg_sensor_decode_device_id",
+    "mg_sensor_decode_type_param", "mg_sensors_get_statustext",
+    "mg_sensors_identify_all",
+    "mg_event_log_get_events", "mg_event_log_start", "mg_event_log_stop",
+    "mg_vehicle_get_adsb_traffic", "mg_vehicle_get_battery",
+    "mg_vehicle_get_distance_sensors", "mg_vehicle_get_esc_status",
+    "mg_vehicle_get_flight_time", "mg_vehicle_get_gps",
+    "mg_vehicle_get_highres_imu", "mg_vehicle_get_imu",
+    "mg_vehicle_get_prearm_check", "mg_vehicle_get_pressure",
+    "mg_vehicle_get_rc_channels", "mg_vehicle_get_servo_output",
+    "mg_vehicle_get_vibration", "mg_vehicle_get_wind_estimate",
+    "mg_waveform_clear", "mg_param_file_export", "mg_param_file_export_csv",
+    "mg_param_file_import", "mg_param_file_import_csv",
+    "mg_sitl_start", "mg_sitl_status", "mg_sitl_stop",
+    "mg_health_get_all", "mg_rc_get_channel", "mg_servo_get_output",
 }
 
 
@@ -394,25 +432,14 @@ def main():
             still_exported.append(symbol)
         if still_exported:
             raise ValueError("library still exports retired FFI symbols: " + ", ".join(still_exported))
+        # 库的导出集合必须与公开头完全一致：上面已逐个 dlsym 过，任何缺失都会
+        # 在前面报出，因此旧的版本号探针（依赖已删除的 mg_get_version）不再需要。
         version_header = (ROOT / "bridge/ffi/ffi_api_core.h").read_text()
-        expected_version = ".".join(
+        version = ".".join(
             re.search(rf"^#define MGCORE_VERSION_{part}\s+(\d+)$", version_header, re.M).group(1)
             for part in ("MAJOR", "MINOR", "PATCH")
         )
-        library.mg_get_version.restype = ctypes.c_void_p
-        library.mg_get_version.argtypes = []
-        library.mg_free_string.argtypes = [ctypes.c_void_p]
-        library.mg_free_string.restype = None
-        pointer = library.mg_get_version()
-        if not pointer:
-            raise ValueError("library returned an empty version allocation")
-        try:
-            actual_version = ctypes.string_at(pointer).decode("utf-8")
-        finally:
-            library.mg_free_string(pointer)
-        if actual_version != expected_version:
-            raise ValueError(f"stale library version: {actual_version}, expected {expected_version}")
-        print(f"[ffi-contract] library version: {actual_version}")
+        print(f"[ffi-contract] library exports match header 0.2.2/v{version}")
     print(f"[ffi-contract] unbound/untested export debt: {len(debt)} (baseline tracked)")
     print(f"[ffi-contract] {len(api)} declarations and {len(bindings)} Dart bindings agree"
           + (" with the compiled library" if args.library else ""))

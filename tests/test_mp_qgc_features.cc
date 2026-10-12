@@ -36,103 +36,60 @@ int main() {
     T("mg_create", core != nullptr);
     if (!core) return 1;
 
-    TJ("mg_get_version", mg_get_version());
-
-    // --- Connection ---
-    printf("\n--- Connection ---\n"); fflush(stdout);
-    TJ("mg_connection_get_state", mg_connection_get_state(core));
-    TJ("mg_connection_get_heartbeat_age", mg_connection_get_heartbeat_age(core));
-    TJ("mg_connection_check_heartbeat", mg_connection_check_heartbeat(core, 5000));
-
-    // --- Vehicle ---
-    printf("\n--- Vehicle ---\n"); fflush(stdout);
+    // --- Connection / Vehicle ---
+    printf("\n--- Connection / Vehicle ---\n"); fflush(stdout);
+    TJ("mg_connection_list", mg_connection_list(core));
+    TJ("mg_connection_get_session_state", mg_connection_get_session_state(core, 0));
     TJ("mg_vehicle_list", mg_vehicle_list(core));
     TJ("mg_vehicle_get_summary", mg_vehicle_get_summary(core));
-    TJ("mg_vehicle_get_battery", mg_vehicle_get_battery(core));
     TJ("mg_vehicle_get_global_position", mg_vehicle_get_global_position(core));
     TJ("mg_vehicle_get_attitude", mg_vehicle_get_attitude(core));
-    TJ("mg_vehicle_get_gps", mg_vehicle_get_gps(core));
-    TJ("mg_vehicle_get_rc_channels", mg_vehicle_get_rc_channels(core));
-    TJ("mg_vehicle_get_servo_output", mg_vehicle_get_servo_output(core));
     TJ("mg_vehicle_get_home_position", mg_vehicle_get_home_position(core));
     TJ("mg_vehicle_get_vfr_hud", mg_vehicle_get_vfr_hud(core));
-    TJ("mg_vehicle_get_imu", mg_vehicle_get_imu(core));
-    TJ("mg_vehicle_get_pressure", mg_vehicle_get_pressure(core));
-    TJ("mg_vehicle_get_highres_imu", mg_vehicle_get_highres_imu(core));
     TJ("mg_vehicle_get_extended_sys_state", mg_vehicle_get_extended_sys_state(core));
     TJ("mg_vehicle_get_firmware_version", mg_vehicle_get_firmware_version(core));
-    TJ("mg_vehicle_get_vibration", mg_vehicle_get_vibration(core));
-    TJ("mg_vehicle_get_esc_status", mg_vehicle_get_esc_status(core));
-    TJ("mg_vehicle_get_wind_estimate", mg_vehicle_get_wind_estimate(core));
-    TJ("mg_vehicle_get_prearm_check", mg_vehicle_get_prearm_check(core));
 
-    // --- Sensors / Health ---
+    // --- Sensors / Health / Waveform ---
     printf("\n--- Sensors / Health ---\n"); fflush(stdout);
     TJ("mg_sensors_get_health", mg_sensors_get_health(core));
-    TJ("mg_sensors_get_statustext", mg_sensors_get_statustext(core));
-    TJ("mg_health_get_all", mg_health_get_all(core));
-    TJ("mg_sensors_identify_all", mg_sensors_identify_all(core));
     TJ("mg_telemetry_get_freshness", mg_telemetry_get_freshness(core));
+    TJ("mg_waveform_get_instances", mg_waveform_get_instances(core));
 
-    // --- RC / Servo / Actuator ---
-    printf("\n--- RC / Servo / Actuator ---\n"); fflush(stdout);
+    // --- RC / Servo ---
+    printf("\n--- RC / Servo ---\n"); fflush(stdout);
     TJ("mg_rc_get_channels", mg_rc_get_channels(core));
-    TJ("mg_rc_get_channel", mg_rc_get_channel(core, 1));
     TJ("mg_servo_get_outputs", mg_servo_get_outputs(core));
-    TJ("mg_servo_get_output", mg_servo_get_output(core, 1));
-    TJ("mg_actuator_get_mapping", mg_actuator_get_mapping(core));
-    TJ("mg_rc_get_mapping", mg_rc_get_mapping(core));
-    TJ("mg_rc_get_calibration", mg_rc_get_calibration(core));
-    TJ("mg_rc_get_failsafe", mg_rc_get_failsafe(core));
 
-    // --- Firmware ---
-    printf("\n--- Firmware ---\n"); fflush(stdout);
+    // --- Firmware / Config ---
+    printf("\n--- Firmware / Config ---\n"); fflush(stdout);
     TJ("mg_firmware_get_type", mg_firmware_get_type(core));
-    TJ("mg_firmware_flash_status", mg_firmware_flash_status(core));
-    TJ("mg_vehicle_get_firmware_version", mg_vehicle_get_firmware_version(core));
-
-    // --- Config / Params ---
-    printf("\n--- Config / Params ---\n"); fflush(stdout);
+    TJ("mg_vehicle_get_firmware", mg_vehicle_get_firmware(core));
     TJ("mg_params_get_all", mg_params_get_all(core));
     TJ("mg_config_read_param", mg_config_read_param(core, "SYSID_SW_MREV"));
+    TJ("mg_config_get_param_roles", mg_config_get_param_roles(core));
 
-    // --- Mission ---
-    printf("\n--- Mission ---\n"); fflush(stdout);
-    TJ("mg_mission_get_plan", mg_mission_get_plan(core));
-    TJ("mg_mission_get_progress", mg_mission_get_progress(core));
+    // --- Mission document ---
+    printf("\n--- Mission document ---\n"); fflush(stdout);
+    TJ("mg_mission_doc_get", mg_mission_doc_get(core));
+    TJ("mg_mission_doc_validate", mg_mission_doc_validate(core));
+    TJ("mg_mission_doc_export", mg_mission_doc_export(core));
+    TJ("mg_mission_get_command_catalog", mg_mission_get_command_catalog(core));
 
-    // --- Flight Modes ---
-    printf("\n--- Flight Modes ---\n"); fflush(stdout);
-    TJ("mg_flight_get_available_modes", mg_flight_get_available_modes(core));
-    TJ("mg_flight_get_mode_status", mg_flight_get_mode_status(core));
-    TJ("mg_flight_get_mode_history", mg_flight_get_mode_history(core));
-
-    // --- Rally / Fence ---
-    printf("\n--- Rally / Fence Protocol ---\n"); fflush(stdout);
-    TJ("mg_rally_get_plan", mg_rally_get_plan(core));
-    TJ("mg_fence_get_plan", mg_fence_get_plan(core));
+    // --- Flight modes ---
+    printf("\n--- Flight modes ---\n"); fflush(stdout);
+    TJ("mg_flight_get_modes", mg_flight_get_modes(core));
 
     // --- Logs ---
     printf("\n--- Logs ---\n"); fflush(stdout);
     TJ("mg_onboard_log_get_entries", mg_onboard_log_get_entries(core));
     TJ("mg_tlog_status", mg_tlog_status(core));
 
-    // --- Preflight ---
-    printf("\n--- Preflight ---\n"); fflush(stdout);
-    TJ("mg_preflight_check", mg_preflight_check(core));
-
-    // --- SITL ---
-    printf("\n--- SITL ---\n"); fflush(stdout);
-    TJ("mg_sitl_status", mg_sitl_status(core));
-
     // --- Calibration ---
     printf("\n--- Calibration ---\n"); fflush(stdout);
     TJ("mg_calibration_get_status", mg_calibration_get_status(core));
-    TJ("mg_calibration_get_history", mg_calibration_get_history(core, 0));
-    TJ("mg_calibration_get_retry_info", mg_calibration_get_retry_info(core));
 
-    // --- Flight Commands (verify FFI calls return valid JSON) ---
-    printf("\n--- Flight Commands (FFI call check) ---\n"); fflush(stdout);
+    // --- Flight commands (offline: 必须回错误对象，不能崩溃) ---
+    printf("\n--- Flight Commands (offline) ---\n"); fflush(stdout);
     TJ("mg_command_arm", mg_command_arm(core, 0));
     TJ("mg_command_disarm", mg_command_disarm(core, 0));
     TJ("mg_command_takeoff", mg_command_takeoff(core, 10.0f));

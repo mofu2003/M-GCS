@@ -88,17 +88,11 @@ typedef enum {
  * with mg_free_string() when the callback is done with it. */
 typedef void (*mg_event_callback_t)(mg_event_type_t type, char* json, void* user_data);
 
-MGCORE_API void mg_set_event_callback(mg_core_t* core,
-                                       mg_event_callback_t cb,
-                                       void* user_data);
 
 MGCORE_API void mg_free_string(char* str);
-MGCORE_API char* mg_get_version(void);
 MGCORE_API char* mg_system_get_diagnostics(mg_core_t* core);
 MGCORE_API char* mg_operations_get_snapshot(mg_core_t* core);
 MGCORE_API char* mg_operations_cancel(mg_core_t* core, const char* operation_id);
-MGCORE_API char* mg_operations_get_snapshot_for_vehicle(
-    mg_core_t* core, int vehicle_id);
 MGCORE_API char* mg_operations_cancel_for_vehicle(
     mg_core_t* core, int vehicle_id, const char* operation_id);
 

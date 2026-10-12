@@ -130,7 +130,7 @@ public:
     /// always reachable); the primary connection is then null and the old
     /// `return *primary_connection()` dereferenced it — EXC_BAD_ACCESS at
     /// ConnectionManager::state_ (offset 0x74), reproducible with
-    /// `mg_connection_disconnect()` followed by `mg_connection_get_state()` on a
+    /// `mg_connection_close()` followed by a connection state read on a
     /// core that has no active vehicle. When no route is attached this returns
     /// `detached_conn_`: a never-wired manager that reports the disconnected
     /// baseline (state Disconnected, no link, no adapter, no session), so readers

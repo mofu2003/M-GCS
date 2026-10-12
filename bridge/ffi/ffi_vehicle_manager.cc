@@ -429,13 +429,6 @@ MGCORE_API int mg_vehicle_open(mg_core_t* core, const char* endpoint) {
 // ================================================================
 // mg_vehicle_close
 // ================================================================
-MGCORE_API char* mg_vehicle_close(mg_core_t* core, int vehicle_id) {
-    CHECK_CORE(core);
-    if (vehicle_id <= 0 || !core->vehicles.close_vehicle(vehicle_id, true)) {
-        return fail(MG_ERROR_NOT_FOUND, "vehicle not found");
-    }
-    return ok();
-}
 
 // ================================================================
 // mg_vehicle_select
@@ -461,29 +454,3 @@ MGCORE_API int mg_vehicle_get_active(mg_core_t* core) {
 // ================================================================
 // mg_discover_devices
 // ================================================================
-MGCORE_API char* mg_discover_devices(mg_core_t* core, const char* transport_type) {
-    CHECK_CORE(core);
-
-    mg::core::transport::LinkType lt = mg::core::transport::LinkType::Serial;
-    if (transport_type) {
-        std::string s = transport_type;
-        if (s == "tcp") lt = mg::core::transport::LinkType::TCP;
-        else if (s == "udp") lt = mg::core::transport::LinkType::UDP;
-    }
-
-    auto devices = core->vehicles.discover_devices(lt);
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_array();
-    for (auto& d : devices) {
-        mg::core::telemetry::JsonBuilder obj;
-        obj.begin_object();
-        obj.field("endpoint", d.endpoint);
-        obj.field("description", d.description);
-        obj.field("manufacturer", d.manufacturer);
-        obj.field("is_likely_fc", d.is_likely_fc);
-        obj.end_object();
-        jb.append_json(obj.str());
-    }
-    jb.end_array();
-    return to_cstr(jb.str());
-}

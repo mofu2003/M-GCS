@@ -24,99 +24,48 @@ static void print_json(const char* label, char* json) {
 static void dump_all(mg_core_t* core) {
     fprintf(stderr, "\n========== ALL FC DATA ==========\n\n");
 
-    // Connection state
-    print_json("connection_state", mg_connection_get_state(core));
-
-    // Heartbeat / Vehicle summary
+    // 连接与车辆摘要
+    print_json("connection_state",
+               mg_connection_get_session_state(core, mg_vehicle_get_active(core)));
     print_json("vehicle_summary", mg_vehicle_get_summary(core));
 
-    // GPS
-    print_json("gps", mg_vehicle_get_gps(core));
+    // 仪表盘聚合：姿态 / GPS / 电池 / 位置 / VFR / 传感器健康
+    print_json("dashboard", mg_telemetry_get_dashboard_snapshot(core));
     print_json("global_position", mg_vehicle_get_global_position(core));
-
-    // Attitude
     print_json("attitude", mg_vehicle_get_attitude(core));
-
-    // Battery
-    print_json("battery", mg_vehicle_get_battery(core));
-
-    // VFR HUD
     print_json("vfr_hud", mg_vehicle_get_vfr_hud(core));
-
-    // IMU
-    print_json("imu", mg_vehicle_get_imu(core));
-    print_json("highres_imu", mg_vehicle_get_highres_imu(core));
-
-    // Pressure
-    print_json("pressure", mg_vehicle_get_pressure(core));
-
-    // RC Channels
-    print_json("rc_channels", mg_vehicle_get_rc_channels(core));
-
-    // Servo Output
-    print_json("servo_output", mg_vehicle_get_servo_output(core));
-
-    // Home Position
     print_json("home_position", mg_vehicle_get_home_position(core));
-
-    // Extended Sys State
     print_json("extended_sys_state", mg_vehicle_get_extended_sys_state(core));
 
-    // Vibration
-    print_json("vibration", mg_vehicle_get_vibration(core));
+    // RC / 舵机
+    print_json("rc_channels", mg_rc_get_channels(core));
+    print_json("servo_outputs", mg_servo_get_outputs(core));
 
-    // ESC Status
-    print_json("esc_status", mg_vehicle_get_esc_status(core));
-
-    // Wind Estimate
-    print_json("wind_estimate", mg_vehicle_get_wind_estimate(core));
-
-    // Prearm Check
-    print_json("prearm_check", mg_vehicle_get_prearm_check(core));
-
-    // Firmware
+    // 固件 / 健康
     print_json("firmware", mg_vehicle_get_firmware_version(core));
+    print_json("sensor_health", mg_sensors_get_health(core));
 
-    // Health
-    print_json("health", mg_health_get_all(core));
-
-    // Flight time
-    print_json("flight_time", mg_vehicle_get_flight_time(core));
-
-    // Distance sensors
-    print_json("distance_sensors", mg_vehicle_get_distance_sensors(core));
-
-    // ADSB traffic
-    print_json("adsb_traffic", mg_vehicle_get_adsb_traffic(core));
-
-    // Parameters (first 10)
+    // 参数
     print_json("params_all", mg_params_get_all(core));
     print_json("params_progress", mg_params_get_progress(core));
 
-    // Mission state
-    print_json("mission_plan", mg_mission_get_plan(core));
-    print_json("mission_progress", mg_mission_get_progress(core));
-    print_json("mission_current", mg_mission_get_current(core));
-
-    // Flight mode
-    print_json("flight_mode_status", mg_flight_get_mode_status(core));
-    print_json("available_modes", mg_flight_get_available_modes(core));
-
-    // Sensors
-    print_json("sensor_health", mg_sensors_get_health(core));
-    print_json("sensor_statustext", mg_sensors_get_statustext(core));
+    // 任务文档与飞行模式
+    print_json("mission_document", mg_mission_doc_get(core));
+    print_json("operations", mg_operations_get_snapshot(core));
+    print_json("flight_modes", mg_flight_get_modes(core));
 
     fprintf(stderr, "\n========== END ==========\n");
 }
 
 static void dump_quick(mg_core_t* core) {
     fprintf(stderr, "\n========== QUICK FC CHECK ==========\n\n");
-    print_json("connection_state", mg_connection_get_state(core));
+    print_json("connection_state",
+               mg_connection_get_session_state(core, mg_vehicle_get_active(core)));
     print_json("vehicle_summary", mg_vehicle_get_summary(core));
     print_json("attitude", mg_vehicle_get_attitude(core));
-    print_json("health", mg_health_get_all(core));
+    print_json("health", mg_sensors_get_health(core));
     print_json("firmware", mg_vehicle_get_firmware_version(core));
-    print_json("available_modes", mg_flight_get_available_modes(core));
+    print_json("available_modes", mg_flight_get_modes(core));
     fprintf(stderr, "\n========== END ==========\n");
 }
 
@@ -124,7 +73,6 @@ static void dump_identity(mg_core_t* core) {
     fprintf(stderr, "\n========== FC IDENTITY ==========\n\n");
     print_json("vehicle_summary", mg_vehicle_get_summary(core));
     print_json("firmware", mg_vehicle_get_firmware_version(core));
-    print_json("sensor_statustext", mg_sensors_get_statustext(core));
     fprintf(stderr, "\n========== END ==========\n");
 }
 
@@ -154,8 +102,8 @@ static bool has_product_name(mg_core_t* core) {
 }
 
 static bool has_health_snapshot(mg_core_t* core) {
-    char* health = mg_health_get_all(core);
-    bool ready = health && strstr(health, "\"system_id\":1");
+    char* health = mg_sensors_get_health(core);
+    bool ready = health && strstr(health, "\"present\":");
     mg_free_string(health);
     return ready;
 }
@@ -245,9 +193,6 @@ int main(int argc, char* argv[]) {
     mg_core_t* core = mg_create();
     if (!core) { fprintf(stderr, "Failed to create core\n"); return 1; }
 
-    // Set event callback
-    mg_set_event_callback(core, on_event, &callback_options);
-
     // List serial ports
     fprintf(stderr, "\n--- Available Serial Ports ---\n");
     char* ports = mg_connection_list_ports(core);
@@ -269,10 +214,10 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "\nConnecting to %s...\n", port);
 
     // Connect via serial
-    char* result = mg_connection_connect(core, port, 115200);
-    if (result) {
-        fprintf(stderr, "Connect result: %s\n", result);
-        mg_free_string(result);
+    {
+        std::string uri = std::string("serial://") + port + "?baud=115200";
+        const int link_id = mg_connection_open(core, uri.c_str());
+        fprintf(stderr, "Connect result: link_id=%d\n", link_id);
     }
 
     // Wait for connection and initial data.
@@ -280,7 +225,8 @@ int main(int argc, char* argv[]) {
     bool dumped = false;
     for (int i = 0; i < 100; i++) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        char* state = mg_connection_get_state(core);
+        char* state =
+            mg_connection_get_session_state(core, mg_vehicle_get_active(core));
         if (state) {
             if (is_connected_state(state)) {
                 wait_for_identity(core, callback_options.quick);
@@ -301,7 +247,6 @@ int main(int argc, char* argv[]) {
 
     if (callback_options.quick) {
         fprintf(stderr, "\nDisconnecting...\n");
-        mg_set_event_callback(core, nullptr, nullptr);
         mg_destroy(core);
         fprintf(stderr, "Done.\n");
         return 0;
@@ -349,7 +294,6 @@ int main(int argc, char* argv[]) {
 
     // Disconnect
     fprintf(stderr, "\nDisconnecting...\n");
-    mg_set_event_callback(core, nullptr, nullptr);
     mg_destroy(core);
 
     fprintf(stderr, "Done.\n");

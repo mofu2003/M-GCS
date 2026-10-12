@@ -80,7 +80,8 @@ int main(int argc, char** argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
         // 直接轮询连接状态（比事件回调更可靠）
-        char* state_json = mg_connection_get_state(core);
+        char* state_json =
+            mg_connection_get_session_state(core, mg_vehicle_get_active(core));
         int state = 0;  // disconnected
         if (state_json) {
             if (strstr(state_json, "\"connected\":true"))
@@ -111,8 +112,8 @@ int main(int argc, char** argv) {
         if (state == 1) {
             // 已连接：显示遥测
             char* att = mg_vehicle_get_attitude(core);
-            char* gps = mg_vehicle_get_gps(core);
-            char* bat = mg_vehicle_get_battery(core);
+            char* gps = mg_vehicle_get_global_position(core);
+            char* bat = mg_telemetry_get_dashboard_snapshot(core);
             char* vfr = mg_vehicle_get_vfr_hud(core);
             char* sum = mg_vehicle_get_summary(core);
 
@@ -126,7 +127,7 @@ int main(int argc, char** argv) {
             if (att) { roll = jf_f(att, "roll_deg", 0); pitch = jf_f(att, "pitch_deg", 0); }
 
             int fix=0, sats=0;
-            if (gps) { fix = jf_i(gps, "fix_type", 0); sats = jf_i(gps, "satellites", 0); }
+            if (gps) { fix = jf_i(gps, "fix_type", 0); sats = jf_i(gps, "satellites_visible", 0); }
 
             float volt=0; int remain=-1;
             if (bat) { volt = jf_f(bat, "voltage_v", 0); remain = jf_i(bat, "remaining_pct", -1); }
@@ -157,7 +158,7 @@ int main(int argc, char** argv) {
     }
 
     printf("\n断开连接...\n");
-    mg_vehicle_close(core, vid);
+    mg_connection_close(core, vid);
     mg_destroy(core);
     printf("完成。\n");
     return 0;

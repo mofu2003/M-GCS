@@ -38,45 +38,6 @@ static std::string serial_port_name_from_param(const char* param_name) {
     return name;
 }
 
-MGCORE_API char* mg_serial_get_configs(mg_core_t* core) {
-    CHECK_CORE(core);
-    const char** baud_params = ap_serial_params;
-    const char** proto_params = ap_proto_params;
-
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_array();
-
-    for (int i = 0; baud_params[i]; i++) {
-        float baud = ffi_get_param(core, baud_params[i]);
-        float proto = ffi_get_param(core, proto_params[i]);
-        if (baud == 0 && proto == 0 && i > 2) continue;  // skip unconfigured
-
-        mg::core::telemetry::JsonBuilder obj;
-        obj.begin_object();
-        obj.field("name", serial_port_name_from_param(baud_params[i]));
-        obj.field("index", i);
-
-        // Baud rate: stored as index (0=9600,1=19200,2=38400,3=57600,4=115200,5=230400,...)
-        int baud_idx = (int)baud;
-        int baud_rates[] = {9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600};
-        int baud_val = (baud_idx >= 0 && baud_idx < 8) ? baud_rates[baud_idx] : 115200;
-        obj.field("baud_rate", baud_val);
-        obj.field("baud_index", baud_idx);
-
-        int proto_id = (int)proto;
-        obj.field("protocol", proto_id);
-
-        if (proto_id >= 0 && proto_id < 10 && ap_proto_names[proto_id]) {
-            obj.field("protocol_name", ap_proto_names[proto_id]);
-        }
-
-        obj.end_object();
-        jb.append_json(obj.str());
-    }
-
-    jb.end_array();
-    return to_cstr(jb.str());
-}
 
 // Read the board-specific SERIALn -> UART/USART mapping exposed by
 // ArduPilot's @SYS/uarts.txt. SERIAL numbers are logical and must not be

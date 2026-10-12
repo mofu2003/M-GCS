@@ -74,13 +74,6 @@ MGCORE_API char* mg_vehicle_get_firmware(mg_core_t* core) {
     auto snap = cache->snapshot_heartbeat();
     return to_cstr(mg::core::telemetry::firmware_json(snap.data));
 }
-MGCORE_API char* mg_sensors_get_statustext(mg_core_t* core) {
-    CHECK_CORE(core);
-    auto* cache = get_active_cache(core);
-    if (!cache) return to_cstr(R"({"severity":7,"text":"","severity_label":"debug"})");
-    auto snap = cache->snapshot_statustext();
-    return to_cstr(mg::core::telemetry::statustext_json(snap.data));
-}
 
 
 MGCORE_API char* mg_vehicle_request_firmware_version(mg_core_t* core) {
@@ -136,27 +129,4 @@ MGCORE_API char* mg_firmware_get_type(mg_core_t* core) {
     jb.raw_field("capabilities", capability_json(flags));
     jb.end_object();
     return mg::bridge::ffi::response::ok(jb.str());
-}
-
-MGCORE_API char* mg_health_get_all(mg_core_t* core) {
-    CHECK_CORE(core);
-    auto* cache = get_active_cache(core);
-    auto ss_snap = cache->snapshot_sys_status();
-    auto hb_snap = cache->snapshot_heartbeat();
-    const auto& ss = ss_snap.data;
-    const auto& hb = hb_snap.data;
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("connected", is_active_connected(core));
-    jb.field("system_id", (int)hb.system_id);
-    jb.field("armed", hb.armed);
-    jb.field("flight_mode", std::string(hb.flight_mode));
-    jb.field("sensors_present", (int64_t)ss.onboard_control_sensors_present);
-    jb.field("sensors_enabled", (int64_t)ss.onboard_control_sensors_enabled);
-    jb.field("sensors_health", (int64_t)ss.onboard_control_sensors_health);
-    jb.field("voltage_battery", (int)ss.battery_voltage);
-    jb.field("current_battery", (int)ss.battery_current);
-    jb.field("battery_remaining", (int)ss.battery_remaining);
-    jb.end_object();
-    return to_cstr(jb.str());
 }

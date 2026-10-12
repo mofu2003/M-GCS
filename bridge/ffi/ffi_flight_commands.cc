@@ -163,13 +163,6 @@ MGCORE_API char* mg_command_land(mg_core_t* core) {
         0, 0, 0, 0, 0, 0, 0);
 }
 
-MGCORE_API char* mg_command_terminate_flight(mg_core_t* core) {
-    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto mav = shared_active_mavlink(core);
-    return ffi_cmd_result_queued(mav, MAV_CMD_DO_FLIGHTTERMINATION,
-        active_target_sys(core), active_target_comp(core),
-        1.0f, 0, 0, 0, 0, 0, 0);
-}
 
 // ================================================================
 // GUIDED mode commands
@@ -210,17 +203,6 @@ MGCORE_API char* mg_command_change_altitude(mg_core_t* core, float altitude_chan
     return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "change altitude send failed");
 }
 
-MGCORE_API char* mg_command_guided_velocity(mg_core_t* core,
-                                            float vx, float vy, float vz) {
-    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto mav = shared_active_mavlink(core);
-    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    bool sent = mav->cmd_guided_velocity(active_target_sys(core), active_target_comp(core),
-                                          vx, vy, vz);
-    get_active_flight_log(core).on_command_result("guided_velocity", sent, sent ? "sent" : "send_failed");
-    // SET_POSITION_TARGET_GLOBAL_INT doesn't have a COMMAND_ACK, return ok if sent
-    return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "send failed");
-}
 
 // 设置 home 点。参数与 QGC 的 doSetHome / MP 的 setHomeHere 一致：
 // param1 = 0（用给定位置，而不是当前位置）、param2..4 = 0、
@@ -284,14 +266,6 @@ MGCORE_API char* mg_command_set_roi(mg_core_t* core, double lat, double lon, flo
     return fail(MG_ERROR_SEND_FAILED, "ROI command send failed");
 }
 
-MGCORE_API char* mg_command_stop_roi(mg_core_t* core) {
-    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    const auto mav = shared_active_mavlink(core);
-    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    if (mav->cmd_roi_stop(active_target_sys(core), active_target_comp(core)))
-        return ok();
-    return fail(MG_ERROR_SEND_FAILED, "ROI stop send failed");
-}
 
 MGCORE_API char* mg_command_change_heading(mg_core_t* core, float heading_deg,
                                            float yaw_rate_dps, int direction) {
@@ -343,16 +317,6 @@ MGCORE_API char* mg_command_set_global_origin(mg_core_t* core, double lat,
     return result;
 }
 
-MGCORE_API char* mg_command_landing_gear(mg_core_t* core, bool deploy) {
-    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    // MAV_CMD_AIRFRAME_CONFIGURATION 有 COMMAND_ACK，必须等飞控确认（S2）。
-    const auto mav = shared_active_mavlink(core);
-    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    return ffi_cmd_result_queued(mav,
-        MAV_CMD_AIRFRAME_CONFIGURATION,
-        active_target_sys(core), active_target_comp(core),
-        deploy ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-}
 
 namespace {
 // MAV_CMD_MISSION_START + COMMAND_ACK 等待。同步命令，最长阻塞约 5 s，只在

@@ -93,7 +93,9 @@ static std::vector<MissionItemSnapshot> parse_mission_items(const std::string& j
     std::vector<MissionItemSnapshot> result;
     cJSON* root = cJSON_Parse(json.c_str());
     if (!root) return result;
-    cJSON* items = cJSON_GetObjectItemCaseSensitive(root, "items");
+    cJSON* document = cJSON_GetObjectItemCaseSensitive(root, "document");
+    cJSON* items = document
+        ? cJSON_GetObjectItemCaseSensitive(document, "entities") : nullptr;
     if (!cJSON_IsArray(items)) {
         cJSON_Delete(root);
         return result;
@@ -102,48 +104,49 @@ static std::vector<MissionItemSnapshot> parse_mission_items(const std::string& j
     for (int i = 0; i < count; i++) {
         cJSON* item = cJSON_GetArrayItem(items, i);
         if (!cJSON_IsObject(item)) continue;
+        cJSON* params = cJSON_GetObjectItemCaseSensitive(item, "params");
         MissionItemSnapshot s;
-        s.seq = static_cast<int>(json_num(item, "seq", i));
+        s.seq = i;
         s.frame = static_cast<int>(json_num(item, "frame", 3));
         s.command = static_cast<int>(json_num(item, "command", 16));
-        s.current = static_cast<int>(json_num(item, "current", i == 0 ? 1 : 0));
+        s.current = 0;
         s.autocontinue = static_cast<int>(json_num(item, "autocontinue", 1));
-        s.param1 = json_num(item, "param1", 0);
-        s.param2 = json_num(item, "param2", 0);
-        s.param3 = json_num(item, "param3", 0);
-        s.param4 = json_num(item, "param4", 0);
-        s.x = static_cast<int>(json_num(item, "x", 0));
-        s.y = static_cast<int>(json_num(item, "y", 0));
-        s.z = json_num(item, "z", 0);
+        if (cJSON_IsArray(params) && cJSON_GetArraySize(params) >= 4) {
+            s.param1 = cJSON_GetArrayItem(params, 0)->valuedouble;
+            s.param2 = cJSON_GetArrayItem(params, 1)->valuedouble;
+            s.param3 = cJSON_GetArrayItem(params, 2)->valuedouble;
+            s.param4 = cJSON_GetArrayItem(params, 3)->valuedouble;
+        }
+        s.x = static_cast<int>(json_num(item, "lat", 0) * 1e7);
+        s.y = static_cast<int>(json_num(item, "lon", 0) * 1e7);
+        s.z = json_num(item, "alt_m", 0);
         result.push_back(s);
     }
     cJSON_Delete(root);
     return result;
 }
 
+/// 任务文档的上传格式是 QGC WPL 110 文本（旧 MissionManager JSON 已删除）。
 static std::string mission_to_upload_json(const std::vector<MissionItemSnapshot>& items) {
-    std::string out = "[";
+    std::string out = "QGC WPL 110\n";
     for (size_t i = 0; i < items.size(); i++) {
         const auto& item = items[i];
-        if (i > 0) out += ",";
-        char buf[512];
+        char buf[256];
         snprintf(buf, sizeof(buf),
-            "{\"seq\":%d,\"frame\":%d,\"command\":%d,\"current\":%d,"
-            "\"autocontinue\":%d,\"param1\":%.8g,\"param2\":%.8g,"
-            "\"param3\":%.8g,\"param4\":%.8g,\"x\":%d,\"y\":%d,\"z\":%.8g}",
-            item.seq, item.frame, item.command, item.current,
-            item.autocontinue, item.param1, item.param2,
-            item.param3, item.param4, item.x, item.y, item.z);
+            "%zu\t0\t%d\t%d\t%.8g\t%.8g\t%.8g\t%.8g\t%.7f\t%.7f\t%.8g\t%d\n",
+            i, item.frame, item.command, item.param1, item.param2,
+            item.param3, item.param4,
+            static_cast<double>(item.x) / 1e7, static_cast<double>(item.y) / 1e7,
+            item.z, item.autocontinue);
         out += buf;
     }
-    out += "]";
     return out;
 }
 
 static bool wait_mission_idle(mg_core_t* core, const char* label, int timeout_ms) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (std::chrono::steady_clock::now() < deadline) {
-        char* p = mg_mission_get_progress(core);
+        char* p = mg_operations_get_snapshot(core);
         std::string progress = p ? p : "";
         free_json(p);
         if (progress.find("\"state\":\"idle\"") != std::string::npos) {
@@ -156,7 +159,7 @@ static bool wait_mission_idle(mg_core_t* core, const char* label, int timeout_ms
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    char* p = mg_mission_get_progress(core);
+    char* p = mg_operations_get_snapshot(core);
     fprintf(stderr, "[%s-progress-timeout] %s\n", label, p ? p : "");
     free_json(p);
     return false;
@@ -167,11 +170,28 @@ static std::string download_plan(mg_core_t* core, const char* label) {
     fprintf(stderr, "[%s-download] %s\n", label, r ? r : "");
     free_json(r);
     wait_mission_idle(core, label, 10000);
-    return call_json("mission_plan", mg_mission_get_plan, core);
+    return call_json("mission_plan", mg_mission_doc_import_from_vehicle, core);
 }
 
-static bool upload_plan(mg_core_t* core, const std::string& json, const char* label) {
-    char* r = mg_mission_upload(core, json.c_str());
+static bool upload_plan(mg_core_t* core, const std::string& text, const char* label) {
+    char* imported =
+        mg_mission_doc_import_format(core, "waypoints", text.c_str());
+    std::string import_result = imported ? imported : "";
+    free_json(imported);
+    if (import_result.find("\"success\":true") == std::string::npos) {
+        fprintf(stderr, "[%s-import] %s\n", label, import_result.c_str());
+        return false;
+    }
+
+    char* doc = mg_mission_doc_get(core);
+    uint64_t revision = 0;
+    cJSON* root = doc ? cJSON_Parse(doc) : nullptr;
+    cJSON* rev = root ? cJSON_GetObjectItemCaseSensitive(root, "revision") : nullptr;
+    if (cJSON_IsNumber(rev)) revision = static_cast<uint64_t>(rev->valuedouble);
+    if (root) cJSON_Delete(root);
+    free_json(doc);
+
+    char* r = mg_mission_doc_upload(core, revision);
     std::string result = r ? r : "";
     fprintf(stderr, "[%s-upload] %s\n", label, result.c_str());
     free_json(r);
@@ -226,13 +246,6 @@ int main(int argc, char** argv) {
 
     fprintf(stderr, "\n--- Calibration read-only checks ---\n");
     call_json("cal_status", mg_calibration_get_status, core);
-    call_json("cal_retry", mg_calibration_get_retry_info, core);
-    for (int type = 0; type <= 3; type++) {
-        char label[32];
-        snprintf(label, sizeof(label), "cal_history_%d", type);
-        call_json_int(label, mg_calibration_get_history, core, type);
-    }
-    call_json("prearm", mg_vehicle_get_prearm_check, core);
     call_json("sensor_health", mg_sensors_get_health, core);
 
     fprintf(stderr, "\n--- Mission backup/download ---\n");
@@ -299,7 +312,6 @@ int main(int argc, char** argv) {
         wait_mission_idle(core, "restore-clear", 5000);
     }
 
-    mg_connection_disconnect(core);
     mg_destroy(core);
 
     bool ok = upload_ok && readback_ok && restore_ok;

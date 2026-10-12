@@ -102,7 +102,7 @@ void test_waypoint_reached_event_is_emitted() {
     env.connect();
 
     EventProbe probe;
-    mg_set_event_callback(env.core, event_probe_cb, &probe);
+    env.core->events.set(event_probe_cb, &probe);
 
     env.mock->send_mission_item_reached(3);
     env.tick(50);
@@ -110,7 +110,7 @@ void test_waypoint_reached_event_is_emitted() {
     CHECK(probe.waypoint_events >= 1, "waypoint reached event is emitted");
     CHECK(probe.waypoint_seq == 3, "event carries the reached sequence number");
 
-    mg_set_event_callback(env.core, nullptr, nullptr);
+    env.core->events.set(nullptr, nullptr);
 }
 
 void test_params_get_by_name() {
@@ -618,28 +618,6 @@ void test_log_erase_gating() {
 
 // 飞行日志声明会采集飞控 STATUSTEXT，但状态转发以前没接线。这条用例要求
 // 事件真的落到 mg_event_log_get_events 里。
-void test_flight_log_captures_statustext() {
-    fprintf(stderr, "\n[Group] flight log captures STATUSTEXT\n");
-    TestEnv env;
-    env.connect();
-
-    char* start = mg_event_log_start(env.core);
-    CHECK(json_has(start, "\"success\":true"), "flight log starts");
-    if (start) mg_free_string(start);
-
-    env.mock->send_statustext("PreArm: Throttle too high", 4);
-    env.tick(50);
-
-    char* events = mg_event_log_get_events(env.core);
-    CHECK(json_has(events, "fc.statustext"), "statustext stored under fc.statustext");
-    CHECK(json_has(events, "PreArm: Throttle too high"),
-          "statustext text reaches the flight log");
-    if (events) mg_free_string(events);
-
-    char* stop = mg_event_log_stop(env.core);
-    CHECK(json_has(stop, "\"success\":true"), "flight log stops");
-    if (stop) mg_free_string(stop);
-}
 
 void test_mission_request_propagates_send_failure() {
     fprintf(stderr, "\n[Group] mg_mission_download\n");
@@ -653,29 +631,6 @@ void test_mission_request_propagates_send_failure() {
 
 // 遥控通道 → 飞行模式的映射（对标 MP ConfigFlightModes）：读 FLTMODE1..6、
 // FLTMODE_CH 与 Copter 的 SIMPLE / SUPER_SIMPLE，槽位名用模式表反查。
-void test_flight_mode_mapping_reads_ardupilot_params() {
-    fprintf(stderr, "\n[Group] mg_flight_get_mode_mapping\n");
-
-    TestEnv env;  // 默认 ArduPilot/Copter
-    env.connect();
-    env.mock->add_param("FLTMODE1", 0);   // Stabilize
-    env.mock->add_param("FLTMODE2", 6);   // RTL
-    env.mock->add_param("FLTMODE_CH", 5);
-    env.mock->add_param("SIMPLE", 1);
-    env.load_params();
-
-    char* json = env.call_with_pump(mg_flight_get_mode_mapping);
-    CHECK(json != nullptr, "mode mapping returns json");
-    CHECK(json_has(json, "\"available\":true"), "FLTMODE1 present -> mapping available");
-    CHECK(json_has(json, "\"param_prefix\":\"FLTMODE\""), "ArduPilot uses the FLTMODE prefix");
-    CHECK(json_has(json, "\"channel_param\":\"FLTMODE_CH\""), "mode channel param is FLTMODE_CH");
-    CHECK(json_has(json, "\"channel\":5"), "mode channel value is read");
-    CHECK(json_has(json, "\"param\":\"FLTMODE2\"") && json_has(json, "\"value\":6"),
-          "slot 2 reports the RTL mode number");
-    CHECK(json_has(json, "\"name\":\"RTL\""), "slot name is resolved through the mode table");
-    CHECK(json_has(json, "\"SIMPLE\":1"), "Copter SIMPLE mask is reported");
-    if (json) mg_free_string(json);
-}
 
 void test_serial_get_uart_names() {
     fprintf(stderr, "\n[Group] mg_serial_get_uart_names\n");
@@ -910,38 +865,6 @@ void inject_message(TestEnv& env, mavlink_message_t& msg) {
 }
 
 // 电机测试：MAV_CMD_DO_MOTOR_TEST(209)，参数校验与命令下发。
-void test_actuator_motor_test_sends_command() {
-    fprintf(stderr, "\n[Group] mg_actuator_motor_test\n");
-
-    TestEnv env;
-    env.connect();
-    env.mock->received_cmds.clear();
-
-    env.start_pump();
-    char* bad_motor = mg_actuator_motor_test(env.core, 0, 50.0f, 1000);
-    env.stop_pump();
-    CHECK(json_has(bad_motor, "\"success\":false"), "motor 0 is rejected");
-    if (bad_motor) mg_free_string(bad_motor);
-
-    env.start_pump();
-    char* bad_throttle = mg_actuator_motor_test(env.core, 1, 150.0f, 1000);
-    env.stop_pump();
-    CHECK(json_has(bad_throttle, "\"success\":false"), "throttle above 100 is rejected");
-    if (bad_throttle) mg_free_string(bad_throttle);
-
-    env.start_pump();
-    char* sent = mg_actuator_motor_test(env.core, 3, 25.0f, 2000);
-    env.tick(20);
-    env.stop_pump();
-    CHECK(json_has(sent, "\"success\":true"), "valid motor test is accepted");
-    if (sent) mg_free_string(sent);
-
-    bool found = false;
-    for (const auto& cmd : env.mock->received_cmds) {
-        if (cmd.command == 209 && cmd.p1 == 3.0f && cmd.p3 == 25.0f) found = true;
-    }
-    CHECK(found, "DO_MOTOR_TEST carries motor index and throttle percent");
-}
 
 void test_payload_device_inventory() {
     fprintf(stderr, "\n[Group] Payload device inventory (camera/gimbal)\n");
@@ -1136,31 +1059,30 @@ void test_link_loss_notifies_the_interface() {
           "vehicle is connected before the link drops");
 
     ConnectionProbe probe;
-    mg_set_event_callback(core, connection_probe_cb, &probe);
+    core->events.set(connection_probe_cb, &probe);
 
-    char* before = mg_connection_get_state(core);
+    char* before = mg_connection_get_session_state(core, 5);
     CHECK(json_has(before, "\"heartbeat_fresh\":true"),
           "state is fresh while the link is up");
     if (before) mg_free_string(before);
     CHECK(probe.events == 0, "no connection event is emitted while the link is up");
 
-    // 断开：走 UI 用的生产路径 mg_connection_disconnect（close_vehicle →
+    // 断开：走 UI 用的生产路径 mg_connection_close（close_vehicle →
     // Vehicle::disconnect → ConnectionManager::disconnect → reset → 连接状态回调
     // → kConnection 事件）。
-    char* result = mg_connection_disconnect(core);
+    char* result = mg_connection_close(core, 5);
     if (result) mg_free_string(result);
 
     CHECK(probe.events >= 1, "S5: disconnecting emits a connection event");
     CHECK(!probe.connected_value, "S5: the event tells the interface the link is gone");
     CHECK(!probe.reason.empty(), "the event carries a reason string for the UI");
 
-    char* after = mg_connection_get_state(core);
-    CHECK(json_has(after, "\"connected\":false"), "state reports disconnected");
-    CHECK(json_has(after, "\"heartbeat_fresh\":false"),
+    // 车辆已从 core 注销，会话查询不再命中；直接读车辆的连接对象验证断开语义。
+    CHECK(!vehicle->conn().is_connected(), "state reports disconnected");
+    CHECK(!vehicle->conn().heartbeat_alive(3000),
           "S5: dependent state is marked stale, not left as the last value");
-    if (after) mg_free_string(after);
 
-    mg_set_event_callback(core, nullptr, nullptr);
+    core->events.set(nullptr, nullptr);
 
     // 先放掉本用例持有的飞机与链路，再销毁 core：Vehicle 析构会走断链清理，
     // 而事件回调捕获了 core，顺序颠倒就是 use-after-free。
@@ -1177,7 +1099,6 @@ int main() {
     test_vehicle_request_firmware_version();
     test_calibration_cancel();
     test_config_param_write_path();
-    test_flight_log_captures_statustext();
     test_waypoint_reached_event_is_emitted();
     test_link_loss_notifies_the_interface();
     test_home_position_is_requested_on_identify();
@@ -1192,10 +1113,8 @@ int main() {
     test_log_download_unknown_size_is_unverified();
     test_log_erase_gating();
     test_mission_request_propagates_send_failure();
-    test_flight_mode_mapping_reads_ardupilot_params();
     test_serial_get_uart_names();
     test_fs_transfer_async_ffi();
-    test_actuator_motor_test_sends_command();
     test_payload_device_inventory();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

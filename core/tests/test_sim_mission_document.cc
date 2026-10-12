@@ -257,7 +257,7 @@ static void test_mission_cancel_reaches_the_vehicle() {
           "S8: cancelling sends MISSION_ACK(OPERATION_CANCELLED) to the vehicle");
 
     // 本地终态同样保持（但这不是唯一的断言）。
-    result = mg_mission_get_progress(env.core);
+    result = mg_operations_get_snapshot(env.core);
     CHECK(result && strstr(result, "\"state\":\"idle\""),
           "the local transfer state is idle after the cancel");
     if (result) mg_free_string(result);

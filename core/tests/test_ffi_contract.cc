@@ -96,8 +96,8 @@ int main() {
     fprintf(stderr, "[Group] Null safety\n");
     {
         const char* r;
-        r = mg_connection_get_state(nullptr);
-        CHECK(r != nullptr, "get_state null core returns non-null");
+        r = mg_connection_get_session_state(nullptr, 0);
+        CHECK(r != nullptr, "get_session_state null core returns non-null");
         mg_free_string((char*)r);
 
         r = mg_vehicle_list(nullptr);
@@ -112,68 +112,14 @@ int main() {
         CHECK(r != nullptr, "vehicle_get_summary null core returns non-null");
         mg_free_string((char*)r);
 
-        r = mg_vehicle_get_battery(nullptr);
-        CHECK(r != nullptr, "vehicle_get_battery null core returns non-null");
-        mg_free_string((char*)r);
-
         r = mg_vehicle_get_global_position(nullptr);
         CHECK(r != nullptr, "vehicle_get_global_position null core returns non-null");
         mg_free_string((char*)r);
 
         // disconnect should not crash
-        r = mg_connection_disconnect(nullptr);
-        CHECK(r == nullptr || json_has(r, "error"), "disconnect null core returns null/error");
+        r = mg_connection_close(nullptr, 0);
+        CHECK(r == nullptr || json_has(r, "error"), "connection_close null core returns null/error");
         if (r) mg_free_string((char*)r);
-    }
-
-    // 3. Version string
-    fprintf(stderr, "[Group] Version\n");
-    {
-        char* v = mg_get_version();
-        CHECK(v != nullptr, "version string non-null");
-        CHECK(strlen(v) > 0, "version string non-empty");
-        // Format guard: MAJOR.MINOR.PATCH, three numeric components.
-        {
-            int dots = 0;
-            bool numeric = v != nullptr;
-            for (const char* c = v; c && *c; ++c) {
-                if (*c == '.') ++dots;
-                else if (*c < '0' || *c > '9') numeric = false;
-            }
-            CHECK(dots == 2, "version has MAJOR.MINOR.PATCH shape");
-            CHECK(numeric, "version components are numeric");
-        }
-        fprintf(stderr, "    version: %s\n", v);
-        mg_free_string(v);
-    }
-
-    // 3b. F3：mg_error_string 返回常量，调用方不得 mg_free_string 释放它。
-    // 契约的可见后果有两条：返回的是稳定地址（每次调用同一个指针），并且
-    // 与 F4 error 对象里的 name 字段一致。测试用指针相等钉住"常量"这一点——
-    // 一旦有人改成返回堆分配字符串，这两条都会失败。
-    fprintf(stderr, "[Group] F3 mg_error_string ownership\n");
-    {
-        const struct { mg_error_t error; const char* name; } cases[] = {
-            {MG_ERROR_NOT_CONNECTED, "NOT_CONNECTED"},
-            {MG_ERROR_TIMEOUT, "TIMEOUT"},
-            {MG_ERROR_REJECTED, "REJECTED"},
-            {MG_ERROR_INVALID_PARAM, "INVALID_PARAM"},
-        };
-        for (const auto& c : cases) {
-            const char* first = mg_error_string(c.error);
-            const char* second = mg_error_string(c.error);
-            CHECK(first != nullptr, "mg_error_string returns a non-null constant");
-            CHECK(first == second,
-                  "mg_error_string returns the same constant pointer (never a fresh allocation)");
-            CHECK(first[0] != '\0', "the constant text is not empty");
-            CHECK(std::strcmp(ffi_error_name(c.error), c.name) == 0,
-                  "ffi_error_name matches the documented mg_error_t symbol");
-        }
-        // 未知错误码也要回常量，而不是 nullptr（否则调用方可能去 free 空指针）。
-        const char* unknown = mg_error_string(static_cast<mg_error_t>(-999));
-        CHECK(unknown != nullptr && unknown ==
-                  mg_error_string(static_cast<mg_error_t>(-999)),
-              "an unknown error code still returns a stable constant");
     }
 
     // 4. Error system
@@ -183,8 +129,8 @@ int main() {
         CHECK(mg_get_last_error() == MG_ERROR_NONE, "clear_last_error resets to NONE");
 
         // Trigger an error
-        char* r = mg_connection_connect(nullptr, "COM99", 115200);
-        CHECK(json_has(r, "error"), "connect invalid port returns error JSON");
+        char* r = mg_command_arm(nullptr, 0);
+        CHECK(json_has(r, "error"), "null core command returns error JSON");
         CHECK(mg_get_last_error() != MG_ERROR_NONE, "error code set after failed connect");
         mg_free_string(r);
     }
@@ -193,22 +139,14 @@ int main() {
     fprintf(stderr, "[Group] Disconnected state\n");
     {
         mg_core_t* core = mg_create();
-        char* state = mg_connection_get_state(core);
-        CHECK(json_valid_envelope(state), "get_state returns valid JSON envelope");
-        CHECK(json_has(state, "connected"), "get_state has 'connected' field");
-        mg_free_string(state);
+        char* session = mg_connection_get_session_state(core, 1);
+        CHECK(json_valid_envelope(session),
+              "get_session_state returns valid JSON envelope");
+        mg_free_string(session);
 
         char* summary = mg_vehicle_get_summary(core);
         CHECK(json_valid_envelope(summary), "response summary returns valid JSON");
         mg_free_string(summary);
-
-        char* battery = mg_vehicle_get_battery(core);
-        CHECK(json_valid_envelope(battery), "response battery returns valid JSON");
-        mg_free_string(battery);
-
-        char* sensor = mg_sensor_decode_device_id(core, 0x00010001, "ins");
-        CHECK(json_valid_envelope(sensor), "offline sensor decode returns valid JSON");
-        mg_free_string(sensor);
 
         mg_destroy(core);
     }
@@ -346,13 +284,13 @@ int main() {
     {
         mg_free_string(nullptr); // should not crash
 
-        char* s = mg_get_version();
-        const std::string first_version = s ? s : "";
-        CHECK(!first_version.empty(), "version allocation returns a usable value");
+        char* s = mg_vehicle_list(nullptr);
+        const std::string first_result = s ? s : "";
+        CHECK(!first_result.empty(), "allocation returns a usable value");
         mg_free_string(s);
-        s = mg_get_version();
-        CHECK(s && first_version == s,
-              "freeing a version result does not alter subsequent allocations");
+        s = mg_vehicle_list(nullptr);
+        CHECK(s && first_result == s,
+              "freeing a result does not alter subsequent allocations");
         mg_free_string(s);
     }
 
@@ -361,10 +299,6 @@ int main() {
     {
         mg_core_t* core = mg_create();
 
-        char* serial = mg_serial_get_configs(core);
-        CHECK(json_valid_envelope(serial), "serial configs returns JSON");
-        mg_free_string(serial);
-
         char* rc = mg_rc_get_channels(core);
         CHECK(json_valid_envelope(rc), "rc channels returns JSON");
         mg_free_string(rc);
@@ -372,14 +306,6 @@ int main() {
         char* servo = mg_servo_get_outputs(core);
         CHECK(json_valid_envelope(servo), "servo outputs returns JSON");
         mg_free_string(servo);
-
-        char* modes = mg_flight_get_available_modes(core);
-        CHECK(json_valid_envelope(modes), "available modes returns JSON");
-        mg_free_string(modes);
-
-        char* preflight = mg_preflight_check(core);
-        CHECK(json_valid_envelope(preflight), "preflight check returns JSON");
-        mg_free_string(preflight);
 
         mg_destroy(core);
     }
@@ -475,11 +401,6 @@ int main() {
               "fresh RC snapshot reports channel_count (not chancount)");
         mg_free_string(channels);
 
-        char* channel = mg_rc_get_channel(core, 1);
-        CHECK(json_has(channel, "\"valid\":true"),
-              "fresh individual RC channel is valid");
-        mg_free_string(channel);
-
         // 等 RC 快照过期（ffi_rc.cc 的新鲜度窗口是 500 ms）。这里轮询到条件成立，
         // 不用固定 sleep：固定等待在慢机器上可能不够，在快机器上纯属浪费
         // （testing.md 的等待条件建议）。
@@ -500,11 +421,6 @@ int main() {
         CHECK(json_has(channels, "\"valid\":false"),
               "stale RC channel snapshot is invalid");
         mg_free_string(channels);
-
-        channel = mg_rc_get_channel(core, 1);
-        CHECK(json_has(channel, "\"valid\":false"),
-              "stale individual RC channel is invalid");
-        mg_free_string(channel);
 
         mg_destroy(core);
     }

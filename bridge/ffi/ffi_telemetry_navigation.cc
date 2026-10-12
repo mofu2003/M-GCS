@@ -193,20 +193,6 @@ MGCORE_API char* mg_vehicle_get_attitude(mg_core_t* core) {
         });
 }
 
-MGCORE_API char* mg_vehicle_get_gps(mg_core_t* core) {
-    return mg::bridge::ffi::response::object_from_cache(core,
-        R"({"lat_deg":0,"lon_deg":0,"alt_m":0,"fix_type":0,"satellites":0,"valid":false})",
-        [](auto& cache, mg::core::telemetry::JsonBuilder& data) {
-            auto gps_snap = cache.snapshot_gps();
-            const auto& gps = gps_snap.data;
-            data.field("lat_deg",    gps.lat / 1e7);
-            data.field("lon_deg",    gps.lon / 1e7);
-            data.field("alt_m",      gps.alt / 1000.0);
-            data.field("fix_type",   (int)gps.fix_type);
-            data.field("satellites", (int)gps.satellites_visible);
-            data.field("valid",      gps.fix_type >= 3);
-        });
-}
 
 MGCORE_API char* mg_vehicle_get_home_position(mg_core_t* core) {
     return mg::bridge::ffi::response::object_from_cache(core,
@@ -244,20 +230,5 @@ MGCORE_API char* mg_vehicle_get_extended_sys_state(mg_core_t* core) {
             const auto& d = snap.data;
             data.field("vtol_state",   (int)d.vtol_state);
             data.field("landed_state", (int)d.landed_state);
-        });
-}
-
-MGCORE_API char* mg_vehicle_get_wind_estimate(mg_core_t* core) {
-    return mg::bridge::ffi::response::object_from_cache(core,
-        R"({"wind_dir_deg":0,"wind_speed_m_s":0,"vertical_m_s":0})",
-        [](auto& cache, mg::core::telemetry::JsonBuilder& data) {
-            auto snap = cache.snapshot_wind();
-            const auto& d = snap.data;
-            double ws = sqrt(d.wind_x * d.wind_x + d.wind_y * d.wind_y);
-            double wd = atan2(-d.wind_x, -d.wind_y) * 180.0 / 3.141592653589793;
-            if (wd < 0) wd += 360.0;
-            data.field("wind_dir_deg",  wd);
-            data.field("wind_speed_m_s", ws);
-            data.field("vertical_m_s",  (double)d.wind_z);
         });
 }

@@ -316,11 +316,6 @@ static void test_camera_ffi() {
     CHECK(r != nullptr, "camera_stop_capture returns non-null");
     if (r) mg_free_string(r);
 
-    // Set focus
-    r = mg_camera_set_focus(core, 0, 0, 5.0f);
-    CHECK(r != nullptr, "camera_set_focus returns non-null");
-    if (r) mg_free_string(r);
-
     // Request info
     r = mg_camera_request_info(core, 0);
     CHECK(r != nullptr, "camera_request_info returns non-null");
@@ -360,11 +355,6 @@ static void test_gimbal_ffi() {
     // Gimbal request info
     r = mg_gimbal_request_info(core);
     CHECK(r != nullptr, "gimbal_request_info returns non-null");
-    if (r) mg_free_string(r);
-
-    // Gimbal configure
-    r = mg_command_gimbal_configure(core, 0, 1, 1, 0, 0);
-    CHECK(r != nullptr, "gimbal_configure returns non-null");
     if (r) mg_free_string(r);
 
     // 读接口：无设备时同样是 success:true + available:false
@@ -427,32 +417,6 @@ static void test_video_ffi() {
     r = mg_video_get_streams(core);
     CHECK(r != nullptr, "video_get_streams returns non-null");
     CHECK(json_has(r, "\"error\""), "video_get_streams returns error when disconnected");
-    if (r) mg_free_string(r);
-
-    mg_destroy(core);
-}
-
-// ================================================================
-// Failsafe FFI Tests
-// ================================================================
-static void test_failsafe_ffi() {
-    fprintf(stderr, "\n[Group] Failsafe FFI\n");
-
-    mg_core_t* core = mg_create();
-    CHECK(core != nullptr, "mg_create");
-
-    // Battery failsafe configure
-    char* r = mg_battery_failsafe_configure(core, 1, 14.0f, 13.0f);
-    CHECK(r != nullptr, "battery_failsafe_configure returns non-null");
-    if (r) mg_free_string(r);
-
-    // Failsafe status - returns error when no vehicle (expected)
-    r = mg_failsafe_get_status(core);
-    CHECK(r != nullptr, "failsafe_get_status returns non-null");
-    // When disconnected, returns error JSON; when connected, returns status JSON
-    bool has_status_fields = json_has(r, "battery_ok");
-    bool has_error = json_has(r, "error");
-    CHECK(has_status_fields || has_error, "failsafe_get_status has battery_ok or error");
     if (r) mg_free_string(r);
 
     mg_destroy(core);
@@ -563,19 +527,7 @@ static void test_extended_commands() {
     mg_core_t* core = mg_create();
     CHECK(core != nullptr, "mg_create");
 
-    // Emergency stop - should fail with not connected
-    char* r = mg_command_terminate_flight(core);
-    CHECK(r != nullptr, "mg_command_terminate_flight returns non-null");
-    if (r) mg_free_string(r);
-    r = mg_command_terminate_flight(core);
-    CHECK(r != nullptr, "terminate_flight remains callable");
-    if (r) mg_free_string(r);
-
-    // Guided velocity
-    r = mg_command_guided_velocity(core, 1.0f, 0.0f, 0.0f);
-    CHECK(r != nullptr, "guided_velocity returns non-null");
-    if (r) mg_free_string(r);
-
+    char* r;
     // Guided pause
     r = mg_command_guided_pause(core);
     CHECK(r != nullptr, "guided_pause returns non-null");
@@ -589,16 +541,6 @@ static void test_extended_commands() {
     // Set ROI
     r = mg_command_set_roi(core, 39.9, 116.4, 100.0f);
     CHECK(r != nullptr, "set_roi returns non-null");
-    if (r) mg_free_string(r);
-
-    // Stop ROI
-    r = mg_command_stop_roi(core);
-    CHECK(r != nullptr, "stop_roi returns non-null");
-    if (r) mg_free_string(r);
-
-    // Landing gear
-    r = mg_command_landing_gear(core, 1);
-    CHECK(r != nullptr, "landing_gear returns non-null");
     if (r) mg_free_string(r);
 
     // Change heading（QGC 地图菜单 Set Heading）
@@ -634,41 +576,6 @@ static void test_extended_commands() {
     CHECK(r != nullptr, "set_global_origin invalid lon returns non-null");
     CHECK(strstr(r, "\"success\":true") == nullptr,
           "set_global_origin rejects lon > 180");
-    if (r) mg_free_string(r);
-
-    mg_destroy(core);
-}
-
-// ================================================================
-// Vehicle Data Tests
-// ================================================================
-static void test_vehicle_data() {
-    fprintf(stderr, "\n[Group] Vehicle Data\n");
-
-    mg_core_t* core = mg_create();
-    CHECK(core != nullptr, "mg_create");
-
-    // Vehicle count
-    char* r = mg_vehicle_count(core);
-    CHECK(r != nullptr, "vehicle_count returns non-null");
-    if (r) mg_free_string(r);
-
-    // Flight time
-    r = mg_vehicle_get_flight_time(core);
-    CHECK(r != nullptr, "flight_time returns non-null");
-    CHECK(json_has(r, "flight_time_s"), "flight_time has 'flight_time_s'");
-    if (r) mg_free_string(r);
-
-    // ADSB traffic
-    r = mg_vehicle_get_adsb_traffic(core);
-    CHECK(r != nullptr, "adsb_traffic returns non-null");
-    CHECK(json_has(r, "vehicles"), "adsb_traffic has 'vehicles'");
-    if (r) mg_free_string(r);
-
-    // Distance sensors
-    r = mg_vehicle_get_distance_sensors(core);
-    CHECK(r != nullptr, "distance_sensors returns non-null");
-    CHECK(json_has(r, "sensors"), "distance_sensors has 'sensors'");
     if (r) mg_free_string(r);
 
     mg_destroy(core);
@@ -1140,11 +1047,9 @@ int main() {
     test_camera_ffi();
     test_gimbal_ffi();
     test_video_ffi();
-    test_failsafe_ffi();
     test_replayer();
     test_tlog_recording_wiring();
     test_extended_commands();
-    test_vehicle_data();
     test_telemetry_freshness();
     test_mavlink_ftp_download();
     test_mavlink_ftp_retry_and_validation();

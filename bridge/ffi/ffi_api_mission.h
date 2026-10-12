@@ -9,11 +9,8 @@ extern "C" {
 
 // 上传任务。立即返回的 success 只表示**传输已开始**，最终结果由 operation 状态和
 // 任务回读给出；调用方不得把该响应当成“已在飞控生效”。
-MGCORE_API char* mg_mission_upload(mg_core_t* core, const char* json_wps);
 MGCORE_API char* mg_mission_download(mg_core_t* core);
 MGCORE_API char* mg_mission_clear(mg_core_t* core);
-MGCORE_API char* mg_mission_get_progress(mg_core_t* core);
-MGCORE_API char* mg_mission_get_plan(mg_core_t* core);
 // 任务执行进度：MISSION_CURRENT 的当前项 + MISSION_ITEM_REACHED 统计。
 // 返回 valid / current_index（客户端可见，去掉 ArduPilot home 偏移）/ current_seq /
 // total / reached_count / last_reached_seq / reached_end / finished / aborted。
@@ -21,8 +18,6 @@ MGCORE_API char* mg_mission_get_plan(mg_core_t* core);
 // finished 才是任务完成，判定与 QGC 一致：曾在任务模式下解锁、之后上锁。
 // aborted 表示解锁飞行中离开过任务模式且最后一项未到达（人为中断）。
 MGCORE_API char* mg_mission_get_execution_progress(mg_core_t* core);
-MGCORE_API char* mg_mission_set_current(mg_core_t* core, int seq);
-MGCORE_API char* mg_mission_get_current(mg_core_t* core);
 
 MGCORE_API char* mg_mission_doc_create(mg_core_t* core, const char* json_config);
 MGCORE_API char* mg_mission_doc_get(mg_core_t* core);
@@ -83,10 +78,8 @@ MGCORE_API char* mg_mission_doc_import_format(
     const char* text);
 
 MGCORE_API char* mg_rally_download(mg_core_t* core);
-MGCORE_API char* mg_rally_get_plan(mg_core_t* core);
 
 MGCORE_API char* mg_fence_download(mg_core_t* core);
-MGCORE_API char* mg_fence_get_plan(mg_core_t* core);
 
 #ifdef __cplusplus
 }

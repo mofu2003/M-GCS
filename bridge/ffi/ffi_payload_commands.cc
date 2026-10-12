@@ -133,12 +133,6 @@ MGCORE_API char* mg_camera_stop_capture(mg_core_t* core, int camera_id) {
         });
 }
 
-MGCORE_API char* mg_camera_set_focus(mg_core_t* core, int camera_id, int focus_type, float focus_value) {
-    return send_payload_command(core, camera_id, "camera set focus failed",
-        [focus_type, focus_value](MavlinkAdapter& mav, uint8_t sys, uint8_t comp) {
-            return mav.camera_set_focus(sys, comp, static_cast<uint8_t>(focus_type), focus_value);
-        });
-}
 
 MGCORE_API char* mg_camera_request_info(mg_core_t* core, int camera_id) {
     return send_payload_command(core, camera_id, "camera request info failed",
@@ -261,20 +255,6 @@ MGCORE_API char* mg_gimbal_request_info(mg_core_t* core) {
         });
 }
 
-MGCORE_API char* mg_command_gimbal_configure(mg_core_t* core, int gimbal_device_id,
-                                             int primary_sys, int primary_comp,
-                                             int secondary_sys, int secondary_comp) {
-    return send_payload_command(core, 0, "gimbal configure failed",
-        [gimbal_device_id, primary_sys, primary_comp, secondary_sys, secondary_comp](
-            MavlinkAdapter& mav, uint8_t sys, uint8_t comp) {
-            return mav.cmd_gimbal_configure(sys, comp,
-                                            static_cast<uint8_t>(gimbal_device_id),
-                                            static_cast<uint8_t>(primary_sys),
-                                            static_cast<uint8_t>(primary_comp),
-                                            static_cast<uint8_t>(secondary_sys),
-                                            static_cast<uint8_t>(secondary_comp));
-        });
-}
 
 MGCORE_API char* mg_gimbal_get_status(mg_core_t* core, int gimbal_id) {
     CHECK_CORE(core);

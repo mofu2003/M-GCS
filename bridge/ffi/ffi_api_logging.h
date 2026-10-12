@@ -38,15 +38,8 @@ MGCORE_API char* mg_tlog_replay_seek(mg_core_t* core, double percent);
 MGCORE_API char* mg_tlog_replay_close(mg_core_t* core);
 
 /* 本地会话日志：把事件写成 JSONL/CSV 会话文件。 */
-MGCORE_API char* mg_session_log_start(mg_core_t* core, const char* session_name);
-MGCORE_API char* mg_session_log_stop(mg_core_t* core);
-MGCORE_API char* mg_session_log_status(mg_core_t* core);
 
 /* 事件日志服务：STATUSTEXT / 连接 / 命令结果的结构化事件流。 */
-MGCORE_API char* mg_event_log_start(mg_core_t* core);
-MGCORE_API char* mg_event_log_stop(mg_core_t* core);
-MGCORE_API char* mg_event_log_get_status(mg_core_t* core);
-MGCORE_API char* mg_event_log_get_events(mg_core_t* core);
 
 /* Generic vehicle file-system access through MAVLink FTP (FILE_TRANSFER_PROTOCOL).
  *

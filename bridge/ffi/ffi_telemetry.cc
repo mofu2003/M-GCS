@@ -22,62 +22,11 @@
 // Telemetry History FFI
 // ================================================================
 
-MGCORE_API char* mg_telemetry_register_series(mg_core_t* core, const char* name, const char* unit) {
-    CHECK_CORE(core);
-    if (!name || name[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null name");
 
-    get_active_ring_buffer(core).register_series(name, unit ? unit : "");
-    return ok();
-}
 
-MGCORE_API char* mg_telemetry_append(mg_core_t* core, const char* name, float value) {
-    CHECK_CORE(core);
-    if (!name || name[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null name");
 
-    auto now = std::chrono::steady_clock::now().time_since_epoch();
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
 
-    get_active_ring_buffer(core).append(name, static_cast<uint64_t>(ms), value);
-    return ok();
-}
 
-MGCORE_API char* mg_telemetry_get_series(mg_core_t* core, const char* name) {
-    CHECK_CORE(core);
-    if (!name || name[0] == '\0') return to_cstr("[]");
-
-    return to_cstr(get_active_ring_buffer(core).to_json(name));
-}
-
-MGCORE_API char* mg_telemetry_get_stats(mg_core_t* core, const char* name) {
-    CHECK_CORE(core);
-    if (!name || name[0] == '\0') return to_cstr("{}");
-
-    return to_cstr(get_active_ring_buffer(core).stats_json(name));
-}
-
-MGCORE_API char* mg_telemetry_get_series_names(mg_core_t* core) {
-    CHECK_CORE(core);
-
-    auto names = get_active_ring_buffer(core).get_series_names();
-
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_array();
-    for (const auto& n : names) {
-        mg::core::telemetry::JsonBuilder item;
-        item.begin_object();
-        item.field("name", n);
-        item.end_object();
-        jb.append_json(item.str());
-    }
-    jb.end_array();
-    return to_cstr(jb.str());
-}
-
-MGCORE_API char* mg_telemetry_clear(mg_core_t* core) {
-    CHECK_CORE(core);
-    get_active_ring_buffer(core).clear();
-    return ok();
-}
 
 // ================================================================
 // Real-time Waveform FFI
@@ -194,14 +143,6 @@ MGCORE_API int mg_waveform_poll(mg_core_t* core, float* out_points, int out_max_
     return static_cast<int>(waveform->copy_points(out_points, target, window));
 }
 
-MGCORE_API char* mg_waveform_clear(mg_core_t* core) {
-    CHECK_CORE(core);
-    for (size_t instance = 0; instance < mg::core::vehicle::Vehicle::kMaxImuInstances; instance++) {
-        auto* waveform = get_active_waveform(core, instance);
-        if (waveform) waveform->clear();
-    }
-    return ok();
-}
 
 MGCORE_API char* mg_waveform_get_instances(mg_core_t* core) {
     CHECK_CORE(core);
@@ -227,169 +168,16 @@ MGCORE_API char* mg_waveform_get_instances(mg_core_t* core) {
 // Flight Log Persistence FFI
 // ================================================================
 
-MGCORE_API char* mg_session_log_start(mg_core_t* core, const char* session_name) {
-    CHECK_CORE(core);
 
-    std::string path = core->log_writer.start_session(session_name ? session_name : "");
 
-    if (path.empty()) {
-        return fail(MG_ERROR_INTERNAL, "failed to create log file");
-    }
-
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("success", true);
-    jb.field("file", path);
-    jb.end_object();
-    return to_cstr(jb.str());
-}
-
-MGCORE_API char* mg_session_log_stop(mg_core_t* core) {
-    CHECK_CORE(core);
-    core->log_writer.stop_session();
-    return ok();
-}
-
-MGCORE_API char* mg_session_log_status(mg_core_t* core) {
-    CHECK_CORE(core);
-
-    auto& writer = core->log_writer;
-
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("active", writer.is_active());
-    jb.field("file", writer.current_file_path());
-    jb.field("events", static_cast<int64_t>(writer.event_count()));
-    jb.field("bytes", static_cast<int64_t>(writer.bytes_written()));
-    jb.end_object();
-    return to_cstr(jb.str());
-}
 
 // ================================================================
 // Parameter File I/O FFI
 // ================================================================
 
-MGCORE_API char* mg_param_file_export(mg_core_t* core, const char* json) {
-    CHECK_CORE(core);
-    // 成功路径返回的是 .param 文件正文（CSV 文本），不是 JSON 信封；但失败路径
-    // 必须是合法 JSON（F4）：空串会被调用方当成"导出成功但没有参数"，也让
-    // "返回值一定是 JSON" 的契约失效。失败一律回统一的 error 对象。
-    if (!json || json[0] == '\0') {
-        return fail(MG_ERROR_INVALID_PARAM, "empty parameter list");
-    }
 
-    cJSON* root = mg::core::json::parse(json);
-    if (!root || !cJSON_IsArray(root)) {
-        if (root) cJSON_Delete(root);
-        return fail(MG_ERROR_INVALID_PARAM, "parameter list must be a JSON array");
-    }
 
-    std::vector<mg::core::config::ParamEntry> params;
-    int size = cJSON_GetArraySize(root);
-    for (int i = 0; i < size; i++) {
-        cJSON* item = cJSON_GetArrayItem(root, i);
-        if (!item) continue;
-        cJSON* name = cJSON_GetObjectItemCaseSensitive(item, "name");
-        cJSON* value = cJSON_GetObjectItemCaseSensitive(item, "value");
-        if (name && cJSON_IsString(name) && value && cJSON_IsNumber(value)) {
-            params.push_back({name->valuestring, static_cast<float>(value->valuedouble)});
-        }
-    }
-    cJSON_Delete(root);
 
-    return to_cstr(mg::core::config::ParamFileIO::export_param(params));
-}
-
-MGCORE_API char* mg_param_file_import(mg_core_t* core, const char* content) {
-    CHECK_CORE(core);
-    if (!content || content[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "empty content");
-
-    auto params = mg::core::config::ParamFileIO::import_param(content);
-
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("success", !params.empty());
-    if (params.empty()) {
-        write_error(jb, MG_ERROR_INVALID_PARAM,
-                    "no parameters were parsed from the .param content");
-    }
-    jb.field("count", static_cast<int>(params.size()));
-    mg::core::telemetry::JsonBuilder items;
-    items.begin_array();
-    for (const auto& param : params) {
-        mg::core::telemetry::JsonBuilder item;
-        item.begin_object();
-        item.field("name", param.name);
-        item.field("value", param.value);
-        item.field("type", static_cast<int>(param.type));
-        item.end_object();
-        items.append_json(item.str());
-    }
-    items.end_array();
-    jb.raw_field("items", items.str());
-    jb.end_object();
-    return to_cstr(jb.str());
-}
-
-MGCORE_API char* mg_param_file_export_csv(mg_core_t* core, const char* json) {
-    CHECK_CORE(core);
-    // 与 mg_param_file_export 相同：成功返回 CSV 正文，失败返回 F4 error 对象。
-    if (!json || json[0] == '\0') {
-        return fail(MG_ERROR_INVALID_PARAM, "empty parameter list");
-    }
-
-    cJSON* root = mg::core::json::parse(json);
-    if (!root || !cJSON_IsArray(root)) {
-        if (root) cJSON_Delete(root);
-        return fail(MG_ERROR_INVALID_PARAM, "parameter list must be a JSON array");
-    }
-
-    std::vector<mg::core::config::ParamEntry> params;
-    int size = cJSON_GetArraySize(root);
-    for (int i = 0; i < size; i++) {
-        cJSON* item = cJSON_GetArrayItem(root, i);
-        if (!item) continue;
-        cJSON* name = cJSON_GetObjectItemCaseSensitive(item, "name");
-        cJSON* value = cJSON_GetObjectItemCaseSensitive(item, "value");
-        if (name && cJSON_IsString(name) && value && cJSON_IsNumber(value)) {
-            params.push_back({name->valuestring, static_cast<float>(value->valuedouble)});
-        }
-    }
-    cJSON_Delete(root);
-
-    return to_cstr(mg::core::config::ParamFileIO::export_csv(params));
-}
-
-MGCORE_API char* mg_param_file_import_csv(mg_core_t* core, const char* content) {
-    CHECK_CORE(core);
-    if (!content || content[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "empty content");
-
-    auto params = mg::core::config::ParamFileIO::import_csv(content);
-
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("success", !params.empty());
-    if (params.empty()) {
-        write_error(jb, MG_ERROR_INVALID_PARAM,
-                    "no parameters were parsed from the CSV content");
-    }
-    jb.field("count", static_cast<int>(params.size()));
-    mg::core::telemetry::JsonBuilder items;
-    items.begin_array();
-    for (const auto& param : params) {
-        mg::core::telemetry::JsonBuilder item;
-        item.begin_object();
-        item.field("name", param.name);
-        item.field("value", param.value);
-        item.field("type", static_cast<int>(param.type));
-        item.end_object();
-        items.append_json(item.str());
-    }
-    items.end_array();
-    jb.raw_field("items", items.str());
-    jb.end_object();
-    return to_cstr(jb.str());
-}
 
 // ================================================================
 // ffi_api.h: mg_telemetry_get_freshness

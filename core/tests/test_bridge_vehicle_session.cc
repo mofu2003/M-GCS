@@ -439,7 +439,7 @@ static void test_redundant_routes_inherit_signing_and_keep_operation_owner() {
     CHECK(vehicle->operation_mavlink("mission") == owner, "transaction remains on original adapter");
     char* raw = mg_operations_cancel_for_vehicle(core, 91, "mission");
     CHECK(raw && strstr(raw, "\"canceled\":true"), "cancel after failover reaches original owner"); mg_free_string(raw);
-    raw = mg_operations_get_snapshot_for_vehicle(core, 91);
+    raw = mg_operations_get_snapshot(core);
     CHECK(raw && strstr(raw, "\"cancelled\":true"), "terminal cancelled state visible after failover"); mg_free_string(raw);
     const auto connection = vehicle->command_connection();
     connection->record_heartbeat();
@@ -669,7 +669,7 @@ static void test_targeted_operation_cancel_isolated() {
           "first vehicle starts parameter download");
     CHECK(first_mav->param_download_active(),
           "first vehicle parameter download is active");
-    char* result = mg_operations_get_snapshot_for_vehicle(env.core, 41);
+    char* result = mg_operations_get_snapshot(env.core);
     CHECK(result && strstr(result, "\"retry_count\"") &&
               strstr(result, "\"missing_count\"") &&
               strstr(result, "\"failed_count\""),
@@ -688,11 +688,13 @@ static void test_targeted_operation_cancel_isolated() {
     CHECK(!second_mav->param_download_cancelled(),
           "non-target vehicle operation is untouched");
 
-    result = mg_operations_get_snapshot_for_vehicle(env.core, 41);
+    env.core->vehicles.set_active_vehicle(41);
+    result = mg_operations_get_snapshot(env.core);
     CHECK(result && strstr(result, "\"params\"") &&
               strstr(result, "\"cancelled\":true"),
           "targeted snapshot reads the inactive vehicle operation");
     mg_free_string(result);
+    env.core->vehicles.set_active_vehicle(42);
 
     CHECK(first_mav->mission_download(1, 1),
           "first vehicle starts mission download");

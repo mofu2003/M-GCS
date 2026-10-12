@@ -2,7 +2,7 @@
  * test_waveform_instances.cc - 多 IMU / 多磁力计波形实例测试（无硬件）
  *
  * 覆盖：SCALED_IMU/2/3 分派到各自的波形缓冲、实例清单的识别结果、
- * mg_waveform_poll 的 instance 参数，以及 mg_waveform_clear 的批量清空。
+ * mg_waveform_poll 的 instance 参数。
  */
 #define MGCORE_EXPORTS
 #include "mock_vehicle_test_env.h"
@@ -165,35 +165,12 @@ static void test_poll_returns_per_instance_data() {
     CHECK(mg_waveform_poll(env.core, third, 4, 4, 0, -1) == 0, "负实例号返回 0");
 }
 
-static void test_clear_drops_every_instance() {
-    fprintf(stderr, "\n[Group] 清空 - 覆盖所有实例\n");
-    MockVehicleTestEnv env;
-
-    inject_scaled_imu(env, 0, 100, 250);
-    inject_scaled_imu(env, 1, 200, 0);
-
-    char* cleared = mg_waveform_clear(env.core);
-    CHECK(cleared != nullptr && strstr(cleared, "true") != nullptr, "clear succeeds");
-    mg_free_string(cleared);
-
-    float points[10 * 4] = {};
-    CHECK(poll_instance(env, 0, points, 4) == 0, "IMU1 已清空");
-    CHECK(poll_instance(env, 1, points, 4) == 0, "IMU2 已清空");
-
-    char* json = mg_waveform_get_instances(env.core);
-    std::vector<int> imu;
-    instance_indices(json, "imu", imu);
-    CHECK(imu.size() == 2, "清空数据不会抹掉已识别的实例");
-    mg_free_string(json);
-}
-
 int main() {
     fprintf(stderr, "=== 波形实例测试（多 IMU / 多磁力计） ===\n");
 
     test_instance_list_before_any_data();
     test_instances_follow_received_messages();
     test_poll_returns_per_instance_data();
-    test_clear_drops_every_instance();
 
     fprintf(stderr, "\n=== Results: %d/%d passed ===\n", g_pass, g_pass + g_fail);
     return (g_fail > 0) ? 1 : 0;
