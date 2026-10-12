@@ -1,10 +1,19 @@
-/// 车辆会话装配器：管理后端与控制器的生命周期。
+/// 车辆会话装配器：管理基础 FFI 后端的生命周期。
 ///
-/// 从 ConnectionController 抽取装配逻辑，避免主控制器变成一个"万能工厂"。
-/// 职责：
-/// - 持有所有后端（Backend）和控制器（Controller）实例
-/// - 提供统一的 lazy-init 和工厂方法
-/// - 隔离不同子系统的初始化复杂度
+/// **职责范围**（see docs/constraints/vehicle-session-assembler.md）
+/// - 仅管理"无状态依赖的基础 FFI 后端"（TelemetryFfiBackend、ParameterFfiBackend 等）
+/// - 提供 lazy-init 和测试注入能力
+/// - 统一后端的生命周期管理（dispose）
+///
+/// **禁止做的**
+/// - ❌ 不管理有状态依赖的后端（FlightCommandFfiBackend 等）
+/// - ❌ 不管理业务逻辑控制器（LogController、MissionDocumentController 等）
+/// - ❌ 不实现业务逻辑、状态判断、UI 通知
+/// - ❌ 不调用 ConnectionController 的私有方法
+///
+/// **设计动机**
+/// 为多固件支持（PX4 + ArduPilot）做准备。未来可通过工厂模式在此处切换固件实现，
+/// 而不需改动 ConnectionController。
 library;
 
 import 'native_core.dart';
@@ -15,6 +24,13 @@ import 'flight_command_ffi_backend.dart';
 import '../fleet/fleet_ffi_backend.dart';
 
 /// 车辆会话装配器
+///
+/// 仅创建和管理"无状态依赖的基础 FFI 后端"。
+///
+/// 添加新后端前，必须：
+/// 1. 检查是否满足"无状态依赖"条件（只需 NativeCore，不依赖 ConnectionController 状态）
+/// 2. 如果有状态依赖，保持在 ConnectionController 中
+/// 3. 参考 docs/constraints/vehicle-session-assembler.md
 final class VehicleSessionAssembler {
   VehicleSessionAssembler({
     required this._nativeCore,
