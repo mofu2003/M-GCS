@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 
 import '../ffi_response.dart';
 import '../fleet/fleet_controller.dart';
-import '../fleet/fleet_ffi_backend.dart';
 import '../fleet/fleet_models.dart';
 import '../logging/file_backend.dart';
 import '../logging/file_controller.dart';
@@ -1713,7 +1712,7 @@ final class ConnectionController extends ChangeNotifier {
         flightCommandBackendOverride: _flightCommandBackend,
       );
       _fleet = FleetController(
-        FleetFfiBackend(_native!.library, _native!.handle),
+        _assembler.fleetBackend,
         canChangeFocus: _canSwitchActiveVehicle,
         executeBatchCommand: _executeFleetBatchCommand,
       )..addListener(_handleFleetChanged);

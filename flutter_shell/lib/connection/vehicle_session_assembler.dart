@@ -12,6 +12,7 @@ import 'telemetry_ffi_backend.dart';
 import 'parameter_ffi_backend.dart';
 import 'calibration_ffi_backend.dart';
 import 'flight_command_ffi_backend.dart';
+import '../fleet/fleet_ffi_backend.dart';
 
 /// 车辆会话装配器
 final class VehicleSessionAssembler {
@@ -22,6 +23,7 @@ final class VehicleSessionAssembler {
     this._parameterBackendOverride,
     this._calibrationBackendOverride,
     this._flightCommandBackendOverride,
+    this._fleetBackendOverride,
   });
 
   final NativeCore _nativeCore;
@@ -31,12 +33,14 @@ final class VehicleSessionAssembler {
   final ParameterFfiBackend? _parameterBackendOverride;
   final CalibrationFfiBackend? _calibrationBackendOverride;
   final FlightCommandFfiBackend? _flightCommandBackendOverride;
+  final FleetFfiBackend? _fleetBackendOverride;
 
   // Lazy-init 缓存
   TelemetryFfiBackend? _telemetryBackend;
   ParameterFfiBackend? _parameterBackend;
   CalibrationFfiBackend? _calibrationBackend;
   FlightCommandFfiBackend? _flightCommandBackend;
+  FleetFfiBackend? _fleetBackend;
 
   // ================================================================
   // 后端 Getter（lazy-init 或注入）
@@ -61,11 +65,19 @@ final class VehicleSessionAssembler {
         _nativeCore.handle,
       );
 
+  FleetFfiBackend get fleetBackend =>
+      _fleetBackend ??= _fleetBackendOverride ??
+      FleetFfiBackend(
+        _nativeCore.library,
+        _nativeCore.handle,
+      );
+
   /// 清理所有资源
   void dispose() {
     _telemetryBackend = null;
     _parameterBackend = null;
     _calibrationBackend = null;
     _flightCommandBackend = null;
+    _fleetBackend = null;
   }
 }
