@@ -501,9 +501,9 @@ final class ConnectionController extends ChangeNotifier {
   final Map<int, MissionDocumentController> _missionPlanningBySession = {};
 
   final Map<int, _VehicleRuntimeSnapshot> _runtimeSnapshots = {};
-  TelemetryFfiBackend? _telemetryBackend;
-  ParameterFfiBackend? _parameterBackend;
-  CalibrationFfiBackend? _calibrationBackend;
+  final TelemetryFfiBackend? _telemetryBackend;
+  final ParameterFfiBackend? _parameterBackend;
+  final CalibrationFfiBackend? _calibrationBackend;
   FlightCommandFfiBackend? _flightCommandBackend;
   LogBackend? _logBackend;
   LogController? _logController;
@@ -1709,7 +1709,6 @@ final class ConnectionController extends ChangeNotifier {
         telemetryBackendOverride: _telemetryBackend,
         parameterBackendOverride: _parameterBackend,
         calibrationBackendOverride: _calibrationBackend,
-        flightCommandBackendOverride: _flightCommandBackend,
       );
       _fleet = FleetController(
         _assembler.fleetBackend,
