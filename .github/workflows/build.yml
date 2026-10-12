@@ -192,5 +192,4 @@ jobs:
         unzip -l "$apk" | grep -E 'lib/[^/]+/libmgcore\.so' >/dev/null
         unzip -l "$apk" | grep 'assets/mgcore/USBBoardInfo.json' >/dev/null
         unzip -l "$apk" | grep 'assets/mgcore/ParameterDescriptors.json' >/dev/null
-        unzip -l "$apk" | grep 'assets/mgcore/PX4ParameterMetaData.json' >/dev/null
         echo "[android-bundle] APK contains libmgcore.so and core data assets"

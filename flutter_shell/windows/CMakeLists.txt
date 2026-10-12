@@ -93,9 +93,6 @@ add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${MGCORE_ROOT_DIR}/core/src/config/ParameterTranslations.zh-CN.json"
     "$<TARGET_FILE_DIR:${BINARY_NAME}>/ParameterTranslations.zh-CN.json"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${MGCORE_ROOT_DIR}/core/src/config/PX4ParameterMetaData.json"
-    "$<TARGET_FILE_DIR:${BINARY_NAME}>/PX4ParameterMetaData.json"
   VERBATIM
 )
 
@@ -137,7 +134,6 @@ install(FILES
   "${MGCORE_ROOT_DIR}/core/src/sensor/SensorDeviceInfo.json"
   "${MGCORE_ROOT_DIR}/core/src/config/ParameterDescriptors.json"
   "${MGCORE_ROOT_DIR}/core/src/config/ParameterTranslations.zh-CN.json"
-  "${MGCORE_ROOT_DIR}/core/src/config/PX4ParameterMetaData.json"
   DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
