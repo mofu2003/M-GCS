@@ -1,50 +1,6 @@
 {
-  "bridge/ffi/ffi_actuator.cc": {
-    "SERVO*_FUNCTION": "FFI 桥接层：ffi_actuator.cc 用 SERVO%d_FUNCTION 格式串通过 ffi_fmt_param 按通道号格式化后向核心读参数描述符，是 S6 允许的固件插件路由层，非通用前端硬编码",
-    "SERVO*_MAX": "FFI 桥接层：ffi_actuator.cc 用 SERVO%d_MAX 格式串按通道号格式化后读写飞控参数，是桥接层固件参数路由的合法用途",
-    "SERVO*_MIN": "FFI 桥接层：ffi_actuator.cc 用 SERVO%d_MIN 格式串按通道号格式化后读写飞控参数，是桥接层固件参数路由的合法用途",
-    "SERVO*_REVERSED": "FFI 桥接层：ffi_actuator.cc 用 SERVO%d_REVERSED 格式串按通道号格式化后读写飞控参数，是桥接层固件参数路由的合法用途",
-    "SERVO*_TRIM": "FFI 桥接层：ffi_actuator.cc 用 SERVO%d_TRIM 格式串按通道号格式化后读写飞控参数，是桥接层固件参数路由的合法用途"
-  },
   "bridge/ffi/ffi_config.cc": {
     "RCMAP_ROLL": "FFI 桥接层：ffi_config.cc 注释中引用 mg_config_get_param_roles 返回值示例，非硬编码使用，是文档说明"
-  },
-  "bridge/ffi/ffi_flight_modes.cc": {
-    "FLTMODE_CH": "FFI 桥接层：ffi_flight_modes.cc 通过 read_param 读取 ArduPilot Plane/Copter 的模式选择通道参数，是固件适配层按固件类型路由参数名的合法用途",
-    "SUPER_SIMPLE": "FFI 桥接层：ffi_flight_modes.cc 读取 ArduPilot Copter 的 Simple/SuperSimple 位掩码参数，是固件适配层读取飞控参数的合法用途"
-  },
-  "bridge/ffi/ffi_internal.h": {
-    "SERVO*_MIN": "FFI 桥接层：ffi_internal.h 注释中引用 ffi_fmt_param 的格式串示例 SERVO%d_MIN，是文档说明而非硬编码使用",
-    "SERVO1_MIN": "FFI 桥接层：ffi_internal.h 注释中引用 ffi_fmt_param 展开结果示例，是文档说明而非硬编码使用"
-  },
-  "bridge/ffi/ffi_rc_config.cc": {
-    "RCMAP_PITCH": "FFI 桥接层：ffi_rc_config.cc 在 AP 通道映射参数数组中引用 RCMAP_PITCH，是桥接层读取飞控 RC 通道映射参数的合法用途",
-    "RCMAP_ROLL": "FFI 桥接层：ffi_rc_config.cc 在 AP 通道映射参数数组中引用 RCMAP_ROLL，是桥接层读取飞控 RC 通道映射参数的合法用途",
-    "RCMAP_THROTTLE": "FFI 桥接层：ffi_rc_config.cc 在 AP 通道映射参数数组中引用 RCMAP_THROTTLE，是桥接层读取飞控 RC 通道映射参数的合法用途",
-    "RCMAP_YAW": "FFI 桥接层：ffi_rc_config.cc 在 AP 通道映射参数数组中引用 RCMAP_YAW，是桥接层读取飞控 RC 通道映射参数的合法用途"
-  },
-  "bridge/ffi/ffi_sensor_decode.cc": {
-    "BARO1_DEVID": "FFI 桥接层：ffi_sensor_decode.cc 读取 ArduPilot 气压计设备 ID 参数以解码传感器，是桥接层按参数名读取飞控传感器配置的合法用途",
-    "BARO2_DEVID": "FFI 桥接层：ffi_sensor_decode.cc 读取 ArduPilot 气压计设备 ID 参数以解码传感器，是桥接层按参数名读取飞控传感器配置的合法用途",
-    "BARO3_DEVID": "FFI 桥接层：ffi_sensor_decode.cc 读取 ArduPilot 气压计设备 ID 参数以解码传感器，是桥接层按参数名读取飞控传感器配置的合法用途"
-  },
-  "bridge/ffi/ffi_serial.cc": {
-    "SERIAL0_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL0_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL0_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL0_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL1_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL1_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL1_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL1_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL2_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL2_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL2_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL2_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL3_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL3_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL3_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL3_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL4_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL4_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL4_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL4_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL5_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL5_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL5_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL5_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL6_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL6_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL6_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL6_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL7_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL7_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
-    "SERIAL7_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL7_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途"
   },
   "core/src/config/param_file_io.cc": {
     "ARSPD_OFFSET": "核心参数文件 I/O 层：param_file_io.cc 在参数文件白名单中引用 ARSPD_OFFSET，是参数文件读写层处理固件参数名的合法用途",
