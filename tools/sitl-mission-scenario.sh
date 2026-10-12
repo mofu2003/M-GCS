@@ -11,7 +11,8 @@
 #   --vehicle <name>     SITL 机型二进制（默认 arducopter）
 #   --port <n>           MAVLink UDP 端口（默认 14550）
 #   --model <name>       仿真机架（默认 quad）
-#   --evidence <path>    证据输出文件（默认 docs/sitl-scenario-evidence.md）
+#   --evidence <path>    证据输出文件（默认 build_check/sitl-scenario-evidence.md；
+#                        证据是运行产物，默认不落进仓库。要发布时显式指到 docs/ 下。）
 #   --keep              跑完不杀 SITL（调试用）
 #
 # 退出码 = 场景驱动的退出码（0 表示全部断言通过）。
@@ -24,7 +25,7 @@ ardupilot_dir="${ARDUPILOT_DIR:-/Users/fansicheng/Projects/ardupilot}"
 vehicle="arducopter"
 port=14550
 model="quad"
-evidence="$root_dir/docs/sitl-scenario-evidence.md"
+evidence="$root_dir/build_check/sitl-scenario-evidence.md"
 keep=0
 
 while [[ $# -gt 0 ]]; do

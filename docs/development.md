@@ -98,7 +98,8 @@ tools/sitl-mission-scenario.sh --vehicle arduplane --model plane \
 
 脚本拉起 SITL（`--serial0 udpclient:127.0.0.1:<port>`，不是 `sim_vehicle.py` 的
 `--out`），运行 `build_check/test_sitl_mission_scenario`，并把断言与 `[EVIDENCE]`
-行写成 `docs/sitl-scenario-evidence.md`。没设 `MG_SITL_ENDPOINT` 时驱动打印
+行写成 `build_check/sitl-scenario-evidence.md`（默认写构建目录，证据是运行产物、
+不落进仓库；要发布时用 `--evidence docs/...` 显式指定）。没设 `MG_SITL_ENDPOINT` 时驱动打印
 `[SKIP]` 并以 0 退出，所以它不属于 preflight。用 `--ardupilot <dir>` 或
 `ARDUPILOT_DIR` 指定 ArduPilot 源码/构建目录。
 
