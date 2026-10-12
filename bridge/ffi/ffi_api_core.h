@@ -9,7 +9,7 @@ extern "C" {
 
 #define MGCORE_VERSION_MAJOR 0
 #define MGCORE_VERSION_MINOR 2
-#define MGCORE_VERSION_PATCH 1
+#define MGCORE_VERSION_PATCH 2
 
 #ifdef _WIN32
   #ifdef MGCORE_EXPORTS
