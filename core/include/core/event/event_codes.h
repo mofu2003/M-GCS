@@ -1,12 +1,11 @@
 /**
  * event_codes.h - core 事件码
  *
- * Vehicle 通过 EventCallback(int, json) 把状态变化抛给上层。core 不能依赖
- * bridge（A1），所以事件码在这里定义一份；bridge 侧的 mg_event_type_t 必须与
- * 之数值一致，由 bridge/ffi/ffi_connection.cc 的 static_assert 钉死。
+ * Vehicle 通过 EventCallback(int, json) 把状态变化抛给上层。事件码只此一份：
+ * FFI 不再向宿主转发事件（前端用轮询，见 known-deviations.md 的 KD-27），
+ * 因此没有 bridge 侧的镜像枚举需要同步。
  *
- * 新增事件时：这里加一个码，ffi_api_core.h 的 mg_event_type_t 加同名项，
- * 并在那组 static_assert 里补一行；顺序不要插在中间。
+ * 新增事件时：在这里加一个码，顺序不要插在中间（数值会出现在事件 JSON 里）。
  */
 #pragma once
 

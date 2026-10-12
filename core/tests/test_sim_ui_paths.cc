@@ -12,6 +12,7 @@
 #include "ffi_api.h"
 #include "ardupilotmega/mavlink.h"
 #include "core/transport/link_session.h"
+#include "core/event/event_codes.h"
 #include "core/vehicle/vehicle.h"
 
 #include <chrono>
@@ -84,25 +85,23 @@ struct EventProbe {
     int waypoint_seq = -1;
 };
 
-void event_probe_cb(mg_event_type_t type, char* json, void* user_data) {
-    auto* probe = static_cast<EventProbe*>(user_data);
-    if (probe != nullptr && type == MG_EVENT_WAYPOINT_REACHED) {
-        probe->waypoint_events++;
-        const char* seq = json != nullptr ? std::strstr(json, "\"seq\":") : nullptr;
-        if (seq != nullptr) probe->waypoint_seq = std::atoi(seq + 6);
-    }
-    // 事件 json 归回调所有，每个分支都要释放。
-    if (json != nullptr) mg_free_string(json);
-}
-
-// MG_EVENT_WAYPOINT_REACHED 以前只在公开枚举里声明，没有地方发出。
+// kWaypointReached 通过 Vehicle 事件回调上报（FFI 不再转发事件）。
 void test_waypoint_reached_event_is_emitted() {
-    fprintf(stderr, "\n[Group] MG_EVENT_WAYPOINT_REACHED\n");
+    fprintf(stderr, "\n[Group] kWaypointReached\n");
     TestEnv env;
     env.connect();
 
     EventProbe probe;
-    env.core->events.set(event_probe_cb, &probe);
+    env.core->fallback_vehicle->set_event_callback(
+        [&probe](int type, const std::string& json) {
+            if (type == mg::core::event::kWaypointReached) {
+                probe.waypoint_events++;
+                const auto pos = json.find("\"seq\":");
+                if (pos != std::string::npos) {
+                    probe.waypoint_seq = std::atoi(json.c_str() + pos + 6);
+                }
+            }
+        });
 
     env.mock->send_mission_item_reached(3);
     env.tick(50);
@@ -110,7 +109,6 @@ void test_waypoint_reached_event_is_emitted() {
     CHECK(probe.waypoint_events >= 1, "waypoint reached event is emitted");
     CHECK(probe.waypoint_seq == 3, "event carries the reached sequence number");
 
-    env.core->events.set(nullptr, nullptr);
 }
 
 void test_params_get_by_name() {
@@ -994,32 +992,13 @@ struct ConnectionProbe {
     std::string reason;
 };
 
-void connection_probe_cb(mg_event_type_t type, char* json, void* user_data) {
-    auto* probe = static_cast<ConnectionProbe*>(user_data);
-    if (probe != nullptr && type == MG_EVENT_CONNECTION) {
-        probe->events++;
-        if (json != nullptr) {
-            const std::string text(json);
-            probe->connected_value = text.find("\"connected\":true") != std::string::npos;
-            const auto reason_at = text.find("\"reason\":\"");
-            if (reason_at != std::string::npos) {
-                const auto from = reason_at + std::strlen("\"reason\":\"");
-                const auto to = text.find('"', from);
-                if (to != std::string::npos) {
-                    probe->reason = text.substr(from, to - from);
-                }
-            }
-        }
-    }
-    if (json != nullptr) mg_free_string(json);
-}
 
 /// S5 的前半句：链路断开时事件必须发出（界面据此提示）；状态失效那半句由
 /// test_mode_state_reports_freshness 覆盖。
 ///
 /// 这里刻意走生产接线：`attach_shared_session()` → `finish_connect()` 才会装上
 /// `Vehicle::install_connection_state_callback`，它把连接状态变化转成
-/// `kConnection` 事件（= MG_EVENT_CONNECTION）。MockVehicleTestEnv 用
+/// `kConnection` 事件。MockVehicleTestEnv 用
 /// wire_for_test() 旁路了 finish_connect()，所以这条断言自己建会话。
 void test_link_loss_notifies_the_interface() {
     fprintf(stderr, "\n[Group] S5 link loss notification\n");
@@ -1035,9 +1014,7 @@ void test_link_loss_notifies_the_interface() {
     auto vehicle = std::make_shared<mg::core::vehicle::Vehicle>(5);
     core->vehicles.add_for_test(vehicle);
     core->vehicles.set_active_vehicle(5);
-    vehicle->set_event_callback([core](int event_type, const std::string& json) {
-        core->events.fire(static_cast<mg_event_type_t>(event_type), json);
-    });
+    ConnectionProbe probe;
 
     CHECK(vehicle->attach_shared_session(session, "inmemory://s5", 1, 1),
           "shared session attaches through the production path");
@@ -1058,8 +1035,21 @@ void test_link_loss_notifies_the_interface() {
     CHECK(vehicle->conn().is_connected(),
           "vehicle is connected before the link drops");
 
-    ConnectionProbe probe;
-    core->events.set(connection_probe_cb, &probe);
+    // 连接建立后再挂探针，只观察本次断链引发的 kConnection 事件。
+    vehicle->set_event_callback([&probe](int event_type, const std::string& json) {
+        if (event_type != mg::core::event::kConnection) return;
+        probe.events++;
+        probe.connected_value = json.find("\"connected\":true") != std::string::npos;
+        const auto pos = json.find("\"reason\":");
+        if (pos != std::string::npos) {
+            const auto start = json.find('"', pos + 9);
+            const auto end = start == std::string::npos
+                ? std::string::npos : json.find('"', start + 1);
+            if (start != std::string::npos && end != std::string::npos) {
+                probe.reason = json.substr(start + 1, end - start - 1);
+            }
+        }
+    });
 
     char* before = mg_connection_get_session_state(core, 5);
     CHECK(json_has(before, "\"heartbeat_fresh\":true"),
@@ -1081,8 +1071,6 @@ void test_link_loss_notifies_the_interface() {
     CHECK(!vehicle->conn().is_connected(), "state reports disconnected");
     CHECK(!vehicle->conn().heartbeat_alive(3000),
           "S5: dependent state is marked stale, not left as the last value");
-
-    core->events.set(nullptr, nullptr);
 
     // 先放掉本用例持有的飞机与链路，再销毁 core：Vehicle 析构会走断链清理，
     // 而事件回调捕获了 core，顺序颠倒就是 use-after-free。

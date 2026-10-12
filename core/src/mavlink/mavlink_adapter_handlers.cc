@@ -500,13 +500,6 @@ void MavlinkAdapter::Impl::handle_battery_status(const mavlink_message_t& m)
     tel.battery = info;
     if (tel.battery_cb)
         deferred_cbs.push_back([cb = tel.battery_cb, info]() { cb(info); });
-    // Battery failsafe event: fire when battery is critically low
-    if (info.battery_remaining >= 0 && info.battery_remaining <= 10) {
-        if (tel.battery_cb) {
-            // The MG_EVENT_BATTERY_FAILSAFE will be handled in the FFI layer
-            // by checking battery_remaining in the telemetry cache
-        }
-    }
 }
 
 void MavlinkAdapter::Impl::handle_highres_imu(const mavlink_message_t& m)

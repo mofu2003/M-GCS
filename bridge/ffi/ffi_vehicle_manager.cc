@@ -95,19 +95,13 @@ bool is_supported_connection_uri(const char* endpoint_uri) {
 
 int open_managed_link(mg_core_t* core, const char* endpoint_uri) {
     const auto config = mg::core::transport::LinkConfig::from_uri(endpoint_uri);
-    auto event_cb = [core](int event_type, const std::string& json) {
-        core->events.fire(static_cast<mg_event_type_t>(event_type), json);
-    };
-    const int link_id = core->vehicles.open_shared_link(config, event_cb);
+    const int link_id = core->vehicles.open_shared_link(config);
     return link_id > 0 ? link_id : MG_ERROR_SEND_FAILED;
 }
 
 int open_vehicle_session(mg_core_t* core, const char* endpoint_uri) {
     const auto config = mg::core::transport::LinkConfig::from_uri(endpoint_uri);
-    auto event_cb = [core](int event_type, const std::string& json) {
-        core->events.fire(static_cast<mg_event_type_t>(event_type), json);
-    };
-    auto* vehicle = core->vehicles.open_vehicle(config, event_cb);
+    auto* vehicle = core->vehicles.open_vehicle(config);
     if (!vehicle) return MG_ERROR_SEND_FAILED;
     return vehicle->vehicle_id();
 }

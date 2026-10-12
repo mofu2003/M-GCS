@@ -138,45 +138,6 @@ struct CallbackOptions {
     bool quick = false;
 };
 
-static void on_event(mg_event_type_t type, char* json, void* user_data) {
-    auto* options = static_cast<CallbackOptions*>(user_data);
-    if (options && options->quick &&
-        type != MG_EVENT_CONNECTION &&
-        type != MG_EVENT_STATUSTEXT) {
-        mg_free_string(json);
-        return;
-    }
-
-    const char* type_name = "UNKNOWN";
-    switch (type) {
-        case MG_EVENT_HEARTBEAT:       type_name = "HEARTBEAT"; break;
-        case MG_EVENT_GPS:             type_name = "GPS"; break;
-        case MG_EVENT_ATTITUDE:        type_name = "ATTITUDE"; break;
-        case MG_EVENT_BATTERY:         type_name = "BATTERY"; break;
-        case MG_EVENT_CONNECTION:      type_name = "CONNECTION"; break;
-        case MG_EVENT_STATUSTEXT:      type_name = "STATUSTEXT"; break;
-        case MG_EVENT_GLOBAL_POSITION: type_name = "GLOBAL_POS"; break;
-        case MG_EVENT_RC_CHANNELS:     type_name = "RC"; break;
-        case MG_EVENT_SERVO_OUTPUT:    type_name = "SERVO"; break;
-        case MG_EVENT_VIBRATION:       type_name = "VIBRATION"; break;
-        case MG_EVENT_ESC_STATUS:      type_name = "ESC"; break;
-        case MG_EVENT_WIND_ESTIMATE:   type_name = "WIND"; break;
-        case MG_EVENT_PREARM_CHECK:    type_name = "PREARM"; break;
-        case MG_EVENT_SENSOR_HEALTH:   type_name = "SENSOR"; break;
-        case MG_EVENT_PARAMETERS:      type_name = "PARAM"; break;
-        case MG_EVENT_MISSION:         type_name = "MISSION"; break;
-        case MG_EVENT_HOME_POSITION:   type_name = "HOME"; break;
-        case MG_EVENT_INITIAL_CONNECT: type_name = "INIT_CONN"; break;
-        case MG_EVENT_EXTENDED_SYS_STATE: type_name = "EXT_STATE"; break;
-        case MG_EVENT_WAYPOINT_REACHED: type_name = "WP_REACHED"; break;
-        case MG_EVENT_DISTANCE_SENSOR: type_name = "DISTANCE"; break;
-        case MG_EVENT_BATTERY_FAILSAFE: type_name = "BATT_FAILSAFE"; break;
-        case MG_EVENT_ADSB:            type_name = "ADSB"; break;
-        default: break;
-    }
-    fprintf(stderr, "[EVENT:%s] %s\n", type_name, json ? json : "");
-    mg_free_string(json);
-}
 
 int main(int argc, char* argv[]) {
     fprintf(stderr, "=== Real FC Telemetry Dump ===\n");

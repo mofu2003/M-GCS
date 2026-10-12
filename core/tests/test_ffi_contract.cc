@@ -33,22 +33,6 @@ static bool json_valid_envelope(const char* json) {
     return json[0] == '{' || json[0] == '[';
 }
 
-struct CallbackDrainProbe {
-    std::atomic<bool> entered{false};
-    std::atomic<bool> finished{false};
-};
-
-static void blocking_event_callback(
-    mg_event_type_t,
-    char* json,
-    void* user_data) {
-    auto* probe = static_cast<CallbackDrainProbe*>(user_data);
-    probe->entered.store(true, std::memory_order_release);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    probe->finished.store(true, std::memory_order_release);
-    mg_free_string(json);
-}
-
 int main() {
     fprintf(stderr, "=== FFI Contract Tests ===\n\n");
 
@@ -58,38 +42,6 @@ int main() {
         mg_core_t* core = mg_create();
         CHECK(core != nullptr, "mg_create returns non-null");
         mg_destroy(core);
-    }
-
-    // 1b. Event callback lifetime: clearing the callback drains callbacks
-    // already copied by a transport thread before the owner can be destroyed.
-    fprintf(stderr, "[Group] Event callback lifetime\n");
-    {
-        EventDispatcher dispatcher;
-        CallbackDrainProbe probe;
-        dispatcher.set(blocking_event_callback, &probe);
-        std::thread event_thread([&dispatcher] {
-            dispatcher.fire(MG_EVENT_ATTITUDE, "{}");
-        });
-
-        const auto deadline = std::chrono::steady_clock::now() +
-                              std::chrono::milliseconds(500);
-        while (!probe.entered.load(std::memory_order_acquire) &&
-               std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::yield();
-        }
-
-        const auto drain_start = std::chrono::steady_clock::now();
-        dispatcher.set(nullptr, nullptr);
-        const auto drain_elapsed = std::chrono::duration_cast<
-            std::chrono::milliseconds>(std::chrono::steady_clock::now() - drain_start);
-        event_thread.join();
-
-        CHECK(probe.entered.load(std::memory_order_acquire),
-              "event callback entered on the worker thread");
-        CHECK(probe.finished.load(std::memory_order_acquire),
-              "event callback finished before callback clear returned");
-        CHECK(drain_elapsed.count() >= 50,
-              "callback clear waits for in-flight callback completion");
     }
 
     // 2. Null safety - all functions should not crash with null core

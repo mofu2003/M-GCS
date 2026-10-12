@@ -32,8 +32,7 @@ uint64_t MultiVehicleManager::now_ms() const {
 
 void MultiVehicleManager::init() { MGC_LOG_INFO("[MultiVehicle] Manager initialized"); }
 
-Vehicle* MultiVehicleManager::open_vehicle(const mg::core::transport::LinkConfig& config,
-                                                  Vehicle::EventCallback event_cb) {
+Vehicle* MultiVehicleManager::open_vehicle(const mg::core::transport::LinkConfig& config) {
     std::shared_ptr<Vehicle> vehicle;
     int vid = -1;
     {
@@ -42,10 +41,6 @@ Vehicle* MultiVehicleManager::open_vehicle(const mg::core::transport::LinkConfig
         vehicle = std::make_shared<Vehicle>(vid);
     }
 
-    // 先设置事件回调，再 connect（避免心跳到达时 event_cb 为空的竞态窗口）
-    if (event_cb) {
-        vehicle->set_event_callback(std::move(event_cb));
-    }
 
     // 在锁外执行 connect()
     // Keep the full URI so Vehicle::connect can dispatch on scheme and baud.
@@ -105,8 +100,7 @@ Vehicle* MultiVehicleManager::open_vehicle(const mg::core::transport::LinkConfig
 }
 
 Vehicle* MultiVehicleManager::open_shared_vehicle(
-    const mg::core::transport::LinkConfig& config,
-    Vehicle::EventCallback event_cb) {
+    const mg::core::transport::LinkConfig& config) {
     const std::string endpoint = config.to_uri();
     auto link = mg::core::transport::LinkFactory::create(config);
     if (!link) {
@@ -138,11 +132,9 @@ Vehicle* MultiVehicleManager::open_shared_vehicle(
         if (link_sessions_.count(endpoint) != 0) return nullptr;
         ignored_shared_identities_.erase(endpoint);
         const int vid = next_vehicle_id();
-        if (event_cb) shared_event_cb_ = event_cb;
         link_sessions_[endpoint] = session;
 
         vehicle = std::make_shared<Vehicle>(vid);
-        if (event_cb) vehicle->set_event_callback(event_cb);
         if (!vehicle->attach_shared_session(session, endpoint, 0, 0)) {
             MGC_LOG_ERROR("[MultiVehicle] Failed to attach placeholder %d on %s",
                           vid, endpoint.c_str());
@@ -225,10 +217,8 @@ void MultiVehicleManager::on_shared_heartbeat(
     const mg::core::transport::LinkPeer link_peer{peer.host, peer.port};
     std::shared_ptr<Vehicle> existing;
     std::shared_ptr<Vehicle> placeholder;
-    Vehicle::EventCallback event_cb;
     {
         mg::core::platform::LockGuard lk(mtx_);
-        event_cb = shared_event_cb_;
         for (const auto& vehicle : vehicles_) {
             if (!vehicle || vehicle->conn().shared_session() != session) continue;
             if (vehicle->system_id() == heartbeat.system_id) {
@@ -283,7 +273,6 @@ void MultiVehicleManager::on_shared_heartbeat(
     }
 
     auto vehicle = std::make_shared<Vehicle>(vid);
-    if (event_cb) vehicle->set_event_callback(event_cb);
     session->set_peer_for_route(vid, link_peer);
     if (!vehicle->attach_shared_session(session,
                                         session->endpoint(),
@@ -328,8 +317,7 @@ void MultiVehicleManager::on_shared_heartbeat(
 }
 
 int MultiVehicleManager::open_shared_link(
-    const mg::core::transport::LinkConfig& config,
-    Vehicle::EventCallback event_cb) {
+    const mg::core::transport::LinkConfig& config) {
     const std::string endpoint = config.to_uri();
     auto link = mg::core::transport::LinkFactory::create(config);
     if (!link) return -1;
@@ -365,7 +353,6 @@ int MultiVehicleManager::open_shared_link(
         managed_link_by_session_[session.get()] = link_id;
         link_sessions_[endpoint] = session;
         ignored_shared_identities_.erase(endpoint);
-        if (event_cb) shared_event_cb_ = event_cb;
     }
 
     if (!session->open()) {
@@ -469,7 +456,6 @@ void MultiVehicleManager::on_managed_link_heartbeat(
 
     session->set_peer_for_route(route_id, link_peer);
     auto vehicle = std::make_shared<Vehicle>(vehicle_id);
-    if (shared_event_cb_) vehicle->set_event_callback(shared_event_cb_);
     if (!vehicle->attach_shared_primary_route(
             session, route_id, record.endpoint,
             heartbeat.system_id, heartbeat.component_id)) {

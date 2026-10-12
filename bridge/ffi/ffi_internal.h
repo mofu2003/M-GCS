@@ -41,10 +41,6 @@
  * Shared Helpers
  * ================================================================ */
 
-inline void post_event(mg_core_t* core, mg_event_type_t type, const std::string& json) {
-    core->events.fire(type, json);
-}
-
 /// Symbolic name for an mg_error_t, used as `error.name` in FFI responses.
 const char* ffi_error_name(mg_error_t error);
 

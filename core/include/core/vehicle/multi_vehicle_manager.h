@@ -58,20 +58,17 @@ public:
     void init();
 
     // 根据配置打开一个新的飞行器连接；不会改变 active vehicle focus。
-    Vehicle* open_vehicle(const mg::core::transport::LinkConfig& config,
-                              Vehicle::EventCallback event_cb = nullptr);
+    Vehicle* open_vehicle(const mg::core::transport::LinkConfig& config);
 
     /// Opens one physical link shared by multiple MAVLink systems. The
     /// returned Vehicle is a placeholder until its first heartbeat; additional
     /// sysid identities on the same endpoint are added as they are discovered.
-    Vehicle* open_shared_vehicle(const mg::core::transport::LinkConfig& config,
-                                 Vehicle::EventCallback event_cb = nullptr);
+    Vehicle* open_shared_vehicle(const mg::core::transport::LinkConfig& config);
 
     /// Opens an explicit link handle. Vehicles are created only after valid
     /// heartbeats and the same sysid on multiple links is merged into one
     /// Vehicle.
-    int open_shared_link(const mg::core::transport::LinkConfig& config,
-                         Vehicle::EventCallback event_cb = nullptr);
+    int open_shared_link(const mg::core::transport::LinkConfig& config);
     bool close_link(int link_id, bool suppress_rediscovery = false);
     /// Closes one (link, vehicle) route. The physical link remains open when
     /// other vehicles are still routed over it.
@@ -166,7 +163,6 @@ private:
         managed_link_by_session_;
     std::map<int, std::shared_ptr<mg::core::transport::LinkSession>>
         vehicle_sessions_;
-    Vehicle::EventCallback shared_event_cb_;
     std::atomic<int> next_id_{1};
     std::atomic<int> active_vehicle_id_{-1};
 

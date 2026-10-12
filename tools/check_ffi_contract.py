@@ -325,7 +325,26 @@ def frontend_bindings():
     return bindings
 
 
-def catalog_text(api, bindings):
+def public_types():
+    """公开头里的类型定义（`typedef ...;` 与 `using X = ...;`）。
+
+    目录此前只列函数，公开 ABI 里的类型（`mg_error_t`、回调 typedef 等）是盲区：
+    删掉一个 typedef 不会在任何地方留下痕迹，F1 的「成套变更」也就无从校验。
+    """
+    entries = {}
+    for header in sorted((ROOT / "bridge/ffi").glob("ffi_api*.h")):
+        source = without_comments(header.read_text(encoding="utf-8-sig"))
+        declarations = re.findall(r"^typedef\s+[^;]+;", source, re.M)
+        declarations += re.findall(r"^using\s+\w+\s*=\s*[^;]+;", source, re.M)
+        for declaration in declarations:
+            signature = " ".join(declaration.split())
+            name = re.search(r"\b(mg_\w+)\s*[;=]", signature)
+            if name:
+                entries[name.group(1)] = (header.name, signature)
+    return entries
+
+
+def catalog_text(api, bindings, types):
     lines = [
         "# FFI API 目录", "",
         "由 `python3 tools/check_ffi_contract.py --write-catalog` 从公开头文件与 Flutter 绑定生成。",
@@ -337,7 +356,8 @@ def catalog_text(api, bindings):
         "飞行指令的生产入口是 submit/poll；所有公开名称必须对应当前规范接口。",
         "任务上传的即时响应表示传输启动，最终结果需读取 operation 状态。",
         "符号检查不等于完整的参数类型或行为验证；真实交互另由 FFI smoke 和合约测试覆盖。", "",
-        f"公开函数：{len(api)}；Flutter 绑定：{len(bindings)}。", "",
+        f"公开函数：{len(api)}；Flutter 绑定：{len(bindings)}。",
+        f"公开类型：{len(types)}。", "",
     ]
     for header in sorted({entry[0] for entry in api.values()}):
         lines += [f"## {header}", "", "| 声明 | Flutter 绑定位置 |", "| --- | --- |"]
@@ -347,6 +367,16 @@ def catalog_text(api, bindings):
             locations = "<br>".join(f"`{p}`" for p in sorted(bindings.get(symbol, []))) or "—"
             lines.append(f"| `{signature}` | {locations} |")
         lines.append("")
+    if types:
+        lines += [
+            "## 公开类型", "",
+            "前端不直接绑定这些类型；它们与函数一样属于公开 ABI，删除或改签名是破坏性变更。", "",
+            "| 类型 | 头文件 | 定义 |", "| --- | --- | --- |",
+        ]
+        for name, (header, signature) in sorted(types.items()):
+            lines.append(f"| `{name}` | `{header}` | `{signature}` |")
+        lines.append("")
+
     notes = classified_symbols()
     if notes:
         lines += [
@@ -405,7 +435,7 @@ def main():
     if unknown_notes:
         raise ValueError(
             "classified symbol notes reference unknown exports: " + ", ".join(unknown_notes))
-    expected = catalog_text(api, bindings)
+    expected = catalog_text(api, bindings, public_types())
     if args.write_catalog:
         CATALOG.write_text(expected)
     elif not CATALOG.exists() or CATALOG.read_text() != expected:

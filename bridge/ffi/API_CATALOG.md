@@ -12,6 +12,7 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 符号检查不等于完整的参数类型或行为验证；真实交互另由 FFI smoke 和合约测试覆盖。
 
 公开函数：154；Flutter 绑定：130。
+公开类型：2。
 
 ## ffi_api_configuration.h
 
@@ -216,6 +217,15 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `char* mg_vehicle_get_vfr_hud(mg_core_t* core);` | `flutter_shell/lib/connection/telemetry_ffi_backend.dart` |
 | `char* mg_waveform_get_instances(mg_core_t* core);` | `flutter_shell/lib/connection/native_core.dart` |
 | `int mg_waveform_poll(mg_core_t* core, float* out_points, int out_max_points, int target_points, int window_ms, int instance);` | `flutter_shell/lib/connection/native_core.dart` |
+
+## 公开类型
+
+前端不直接绑定这些类型；它们与函数一样属于公开 ABI，删除或改签名是破坏性变更。
+
+| 类型 | 头文件 | 定义 |
+| --- | --- | --- |
+| `mg_core_t` | `ffi_api_core.h` | `typedef struct mg_core_t mg_core_t;` |
+| `mg_error_t` | `ffi_api_core.h` | `typedef enum { MG_ERROR_NONE = 0, MG_ERROR_NULL_CORE = -1, MG_ERROR_NOT_CONNECTED = -2, MG_ERROR_SEND_FAILED = -3, MG_ERROR_INVALID_PARAM = -4, MG_ERROR_INVALID_STATE = -5, MG_ERROR_TIMEOUT = -6, MG_ERROR_BUSY = -7, MG_ERROR_NOT_SUPPORTED = -8, MG_ERROR_INTERNAL = -9, MG_ERROR_BUFFER_TOO_SMALL = -10, MG_ERROR_INVALID_MESSAGE = -11, MG_ERROR_CHECKSUM_FAIL = -12, MG_ERROR_PROTOCOL = -13, MG_ERROR_NOT_FOUND = -14, MG_ERROR_CALIBRATION = -15, MG_ERROR_REJECTED = -16, } mg_error_t;` |
 
 ## 已定性的公开导出
 

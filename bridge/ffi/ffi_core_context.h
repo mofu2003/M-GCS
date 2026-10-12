@@ -25,56 +25,6 @@ inline char* to_cstr(const std::string& s) {
     return c;
 }
 
-struct EventDispatcher {
-    mutable mg::core::platform::Mutex mtx;
-    mutable mg::core::platform::ConditionVariable cv;
-    mg_event_callback_t callback = nullptr;
-    void*               user_data = nullptr;
-    mutable size_t       in_flight = 0;
-
-    void set(mg_event_callback_t cb, void* ud) {
-        mg::core::platform::UniqueLock lk(mtx);
-        callback = cb;
-        user_data = ud;
-        // Clearing the callback is the ownership boundary used by a client before
-        // destroying mg_core and closing NativeCallable.  Wait until every
-        // native thread that already observed the old callback has returned.
-        if (!cb) {
-            cv.wait(lk, [this] { return in_flight == 0; });
-        }
-    }
-
-    void fire(mg_event_type_t type, const std::string& json) const {
-        mg_event_callback_t cb_copy;
-        void* ud_copy;
-        {
-            mg::core::platform::LockGuard lk(mtx);
-            cb_copy = callback;
-            ud_copy = user_data;
-            if (cb_copy) {
-                ++in_flight;
-            }
-        }
-        if (!cb_copy) {
-            return;
-        }
-
-        // Keep the in-flight count balanced even if the callback implementation
-        // returns through an exception boundary in a future implementation.
-        struct InFlightGuard {
-            const EventDispatcher* owner;
-            ~InFlightGuard() {
-                mg::core::platform::UniqueLock lk(owner->mtx);
-                if (--owner->in_flight == 0) {
-                    owner->cv.notify_all();
-                }
-            }
-        } guard{this};
-
-        cb_copy(type, to_cstr(json), ud_copy);
-    }
-};
-
 struct mg_core_t {
     mg::core::vehicle::MultiVehicleManager vehicles;
     std::shared_ptr<mg::core::vehicle::Vehicle> fallback_vehicle;
@@ -91,7 +41,6 @@ struct mg_core_t {
     uint64_t next_command_job = 1;
     bool command_jobs_stopping = false;
 
-    EventDispatcher                        events;
     mg::core::platform::Mutex             core_mtx;
     mg::core::platform::Mutex             mission_mtx;
 
