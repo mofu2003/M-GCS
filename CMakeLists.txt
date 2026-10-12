@@ -171,8 +171,6 @@ set(MGCORE_SOURCES
     core/src/vehicle/vehicle_link_manager.cc
     core/src/transport/link_config.cc
     core/src/transport/link_factory.cc
-    # Firmware flasher
-    core/src/firmware/firmware_flasher.cc
     # SITL
     core/src/sitl/sitl_launcher.cc
     # Bridge / FFI
