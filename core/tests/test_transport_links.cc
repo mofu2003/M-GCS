@@ -338,7 +338,7 @@ static void test_tcp_connect_timeout_is_bounded() {
 /// 断链（reset()）会从 ConnectionManager 摘掉适配器并在锁外析构它；调用方只要
 /// 还握着 shared_mavlink() 的返回副本，适配器就必须继续存活 —— 这正是
 /// ffi_cmd_result_queued() 等"最长阻塞 5 秒等 ACK"路径赖以不悬垂的语义。
-/// 旧代码只有裸指针（get_mavlink()）可用，无法表达该保证。
+/// 旧代码只有不带所有权的适配器访问，无法表达该保证。
 static void test_connection_manager_adapter_lease_survives_reset() {
     fprintf(stderr, "\n[Group] ConnectionManager adapter lease\n");
 
@@ -356,12 +356,9 @@ static void test_connection_manager_adapter_lease_survives_reset() {
     auto lease = conn.shared_mavlink();
     CHECK(lease != nullptr, "shared_mavlink() hands out an owning handle");
     CHECK(lease.get() == raw_mav, "the lease is the adapter wired to the manager");
-    CHECK(conn.get_mavlink() == raw_mav,
-          "get_mavlink() still exposes the borrowed pointer for immediate use");
-
     // 断链：reset() 在锁内 move 出 shared_ptr、在锁外析构。
     conn.reset();
-    CHECK(conn.get_mavlink() == nullptr, "reset() detaches the adapter from the manager");
+    CHECK(conn.shared_mavlink() == nullptr, "reset() detaches the adapter from the manager");
     CHECK(lease.get() == raw_mav, "the caller's lease keeps the adapter object alive");
 
     // 触碰已断链的适配器：有租约就必须安全（ASan 下不得报 use-after-free）。

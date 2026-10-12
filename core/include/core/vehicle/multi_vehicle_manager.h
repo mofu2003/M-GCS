@@ -90,6 +90,8 @@ public:
     Vehicle* get_vehicle(int vehicle_id) const;
     /// Acquire a lifetime lease for work which may race with vehicle removal.
     std::shared_ptr<Vehicle> get_vehicle_shared(int vehicle_id) const;
+    /// Acquire the focused vehicle and its lifetime lease atomically.
+    std::shared_ptr<Vehicle> active_vehicle_shared() const;
     // 按系统 ID 获取
     Vehicle* get_vehicle_by_system_id(uint8_t system_id) const;
     // Lifetime-safe registry snapshot for FFI readers racing watchdog removal.

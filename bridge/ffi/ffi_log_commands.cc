@@ -24,7 +24,8 @@ char* send_active_request(mg_core_t* core, const char* error_reason, Sender&& se
     CHECK_CORE(core);
     CHECK_MAVLINK(core);
     CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     return sender(*mav, active_target_sys(core), active_target_comp(core))
         ? ok()
         : fail(MG_ERROR_SEND_FAILED, error_reason);
@@ -43,7 +44,8 @@ MGCORE_API char* mg_onboard_log_get_entries(mg_core_t* core) {
     CHECK_CORE(core);
     CHECK_MAVLINK(core);
     CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     auto entries = mav->log_get_entries();
     const auto expected = mav->log_list_expected();
 
@@ -80,7 +82,8 @@ MGCORE_API char* mg_onboard_log_download(mg_core_t* core, int log_id, const char
     if (!filepath || filepath[0] == '\0' || log_id < 0 || log_id > 65535) {
         return fail(MG_ERROR_INVALID_PARAM, "invalid log id or filepath");
     }
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     if (!mav->log_download_start(active_target_sys(core), active_target_comp(core),
                                  static_cast<uint16_t>(log_id), filepath)) {
         return fail(MG_ERROR_SEND_FAILED, "log download request failed");
@@ -92,7 +95,9 @@ MGCORE_API char* mg_onboard_log_download_cancel(mg_core_t* core) {
     CHECK_CORE(core);
     CHECK_MAVLINK(core);
     CHECK_CONNECTED(core);
-    if (!get_active_mavlink(core)->log_download_cancel()) {
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    if (!mav->log_download_cancel()) {
         return fail(MG_ERROR_NOT_SUPPORTED, "no active log download");
     }
     return ok();
@@ -101,7 +106,9 @@ MGCORE_API char* mg_onboard_log_download_cancel(mg_core_t* core) {
 MGCORE_API char* mg_onboard_log_download_status(mg_core_t* core) {
     CHECK_CORE(core);
     CHECK_MAVLINK(core);
-    const auto status = get_active_mavlink(core)->log_download_status();
+    const auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    const auto status = mav->log_download_status();
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("active", status.active || status.saving);
@@ -128,7 +135,8 @@ MGCORE_API char* mg_onboard_log_erase(mg_core_t* core) {
     CHECK_CORE(core);
     CHECK_MAVLINK(core);
     CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     // 擦除会作废正在传输的日志；下载进行中直接拒绝，避免半途丢失数据。
     if (mav->log_download_active()) {
         return fail(MG_ERROR_NOT_SUPPORTED, "cannot erase logs while a download is active");
@@ -307,7 +315,9 @@ MGCORE_API char* mg_fs_list_directory(mg_core_t* core, const char* remote_path) 
     if (std::strlen(remote_path) > mg::core::ftp::MavlinkFtpClient::kMaxReadSize) {
         return fail(MG_ERROR_INVALID_PARAM, "remote path too long");
     }
-    if (!get_active_mavlink(core)->file_list_start(
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    if (!mav->file_list_start(
             active_target_sys(core), active_target_comp(core), remote_path)) {
         return fail(MG_ERROR_BUSY, "file transfer already in progress");
     }
@@ -326,7 +336,9 @@ MGCORE_API char* mg_fs_download_file(mg_core_t* core, const char* remote_path,
     if (std::strlen(remote_path) > mg::core::ftp::MavlinkFtpClient::kMaxReadSize) {
         return fail(MG_ERROR_INVALID_PARAM, "remote path too long");
     }
-    if (!get_active_mavlink(core)->file_download_start(
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    if (!mav->file_download_start(
             active_target_sys(core), active_target_comp(core),
             remote_path, local_path)) {
         return fail(MG_ERROR_BUSY, "file transfer already in progress");
@@ -346,7 +358,9 @@ MGCORE_API char* mg_fs_upload_file(mg_core_t* core, const char* local_path,
     if (std::strlen(remote_path) > mg::core::ftp::MavlinkFtpClient::kMaxReadSize) {
         return fail(MG_ERROR_INVALID_PARAM, "remote path too long");
     }
-    if (!get_active_mavlink(core)->file_upload_start(
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    if (!mav->file_upload_start(
             active_target_sys(core), active_target_comp(core),
             local_path, remote_path)) {
         return fail(MG_ERROR_BUSY, "file transfer already in progress");
@@ -359,7 +373,9 @@ MGCORE_API char* mg_fs_transfer_status(mg_core_t* core) {
     CHECK_MAVLINK(core);
     // 状态查询在断链后也应可用：传输是因为断链失败还是被取消，界面需要看到
     // 最终结果，而不是在断开瞬间丢掉「上次传到哪」。
-    const auto status = get_active_mavlink(core)->file_transfer_status();
+    const auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    const auto status = mav->file_transfer_status();
 
     const char* task = "idle";
     switch (status.task) {
@@ -419,7 +435,9 @@ MGCORE_API char* mg_fs_cancel(mg_core_t* core) {
     // 取消只置位请求，真正的收尾在后台线程上完成；状态从 cancelling 变为
     // cancelled 由 mg_fs_transfer_status 汇报，避免界面把「已请求取消」当成
     // 「已经取消」。
-    if (!get_active_mavlink(core)->file_transfer_cancel()) {
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    if (!mav->file_transfer_cancel()) {
         return fail(MG_ERROR_NOT_SUPPORTED, "no active file transfer");
     }
     return ok();

@@ -8,7 +8,8 @@
 namespace mg::bridge::ffi {
 
 bool mission_uses_home_item(mg_core_t* core) {
-    auto* mav = resolve_vehicle_session(core).mavlink;
+    const auto session = resolve_vehicle_session(core);
+    const auto& mav = session.mavlink_lease;
     auto hb = mav ? mav->latest_heartbeat() : std::nullopt;
     return hb.has_value() && hb->autopilot_type == MAV_AUTOPILOT_ARDUPILOTMEGA;
 }
@@ -41,7 +42,8 @@ mg::core::mission::MissionItem build_ardupilot_home_item(
         return home;
     }
 
-    auto* mav = resolve_vehicle_session(core).mavlink;
+    const auto session = resolve_vehicle_session(core);
+    const auto& mav = session.mavlink_lease;
     if (!mav) return home;
 
     const auto hp = mav->latest_home_position();

@@ -23,7 +23,7 @@ static void test_fallback_session_is_available() {
 
     auto session = mg::bridge::ffi::resolve_vehicle_session(env.core);
     CHECK(session.vehicle != nullptr, "fallback vehicle is available");
-    CHECK(session.mavlink != nullptr, "fallback mavlink is available");
+    CHECK(session.mavlink_lease != nullptr, "fallback mavlink lease is available");
     CHECK(session.connected == false, "fallback session starts disconnected");
 }
 
@@ -110,7 +110,7 @@ static void test_session_status_includes_position() {
     mavlink_msg_global_position_int_encode(1, 1, &message, &position);
     uint8_t bytes[MAVLINK_MAX_PACKET_LEN];
     const uint16_t length = mavlink_msg_to_send_buffer(bytes, &message);
-    vehicle->conn().get_mavlink()->feed_raw(bytes, length);
+    vehicle->conn().shared_mavlink()->feed_raw(bytes, length);
 
     mavlink_home_position_t home_position{};
     home_position.latitude = 399000000;
@@ -120,7 +120,7 @@ static void test_session_status_includes_position() {
     mavlink_msg_home_position_encode(1, 1, &home_message, &home_position);
     const uint16_t home_length =
         mavlink_msg_to_send_buffer(bytes, &home_message);
-    vehicle->conn().get_mavlink()->feed_raw(bytes, home_length);
+    vehicle->conn().shared_mavlink()->feed_raw(bytes, home_length);
 
     char* status = mg_vehicle_get_session_status(env.core, 91);
     CHECK(status && strstr(status, "\"position_valid\":true"),
@@ -151,7 +151,7 @@ static void test_session_status_includes_position() {
         item.z = 50.0f + index;
         plan.items.push_back(item);
     }
-    CHECK(vehicle->conn().get_mavlink()->mission_upload(1, 1, plan),
+    CHECK(vehicle->conn().shared_mavlink()->mission_upload(1, 1, plan),
           "vehicle mission upload starts for fleet route query");
     char* mission = mg_vehicle_get_session_mission(env.core, 91);
     CHECK(mission && strstr(mission, "\"success\":true") &&
@@ -188,7 +188,7 @@ static void test_independent_vehicle_telemetry_and_registry_lease() {
             4, MAV_STATE_ACTIVE);
         uint8_t bytes[MAVLINK_MAX_PACKET_LEN];
         const auto size = mavlink_msg_to_send_buffer(bytes, &msg);
-        v->conn().get_mavlink()->feed_raw(bytes, size);
+        v->conn().shared_mavlink()->feed_raw(bytes, size);
     };
     feed_heartbeat(a, 1);
     feed_heartbeat(b, 2);
@@ -541,11 +541,11 @@ static void test_target_scope_is_core_local_and_nested() {
     first.core->vehicles.add_for_test(v);
     auto* second_default = mg::bridge::ffi::require_vehicle(second.core);
     {
-        mg::bridge::ffi::VehicleTargetScope outer(first.core, v.get());
+        mg::bridge::ffi::VehicleTargetScope outer(first.core, v);
         CHECK(mg::bridge::ffi::require_vehicle(first.core) == v.get(), "scope selects target on owning core");
         CHECK(mg::bridge::ffi::require_vehicle(second.core) == second_default, "scope does not leak into other core");
         {
-            mg::bridge::ffi::VehicleTargetScope inner(second.core, second_default);
+            mg::bridge::ffi::VehicleTargetScope inner(second.core, second.core->fallback_vehicle);
             CHECK(mg::bridge::ffi::require_vehicle(second.core) == second_default, "nested scope resolves its own core");
         }
         CHECK(mg::bridge::ffi::require_vehicle(first.core) == v.get(), "nested scope restores outer target");
@@ -560,6 +560,89 @@ static void test_target_scope_is_core_local_and_nested() {
         CHECK(result && strstr(result, "\"success\":false"), "out-of-range command numbers rejected without integer cast overflow");
         mg_free_string(result);
     }
+}
+
+static void test_session_scope_pins_identity_and_lifetime() {
+    fprintf(stderr, "\n[Group] session snapshot identity and lifetime\n");
+    MockVehicleTestEnv env;
+
+    const auto attach = [&](int vehicle_id, uint8_t system_id, bool connected) {
+        auto vehicle = std::make_shared<mg::core::vehicle::Vehicle>(vehicle_id);
+        auto link = std::make_unique<mg::core::transport::InMemoryLink>();
+        link->open();
+        auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
+        auto* raw_link = link.get();
+        mav->set_send_callback([raw_link](const uint8_t* bytes, size_t size) {
+            return raw_link->send(bytes, size);
+        });
+        vehicle->conn().wire_for_test(std::move(link), std::move(mav));
+        vehicle->init_subsystems();
+        if (connected) {
+            vehicle->wire_telemetry_callbacks();
+        } else {
+            vehicle->conn().shared_mavlink()->on_heartbeat(
+                [](const mg::core::mavlink::HeartbeatInfo&) {});
+        }
+        env.core->vehicles.add_for_test(vehicle);
+
+        mavlink_message_t message{};
+        mavlink_msg_heartbeat_pack(system_id, 1, &message, MAV_TYPE_QUADROTOR,
+            MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+            4, MAV_STATE_ACTIVE);
+        uint8_t bytes[MAVLINK_MAX_PACKET_LEN];
+        const auto size = mavlink_msg_to_send_buffer(bytes, &message);
+        vehicle->conn().shared_mavlink()->feed_raw(bytes, size);
+        return vehicle;
+    };
+
+    auto first = attach(101, 11, true);
+    auto second = attach(102, 22, false);
+    env.core->vehicles.set_active_vehicle(101);
+
+    {
+        mg::bridge::ffi::VehicleSessionScope pinned(env.core);
+        const auto initial = mg::bridge::ffi::resolve_vehicle_session(env.core);
+        CHECK(initial.vehicle == first.get(), "scope captures the focused vehicle");
+        CHECK(initial.vehicle_lease != nullptr, "scope owns the focused vehicle");
+        CHECK(initial.mavlink_lease != nullptr, "scope owns the adapter lease");
+        CHECK(initial.target_sys == 11 && initial.target_comp == 1,
+              "scope captures target identity with the adapter");
+        CHECK(initial.connected, "scope captures connected state with the adapter");
+
+        env.core->vehicles.set_active_vehicle(102);
+        const auto after_focus_change = mg::bridge::ffi::resolve_vehicle_session(env.core);
+        CHECK(after_focus_change.vehicle == first.get(),
+              "active vehicle changes do not replace a pinned session");
+        CHECK(after_focus_change.target_sys == 11 && after_focus_change.target_comp == 1,
+              "target identity remains from the pinned session");
+        CHECK(after_focus_change.connected,
+              "connection state remains from the pinned session");
+
+        {
+            mg::bridge::ffi::VehicleTargetScope target(env.core, second);
+            const auto explicit_target = mg::bridge::ffi::resolve_vehicle_session(env.core);
+            CHECK(explicit_target.vehicle == second.get(),
+                  "explicit target scope selects the requested vehicle");
+            CHECK(explicit_target.target_sys == 22 && explicit_target.target_comp == 1,
+                  "explicit target scope captures its target identity");
+            CHECK(!explicit_target.connected,
+                  "explicit target scope captures its own connection state");
+        }
+        const auto restored = mg::bridge::ffi::resolve_vehicle_session(env.core);
+        CHECK(restored.vehicle == first.get(),
+              "explicit target scope restores the outer session");
+
+        CHECK(env.core->vehicles.close_vehicle(101),
+              "focused vehicle can be removed while the snapshot is live");
+        const auto after_close = mg::bridge::ffi::resolve_vehicle_session(env.core);
+        CHECK(after_close.vehicle == first.get() && after_close.mavlink_lease,
+              "vehicle and adapter leases survive registry removal");
+        CHECK(after_close.target_sys == 11 && after_close.connected,
+              "removed session still exposes its captured identity and state");
+    }
+
+    CHECK(mg::bridge::ffi::resolve_vehicle_session(env.core).vehicle == second.get(),
+          "session scope restores active focus after exit");
 }
 
 static void test_targeted_operation_cancel_isolated() {
@@ -580,8 +663,8 @@ static void test_targeted_operation_cancel_isolated() {
           "fleet summary exposes heartbeat freshness state");
     mg_free_string(fleet_summary);
 
-    auto* first_mav = env.ends[0].vehicle->mavlink();
-    auto* second_mav = env.ends[1].vehicle->mavlink();
+    const auto first_mav = env.ends[0].vehicle->shared_mavlink();
+    const auto second_mav = env.ends[1].vehicle->shared_mavlink();
     CHECK(first_mav->request_param_list(1, 1),
           "first vehicle starts parameter download");
     CHECK(first_mav->param_download_active(),
@@ -708,8 +791,8 @@ static void test_targeted_operation_timeout_isolated() {
     env.add(52, 2);
     CHECK(env.wait_connected(), "two mock vehicles connect for timeout isolation");
 
-    auto* first_mav = env.ends[0].vehicle->mavlink();
-    auto* second_mav = env.ends[1].vehicle->mavlink();
+    const auto first_mav = env.ends[0].vehicle->shared_mavlink();
+    const auto second_mav = env.ends[1].vehicle->shared_mavlink();
     CHECK(first_mav->mission_download(1, 1),
           "first vehicle starts mission download");
     CHECK(first_mav->mission_get_progress().state !=
@@ -788,7 +871,7 @@ static void test_ffi_signing_control() {
           "signing status reports enabled state");
     mg_free_string(result);
 
-    CHECK(vehicle->mavlink()->send_heartbeat(), "signed vehicle heartbeat sends");
+    CHECK(vehicle->shared_mavlink()->send_heartbeat(), "signed vehicle heartbeat sends");
     const auto outgoing = raw_link->take_outgoing();
     CHECK(outgoing.size() > 2 &&
               (outgoing[2] & MAVLINK_IFLAG_SIGNED) != 0,
@@ -867,6 +950,7 @@ int main() {
     fprintf(stderr, "=== Bridge Vehicle Session Tests ===\n");
     test_per_vehicle_mission_document_isolation();
     test_target_scope_is_core_local_and_nested();
+    test_session_scope_pins_identity_and_lifetime();
     test_session_status_includes_position();
     test_independent_vehicle_telemetry_and_registry_lease();
     test_targeted_command_dispatch_isolated();

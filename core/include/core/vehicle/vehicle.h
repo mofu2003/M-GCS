@@ -141,9 +141,9 @@ public:
         return detached_conn_;
     }
     mg::core::vehicle::VehicleLinkManager& link_manager() { return link_manager_; }
-    mg::core::mavlink::MavlinkAdapter* mavlink() const {
+    std::shared_ptr<mg::core::mavlink::MavlinkAdapter> shared_mavlink() const {
         const auto connection = primary_connection();
-        return connection ? connection->get_mavlink() : nullptr;
+        return connection ? connection->shared_mavlink() : nullptr;
     }
     bool set_signing_key(const uint8_t* key, size_t key_size,
                          bool sign_outgoing, uint64_t persisted_timestamp,

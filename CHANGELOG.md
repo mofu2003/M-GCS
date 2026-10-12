@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- 下一轮开发的变更记录从这里开始；发布时整体迁入带版本号的段落。 -->
 
+### Changed
+
+- **Development strategy**: Version 0.2.x focuses on ArduPilot firmware support. PX4 support is deferred to 0.3.0+. 
+  See ADR-0008 for rationale. PX4-related code remains in the codebase to maintain architectural extensibility.
+  (`README.md`, `AGENTS.md`, `docs/adr/0008-ardupilot-first-px4-deferred.md`)
+- **Documentation cleanup**: Archived PX4 parity document and transient work reports to `docs/archive/`.
+  (`docs/features/px4-parity.md` → `docs/archive/px4-parity-deferred.md`)
+- **Known deviations**: KD-53 (PX4 gyro calibration parameter hardcoding) status changed to "deferred" 
+  per ArduPilot-first strategy. (`docs/constraints/known-deviations.md`)
+
+### Fixed
+
+- **Architectural risks eliminated** (Phase 1 of quality hardening):
+  - **KD-49 (ABBA deadlock risk)**: `deliver_frame()` now copies `send_cb` under lock and invokes it 
+    outside all locks, eliminating potential ABBA deadlock between `send_mtx` and external locks. 
+    ADR-0009 defines lock ordering (`mtx → send_mtx`) and callback execution rules.
+    (`core/src/mavlink/mavlink_adapter_internal.h`, `docs/adr/0009-send-mutex-and-ownership-model.md`)
+  - **KD-52 (use-after-free risk)**: `wire_callbacks()` now captures `MavlinkAdapter` via `weak_ptr` 
+    instead of raw pointer, eliminating use-after-free when callbacks outlive the adapter. ADR-0009 
+    defines the ownership model (`ConnectionManager` as sole owner).
+    (`core/src/transport/connection_manager.cc`, `docs/adr/0009-send-mutex-and-ownership-model.md`)
+  - **Concurrency regression tests**: Added `test_mavlink_send_callback_reentrancy.cc` to verify 
+    callback reentrancy and concurrent operations do not deadlock. (3/3 tests passing)
+    (`core/tests/test_mavlink_send_callback_reentrancy.cc`)
+
+### Documentation
+
+- **ADR renumbering**: ADR-0007 (PX4 parameter metadata) and ADR-0008 (video decode) renumbered to 
+  ADR-0007 and ADR-0010 respectively. ADR-0008 now documents ArduPilot-first strategy. ADR-0009 
+  documents send mutex and ownership model.
+
 ## [0.2.2] - 2026-10-12
 
 ### Fixed

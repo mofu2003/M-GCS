@@ -36,10 +36,8 @@ CAPABILITY_METADATA = {
     "ffi_api_telemetry.h": ("部分接入", "遥测快照、姿态、GPS、电池进入顶栏/仪表盘；波形与部分导航量仍为 FFI 内部能力。"),
 }
 
-# 公开导出但没有前端绑定、且定位已明确为“内部能力”的符号（不计划接 UI）。
-# 这些符号必须在 API_CATALOG.md 的「已定性的公开导出」一节里给出定位。
-# 一旦被 Flutter 绑定（说明定位变了），或引用了不存在的导出，preflight 会失败，
-# 要求同步更新定位，避免出现“公开导出但身份不明”的历史堆积。
+# 公开导出的定位表。各分类符号都必须在 API_CATALOG.md 的「已定性的公开导出」
+# 一节里说明；若绑定状态改变或引用了不存在的导出，preflight 会要求重新评估定位。
 INTERNAL_SYMBOL_NOTES = {
     "mg_px4_actuator_get_config": "PX4 执行器映射；内部能力（通用参数页覆盖 PWM_MAIN_FUNC1..16）",
     "mg_px4_actuator_set_config": "PX4 执行器映射；内部能力（通用参数页覆盖 PWM_MAIN_FUNC1..16）",
@@ -65,6 +63,31 @@ INTERNAL_SYMBOL_NOTES = {
 # 未来若出现“已被取代但暂不删除”的导出，可在此登记定位说明。
 SUPERSEDED_SYMBOL_NOTES = {}
 
+# 公开功能保留在当前 ABI 中，但按版本范围延期到 0.3.0 之后。
+DEFERRED_SYMBOL_NOTES = {
+    "mg_calibration_start_airspeed": "延期至 0.3.0 之后；当前版本不接入空速校准 UI",
+    "mg_config_apply_preset": "延期至 0.3.0 之后；当前版本不接入参数预设 UI",
+    "mg_config_get_presets": "延期至 0.3.0 之后；当前版本不接入参数预设 UI",
+    "mg_discover_devices": "延期至 0.3.0 之后；当前连接面板使用端口枚举路径",
+    "mg_event_log_get_status": "延期至 0.3.0 之后；事件日志服务当前不接入 UI",
+    "mg_mission_set_current": "延期至 0.3.0 之后；当前版本不提供跳转到航点入口",
+    "mg_param_file_import": "延期至 0.3.0 之后；参数文件导入 UI 尚未接入",
+    "mg_session_log_start": "延期至 0.3.0 之后；会话文件日志当前不接入 UI",
+    "mg_session_log_status": "延期至 0.3.0 之后；会话文件日志当前不接入 UI",
+    "mg_session_log_stop": "延期至 0.3.0 之后；会话文件日志当前不接入 UI",
+}
+
+# 旧 telemetry series 记录器的退役候选。仅作治理标记，不代表已确认没有仓库外
+# ABI 使用者，也不在本次删除 ABI。
+RETIREMENT_CANDIDATE_NOTES = {
+    "mg_telemetry_append": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
+    "mg_telemetry_clear": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
+    "mg_telemetry_get_series": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
+    "mg_telemetry_get_series_names": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
+    "mg_telemetry_get_stats": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
+    "mg_telemetry_register_series": "退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性",
+}
+
 
 def classified_symbols():
     """返回 {symbol: (类别, 定位)}，覆盖所有已定性的公开导出。"""
@@ -73,6 +96,10 @@ def classified_symbols():
         notes[symbol] = ("内部能力", note)
     for symbol, note in SUPERSEDED_SYMBOL_NOTES.items():
         notes[symbol] = ("被取代", note)
+    for symbol, note in DEFERRED_SYMBOL_NOTES.items():
+        notes[symbol] = ("0.3.0 之后延期", note)
+    for symbol, note in RETIREMENT_CANDIDATE_NOTES.items():
+        notes[symbol] = ("退役候选", note)
     return notes
 
 
@@ -200,10 +227,10 @@ def test_referenced_symbols():
 
 
 def unbound_debt(api, bindings, tested):
-    """Public exports with no frontend binding, no internal-only note and no test caller.
+    """Public exports with no frontend binding, classification or test caller.
 
-    这些符号是 A7 意义上的存量债务：既没进 UI，也没定性为内部能力，还没有任何
-    测试引用。基线只允许缩小，不能让新导出悄悄加入。
+    这些符号是 A7 意义上的存量债务：既没进 UI，也没有明确分类，还没有任何测试引用。
+    基线只允许缩小，不能让新导出悄悄加入。
     """
     debt = set(api) - set(bindings) - set(classified_symbols()) - set(tested)
     return sorted(debt)
@@ -212,8 +239,8 @@ def unbound_debt(api, bindings, tested):
 def sync_unbound_baseline(debt, write):
     payload = {
         "_comment": (
-            "公开导出中「无前端绑定、无内部能力定性、无测试引用」的存量清单。"
-            "基线只允许缩小：新增未定性导出会失败；已覆盖的符号必须从基线删除。"
+            "公开导出中「无前端绑定、无分类、无测试引用」的存量清单。"
+            "基线只允许缩小：新增未分类导出会失败；已覆盖或分类的符号必须从基线删除。"
             "语义与跟踪方式见 docs/constraints/known-deviations.md 的 KD-45。"
         ),
         "symbols": debt,
@@ -233,11 +260,11 @@ def sync_unbound_baseline(debt, write):
         lines = []
         if added:
             lines.append(
-                "new public exports with no UI binding, no internal-only note and no test caller "
-                "(bind, test or register them, then rerun --write-baseline): " + ", ".join(added))
+                "new public exports with no UI binding, classification or test caller "
+                "(bind, test or classify them, then rerun --write-baseline): " + ", ".join(added))
         if removed:
             lines.append(
-                "baseline symbols are now bound or test-referenced; drop them from the baseline "
+                "baseline symbols are now bound, classified or test-referenced; drop them from the baseline "
                 "(rerun --write-baseline): " + ", ".join(removed))
         raise ValueError("; ".join(lines))
 
@@ -277,11 +304,10 @@ def catalog_text(api, bindings):
     if notes:
         lines += [
             "## 已定性的公开导出", "",
-            "这些符号保留在 ABI 中，但定位已经明确，没有前端 UI 计划：**内部能力**只服务",
-            "开发、离线分析或原生测试；**被取代**是被更新接口取代的历史路径，现已全部从源码删除并",
-            "登记进 `RETIRED_SYMBOLS`（因此该类别在当前 ABI 中为空，表结构保留作占位）。",
-            "`tools/check_ffi_contract.py` 会在它们被 Flutter 绑定后报错，要求同步定位",
-            "（见脚本的 `INTERNAL_SYMBOL_NOTES`、`SUPERSEDED_SYMBOL_NOTES` 与 `RETIRED_SYMBOLS`）。", "",
+            "这些符号保留在 ABI 中且定位已经明确：**内部能力**只服务开发、离线分析或原生测试；",
+            "**0.3.0 之后延期**是当前版本明确不接 UI 的功能接口；**退役候选**仍保留导出，",
+            "待兼容性确认后再删除；**被取代**是已从源码删除并登记进 `RETIRED_SYMBOLS` 的历史路径。",
+            "分类符号若被 Flutter 绑定，`tools/check_ffi_contract.py` 会要求重新评估定位。", "",
             "| 符号 | 类别 | 定位 |", "| --- | --- | --- |",
         ]
         for symbol in sorted(notes):
@@ -297,7 +323,7 @@ def main():
     parser.add_argument(
         "--write-baseline",
         action="store_true",
-        help="freeze the current unbound/untested export set into tools/ffi_unbound_baseline.json",
+        help="freeze the current unbound, unclassified, untested export debt",
     )
     parser.add_argument("--library", type=Path)
     args = parser.parse_args()
@@ -312,16 +338,22 @@ def main():
     retired_bindings = RETIRED_SYMBOLS & set(bindings)
     if retired_bindings:
         raise ValueError("Dart still binds retired FFI symbols: " + ", ".join(sorted(retired_bindings)))
-    dup_notes = sorted(set(INTERNAL_SYMBOL_NOTES) & set(SUPERSEDED_SYMBOL_NOTES))
+    note_sets = [
+        set(INTERNAL_SYMBOL_NOTES), set(SUPERSEDED_SYMBOL_NOTES),
+        set(DEFERRED_SYMBOL_NOTES), set(RETIREMENT_CANDIDATE_NOTES),
+    ]
+    dup_notes = sorted(set().union(*(
+        note_sets[i] & note_sets[j]
+        for i in range(len(note_sets)) for j in range(i + 1, len(note_sets))
+    )))
     if dup_notes:
-        raise ValueError(
-            "symbols classified twice (internal and superseded): " + ", ".join(dup_notes))
+        raise ValueError("symbols classified more than once: " + ", ".join(dup_notes))
     notes = classified_symbols()
     now_bound = sorted(set(notes) & set(bindings))
     if now_bound:
         raise ValueError(
-            "symbols classified as internal/superseded are now bound in Dart; update "
-            "INTERNAL_SYMBOL_NOTES/SUPERSEDED_SYMBOL_NOTES: " + ", ".join(now_bound))
+            "classified symbols are now bound in Dart; review their classification notes: "
+            + ", ".join(now_bound))
     unknown_notes = sorted(set(notes) - set(api))
     if unknown_notes:
         raise ValueError(

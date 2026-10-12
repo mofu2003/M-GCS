@@ -40,7 +40,7 @@ constexpr int kPx4FlightModeSlotCount = 6;
 
 /// 参数是否已经由参数缓存读回。缓存里没有时不写，也不把“已发送”当成成功。
 bool param_cached(mg_core_t* core, const std::string& name) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     return mav != nullptr && mav->get_param_by_name(name.c_str()).has_value();
 }
 
@@ -135,7 +135,7 @@ MGCORE_API char* mg_px4_safety_get(mg_core_t* core) {
     CHECK_CORE(core);
     if (!ffi_is_px4(core)) return fail(MG_ERROR_NOT_SUPPORTED, "not a PX4 vehicle");
     std::vector<std::string> names;
-    if (auto* mav = get_active_mavlink(core)) {
+    if (auto mav = shared_active_mavlink(core)) {
         for (const auto& param : mav->all_params()) {
             if (is_cbrk_name(param.name)) names.push_back(param.name);
         }

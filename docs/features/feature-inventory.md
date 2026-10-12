@@ -11,10 +11,12 @@
 - **已交付**：主要工作流有实际 UI 入口，成功/失败/超时/断链都有定义，且有对应测试。
 - **部分接入**：模块内一部分能力已进 UI，其余仍是内部接口或仅测试覆盖。
 - **待接入**：能力已在 FFI 暴露且有原生实现，但尚未提供 UI 入口。
+- **延期至 0.3.0 之后**：保留原生实现与 ABI，当前版本明确不接入 UI。
 - **内部能力**：只服务开发、离线分析或原生测试，刻意不进入业务 UI。
+- **退役候选**：暂保留 ABI，尚待确认仓库外兼容性与独立用途后再决定是否删除。
 - **已删除（历史遗留）**：被更新接口取代、且确认无未来用途的历史导出，已从源码与本轮 ABI 删除，并登记进 `RETIRED_SYMBOLS`（当前无此类导出，见 §4.1）。
 
-底层统计（`python3 tools/check_ffi_contract.py`）：公开导出 **280** 个，前端已绑定 **136** 个，未绑定 **144** 个；其中内部能力 **17** 个、仅测试引用 **108** 个、剩余未定性债务 **19** 个（`tools/ffi_unbound_baseline.json`）。0.2.1 已删除 34 个无调用方、无未来用途的历史导出，见 §4.1 与 `CHANGELOG.md`。
+底层统计（`python3 tools/check_ffi_contract.py`）：公开导出 **280** 个，前端已绑定 **136** 个，未绑定 **144** 个；其中内部能力 **17** 个、0.3.0+ 延期 **10** 个、退役候选 **6** 个、仅测试引用 **111** 个，当前没有未定性债务。0.2.1 已删除 34 个无调用方、无未来用途的历史导出，见 §4.1 与 `CHANGELOG.md`。
 
 ## 1. 已实现功能（已交付，用户可见）
 
@@ -114,18 +116,18 @@
 
 ## 3. 未实现 / 未接入前端
 
-### 3.1 FFI 已有、但未接 UI（待接入）
+### 3.1 FFI 已有、但未接 UI（延期至 0.3.0 之后或退役候选）
 
 | 能力 | 导出 | 实现 | 现状 |
 | --- | --- | --- | --- |
-| 参数文件导入导出 | `mg_param_file_export/import(_csv)` | `bridge/ffi/ffi_telemetry.cc` | 纯内容变换（JSON 数组 ↔ `.param`/CSV 文本），未接前端文件选择；这是参数文件功能的**规范实现**，磁盘读写交给 Dart |
-| 参数预设 | `mg_config_get_presets`/`apply_preset` | `bridge/ffi/ffi_config.cc` | 无预设管理 UI |
-| 空速校准 | `mg_calibration_start_airspeed` | `bridge/ffi/ffi_calibration.cc` | 校准页无该入口 |
-| 设备发现 | `mg_discover_devices` | `bridge/ffi/ffi_vehicle_manager.cc` | 连接面板走端口枚举，未用此路径 |
-| 事件日志状态 | `mg_event_log_get_status` | `bridge/ffi/ffi_logging.cc` | 事件日志服务未接 UI |
-| 会话文件日志 | `mg_session_log_start/stop/status` | `bridge/ffi/ffi_telemetry.cc` | 未接 UI |
-| 遥测 series 记录器 | `mg_telemetry_register_series` 等 6 个 | `bridge/ffi/ffi_telemetry.cc` | 前端波形走 `mg_waveform_*`，series 未用 |
-| 跳转到航点 | `mg_mission_set_current` | `bridge/ffi/ffi_mission_commands.cc` | 无入口 |
+| 参数文件导入 | `mg_param_file_import` | `bridge/ffi/ffi_telemetry.cc` | 延期至 0.3.0 之后；导入入口无 UI，磁盘读写由 Dart 负责；导出/CSV 转换是独立接口 |
+| 参数预设 | `mg_config_get_presets`/`apply_preset` | `bridge/ffi/ffi_config.cc` | 延期至 0.3.0 之后；当前无预设管理 UI |
+| 空速校准 | `mg_calibration_start_airspeed` | `bridge/ffi/ffi_calibration.cc` | 延期至 0.3.0 之后；校准页无该入口 |
+| 设备发现 | `mg_discover_devices` | `bridge/ffi/ffi_vehicle_manager.cc` | 延期至 0.3.0 之后；连接面板走端口枚举 |
+| 事件日志状态 | `mg_event_log_get_status` | `bridge/ffi/ffi_logging.cc` | 延期至 0.3.0 之后；事件日志服务未接 UI |
+| 会话文件日志 | `mg_session_log_start/stop/status` | `bridge/ffi/ffi_telemetry.cc` | 延期至 0.3.0 之后；当前未接 UI |
+| 遥测 series 记录器 | `mg_telemetry_*`（6 个） | `bridge/ffi/ffi_telemetry.cc` | 退役候选，本次保留 ABI；前端波形走 `mg_waveform_*` |
+| 跳转到航点 | `mg_mission_set_current` | `bridge/ffi/ffi_mission_commands.cc` | 延期至 0.3.0 之后；当前无入口 |
 
 ### 3.2 完全未实现（QGC/MP 有、M-GCS 目前没有）
 
@@ -139,13 +141,15 @@
 
 ## 4. 未接入前端的 FFI 导出明细
 
-当前公开导出 280 个、前端已绑定 136 个，未绑定 144 个 = **17 个内部能力**（逐符号定位见 `bridge/ffi/API_CATALOG.md` 的「已定性的公开导出」一节，由 `tools/check_ffi_contract.py` 生成）+ **108 个仅测试引用**（通过合约测试保持契约，不逐一列出）+ **19 个剩余债务**（4.3）。
+当前公开导出 280 个、前端已绑定 136 个，未绑定 144 个 = **17 个内部能力** + **10 个延期至 0.3.0 之后的接口** + **6 个退役候选** + **111 个仅测试引用**（分类接口逐符号列于 `bridge/ffi/API_CATALOG.md` 的「已定性的公开导出」一节）。
 
 处置方式（沿用 KD-45）：
 
 - **绑定 UI**：真正需要用户入口的能力，进入待办（3.1）。
 - **补测试引用**：有原生价值但无 UI 需求，用合约测试固定契约。
 - **定性为内部能力**：只服务开发/离线/原生测试，登记进 `INTERNAL_SYMBOL_NOTES`。
+- **延期至 0.3.0 之后**：保留实现与 ABI，登记进 `DEFERRED_SYMBOL_NOTES`；当前版本不承诺 UI 入口。
+- **退役候选**：登记进 `RETIREMENT_CANDIDATE_NOTES`，本轮不删除 ABI；先确认仓库外兼容性和独立用途。
 - **删除旧路径**：被更新接口取代、且确认无未来用途的历史导出，直接删除并登记进 `RETIRED_SYMBOLS`，防止误恢复。
 
 ### 4.1 已删除的旧路径（0.2.1 清理记录）
@@ -171,13 +175,19 @@
 - **参数预校验（1）**：`mg_config_validate_param`；前端按描述符范围/枚举本地校验。
 - **ABI 基础设施（1）**：`mg_error_string`（错误码→字符串常量）。
 
-### 4.3 剩余未定性债务（19 个）
+### 4.3 延期接口与退役候选（16 个）
 
-`tools/ffi_unbound_baseline.json` 当前固化 19 个「无绑定、无定性、无测试引用」的导出，主要是 3.1 里的待接入能力（参数文件内容变换、事件/会话日志、遥测 series、跳转到航点、空速校准、预设、设备发现）。门禁只允许基线缩小：新增未定性导出会失败，被绑定/被测试引用/被定性后仍留在基线的符号也会失败。
+原先固化在 `tools/ffi_unbound_baseline.json` 的 16 个未绑定接口已完成分类，保留原生实现与 ABI：
+
+- **延期至 0.3.0 之后（10）**：`mg_calibration_start_airspeed`、`mg_config_apply_preset`、`mg_config_get_presets`、`mg_discover_devices`、`mg_event_log_get_status`、`mg_mission_set_current`、`mg_param_file_import`、`mg_session_log_start`、`mg_session_log_status`、`mg_session_log_stop`。延期表示当前版本不接 UI，不表示该功能已经交付。
+- **退役候选（6）**：`mg_telemetry_append`、`mg_telemetry_clear`、`mg_telemetry_get_series`、`mg_telemetry_get_series_names`、`mg_telemetry_get_stats`、`mg_telemetry_register_series`。这些接口本次继续保留 ABI；删除前需确认仓库外兼容性及是否存在独立用途。
+
+`tools/ffi_unbound_baseline.json` 不再包含这批已分类接口。门禁仍会拒绝新增的「无前端绑定、无分类、无测试引用」导出。
 
 ## 5. 维护规则
 
-- 改 `CAPABILITY_METADATA`、`INTERNAL_SYMBOL_NOTES`、`SUPERSEDED_SYMBOL_NOTES` 或 `RETIRED_SYMBOLS` 后，跑
-  `python3 tools/check_ffi_contract.py --write-catalog` 与 `--write-baseline` 再提交。
+- 改 `CAPABILITY_METADATA`、`INTERNAL_SYMBOL_NOTES`、`SUPERSEDED_SYMBOL_NOTES`、
+  `DEFERRED_SYMBOL_NOTES`、`RETIREMENT_CANDIDATE_NOTES` 或 `RETIRED_SYMBOLS` 后，跑
+  `python3 tools/check_ffi_contract.py --write-catalog --write-baseline` 再提交。
 - 新增公开导出必须同时给出绑定、测试引用或定性，否则 `tools/preflight.sh` 会失败。
 - 本文件是人工维护的功能视图；模块级的机器校验以 `docs/capabilities.md` 与 `bridge/ffi/API_CATALOG.md` 为准。

@@ -392,6 +392,7 @@ if(MGCORE_BUILD_TESTS)
         tests/test_ffi_response_contract.cc
         core/tests/test_mavlink_protocol.cc
         core/tests/test_mavlink_router.cc
+        core/tests/test_mavlink_send_callback_reentrancy.cc
         core/tests/test_shared_link_transports.cc
 
         tests/test_px4_sensor_offline.cc

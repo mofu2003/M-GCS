@@ -28,7 +28,7 @@ MGCORE_API char* mg_battery_failsafe_configure(mg_core_t* core,
     CHECK_CORE(core);
     CHECK_MAVLINK(core);
     CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
 
     bool ok1 = mav->set_param(active_target_sys(core), active_target_comp(core),
@@ -51,7 +51,7 @@ MGCORE_API char* mg_battery_failsafe_configure(mg_core_t* core,
 
 MGCORE_API char* mg_failsafe_get_status(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
 
     mg::core::telemetry::JsonBuilder jb;

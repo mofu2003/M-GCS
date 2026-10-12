@@ -448,7 +448,7 @@ bool command_future_ready(mg_core_t* core, uint64_t ticket, bool& found) {
 /// 并发缺陷 1 的判别用例（TSan 报 data race / ASan 报 use-after-free）。
 /// 读取方走生产 FFI 入口 resolve_vehicle_session()（每条 FFI 命令都会经过它），
 /// 写入方反复"接线 -> 断链"。
-/// 旧代码：resolve -> ConnectionManager::get_mavlink() 无锁读 mavlink_ptr，
+/// 旧代码：resolve -> ConnectionManager 的借用适配器访问，
 ///   与 reset() 在锁内的 move 并发 = data race；随后解引用已析构的适配器 = UAF。
 /// 新代码：resolve 在锁内取 shared_mavlink() 租约，view 存活期间适配器不析构。
 static void test_session_adapter_access_survives_concurrent_disconnect() {
@@ -462,8 +462,8 @@ static void test_session_adapter_access_survives_concurrent_disconnect() {
     std::thread reader([&] {
         while (!stop.load(std::memory_order_relaxed)) {
             const auto view = mg::bridge::ffi::resolve_vehicle_session(env.core);
-            if (view.mavlink) {
-                (void)view.mavlink->latest_heartbeat();
+            if (view.mavlink_lease) {
+                (void)view.mavlink_lease->latest_heartbeat();
                 observations.fetch_add(1, std::memory_order_relaxed);
                 reader_live.store(true, std::memory_order_relaxed);
             }
@@ -495,7 +495,7 @@ static void test_session_adapter_access_survives_concurrent_disconnect() {
     reader.join();
 
     CHECK(observations.load() > 0, "the reader observed a live adapter");
-    CHECK(env.vehicle->conn().get_mavlink() == nullptr,
+    CHECK(env.vehicle->conn().shared_mavlink() == nullptr,
           "the manager ends detached after the last reset");
 }
 

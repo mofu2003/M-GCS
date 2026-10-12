@@ -88,7 +88,7 @@ MGCORE_API char* mg_sensors_get_statustext(mg_core_t* core) {
 
 MGCORE_API char* mg_vehicle_request_firmware_version(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     if (mav->request_autopilot_version(active_target_sys(core), active_target_comp(core))) {
         return ok();

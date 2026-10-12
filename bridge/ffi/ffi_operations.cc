@@ -255,7 +255,7 @@ MGCORE_API char* mg_operations_get_snapshot_for_vehicle(
     if (vehicle_id <= 0) return fail(MG_ERROR_INVALID_PARAM, "invalid vehicle");
     auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
     if (!vehicle) return fail(MG_ERROR_NOT_FOUND, "vehicle not found");
-    mg::bridge::ffi::VehicleTargetScope scope(core, vehicle.get());
+    mg::bridge::ffi::VehicleTargetScope scope(core, vehicle);
     return to_cstr(
         mg::bridge::operations_detail::operations_snapshot_json(core));
 }
@@ -331,6 +331,6 @@ MGCORE_API char* mg_operations_cancel_for_vehicle(
     if (vehicle_id <= 0) return fail(MG_ERROR_INVALID_PARAM, "invalid vehicle");
     auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
     if (!vehicle) return fail(MG_ERROR_NOT_FOUND, "vehicle not found");
-    mg::bridge::ffi::VehicleTargetScope scope(core, vehicle.get());
+    mg::bridge::ffi::VehicleTargetScope scope(core, vehicle);
     return mg_operations_cancel(core, operation_id);
 }

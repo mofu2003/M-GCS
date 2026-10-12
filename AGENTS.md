@@ -1,6 +1,8 @@
 # M-GCS 仓库协作入口
 
-M-GCS 是无人机地面站，对标 Mission Planner 与 QGroundControl，优先服务 ArduPilot，同时兼容 PX4。
+M-GCS 是无人机地面站，对标 Mission Planner 与 QGroundControl。
+
+**当前版本（0.2.2）聚焦 ArduPilot 固件支持**。PX4 支持计划在 0.3.0+ 版本提供。
 
 开始任何改动前，先按任务类型阅读对应细则：
 

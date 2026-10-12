@@ -52,7 +52,7 @@ constexpr double kMilliGToMetersPerSec2 = 9.80665 / 1000.0;
 constexpr double kMilliGaussToGauss = 1.0 / 1000.0;
 
 void configure_vehicle_telemetry_streams(Vehicle& vehicle) {
-    auto* mav = vehicle.mavlink();
+    const auto mav = vehicle.shared_mavlink();
     if (!mav || vehicle.system_id() == 0) return;
 
     const uint8_t sys = vehicle.system_id();
@@ -498,7 +498,7 @@ bool Vehicle::set_signing_key(const uint8_t* key, size_t key_size,
     bool any = false;
     bool all = true;
     for (const auto& connection : connections) {
-        auto* mav = connection ? connection->get_mavlink() : nullptr;
+        const auto mav = connection ? connection->shared_mavlink() : nullptr;
         if (!mav) continue;
         any = true;
         if (auto_detected && mav->signing_enabled() &&
@@ -526,7 +526,7 @@ bool Vehicle::set_signing_candidates(
     bool any = false;
     bool all = true;
     for (const auto& connection : connections) {
-        auto* mav = connection ? connection->get_mavlink() : nullptr;
+        const auto mav = connection ? connection->shared_mavlink() : nullptr;
         if (!mav) continue;
         any = true;
         all = mav->set_signing_candidates(candidates) && all;
@@ -547,7 +547,7 @@ void Vehicle::clear_signing_candidates() {
         }
     }
     for (const auto& connection : connections) {
-        if (auto* mav = connection ? connection->get_mavlink() : nullptr) {
+        if (const auto mav = connection ? connection->shared_mavlink() : nullptr) {
             mav->clear_signing_candidates();
         }
     }
@@ -566,39 +566,39 @@ void Vehicle::clear_signing_key() {
         }
     }
     for (const auto& connection : connections) {
-        if (auto* mav = connection ? connection->get_mavlink() : nullptr) {
+        if (const auto mav = connection ? connection->shared_mavlink() : nullptr) {
             mav->clear_signing_key();
         }
     }
 }
 
 bool Vehicle::signing_enabled() const {
-    const auto* mav = mavlink();
+    const auto mav = shared_mavlink();
     return mav != nullptr && mav->signing_enabled();
 }
 
 int Vehicle::signing_status() const {
-    const auto* mav = mavlink();
+    const auto mav = shared_mavlink();
     return mav ? static_cast<int>(mav->signing_status()) : 0;
 }
 
 std::string Vehicle::signing_key_name() const {
-    const auto* mav = mavlink();
+    const auto mav = shared_mavlink();
     return mav ? mav->signing_key_name() : std::string();
 }
 
 bool Vehicle::signing_auto_detected() const {
-    const auto* mav = mavlink();
+    const auto mav = shared_mavlink();
     return mav != nullptr && mav->signing_auto_detected();
 }
 
 size_t Vehicle::signing_candidate_count() const {
-    const auto* mav = mavlink();
+    const auto mav = shared_mavlink();
     return mav ? mav->signing_candidate_count() : 0;
 }
 
 uint64_t Vehicle::signing_timestamp() const {
-    const auto* mav = mavlink();
+    const auto mav = shared_mavlink();
     return mav ? mav->signing_timestamp() : 0;
 }
 
@@ -624,7 +624,7 @@ bool Vehicle::send_setup_signing(uint8_t target_system,
     }
     bool any = false;
     for (const auto& connection : connections) {
-        auto* mav = connection ? connection->get_mavlink() : nullptr;
+        const auto mav = connection ? connection->shared_mavlink() : nullptr;
         if (!mav) continue;
         any = mav->send_setup_signing(target_system, target_component, key,
                                       key_size, initial_timestamp) || any;
@@ -704,7 +704,8 @@ void Vehicle::update_and_fire(
     mg::core::telemetry::TelemetryType type,
     int event_id) {
     if (!source) return;
-    std::string json = cache_.update(type, source->get_mavlink());
+    const auto mav = source->shared_mavlink();
+    std::string json = cache_.update(type, mav.get());
     if (!json.empty()) fire_event(event_id, json);
 }
 
@@ -723,7 +724,7 @@ void Vehicle::wire_telemetry_callbacks() {
 void Vehicle::wire_telemetry_callbacks_for(
     mg::core::transport::ConnectionManager* source,
     int route_id) {
-    auto* mav = source ? source->get_mavlink() : nullptr;
+    const auto mav = source ? source->shared_mavlink() : nullptr;
     if (!mav) return;
 
     // 把链路适配器绑到本车自己的 .tlog 写入器（ADR-0006）。绑定是幂等的，
@@ -761,7 +762,7 @@ void Vehicle::wire_telemetry_callbacks_for(
 
         bool expected = false;
         if (self->requested_firmware_version_.compare_exchange_strong(expected, true)) {
-            auto* mav = source->get_mavlink();
+            const auto mav = source->shared_mavlink();
             if (mav) {
                 mav->request_autopilot_version(info.system_id, info.component_id);
             }
@@ -791,7 +792,7 @@ void Vehicle::wire_telemetry_callbacks_for(
             // ArduPilot 只在首次上电和每次解锁时发一次 HOME_POSITION，GCS 连晚了
             // 就收不到，地图上的 home 会一直空着（QGC 的 APMFirmwarePlugin 有同样
             // 的注释与做法）。识别出系统号之后再要，避免猜 target。
-            if (auto* mav = source->get_mavlink()) {
+            if (const auto mav = source->shared_mavlink()) {
                 mav->request_home_position(info.system_id, info.component_id);
                 mav->request_message_interval(
                     info.system_id, info.component_id,
@@ -928,28 +929,34 @@ void Vehicle::wire_telemetry_callbacks_for(
         }
         // 主 IMU 才刷新遥测缓存，其余实例只走波形缓冲。
         if (info.instance == 0) {
-            self->cache_.update(mg::core::telemetry::TelemetryType::kImu, source->get_mavlink());
+            const auto mav = source->shared_mavlink();
+            self->cache_.update(mg::core::telemetry::TelemetryType::kImu, mav.get());
         }
     });
     mav->on_pressure([weak, source](const mg::core::mavlink::PressureInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->cache_.update(mg::core::telemetry::TelemetryType::kPressure, source->get_mavlink());
+        const auto mav = source->shared_mavlink();
+        self->cache_.update(mg::core::telemetry::TelemetryType::kPressure, mav.get());
     });
     mav->on_rc_channels([weak, source](const mg::core::mavlink::RcChannelsInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->cache_.update(mg::core::telemetry::TelemetryType::kRcChannels, source->get_mavlink());
+        const auto mav = source->shared_mavlink();
+        self->cache_.update(mg::core::telemetry::TelemetryType::kRcChannels, mav.get());
     });
     mav->on_servo_output([weak, source](const mg::core::mavlink::ServoOutputInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->cache_.update(mg::core::telemetry::TelemetryType::kServoOutput, source->get_mavlink());
+        const auto mav = source->shared_mavlink();
+        self->cache_.update(mg::core::telemetry::TelemetryType::kServoOutput, mav.get());
     });
     mav->on_home_position([weak, source](const mg::core::mavlink::HomePositionInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->cache_.update(mg::core::telemetry::TelemetryType::kHomePosition, source->get_mavlink());
+        const auto mav = source->shared_mavlink();
+        self->cache_.update(mg::core::telemetry::TelemetryType::kHomePosition, mav.get());
     });
     mav->on_highres_imu([weak, source](const mg::core::mavlink::HighresImuInfo&) {
         auto self = weak.lock(); if (!self) return;
-        self->cache_.update(mg::core::telemetry::TelemetryType::kHighresImu, source->get_mavlink());
+        const auto mav = source->shared_mavlink();
+        self->cache_.update(mg::core::telemetry::TelemetryType::kHighresImu, mav.get());
     });
 
     MGC_LOG_INFO("[Vehicle %d] Telemetry callbacks wired", id_);

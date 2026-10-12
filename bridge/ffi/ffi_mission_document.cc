@@ -375,7 +375,7 @@ MGCORE_API char* mg_mission_doc_compile(mg_core_t* core) {
 MGCORE_API char* mg_mission_doc_upload(
     mg_core_t* core,
     unsigned long long expected_revision) {
-    CHECK_CORE(core); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
 
     const auto service = ensure_document(core);
     if (expected_revision == 0) {
@@ -420,7 +420,7 @@ MGCORE_API char* mg_mission_doc_upload(
 
     auto plan = ffi_prepare_mission_upload(core, compiled.plan, &document.home);
     mg::core::platform::LockGuard lock(core->mission_mtx);
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     if (!mavlink ||
         !mavlink->mission_upload(
             active_target_sys(core),
@@ -471,7 +471,7 @@ MGCORE_API char* mg_mission_doc_compile_fence(mg_core_t* core) {
 MGCORE_API char* mg_mission_doc_upload_fence(
     mg_core_t* core,
     unsigned long long expected_revision) {
-    CHECK_CORE(core); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
 
     const auto service = ensure_document(core);
     if (expected_revision == 0) {
@@ -503,7 +503,7 @@ MGCORE_API char* mg_mission_doc_upload_fence(
     }
 
     mg::core::platform::LockGuard lock(core->mission_mtx);
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     if (!mavlink ||
         !mavlink->fence_upload(
             active_target_sys(core),
@@ -525,10 +525,10 @@ MGCORE_API char* mg_mission_doc_upload_fence(
 }
 
 MGCORE_API char* mg_mission_doc_clear_fence(mg_core_t* core) {
-    CHECK_CORE(core); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
 
     mg::core::platform::LockGuard lock(core->mission_mtx);
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     if (!mavlink ||
         !mavlink->fence_clear(
             active_target_sys(core),
@@ -571,7 +571,7 @@ MGCORE_API char* mg_mission_doc_compile_rally(mg_core_t* core) {
 MGCORE_API char* mg_mission_doc_upload_rally(
     mg_core_t* core,
     unsigned long long expected_revision) {
-    CHECK_CORE(core); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
 
     const auto service = ensure_document(core);
     if (expected_revision == 0) {
@@ -603,7 +603,7 @@ MGCORE_API char* mg_mission_doc_upload_rally(
     }
 
     mg::core::platform::LockGuard lock(core->mission_mtx);
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     if (!mavlink ||
         !mavlink->rally_upload(
             active_target_sys(core),
@@ -625,10 +625,10 @@ MGCORE_API char* mg_mission_doc_upload_rally(
 }
 
 MGCORE_API char* mg_mission_doc_clear_rally(mg_core_t* core) {
-    CHECK_CORE(core); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
 
     mg::core::platform::LockGuard lock(core->mission_mtx);
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     if (!mavlink ||
         !mavlink->rally_clear(
             active_target_sys(core),
@@ -645,9 +645,9 @@ MGCORE_API char* mg_mission_doc_clear_rally(mg_core_t* core) {
 }
 
 MGCORE_API char* mg_mission_doc_import_fence_from_vehicle(mg_core_t* core) {
-    CHECK_CORE(core); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
 
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     if (!mavlink) {
         return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected");
     }
@@ -682,9 +682,9 @@ MGCORE_API char* mg_mission_doc_import_fence_from_vehicle(mg_core_t* core) {
 }
 
 MGCORE_API char* mg_mission_doc_import_rally_from_vehicle(mg_core_t* core) {
-    CHECK_CORE(core); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
 
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     if (!mavlink) {
         return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected");
     }
@@ -848,9 +848,9 @@ void compare_fence(const mg::core::mission::cad::MissionGeoFence& expected,
 
 MGCORE_API char* mg_mission_doc_verify_fence(mg_core_t* core,
                                              double tolerance_m) {
-    CHECK_CORE(core); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
 
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     if (!mavlink) {
         return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected");
     }
@@ -906,9 +906,9 @@ MGCORE_API char* mg_mission_doc_verify_fence(mg_core_t* core,
 
 MGCORE_API char* mg_mission_doc_verify_rally(mg_core_t* core,
                                              double tolerance_m) {
-    CHECK_CORE(core); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
 
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     if (!mavlink) {
         return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected");
     }
@@ -988,9 +988,9 @@ MGCORE_API char* mg_mission_doc_verify_rally(mg_core_t* core,
 }
 
 MGCORE_API char* mg_mission_doc_import_from_vehicle(mg_core_t* core) {
-    CHECK_CORE(core); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
 
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     if (!mavlink) {
         return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected");
     }
@@ -1032,7 +1032,7 @@ MGCORE_API char* mg_mission_doc_import_from_vehicle(mg_core_t* core) {
 }
 
 MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
-    CHECK_CORE(core); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
 
     const auto document = ensure_document(core)->snapshot();
     const auto compiled = ensure_document(core)->compile();
@@ -1042,7 +1042,7 @@ MGCORE_API char* mg_mission_doc_verify(mg_core_t* core, double tolerance_m) {
             compiled.report);
     }
 
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     if (!mavlink) {
         return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected");
     }

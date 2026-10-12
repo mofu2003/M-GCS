@@ -25,7 +25,8 @@
 template <typename Sender>
 static char* send_active_request(mg_core_t* core, const char* error_reason, Sender&& sender) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     return sender(*mav, active_target_sys(core), active_target_comp(core))
         ? ok()
         : fail(MG_ERROR_SEND_FAILED, error_reason);
@@ -34,7 +35,7 @@ static char* send_active_request(mg_core_t* core, const char* error_reason, Send
 template <typename Getter>
 static char* export_connected_plan_json(mg_core_t* core, Getter&& getter) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
     return to_cstr(mg::bridge::mission_plan_json(
         getter(*mav), ffi_param_profile(core)));
@@ -80,7 +81,7 @@ MGCORE_API char* mg_fence_get_plan(mg_core_t* core) {
 
 MGCORE_API char* mg_fence_enable(mg_core_t* core, int enable) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
     // MAV_CMD_DO_FENCE_ENABLE (4010): param1 = 1 enable, 0 disable
     bool ok_send = mav->send_command_long(

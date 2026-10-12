@@ -8,7 +8,7 @@
 namespace {
 
 float get_pval(mg_core_t* core, const char* name) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return 0;
     auto p = mav->get_param_by_name(name);
     return p.has_value() ? p->value : 0;
@@ -67,7 +67,7 @@ MGCORE_API char* mg_sensor_decode_px4_type(mg_core_t* core, int type_value, cons
 
 MGCORE_API char* mg_sensors_identify_all(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return to_cstr("{}");
     auto hb = mav->latest_heartbeat();
     bool px4 = hb.has_value() && hb->autopilot_type == 12;

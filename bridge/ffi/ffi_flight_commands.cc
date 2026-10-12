@@ -55,35 +55,17 @@ static char* ack_rejection_json(const mg::core::mavlink::CommandAckInfo& ack) {
     return to_cstr(jb.str());
 }
 
-/// 把命令入口传进来的借用指针升级成会话租约。
-///
-/// 调用方（全部命令入口）拿到的是 `get_active_mavlink()` 的借用裸指针，最长要
-/// 阻塞 5 秒等 ACK；这期间另一线程的断链（ConnectionManager::reset()）可以在锁内
-/// 把适配器 move 走并在锁外析构它，裸指针立刻悬垂。
-///
-/// 只有当会话当前持有的适配器与调用方传进来的**是同一个对象**时才用它：此时
-/// shared_ptr 保证整个等待期间对象存活。指针不同（例如两次解析之间断链又重连，
-/// 或调用方传的是陈旧指针）时绝不使用该裸指针，直接按断开处理 —— 宁可让这笔命令
-/// 以 NOT_CONNECTED 失败，也不能在已释放的对象上发送/等待。
-std::shared_ptr<mg::core::mavlink::MavlinkAdapter> lease_for_wait(
-        mg_core_t* core, mg::core::mavlink::MavlinkAdapter* mav) {
-    if (!mav) return nullptr;
-    auto lease = shared_active_mavlink(core);
-    if (!lease || lease.get() != mav) return nullptr;
-    return lease;
-}
-
 /// 命令队列辅助函数：发送命令并阻塞等待 ACK
 /// 使用 send_command_queued() + wait_for_command()，支持超时重发。
-char* ffi_cmd_result_queued(mg_core_t* core, mg::core::mavlink::MavlinkAdapter* mav,
+char* ffi_cmd_result_queued(
+                            std::shared_ptr<mg::core::mavlink::MavlinkAdapter> mav,
                             uint16_t cmd_id, uint8_t sys, uint8_t comp,
                             float p1, float p2, float p3, float p4,
                             float p5, float p6, float p7, int max_wait_ms) {
-    const auto lease = lease_for_wait(core, mav);
-    if (!lease) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    auto ticket = lease->send_command_queued(sys, comp, cmd_id,
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    auto ticket = mav->send_command_queued(sys, comp, cmd_id,
         p1, p2, p3, p4, p5, p6, p7);
-    auto ack = lease->wait_for_command(ticket, max_wait_ms);
+    auto ack = mav->wait_for_command(ticket, max_wait_ms);
     if (ack.has_value()) {
         if (ack->result_text.find("timeout") != std::string::npos) {
             return fail(MG_ERROR_TIMEOUT, ack->result_text.c_str());
@@ -94,21 +76,20 @@ char* ffi_cmd_result_queued(mg_core_t* core, mg::core::mavlink::MavlinkAdapter* 
         }
         return ack_rejection_json(ack.value());
     }
-    lease->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
+    mav->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
     return fail(MG_ERROR_TIMEOUT, "command ack timeout");
 }
 
 /// COMMAND_INT 版本：ArduPilot 的 DO_REPOSITION 不接受 COMMAND_LONG。
 static char* cmd_int_result_queued(
-        mg_core_t* core, mg::core::mavlink::MavlinkAdapter* mav,
+        std::shared_ptr<mg::core::mavlink::MavlinkAdapter> mav,
         uint16_t cmd_id, uint8_t sys, uint8_t comp, uint8_t frame,
         float p1, float p2, float p3, float p4,
         int32_t x, int32_t y, float z, int max_wait_ms = 5000) {
-    const auto lease = lease_for_wait(core, mav);
-    if (!lease) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    auto ticket = lease->send_command_int_queued(
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    auto ticket = mav->send_command_int_queued(
         sys, comp, cmd_id, frame, p1, p2, p3, p4, x, y, z);
-    auto ack = lease->wait_for_command(ticket, max_wait_ms);
+    auto ack = mav->wait_for_command(ticket, max_wait_ms);
     if (ack.has_value()) {
         if (ack->result_text.find("timeout") != std::string::npos) {
             return fail(MG_ERROR_TIMEOUT, ack->result_text.c_str());
@@ -119,15 +100,15 @@ static char* cmd_int_result_queued(
         }
         return ack_rejection_json(ack.value());
     }
-    lease->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
+    mav->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
     return fail(MG_ERROR_TIMEOUT, "command ack timeout");
 }
 
 MGCORE_API char* mg_command_arm(mg_core_t* core, int force) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     float force_param = force ? 21196.0f : 0.0f;
-    auto* result = ffi_cmd_result_queued(core, mav, MAV_CMD_COMPONENT_ARM_DISARM,
+    auto* result = ffi_cmd_result_queued(mav, MAV_CMD_COMPONENT_ARM_DISARM,
         active_target_sys(core), active_target_comp(core),
         1.0f, force_param, 0, 0, 0, 0, 0);
     get_active_flight_log(core).on_command_result("arm", result && strstr(result, "\"success\":true"), "queued");
@@ -136,9 +117,9 @@ MGCORE_API char* mg_command_arm(mg_core_t* core, int force) {
 
 MGCORE_API char* mg_command_disarm(mg_core_t* core, int force) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     float force_param = force ? 21196.0f : 0.0f;
-    auto* result = ffi_cmd_result_queued(core, mav, MAV_CMD_COMPONENT_ARM_DISARM,
+    auto* result = ffi_cmd_result_queued(mav, MAV_CMD_COMPONENT_ARM_DISARM,
         active_target_sys(core), active_target_comp(core),
         0.0f, force_param, 0, 0, 0, 0, 0);
     get_active_flight_log(core).on_command_result("disarm", result && strstr(result, "\"success\":true"), "queued");
@@ -147,8 +128,8 @@ MGCORE_API char* mg_command_disarm(mg_core_t* core, int force) {
 
 MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_mode) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
-    return ffi_cmd_result_queued(core, mav, MAV_CMD_DO_SET_MODE,
+    auto mav = shared_active_mavlink(core);
+    return ffi_cmd_result_queued(mav, MAV_CMD_DO_SET_MODE,
         active_target_sys(core), active_target_comp(core),
         static_cast<float>(base_mode), static_cast<float>(custom_mode),
         0, 0, 0, 0, 0);
@@ -156,8 +137,8 @@ MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_
 
 MGCORE_API char* mg_command_rtl(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
-    auto* result = ffi_cmd_result_queued(core, mav, MAV_CMD_NAV_RETURN_TO_LAUNCH,
+    auto mav = shared_active_mavlink(core);
+    auto* result = ffi_cmd_result_queued(mav, MAV_CMD_NAV_RETURN_TO_LAUNCH,
         active_target_sys(core), active_target_comp(core),
         0, 0, 0, 0, 0, 0, 0);
     get_active_flight_log(core).on_command_result("rtl", result && strstr(result, "\"success\":true"), "queued");
@@ -170,7 +151,7 @@ MGCORE_API char* mg_command_rtl(mg_core_t* core) {
 //     高度加上当前 MSL 高度后写进 param7（AMSL），并在拿不到 MSL 高度时直接拒绝。
 MGCORE_API char* mg_command_takeoff(mg_core_t* core, float altitude_m) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     float param7 = altitude_m;
     if (ffi_is_px4(core)) {
         auto* cache = get_active_cache(core);
@@ -185,23 +166,23 @@ MGCORE_API char* mg_command_takeoff(mg_core_t* core, float altitude_m) {
         }
         param7 = altitude_m + static_cast<float>(gp.alt / 1000.0);
     }
-    return ffi_cmd_result_queued(core, mav, MAV_CMD_NAV_TAKEOFF,
+    return ffi_cmd_result_queued(mav, MAV_CMD_NAV_TAKEOFF,
         active_target_sys(core), active_target_comp(core),
         0, 0, 0, 0, 0, 0, param7);
 }
 
 MGCORE_API char* mg_command_land(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
-    return ffi_cmd_result_queued(core, mav, MAV_CMD_NAV_LAND,
+    auto mav = shared_active_mavlink(core);
+    return ffi_cmd_result_queued(mav, MAV_CMD_NAV_LAND,
         active_target_sys(core), active_target_comp(core),
         0, 0, 0, 0, 0, 0, 0);
 }
 
 MGCORE_API char* mg_command_terminate_flight(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
-    return ffi_cmd_result_queued(core, mav, MAV_CMD_DO_FLIGHTTERMINATION,
+    auto mav = shared_active_mavlink(core);
+    return ffi_cmd_result_queued(mav, MAV_CMD_DO_FLIGHTTERMINATION,
         active_target_sys(core), active_target_comp(core),
         1.0f, 0, 0, 0, 0, 0, 0);
 }
@@ -214,7 +195,7 @@ MGCORE_API char* mg_command_guided_point(mg_core_t* core,
                                          double lat, double lon, float alt,
                                          float yaw, float speed) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     float p1 = speed > 0 ? speed : -1.0f;
     float p4 = (yaw >= 0) ? yaw : NAN;
     const int32_t lat_e7 = static_cast<int32_t>(lat * 1e7);
@@ -223,7 +204,7 @@ MGCORE_API char* mg_command_guided_point(mg_core_t* core,
     // MAV_FRAME_GLOBAL and an AMSL altitude. ArduPilot rejects the same
     // command over COMMAND_LONG because COMMAND_LONG carries no frame.
     auto* result = cmd_int_result_queued(
-        core, mav, MAV_CMD_DO_REPOSITION,
+        mav, MAV_CMD_DO_REPOSITION,
         active_target_sys(core), active_target_comp(core),
         MAV_FRAME_GLOBAL, p1, 1.0f, 0, p4,
         lat_e7, lon_e7, alt);
@@ -236,7 +217,8 @@ MGCORE_API char* mg_command_change_altitude(mg_core_t* core, float altitude_chan
     if (isnan(altitude_change_m)) {
         return fail(MG_ERROR_INVALID_PARAM, "invalid altitude change");
     }
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     const bool sent = mav->cmd_change_altitude(active_target_sys(core), active_target_comp(core),
                                                altitude_change_m);
     get_active_flight_log(core).on_command_result("change_altitude", sent, sent ? "sent" : "send_failed");
@@ -247,7 +229,7 @@ MGCORE_API char* mg_command_change_altitude(mg_core_t* core, float altitude_chan
 MGCORE_API char* mg_command_guided_velocity(mg_core_t* core,
                                             float vx, float vy, float vz) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     bool sent = mav->cmd_guided_velocity(active_target_sys(core), active_target_comp(core),
                                           vx, vy, vz);
@@ -266,8 +248,8 @@ MGCORE_API char* mg_command_set_home(mg_core_t* core,
     if (!(lat >= -90.0 && lat <= 90.0) || !(lon >= -180.0 && lon <= 180.0)) {
         return fail(MG_ERROR_INVALID_PARAM, "home latitude or longitude out of range");
     }
-    auto* mav = get_active_mavlink(core);
-    auto* result = ffi_cmd_result_queued(core, mav, MAV_CMD_DO_SET_HOME,
+    auto mav = shared_active_mavlink(core);
+    auto* result = ffi_cmd_result_queued(mav, MAV_CMD_DO_SET_HOME,
         active_target_sys(core), active_target_comp(core),
         0.0f, 0.0f, 0.0f, 0.0f,
         static_cast<float>(lat), static_cast<float>(lon), alt_m);
@@ -278,7 +260,7 @@ MGCORE_API char* mg_command_set_home(mg_core_t* core,
 
 MGCORE_API char* mg_command_guided_pause(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     if (ffi_is_px4(core)) {
         // QGC `PX4FirmwarePlugin::pauseVehicle`（:276-288）：不是零速度
@@ -287,7 +269,7 @@ MGCORE_API char* mg_command_guided_pause(mg_core_t* core) {
         // param1 = -1 表示沿用当前速度，param3 = 0，param5/6/7 允许 NaN，因为
         // CHANGE_MODE 分支下飞控不会用这些位置参数。
         auto* result = ffi_cmd_result_queued(
-            core, mav, MAV_CMD_DO_REPOSITION,
+            mav, MAV_CMD_DO_REPOSITION,
             active_target_sys(core), active_target_comp(core),
             -1.0f, static_cast<float>(MAV_DO_REPOSITION_FLAGS_CHANGE_MODE),
             0.0f, 0.0f,
@@ -319,7 +301,8 @@ MGCORE_API char* mg_command_orbit(mg_core_t* core, const char* json_config) {
     if ((p = cJSON_GetObjectItem(root, "velocity")) && cJSON_IsNumber(p)) velocity = (float)p->valuedouble;
     if ((p = cJSON_GetObjectItem(root, "altitude")) && cJSON_IsNumber(p)) alt = (float)p->valuedouble;
     cJSON_Delete(root);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     if (mav->cmd_orbit(active_target_sys(core), active_target_comp(core), lat, lon, radius, velocity, alt))
         return ok();
     return fail(MG_ERROR_SEND_FAILED, "orbit command send failed");
@@ -327,14 +310,18 @@ MGCORE_API char* mg_command_orbit(mg_core_t* core, const char* json_config) {
 
 MGCORE_API char* mg_command_set_roi(mg_core_t* core, double lat, double lon, float alt) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    if (get_active_mavlink(core)->cmd_set_roi(active_target_sys(core), active_target_comp(core), lat, lon, alt))
+    const auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    if (mav->cmd_set_roi(active_target_sys(core), active_target_comp(core), lat, lon, alt))
         return ok();
     return fail(MG_ERROR_SEND_FAILED, "ROI command send failed");
 }
 
 MGCORE_API char* mg_command_stop_roi(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    if (get_active_mavlink(core)->cmd_roi_stop(active_target_sys(core), active_target_comp(core)))
+    const auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    if (mav->cmd_roi_stop(active_target_sys(core), active_target_comp(core)))
         return ok();
     return fail(MG_ERROR_SEND_FAILED, "ROI stop send failed");
 }
@@ -343,7 +330,9 @@ MGCORE_API char* mg_command_change_heading(mg_core_t* core, float heading_deg,
                                            float yaw_rate_dps, int direction) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     const int8_t dir = direction < 0 ? -1 : 1;
-    const bool sent = get_active_mavlink(core)->cmd_change_heading(
+    const auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    const bool sent = mav->cmd_change_heading(
         active_target_sys(core), active_target_comp(core),
         heading_deg, yaw_rate_dps, dir, true /* relative */);
     get_active_flight_log(core).on_command_result("change_heading", sent, sent ? "sent" : "send_failed");
@@ -371,8 +360,10 @@ MGCORE_API char* mg_command_set_global_origin(mg_core_t* core, double lat,
     // 与 PX4（Commander.cpp:1709-1710）都实现并回 ACK。只有飞控确认才算成功（S2）：
     // 原来发完已废弃的 SET_GPS_GLOBAL_ORIGIN 报文就回 success，界面把"已发出"
     // 显示成了成功。
+    const auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     char* result = cmd_int_result_queued(
-        core, get_active_mavlink(core), kSetGlobalOriginCommand,
+        mav, kSetGlobalOriginCommand,
         active_target_sys(core), active_target_comp(core), MAV_FRAME_GLOBAL,
         0.0f, 0.0f, 0.0f, 0.0f,
         static_cast<int32_t>(std::llround(lat * 1e7)),
@@ -388,7 +379,9 @@ MGCORE_API char* mg_command_set_global_origin(mg_core_t* core, double lat,
 MGCORE_API char* mg_command_landing_gear(mg_core_t* core, bool deploy) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     // MAV_CMD_AIRFRAME_CONFIGURATION 有 COMMAND_ACK，必须等飞控确认（S2）。
-    return ffi_cmd_result_queued(core, get_active_mavlink(core),
+    const auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    return ffi_cmd_result_queued(mav,
         MAV_CMD_AIRFRAME_CONFIGURATION,
         active_target_sys(core), active_target_comp(core),
         deploy ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
@@ -400,7 +393,9 @@ namespace {
 // mg_command_submit_for_vehicle({"command":"mission_start"}) + poll。
 char* mission_start_and_wait(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    return ffi_cmd_result_queued(core, get_active_mavlink(core), MAV_CMD_MISSION_START,
+    const auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    return ffi_cmd_result_queued(mav, MAV_CMD_MISSION_START,
         active_target_sys(core), active_target_comp(core), 0, 0, 0, 0, 0, 0, 0);
 }
 
@@ -451,7 +446,8 @@ char* arm_and_validate(mg_core_t* core) {
 // GUIDED before arming Copter. PX4FirmwarePlugin selects AUTO_MISSION.
 char* start_mission_and_validate(mg_core_t* core, bool arm_if_needed) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     const auto hb = mav->latest_heartbeat();
     if (!hb) return fail(MG_ERROR_INVALID_STATE, "vehicle identity is not available");
     if (!arm_if_needed && !hb->armed)
@@ -580,7 +576,7 @@ MGCORE_API char* mg_command_execute_for_vehicle(mg_core_t* core,
     const bool owns_empty_args = args == nullptr;
     if (owns_empty_args) args = cJSON_CreateObject();
 
-    mg::bridge::ffi::VehicleTargetScope target(core, vehicle.get());
+    mg::bridge::ffi::VehicleTargetScope target(core, vehicle);
     char* result = nullptr;
     double number = 0.0;
     int integer = 0;
@@ -676,9 +672,9 @@ MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
         return invalid_args("invalid command submission");
     auto vehicle = core->vehicles.get_vehicle_shared(vehicle_id);
     if (!vehicle) return fail(MG_ERROR_NOT_FOUND, "target vehicle not found");
-    const auto connection = vehicle->command_connection();
-    const auto adapter = connection ? connection->shared_mavlink() : nullptr;
-    if (!connection || !adapter || !connection->is_connected())
+    mg::bridge::ffi::VehicleTargetScope target_scope(core, vehicle);
+    const auto session = mg::bridge::ffi::resolve_vehicle_session(core);
+    if (!session.connection_lease || !session.mavlink_lease || !session.connected)
         return fail(MG_ERROR_NOT_CONNECTED, "target vehicle disconnected");
     const std::string json(command_json);
 
@@ -719,14 +715,11 @@ MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
         ticket = core->next_command_job++;
         try {
             core->command_jobs.emplace(ticket, mg_core_t::CommandJob{vehicle_id, command_key,
-                std::async(std::launch::async, [core, vehicle, connection, adapter, json]() {
-                    // 提交时解析出的适配器租约在整个 worker 生命周期内保持有效
-                    // （RAII）；worker 内真正等待 ACK 的路径再由 lease_for_wait()
-                    // 把借用指针升级成同一会话的租约。两层都不会让 reset() 在等待
-                    // 期间析构适配器。
-                    (void)adapter;
+                std::async(std::launch::async, [core, vehicle, session, json]() {
+                    // The captured session keeps the Vehicle, route, adapter,
+                    // target IDs, and connected state fixed for this job.
                     try {
-                        mg::bridge::ffi::VehicleTargetScope scope(core, vehicle.get(), connection);
+                        mg::bridge::ffi::VehicleTargetScope scope(core, session);
                         char* raw = mg_command_execute_for_vehicle(core, vehicle->vehicle_id(), json.c_str());
                         std::string result = raw ? raw : "{\"success\":false,\"error\":\"empty native response\"}";
                         mg_free_string(raw);

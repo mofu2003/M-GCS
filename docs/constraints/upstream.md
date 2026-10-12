@@ -42,4 +42,5 @@ M-GCS 对标 QGroundControl（QGC）与 Mission Planner（MP）。功能、操�
 链路生命周期、状态机、测试治理、跨平台结构优先参考 QGC；ArduPilot 专用的命令、参数、校准、固件行为优先参考 MP。两者冲突时，记录比较依据后再选择。
 
 **飞控优先级 [SHOULD]**
-ArduPilot 优先，PX4 通过固件插件兼容。
+ArduPilot 优先。根据 ADR-0008（ArduPilot 优先，PX4 支持延后），0.2.x 版本聚焦 ArduPilot 固件支持，PX4 支持延后至 0.3.0+。PX4 插件代码保留在代码库中以保持架构扩展性，但不作为当前版本的验收依据。
+

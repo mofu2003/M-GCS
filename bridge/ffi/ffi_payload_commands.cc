@@ -40,7 +40,7 @@ void resolve_component(mg_core_t* core, int device_id, uint8_t& sys, uint8_t& co
 
 /// 选择要读取的相机：device_id > 0 按组件 id 匹配，否则取第一个已发现的相机。
 std::optional<CameraInformationInfo> select_camera(mg_core_t* core, int camera_id) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return std::nullopt;
     auto cameras = mav->latest_cameras();
     if (camera_id > 0) {
@@ -55,7 +55,7 @@ std::optional<CameraInformationInfo> select_camera(mg_core_t* core, int camera_i
 
 /// 选择要读取的云台管理器：device_id > 0 按组件 id 匹配，否则取第一个已发现的云台。
 std::optional<GimbalManagerInformationInfo> select_gimbal(mg_core_t* core, int gimbal_id) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return std::nullopt;
     auto gimbals = mav->latest_gimbals();
     if (gimbal_id > 0) {
@@ -71,7 +71,8 @@ std::optional<GimbalManagerInformationInfo> select_gimbal(mg_core_t* core, int g
 template <typename Sender>
 char* send_payload_command(mg_core_t* core, int device_id, const char* error_reason, Sender&& sender) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     uint8_t sys = 0;
     uint8_t comp = 0;
     resolve_component(core, device_id, sys, comp);
@@ -152,7 +153,7 @@ MGCORE_API char* mg_camera_get_status(mg_core_t* core, int camera_id) {
     jb.begin_object();
     jb.field("success", true);
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     const std::vector<CameraInformationInfo> cameras =
         mav ? mav->latest_cameras() : std::vector<CameraInformationInfo>{};
 
@@ -281,7 +282,7 @@ MGCORE_API char* mg_gimbal_get_status(mg_core_t* core, int gimbal_id) {
     jb.begin_object();
     jb.field("success", true);
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     const std::vector<GimbalManagerInformationInfo> gimbals =
         mav ? mav->latest_gimbals() : std::vector<GimbalManagerInformationInfo>{};
 
@@ -344,7 +345,7 @@ MGCORE_API char* mg_gimbal_get_attitude(mg_core_t* core, int gimbal_id) {
     jb.begin_object();
     jb.field("success", true);
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     std::optional<GimbalDeviceAttitudeStatusInfo> attitude;
     if (mav) {
         auto gimbals = mav->latest_gimbals();
@@ -452,7 +453,7 @@ MGCORE_API char* mg_video_status(mg_core_t* core) {
     jb.begin_object();
     jb.field("success", true);
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     auto streams = mav ? mav->latest_video_streams() : std::vector<mg::core::mavlink::VideoStreamInfo>{};
     auto statuses = mav ? mav->latest_video_stream_status() : std::vector<VideoStreamStatusInfo>{};
     jb.field("available", !streams.empty() || !statuses.empty());
@@ -490,7 +491,7 @@ MGCORE_API char* mg_video_status(mg_core_t* core) {
 
 MGCORE_API char* mg_video_get_streams(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
 
     auto streams = mav->latest_video_streams();

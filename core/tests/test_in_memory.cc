@@ -104,21 +104,22 @@ int main() {
     // Note: manual wiring bypasses connect() state machine.
     // Real usage always goes through connect().
     // Skip connected assertion for manually-wired test.
-    CHECK(conn.get_mavlink() != nullptr, "get_mavlink");
+    const auto adapter = conn.shared_mavlink();
+    CHECK(adapter != nullptr, "shared_mavlink");
     CHECK(conn.get_link() != nullptr, "get_link");
 
     auto* inmem = dynamic_cast<mg::core::transport::InMemoryLink*>(conn.get_link());
     CHECK(inmem != nullptr, "dynamic_cast InMemoryLink");
     if (inmem) {
         inmem->inject_incoming(hb_bytes.data(), hb_bytes.size());
-        auto hb2 = conn.get_mavlink()->latest_heartbeat();
+        auto hb2 = adapter->latest_heartbeat();
         CHECK(hb2.has_value() && hb2->system_id == 1, "heartbeat via conn");
         CHECK(hb2.has_value() && hb2->armed, "armed via conn");
         CHECK(hb2.has_value() && std::string(hb2->flight_mode) == "Stabilize", "mode via conn");
     }
 
     // Send heartbeat GCS -> FC (tests the send path)
-    conn.get_mavlink()->send_heartbeat();
+    adapter->send_heartbeat();
     auto outgoing = inmem->take_outgoing();
     CHECK(outgoing.size() > 6, "GCS heartbeat sent");
 

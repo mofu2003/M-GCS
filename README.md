@@ -1,8 +1,8 @@
 # M-GCS
 
-无人机地面站，对标 Mission Planner 与 QGroundControl。优先服务 ArduPilot，兼容 PX4。
+无人机地面站，对标 Mission Planner 与 QGroundControl。
 
-当前版本：`0.2.1`。
+**当前版本（0.2.2）聚焦 ArduPilot 固件支持**。PX4 支持计划在 0.3.0+ 版本提供。
 
 ## 结构
 

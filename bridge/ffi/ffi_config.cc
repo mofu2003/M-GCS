@@ -52,7 +52,7 @@ mg::core::config::GroupDescriptor other_parameter_group(
     group.display_name = "Other";
     group.description = "Loaded parameters without a local descriptor";
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return group;
 
     std::set<std::string> grouped;
@@ -119,7 +119,7 @@ static std::string param_desc_json(const mg::core::config::ParamDescriptor& desc
 // ================================================================
 static std::string config_read_group_json(mg_core_t* core,
                                            const mg::core::config::GroupDescriptor& group) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return "{}";
 
     auto& db = get_desc_db();
@@ -229,7 +229,7 @@ MGCORE_API char* mg_config_get_group_descriptor(mg_core_t* core, const char* gro
     for (const auto& pname : group.param_names) {
         auto desc = db.get(profile, pname);
         if (!desc.found) {
-            auto* mav = get_active_mavlink(core);
+            auto mav = shared_active_mavlink(core);
             const auto value = mav ? mav->get_param_by_name(pname.c_str()) : std::nullopt;
             desc.type = value.has_value() ? infer_param_type(value.value()) : "float";
             desc.display_name = pname;
@@ -247,7 +247,7 @@ MGCORE_API char* mg_config_get_group_descriptor(mg_core_t* core, const char* gro
 
 MGCORE_API char* mg_config_read_group(mg_core_t* core, const char* group_name) {
     CHECK_CORE(core);
-    CHECK_CORE(core); if (!get_active_mavlink(core)) return fail(MG_ERROR_NOT_CONNECTED, "no mavlink");
+    CHECK_MAVLINK(core);
     if (!group_name || group_name[0] == '\0') return to_cstr("{}");
 
     auto& db = get_desc_db();
@@ -304,7 +304,7 @@ MGCORE_API char* mg_config_validate_param(mg_core_t* core, const char* param_nam
 
 MGCORE_API char* mg_config_get_metadata_coverage(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     auto& db = get_desc_db();
     const auto profile = ffi_param_profile(core);
     std::vector<std::string> names;
@@ -367,7 +367,7 @@ MGCORE_API char* mg_config_get_presets(mg_core_t* core) {
 
 MGCORE_API char* mg_config_apply_preset(mg_core_t* core, const char* preset_name) {
     CHECK_CORE(core);
-    CHECK_CORE(core); if (!get_active_mavlink(core)) return fail(MG_ERROR_NOT_CONNECTED, "no mavlink");
+    CHECK_MAVLINK(core);
     CHECK_CONNECTED(core);
     if (!preset_name || preset_name[0] == '\0') {
         return fail(MG_ERROR_INVALID_PARAM, "null preset name");
@@ -376,7 +376,8 @@ MGCORE_API char* mg_config_apply_preset(mg_core_t* core, const char* preset_name
     auto presets = mg::core::config::get_all_presets();
     for (const auto& p : presets) {
         if (p.name == preset_name) {
-            auto* mav = get_active_mavlink(core);
+            auto mav = shared_active_mavlink(core);
+            if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
             uint8_t sys = active_target_sys(core);
             uint8_t comp = active_target_comp(core);
 

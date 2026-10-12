@@ -23,7 +23,7 @@ static const char* px4_params[]  = {"RC_MAP_ROLL", "RC_MAP_PITCH", "RC_MAP_YAW",
 
 MGCORE_API char* mg_rc_get_mapping(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return to_cstr("{}");
 
     bool px4 = ffi_is_px4(core);
@@ -70,7 +70,8 @@ MGCORE_API char* mg_rc_set_mapping(mg_core_t* core, const char* function, int ch
     if (!function || function[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null function");
     if (channel < 1 || channel > 18) return fail(MG_ERROR_INVALID_PARAM, "channel must be 1-18");
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     bool px4 = ffi_is_px4(core);
 
     const char* param = NULL;
@@ -94,7 +95,7 @@ MGCORE_API char* mg_rc_set_mapping(mg_core_t* core, const char* function, int ch
 
 MGCORE_API char* mg_rc_get_calibration(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return to_cstr("[]");
 
     bool px4 = ffi_is_px4(core);
@@ -137,7 +138,7 @@ MGCORE_API char* mg_rc_get_calibration(mg_core_t* core) {
 
 MGCORE_API char* mg_rc_get_failsafe(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return to_cstr("{}");
 
     bool px4 = ffi_is_px4(core);

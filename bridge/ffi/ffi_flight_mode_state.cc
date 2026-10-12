@@ -9,7 +9,7 @@
 namespace {
 
 void refresh_flight_mode_from_latest_heartbeat(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     auto hb_info = mav ? mav->latest_heartbeat() : std::nullopt;
     if (!hb_info) return;
 

@@ -981,6 +981,16 @@ Vehicle* MultiVehicleManager::active_vehicle() const {
     return get_vehicle(id);
 }
 
+std::shared_ptr<Vehicle> MultiVehicleManager::active_vehicle_shared() const {
+    mg::core::platform::LockGuard lk(mtx_);
+    const int id = active_vehicle_id_.load();
+    if (id < 0) return nullptr;
+    for (const auto& vehicle : vehicles_) {
+        if (vehicle && vehicle->vehicle_id() == id) return vehicle;
+    }
+    return nullptr;
+}
+
 void MultiVehicleManager::on_heartbeat(uint8_t system_id, uint8_t component_id,
                                         uint8_t firmware_type, uint8_t vehicle_type,
                                         void* link_context) {

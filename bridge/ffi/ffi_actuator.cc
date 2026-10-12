@@ -30,7 +30,7 @@ static const char* servo_rev_param_fmt  = "SERVO%d_REVERSED";
 
 MGCORE_API char* mg_actuator_get_mapping(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return to_cstr("[]");
 
     mg::core::telemetry::JsonBuilder jb;
@@ -68,7 +68,8 @@ MGCORE_API char* mg_actuator_set_function(mg_core_t* core, int channel, int func
         return fail(MG_ERROR_INVALID_PARAM, "channel must be 1-16");
 
     std::string param = ffi_fmt_param(servo_func_param_fmt, channel);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     auto p = mav->get_param_by_name(param.c_str());
     if (!p.has_value()) return fail(MG_ERROR_NOT_FOUND, "channel param not found");
 
@@ -115,7 +116,8 @@ MGCORE_API char* mg_actuator_motor_test(mg_core_t* core, int motor, float thrott
     if (throttle_pct < 0 || throttle_pct > 100)
         return fail(MG_ERROR_INVALID_PARAM, "throttle must be 0-100");
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     // MAV_CMD_DO_MOTOR_TEST (209)
     // p1: motor instance (1-indexed)
     // p2: throttle type (0=percent)

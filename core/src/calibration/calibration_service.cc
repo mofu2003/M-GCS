@@ -102,7 +102,8 @@ bool CalibrationService::start(CalibrationType type,
 
     accel_mode_ = accel_mode;
 
-    if (!conn_ || !conn_->get_mavlink()) {
+    const auto mav = conn_ ? conn_->shared_mavlink() : nullptr;
+    if (!mav) {
         MGC_LOG_ERROR("[CalService] Null MavlinkAdapter");
         return false;
     }
@@ -139,7 +140,7 @@ bool CalibrationService::start(CalibrationType type,
     retry_info_.last_failure.clear();
 
     // Save pre-calibration parameter values for comparison
-    validator_.read_calibration_params(type, conn_->get_mavlink(), current_result_);
+    validator_.read_calibration_params(type, mav.get(), current_result_);
     current_result_.prev_offset_x = current_result_.offset_x;
     current_result_.prev_offset_y = current_result_.offset_y;
     current_result_.prev_offset_z = current_result_.offset_z;
@@ -150,8 +151,7 @@ bool CalibrationService::start(CalibrationType type,
     fire_event();
 
     // Send the calibration command
-    auto* mav = conn_->get_mavlink();
-    if (!strategy->send_calibration_command(mav, target_sys_, target_comp_, accel_mode)) {
+    if (!strategy->send_calibration_command(mav.get(), target_sys_, target_comp_, accel_mode)) {
         handle_failure("Failed to send calibration command");
         return false;
     }
@@ -630,8 +630,9 @@ void CalibrationService::handle_success() {
     if (active_strategy_ && conn_) {
         // Release lock for parameter reading (may take time)
         // Actually, we hold the lock - this is fine for synchronous operation
+        const auto mav = conn_->shared_mavlink();
         bool verified = active_strategy_->verify_calibration(
-            conn_->get_mavlink(), current_result_, validator_);
+            mav.get(), current_result_, validator_);
         current_result_.quality = validator_.assess(current_result_);
 
         if (!verified) {
@@ -725,8 +726,9 @@ void CalibrationService::attempt_retry() {
         // Note: In production this would be async, but for now synchronous
         status_.stage = CalibrationStage::Calibrating;
         current_result_.stage = CalibrationStage::Calibrating;
+        const auto mav = conn_->shared_mavlink();
         bool sent = active_strategy_->send_calibration_command(
-            conn_->get_mavlink(), target_sys_, target_comp_, accel_mode_);
+            mav.get(), target_sys_, target_comp_, accel_mode_);
         if (!sent) {
             status_.stage = CalibrationStage::Failed;
             status_.active = false;

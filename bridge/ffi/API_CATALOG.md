@@ -355,19 +355,25 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 
 ## 已定性的公开导出
 
-这些符号保留在 ABI 中，但定位已经明确，没有前端 UI 计划：**内部能力**只服务
-开发、离线分析或原生测试；**被取代**是被更新接口取代的历史路径，现已全部从源码删除并
-登记进 `RETIRED_SYMBOLS`（因此该类别在当前 ABI 中为空，表结构保留作占位）。
-`tools/check_ffi_contract.py` 会在它们被 Flutter 绑定后报错，要求同步定位
-（见脚本的 `INTERNAL_SYMBOL_NOTES`、`SUPERSEDED_SYMBOL_NOTES` 与 `RETIRED_SYMBOLS`）。
+这些符号保留在 ABI 中且定位已经明确：**内部能力**只服务开发、离线分析或原生测试；
+**0.3.0 之后延期**是当前版本明确不接 UI 的功能接口；**退役候选**仍保留导出，
+待兼容性确认后再删除；**被取代**是已从源码删除并登记进 `RETIRED_SYMBOLS` 的历史路径。
+分类符号若被 Flutter 绑定，`tools/check_ffi_contract.py` 会要求重新评估定位。
 
 | 符号 | 类别 | 定位 |
 | --- | --- | --- |
 | `mg_actuator_get_limits` | 内部能力 | 电调/舵机通道限位；内部能力（通用参数页覆盖 SERVOx_MIN/MAX/TRIM/REVERSED） |
 | `mg_actuator_set_function` | 内部能力 | 电调/舵机通道功能映射；内部能力（通用参数页覆盖 SERVOx_FUNCTION / ACTUATORx_FUNCTION） |
 | `mg_actuator_set_limits` | 内部能力 | 电调/舵机通道限位写入；内部能力（通用参数页覆盖 SERVOx_MIN/MAX/TRIM） |
+| `mg_calibration_start_airspeed` | 0.3.0 之后延期 | 延期至 0.3.0 之后；当前版本不接入空速校准 UI |
+| `mg_config_apply_preset` | 0.3.0 之后延期 | 延期至 0.3.0 之后；当前版本不接入参数预设 UI |
+| `mg_config_get_presets` | 0.3.0 之后延期 | 延期至 0.3.0 之后；当前版本不接入参数预设 UI |
 | `mg_config_validate_param` | 内部能力 | 参数值预校验；内部能力（前端按描述符范围/枚举本地校验，不再单独调用） |
+| `mg_discover_devices` | 0.3.0 之后延期 | 延期至 0.3.0 之后；当前连接面板使用端口枚举路径 |
 | `mg_error_string` | 内部能力 | ABI 基础设施：错误码→字符串常量，供原生调用方与测试使用，无 UI |
+| `mg_event_log_get_status` | 0.3.0 之后延期 | 延期至 0.3.0 之后；事件日志服务当前不接入 UI |
+| `mg_mission_set_current` | 0.3.0 之后延期 | 延期至 0.3.0 之后；当前版本不提供跳转到航点入口 |
+| `mg_param_file_import` | 0.3.0 之后延期 | 延期至 0.3.0 之后；参数文件导入 UI 尚未接入 |
 | `mg_px4_actuator_get_config` | 内部能力 | PX4 执行器映射；内部能力（通用参数页覆盖 PWM_MAIN_FUNC1..16） |
 | `mg_px4_actuator_set_config` | 内部能力 | PX4 执行器映射；内部能力（通用参数页覆盖 PWM_MAIN_FUNC1..16） |
 | `mg_px4_flight_mode_get_config` | 内部能力 | PX4 模式槽只读视图（COM_FLTMODE1..6）；写入走通用参数页，避免与 RC 模式通道脱节 |
@@ -377,6 +383,15 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `mg_px4_tuning_set` | 内部能力 | PX4 姿态/角速度 PID；内部能力（通用参数页覆盖 MC_* 参数） |
 | `mg_rc_set_failsafe` | 内部能力 | RC 失联保护写入；内部能力（通用参数页覆盖 RC_FS_* / *FS_* 参数） |
 | `mg_rc_set_mapping` | 内部能力 | RC 通道映射写入；内部能力（通用参数页覆盖 RCMAP_* / RC_MAP_*） |
+| `mg_session_log_start` | 0.3.0 之后延期 | 延期至 0.3.0 之后；会话文件日志当前不接入 UI |
+| `mg_session_log_status` | 0.3.0 之后延期 | 延期至 0.3.0 之后；会话文件日志当前不接入 UI |
+| `mg_session_log_stop` | 0.3.0 之后延期 | 延期至 0.3.0 之后；会话文件日志当前不接入 UI |
 | `mg_sitl_start` | 内部能力 | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
 | `mg_sitl_status` | 内部能力 | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
 | `mg_sitl_stop` | 内部能力 | SITL 启停只服务开发与离线分析（native 测试与手工脚本）；生产 UI 不提供仿真启停入口 |
+| `mg_telemetry_append` | 退役候选 | 退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性 |
+| `mg_telemetry_clear` | 退役候选 | 退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性 |
+| `mg_telemetry_get_series` | 退役候选 | 退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性 |
+| `mg_telemetry_get_series_names` | 退役候选 | 退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性 |
+| `mg_telemetry_get_stats` | 退役候选 | 退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性 |
+| `mg_telemetry_register_series` | 退役候选 | 退役候选：旧 telemetry series 记录器；本次保留 ABI，删除前需确认兼容性 |

@@ -187,7 +187,7 @@ static void test_cancel_watchdog_finishes_when_vehicle_is_silent() {
     mg::core::transport::ConnectionManager conn;
     auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
     conn.wire_for_test(std::make_unique<mg::core::transport::InMemoryLink>(), std::move(mav));
-    conn.get_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
+    conn.shared_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
     conn.record_heartbeat();
 
     CalibrationService svc;
@@ -219,7 +219,7 @@ static void test_cancel_link_loss_still_lands_on_cancelled() {
     mg::core::transport::ConnectionManager conn;
     auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
     conn.wire_for_test(std::make_unique<mg::core::transport::InMemoryLink>(), std::move(mav));
-    conn.get_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
+    conn.shared_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
     conn.record_heartbeat();
 
     CalibrationService svc;
@@ -887,7 +887,7 @@ static void test_calibration_fails_when_link_is_lost() {
     auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
     conn.wire_for_test(std::make_unique<mg::core::transport::InMemoryLink>(), std::move(mav));
     // 本组只验证看门狗，不关心链路对端：wire_for_test 装好之后再把发送置为成功。
-    conn.get_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
+    conn.shared_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
     conn.record_heartbeat();  // WaitingHeartbeat -> Connected
     CHECK(conn.is_connected(), "test link starts connected");
 
@@ -914,7 +914,7 @@ static void test_calibration_stall_timeout_fails() {
     auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
     conn.wire_for_test(std::make_unique<mg::core::transport::InMemoryLink>(), std::move(mav));
     // 同上：只验证看门狗，发送直接置为成功。
-    conn.get_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
+    conn.shared_mavlink()->set_send_callback([](const uint8_t*, size_t) { return true; });
     conn.record_heartbeat();
 
     CalibrationService svc;

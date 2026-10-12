@@ -185,7 +185,7 @@ MGCORE_API char* mg_connection_connect_udp(mg_core_t* core, const char* endpoint
 MGCORE_API char* mg_stream_set_interval(mg_core_t* core, int msg_id, int interval_us) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     if (msg_id < 0) return fail(MG_ERROR_INVALID_PARAM, "invalid message id");
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (mav && mav->request_message_interval(
             active_target_sys(core), active_target_comp(core),
             static_cast<uint32_t>(msg_id), static_cast<int32_t>(interval_us))) {

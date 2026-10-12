@@ -10,7 +10,7 @@
 #include "core/telemetry/json_serializers.h"
 
 static bool geofence_param(mg_core_t* core, const char* name, float* value) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav || !name || !value) return false;
     auto p = mav->get_param_by_name(name);
     if (!p.has_value()) return false;

@@ -23,7 +23,8 @@ template <typename Sender>
 char* send_active_mission_request(mg_core_t* core, const char* error_reason, Sender&& sender) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     mg::core::platform::LockGuard lk(core->mission_mtx);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     return sender(*mav, active_target_sys(core), active_target_comp(core))
         ? ok()
         : fail(MG_ERROR_SEND_FAILED, error_reason);
@@ -33,7 +34,8 @@ char* send_active_mission_request(mg_core_t* core, const char* error_reason, Sen
 
 MGCORE_API char* mg_mission_download(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     return mav->mission_download(active_target_sys(core), active_target_comp(core))
         ? ok()
         : fail(MG_ERROR_SEND_FAILED, "send failed");
@@ -73,7 +75,7 @@ MGCORE_API char* mg_mission_upload(mg_core_t* core, const char* j) {
     }
     plan = ffi_prepare_mission_upload(core, plan);
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (mav && mav->mission_upload(active_target_sys(core), active_target_comp(core), plan)) {
         // S2：这里只是“传输已开始”。MISSION_COUNT 已发出，逐项传输与 MISSION_ACK
         // 由 operation 状态和回读核验，调用方不能把这行当成任务已生效。
@@ -106,7 +108,7 @@ MGCORE_API char* mg_mission_set_current(mg_core_t* core, int seq) {
 
 MGCORE_API char* mg_mission_get_plan(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     auto plan = mav ? ffi_present_mission_plan(core, mav->mission_get_plan()) : mg::core::mission::MissionPlan{};
     return to_cstr(
         mg::bridge::mission_plan_json(plan, ffi_param_profile(core)));
@@ -114,7 +116,7 @@ MGCORE_API char* mg_mission_get_plan(mg_core_t* core) {
 
 MGCORE_API char* mg_mission_get_progress(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     auto prog = mav ? mg::bridge::ffi::present_mission_progress(core, mav->mission_get_progress())
                     : mg::core::mission::MissionTransferProgress{};
     return to_cstr(mg::bridge::mission_progress_json(prog));
@@ -122,7 +124,7 @@ MGCORE_API char* mg_mission_get_progress(mg_core_t* core) {
 
 MGCORE_API char* mg_mission_get_current(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     auto raw_plan = mav ? mav->mission_get_plan() : mg::core::mission::MissionPlan{};
     auto plan = ffi_present_mission_plan(core, raw_plan);
     mg::core::telemetry::JsonBuilder jb;
@@ -135,7 +137,7 @@ MGCORE_API char* mg_mission_get_current(mg_core_t* core) {
 
 MGCORE_API char* mg_mission_get_execution_progress(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     auto raw_plan = mav ? mav->mission_get_plan() : mg::core::mission::MissionPlan{};
     auto plan = ffi_present_mission_plan(core, raw_plan);
     const auto progress = mav

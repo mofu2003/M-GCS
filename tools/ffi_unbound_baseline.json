@@ -1,21 +1,4 @@
 {
-  "_comment": "公开导出中「无前端绑定、无内部能力定性、无测试引用」的存量清单。基线只允许缩小：新增未定性导出会失败；已覆盖的符号必须从基线删除。语义与跟踪方式见 docs/constraints/known-deviations.md 的 KD-45。",
-  "symbols": [
-    "mg_calibration_start_airspeed",
-    "mg_config_apply_preset",
-    "mg_config_get_presets",
-    "mg_discover_devices",
-    "mg_event_log_get_status",
-    "mg_mission_set_current",
-    "mg_param_file_import",
-    "mg_session_log_start",
-    "mg_session_log_status",
-    "mg_session_log_stop",
-    "mg_telemetry_append",
-    "mg_telemetry_clear",
-    "mg_telemetry_get_series",
-    "mg_telemetry_get_series_names",
-    "mg_telemetry_get_stats",
-    "mg_telemetry_register_series"
-  ]
+  "_comment": "公开导出中「无前端绑定、无分类、无测试引用」的存量清单。基线只允许缩小：新增未定性导出会失败；已覆盖或分类的符号必须从基线删除。语义与跟踪方式见 docs/constraints/known-deviations.md 的 KD-45。",
+  "symbols": []
 }

@@ -115,7 +115,7 @@ std::string change_set_json(const ParameterChangeSet& change_set) {
 
 MGCORE_API char* mg_params_request_all(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     if (mav->request_param_list(active_target_sys(core), active_target_comp(core))) {
         return ok();
@@ -135,7 +135,7 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
         return fail(MG_ERROR_INVALID_PARAM, "expected JSON array of parameter names");
     }
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav || mav->params_received() == 0) {
         cJSON_Delete(root);
         return fail(MG_ERROR_INVALID_STATE, "parameters are not loaded");
@@ -218,7 +218,7 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
 
 MGCORE_API char* mg_params_get_refresh_status(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) {
         return to_cstr(R"({"active":false,"total":0,"completed":0,"pending":0,"round":0,"failed":[]})");
     }
@@ -241,7 +241,7 @@ MGCORE_API char* mg_params_get_refresh_status(mg_core_t* core) {
 
 MGCORE_API char* mg_params_get_all(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return to_cstr("[]");
     auto params = mav->all_params();
     mg::core::telemetry::JsonBuilder jb;
@@ -255,7 +255,7 @@ MGCORE_API char* mg_params_get_all(mg_core_t* core) {
 
 MGCORE_API char* mg_params_get_progress(mg_core_t* core) {
     CHECK_CORE(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return to_cstr(R"({"received":0,"total":0})");
     return to_cstr(mg::core::telemetry::param_progress_json(
         static_cast<uint16_t>(mav->params_download_received()), mav->param_count()));
@@ -264,7 +264,7 @@ MGCORE_API char* mg_params_get_progress(mg_core_t* core) {
 MGCORE_API char* mg_params_get_by_name(mg_core_t* core, const char* param_name) {
     CHECK_CORE(core);
     if (!param_name || param_name[0] == '\0') return to_cstr("{\"found\":false}");
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return to_cstr("{\"found\":false}");
     auto p = mav->get_param_by_name(param_name);
     if (!p.has_value()) return to_cstr(mg::core::telemetry::param_not_found_json());
@@ -274,7 +274,7 @@ MGCORE_API char* mg_params_get_by_name(mg_core_t* core, const char* param_name) 
 MGCORE_API char* mg_params_get_write_status(mg_core_t* core) {
     CHECK_CORE_RET(core, mg::bridge::ffi::response::error(MG_ERROR_NULL_CORE, "null core"));
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     mg::core::telemetry::JsonBuilder writes;
     writes.begin_array();
     if (mav) {
@@ -305,7 +305,7 @@ MGCORE_API char* mg_params_set(mg_core_t* core, const char* param_name, float pa
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     if (!param_name || param_name[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "empty param name");
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
 
     uint16_t total = mav->param_count();
@@ -332,7 +332,7 @@ MGCORE_API char* mg_params_set(mg_core_t* core, const char* param_name, float pa
 
 MGCORE_API char* mg_params_prepare_change_set(mg_core_t* core, const char* json_params) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     if (mav->param_count() == 0 ||
         mav->params_received() < static_cast<size_t>(mav->param_count())) {
@@ -349,7 +349,7 @@ MGCORE_API char* mg_params_prepare_change_set(mg_core_t* core, const char* json_
 
 MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_params) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
 
     const uint16_t total = mav->param_count();

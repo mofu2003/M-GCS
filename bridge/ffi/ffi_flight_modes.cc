@@ -19,7 +19,7 @@ namespace {
 MGCORE_API char* mg_flight_get_modes(mg_core_t* core) {
     CHECK_CORE(core);
 
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
@@ -65,7 +65,7 @@ MGCORE_API char* mg_flight_get_modes(mg_core_t* core) {
 MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core) {
     CHECK_CORE(core);
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", true);
@@ -180,7 +180,7 @@ MGCORE_API char* mg_flight_set_mode(mg_core_t* core, const char* mode_name) {
     if (!mode_name || mode_name[0] == '\0') {
         return fail(MG_ERROR_INVALID_PARAM, "mode name is required");
     }
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) {
         return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected");
     }
@@ -202,7 +202,7 @@ MGCORE_API char* mg_flight_set_mode(mg_core_t* core, const char* mode_name) {
     // S2：命令结果以 COMMAND_ACK 为准。这里等 ACK 再回成功，避免把“已发出”
     // 当成“已切换”。主界面走非阻塞的 submit/poll，不经过这个同步入口。
     char* acked = ffi_cmd_result_queued(
-        core, mav, MAV_CMD_DO_SET_MODE,
+        mav, MAV_CMD_DO_SET_MODE,
         active_target_sys(core), active_target_comp(core),
         static_cast<float>(base_mode), static_cast<float>(custom_mode),
         0, 0, 0, 0, 0);

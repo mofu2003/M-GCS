@@ -38,7 +38,7 @@ std::string connection_state_name(mg_core_t* core) {
 
 std::string connection_diagnostics_json(mg_core_t* core) {
     auto* vehicle = get_active_vehicle(core);
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     auto* cache = get_active_cache(core);
     const bool connected = is_active_connected(core);
     const uint64_t heartbeat_age = vehicle ? vehicle->conn().heartbeat_age_ms() : 0;
@@ -111,7 +111,7 @@ std::string connection_diagnostics_json(mg_core_t* core) {
 }
 
 std::string param_change_history_json(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     const auto records = mav
         ? mav->param_change_history()
         : std::vector<mg::core::mavlink::MavlinkAdapter::ParamChangeRecord>{};

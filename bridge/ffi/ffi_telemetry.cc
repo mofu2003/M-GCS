@@ -181,6 +181,7 @@ std::string instances_json(mg_core_t* core, mg::core::vehicle::Vehicle* vehicle,
 MGCORE_API int mg_waveform_poll(mg_core_t* core, float* out_points, int out_max_points,
                                 int target_points, int window_ms, int instance) {
     if (!core || !out_points || out_max_points <= 0 || instance < 0) return 0;
+    PIN_VEHICLE_SESSION(core);
 
     auto* waveform = get_active_waveform(core, static_cast<size_t>(instance));
     if (!waveform) return 0;

@@ -325,7 +325,8 @@ void test_connection_manager_attaches_shared_session() {
     CHECK(manager.is_shared(), "manager reports shared lifecycle");
     CHECK(manager.state() == mg::core::transport::ConnectionState::WaitingHeartbeat,
           "shared manager waits for its first heartbeat");
-    CHECK(manager.get_mavlink() != nullptr, "shared manager exposes its adapter");
+    const auto adapter = manager.shared_mavlink();
+    CHECK(adapter != nullptr, "shared manager exposes its adapter lease");
 
     const mg::core::transport::LinkPeer sender{"10.0.0.3", 14551};
     mavlink_message_t heartbeat;
@@ -334,7 +335,7 @@ void test_connection_manager_attaches_shared_session() {
     link->inject_incoming(sender, bytes.data(), bytes.size());
     CHECK(manager.state() == mg::core::transport::ConnectionState::Connected,
           "shared manager becomes connected on heartbeat");
-    const auto first_heartbeat = manager.get_mavlink()->latest_heartbeat();
+    const auto first_heartbeat = adapter->latest_heartbeat();
     CHECK(first_heartbeat.has_value() &&
               first_heartbeat->custom_mode == 0,
           "shared manager receives its routed heartbeat");
@@ -350,9 +351,10 @@ void test_connection_manager_attaches_shared_session() {
         MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 17, MAV_STATE_ACTIVE);
     bytes = pack_msg(heartbeat);
     link->inject_incoming(sender, bytes.data(), bytes.size());
-    const auto after_detach = manager.get_mavlink() == nullptr
+    const auto detached_adapter = manager.shared_mavlink();
+    const auto after_detach = detached_adapter == nullptr
         ? std::optional<mg::core::mavlink::HeartbeatInfo>{}
-        : manager.get_mavlink()->latest_heartbeat();
+        : detached_adapter->latest_heartbeat();
     CHECK(!after_detach.has_value() ||
               after_detach->custom_mode != 17,
           "detached shared manager stops receiving frames");

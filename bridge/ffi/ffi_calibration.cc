@@ -24,7 +24,7 @@ namespace {
 /// 当前飞机是否为 PX4。校准命令里有几条是 ArduPilot 专有的
 /// （DO_CANCEL_MAG_CAL / ACCELCAL_VEHICLE_POS），PX4 会直接忽略。
 bool active_is_px4(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return false;
     const auto heartbeat = mav->latest_heartbeat();
     return heartbeat.has_value() && heartbeat->autopilot_type == MAV_AUTOPILOT_PX4;
@@ -63,7 +63,7 @@ MGCORE_API char* mg_calibration_cancel(mg_core_t* core) {
                     "flight controller to finish");
     }
     const auto status = cal.get_status();
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
 
     // 先进入 Cancelling，再发取消命令：链路读线程可能在 send 返回后、状态改
     // 动前就把 COMMAND_ACK 递进来，先置状态才不会漏掉那条确认。
@@ -161,7 +161,8 @@ MGCORE_API char* mg_calibration_accel_confirm(mg_core_t* core, int position) {
     if (status.current_step != position) {
         return fail(MG_ERROR_INVALID_STATE, "flight controller is not requesting this accelerometer position");
     }
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     const bool sent = mav->send_command_long(
         active_target_sys(core), active_target_comp(core),
         42429, 0, static_cast<float>(position), 0, 0, 0, 0, 0, 0);
@@ -173,7 +174,8 @@ MGCORE_API char* mg_calibration_start_airspeed(mg_core_t* core) {
     if (get_active_calibration(core).is_active()) {
         return fail(MG_ERROR_CALIBRATION, "calibration already in progress");
     }
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     const bool sent = mav->send_command_long(
         active_target_sys(core), active_target_comp(core),
         241, 0, 0, 0, 0, 0, 0, 2, 0);

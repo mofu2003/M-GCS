@@ -14,7 +14,7 @@
  *                                  HeartbeatLost -> Disconnected
  *
  * This is a real seam: two adapters exist (real SerialLink, InMemoryLink for tests).
- * Access via get_mavlink() / get_link() methods, not direct field access.
+ * Access via shared_mavlink() / get_link() methods, not direct field access.
  */
 
 #ifndef MGCORE_CONNECTION_MANAGER_H
@@ -56,27 +56,13 @@ public:
     ConnectionManager(const ConnectionManager&) = delete;
     ConnectionManager& operator=(const ConnectionManager&) = delete;
 
-    // Access the active MAVLink adapter. May be null before a link is wired.
-    //
-    // Borrowed pointer: the caller gets no lifetime. Use shared_mavlink() for
-    // every path that blocks on the adapter — a COMMAND_ACK wait can last 5 s,
-    // and reset() is free to destroy the adapter meanwhile. The read is taken
-    // under link_mtx_ so it cannot race with reset()'s move-out (the returned
-    // pointer may still die right after the call returns).
-    mg::core::mavlink::MavlinkAdapter* get_mavlink() {
-        mg::core::platform::LockGuard lk(link_mtx_);
-        return mavlink_ptr.get();
-    }
-    const mg::core::mavlink::MavlinkAdapter* get_mavlink() const {
-        mg::core::platform::LockGuard lk(link_mtx_);
-        return mavlink_ptr.get();
-    }
     /// Owning handle on the active adapter. Holding it keeps the adapter alive
     /// for as long as the copy lives, so a concurrent reset() cannot free it
-    /// under a caller blocked waiting for an ACK. Never a borrowed pointer.
+    /// under a caller blocked waiting for an ACK.
     std::shared_ptr<mg::core::mavlink::MavlinkAdapter> shared_mavlink() const;
     // Access the active transport link. May be null before connection.
-    // Borrowed pointer with a guarded read (see get_mavlink() above).
+    // Borrowed pointer with a guarded read; callers must not retain it across
+    // disconnect or reset.
     mg::core::transport::ILink* get_link() {
         mg::core::platform::LockGuard lk(link_mtx_);
         return link_ptr.get();

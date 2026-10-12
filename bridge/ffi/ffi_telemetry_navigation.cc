@@ -21,7 +21,8 @@ MGCORE_API char* mg_vehicle_get_session_status(mg_core_t* core, int vehicle_id) 
     const auto battery = cache.snapshot_battery().data;
     const auto sys_status = cache.snapshot_sys_status().data;
     const auto home = cache.snapshot_home().data;
-    const auto* mav = vehicle->mavlink();
+    const auto connection = vehicle->command_connection();
+    const auto mav = connection ? connection->shared_mavlink() : nullptr;
     const auto mission_snapshot = mav
         ? mav->mission_get_plan_snapshot()
         : mg::core::mission::MissionPlanSnapshot{};
@@ -114,7 +115,8 @@ MGCORE_API char* mg_vehicle_get_session_mission(mg_core_t* core,
     if (!vehicle) {
         return mg::bridge::ffi::response::error(MG_ERROR_NOT_FOUND, "vehicle session not found");
     }
-    const auto* mav = vehicle->mavlink();
+    const auto connection = vehicle->command_connection();
+    const auto mav = connection ? connection->shared_mavlink() : nullptr;
     const auto snapshot = mav
         ? mav->mission_get_plan_snapshot()
         : mg::core::mission::MissionPlanSnapshot{};

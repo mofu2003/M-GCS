@@ -28,7 +28,7 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
     const auto profile = ffi_param_profile(core);
     auto desc = db.get(profile, param_name);
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     auto val = mav ? mav->get_param_by_name(param_name) : std::nullopt;
 
     mg::core::telemetry::JsonBuilder jb;
@@ -113,7 +113,7 @@ MGCORE_API char* mg_config_read_param(mg_core_t* core, const char* param_name) {
 // mg_config_write_param - Write a single parameter with validation
 // ================================================================
 MGCORE_API char* mg_config_write_param(mg_core_t* core, const char* param_name, float value) {
-    CHECK_CORE(core); if (!get_active_mavlink(core)) return fail(MG_ERROR_NOT_CONNECTED, "no mavlink"); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     if (!param_name || param_name[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null param name");
 
     auto& db = get_desc_db();
@@ -127,7 +127,8 @@ MGCORE_API char* mg_config_write_param(mg_core_t* core, const char* param_name, 
         return to_cstr(jb.str());
     }
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     const std::string vehicle_name = ffi_param_vehicle_name(core, param_name);
     auto cached = mav->get_param_by_name(vehicle_name.c_str());
     if (!cached.has_value()) cached = mav->get_param_by_name(param_name);
@@ -144,7 +145,7 @@ MGCORE_API char* mg_config_write_param(mg_core_t* core, const char* param_name, 
 // mg_config_write_params - Write multiple parameters from JSON array
 // ================================================================
 MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
-    CHECK_CORE(core); if (!get_active_mavlink(core)) return fail(MG_ERROR_NOT_CONNECTED, "no mavlink"); CHECK_CONNECTED(core);
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     if (!json || json[0] == '\0') return fail(MG_ERROR_INVALID_PARAM, "null json");
 
     cJSON* root = mg::core::json::parse(json);
@@ -153,7 +154,11 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
         return fail(MG_ERROR_INVALID_PARAM, "expected JSON array");
     }
 
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) {
+        cJSON_Delete(root);
+        return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    }
     int written = 0;
     int failed_count = 0;
     auto& descriptor_db = get_desc_db();

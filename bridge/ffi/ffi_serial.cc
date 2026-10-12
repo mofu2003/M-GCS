@@ -105,7 +105,8 @@ MGCORE_API char* mg_serial_get_uart_names(mg_core_t* core) {
     // 等待上限就是它的最坏耗时；一旦有界面需要它，应改成
     // mg_fs_download_file + mg_fs_transfer_status 的异步形式。
     constexpr int kUartMappingWaitMs = 8000;
-    auto* mavlink = get_active_mavlink(core);
+    auto mavlink = shared_active_mavlink(core);
+    if (!mavlink) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     const auto temp = std::filesystem::temp_directory_path() /
         ("mgcs_uarts_" + std::to_string(reinterpret_cast<uintptr_t>(core)) + ".txt");
     std::error_code ignored;

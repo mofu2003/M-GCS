@@ -409,8 +409,13 @@ void ConnectionManager::wire_callbacks() {
     // 调用者必须持有 link_mtx_
     if (!link_ptr || !mavlink_ptr) return;
 
+    // 使用 weak_ptr 捕获适配器，避免裸指针 use-after-free（ADR-0007，KD-52）
+    std::weak_ptr<mg::core::mavlink::MavlinkAdapter> weak_mav = mavlink_ptr;
     link_ptr->set_receive_callback(
-        [this, mav = mavlink_ptr.get()](const uint8_t* data, size_t size) {
+        [this, weak_mav](const uint8_t* data, size_t size) {
+            auto mav = weak_mav.lock();
+            if (!mav) return;  // 适配器已释放，忽略
+
             const bool parsed_frame = mav->feed_raw(data, size);
             if (parsed_frame && state_.load() == ConnectionState::Connected) {
                 record_activity();

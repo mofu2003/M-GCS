@@ -178,13 +178,20 @@ struct MavlinkAdapter::Impl {
 
     // 发送一帧原始字节，并在 send_mtx 释放之后把它写进 tlog。
     // 文件 I/O 发生在所有 adapter 锁之外（A3），详设见 ADR-0006。
+    // 回调在锁外执行（A4，见 ADR-0007）。
     bool deliver_frame(const uint8_t* data, size_t size) {
-        bool sent = false;
+        // Step 1: 锁内复制回调副本
+        std::function<bool(const uint8_t*, size_t)> cb;
         {
             mg::core::platform::LockGuard send_lock(send_mtx);
             if (!send_cb) return false;
-            sent = send_cb(data, size);
+            cb = send_cb;
         }
+
+        // Step 2: 锁外调用回调（满足 A3/A4）
+        bool sent = cb(data, size);
+
+        // Step 3: 记录帧（已在所有锁外）
         record_frame(data, size);
         return sent;
     }

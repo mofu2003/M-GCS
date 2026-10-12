@@ -83,11 +83,21 @@ inline char* fail(mg_error_t error, const char* reason) {
     return to_cstr(jb.str());
 }
 
-// Guard macros: all check the active vehicle or fallback vehicle connection
-#define CHECK_CORE(core) do { if (!(core)) return fail(MG_ERROR_NULL_CORE, "null core"); } while(0)
-#define CHECK_MAVLINK(core) do { if (!get_active_mavlink(core)) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected"); } while(0)
-#define CHECK_CONNECTED(core) do { if (!is_active_connected(core)) return fail(MG_ERROR_NOT_CONNECTED, "not connected"); } while(0)
-#define CHECK_CORE_RET(core, ret) do { if (!(core)) return (ret); } while(0)
+// Every core-bound FFI entry pins one session snapshot. Nested helpers reuse it;
+// explicit-target scopes install and later restore their own snapshot.
+#define CHECK_CORE(core) \
+    do { if (!(core)) return fail(MG_ERROR_NULL_CORE, "null core"); } while(0); \
+    mg::bridge::ffi::VehicleSessionScope _ffi_core_session_scope(core)
+#define CHECK_MAVLINK(core) \
+    mg::bridge::ffi::VehicleSessionScope _ffi_mavlink_session_scope(core); \
+    if (!_ffi_mavlink_session_scope.view().mavlink_lease) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected")
+#define CHECK_CONNECTED(core) \
+    mg::bridge::ffi::VehicleSessionScope _ffi_connected_session_scope(core); \
+    if (!_ffi_connected_session_scope.view().connected) return fail(MG_ERROR_NOT_CONNECTED, "not connected")
+#define PIN_VEHICLE_SESSION(core) mg::bridge::ffi::VehicleSessionScope _ffi_pinned_session_scope(core)
+#define CHECK_CORE_RET(core, ret) \
+    do { if (!(core)) return (ret); } while(0); \
+    mg::bridge::ffi::VehicleSessionScope _ffi_core_ret_session_scope(core)
 
 // Max statustext length for truncation
 #ifndef MG_STATUSTEXT_MAX_LEN
@@ -99,12 +109,10 @@ inline char* fail(mg_error_t error, const char* reason) {
 /// response that must be forwarded to the caller as-is. Defined in
 /// ffi_flight_commands.cc.
 ///
-/// `mav` is the borrowed pointer the command entry points already resolved. The
-/// implementation upgrades it into an owning lease for the whole wait (see
-/// ffi_flight_commands.cc), so a concurrent disconnect cannot free the adapter
-/// under the caller; a pointer that can no longer be leased is never used.
-char* ffi_cmd_result_queued(mg_core_t* core,
-                            mg::core::mavlink::MavlinkAdapter* mav,
+/// `mav` is an owning lease held for the entire send and ACK wait, so a
+/// concurrent disconnect cannot free the adapter under the caller.
+char* ffi_cmd_result_queued(
+                            std::shared_ptr<mg::core::mavlink::MavlinkAdapter> mav,
                             uint16_t cmd_id, uint8_t sys, uint8_t comp,
                             float p1, float p2, float p3, float p4,
                             float p5, float p6, float p7,
@@ -127,10 +135,6 @@ inline mg::core::vehicle::Vehicle* get_active_vehicle(mg_core_t* core) {
 // ================================================================
 
 // Get mavlink for current vehicle (or fallback)
-inline mg::core::mavlink::MavlinkAdapter* get_active_mavlink(mg_core_t* core) {
-    return mg::bridge::ffi::resolve_vehicle_session(core).mavlink;
-}
-
 /// 命令任务槽位回收（定义在 ffi_flight_commands.cc）。清掉 future 已就绪、
 /// 但客户端从未 poll 的条目（ticket 从小到大），直到队列剩余不超过 keep_at_most，
 /// 返回回收条数。提交路径在"队列已满"之前先调用它，保证槽位可回收。
@@ -139,8 +143,8 @@ size_t ffi_command_jobs_collect(mg_core_t* core, size_t keep_at_most);
 /// Owning adapter accessor for paths that block on the adapter (COMMAND_ACK
 /// waits, heartbeat polling). The lease keeps the adapter alive for as long as
 /// it is held, so a concurrent disconnect cannot free it under the caller;
-/// `get_active_mavlink()` returns the same object as a borrowed pointer and is
-/// only safe for immediate, non-blocking use.
+/// Every adapter access in an FFI operation holds this lease for the duration
+/// of the operation, including synchronous waits and file transfers.
 inline std::shared_ptr<mg::core::mavlink::MavlinkAdapter>
 shared_active_mavlink(mg_core_t* core) {
     return mg::bridge::ffi::resolve_vehicle_session(core).mavlink_lease;
@@ -236,7 +240,7 @@ inline mg::core::mission::MissionPlan ffi_prepare_mission_upload(mg_core_t* core
 
 /// Check if active vehicle is PX4 (returns false for ArduPilot or no vehicle).
 inline bool ffi_is_px4(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return false;
     auto hb = mav->latest_heartbeat();
     return hb.has_value() && hb->autopilot_type == 12;
@@ -246,7 +250,7 @@ inline bool ffi_is_px4(mg_core_t* core) {
 /// 固件、未连接或机型无法归一化时返回空串。任务命令能力门禁按这个结果判断
 /// 飞控是否真的存储某个任务字段，因此 PX4 保持空串。
 inline std::string ffi_ardupilot_vehicle_class(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return "";
     auto hb = mav->latest_heartbeat();
     if (!hb.has_value() || hb->autopilot_type != 3) return "";
@@ -267,7 +271,7 @@ inline std::string ffi_ardupilot_vehicle_class(mg_core_t* core) {
 /// （`PX4ParameterMetaData.json`，见 `docs/adr/0007-px4-parameter-metadata.md`），
 /// 其余为空。
 inline std::string ffi_param_profile(mg_core_t* core) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return "";
     auto hb = mav->latest_heartbeat();
     if (hb.has_value() && hb->autopilot_type == 12) return "px4";
@@ -279,7 +283,7 @@ inline std::string ffi_param_profile(mg_core_t* core) {
 /// pass through unchanged.
 inline std::string ffi_param_vehicle_name(mg_core_t* core,
                                           const std::string& param_name) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return param_name;
     const auto hb = mav->latest_heartbeat();
     const auto version = mav->latest_firmware_version();
@@ -300,7 +304,7 @@ inline std::string ffi_param_vehicle_name(mg_core_t* core,
 /// newest canonical name used by the local descriptor database.
 inline std::string ffi_param_canonical_name(mg_core_t* core,
                                             const std::string& param_name) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav) return param_name;
     const auto hb = mav->latest_heartbeat();
     const auto version = mav->latest_firmware_version();
@@ -319,7 +323,7 @@ inline std::string ffi_param_canonical_name(mg_core_t* core,
 
 /// Get a parameter value by name (returns 0 if not found or no connection).
 inline float ffi_get_param(mg_core_t* core, const char* name) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav || !name) return 0;
     auto p = mav->get_param_by_name(name);
     return p.has_value() ? p->value : 0;
@@ -327,7 +331,7 @@ inline float ffi_get_param(mg_core_t* core, const char* name) {
 
 /// Set a parameter value by name. Returns true on success.
 inline bool ffi_set_param(mg_core_t* core, const char* name, float value) {
-    auto* mav = get_active_mavlink(core);
+    auto mav = shared_active_mavlink(core);
     if (!mav || !name) return false;
     return mav->set_param(active_target_sys(core), active_target_comp(core), name, value, 0);
 }
