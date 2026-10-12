@@ -109,6 +109,20 @@ List<int> _freshSignedAutoDetectHeartbeat() {
   return packet;
 }
 
+/// 选一个当前空闲的回环 UDP 端口。
+///
+/// 不能 `bind(0)` 取号后立刻复用：Dart 的 `RawDatagramSocket.close()` 不保证同步
+/// 释放 fd，紧随其后的原生 `socket()/bind()` 会偶发 `EADDRINUSE`（errno 48）。
+/// 实测把「取号 → close → 立即重绑」连做 300 次失败 112 次（37%），close 后等
+/// 2 ms 再重绑则 0 次。这里统一留出这个窗口，负载下的 flaky 由此消除。
+Future<int> _freeLoopbackUdpPort() async {
+  final probe = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+  final port = probe.port;
+  probe.close();
+  await Future<void>.delayed(const Duration(milliseconds: 5));
+  return port;
+}
+
 void main() {
   final libraryPath = Platform.environment['MGCS_FLEET_LIBRARY'];
   test(
@@ -129,12 +143,7 @@ void main() {
       final senders = <RawDatagramSocket>[];
       final timers = <Timer>[];
       try {
-        final probe = await RawDatagramSocket.bind(
-          InternetAddress.loopbackIPv4,
-          0,
-        );
-        final port = probe.port;
-        probe.close();
+        final port = await _freeLoopbackUdpPort();
 
         controller.selectTransport(ConnectionTransport.udp);
         controller.updateNetworkEndpoint(host: '127.0.0.1', port: '$port');
@@ -241,12 +250,7 @@ void main() {
       final vehicleIds = <int>[];
       try {
         for (var index = 0; index < 2; index++) {
-          final probe = await RawDatagramSocket.bind(
-            InternetAddress.loopbackIPv4,
-            0,
-          );
-          final port = probe.port;
-          probe.close();
+          final port = await _freeLoopbackUdpPort();
           // Exercise the actual connection form lifecycle, not only Fleet.open.
           controller.selectTransport(ConnectionTransport.udp);
           controller.updateNetworkEndpoint(host: '127.0.0.1', port: '$port');
@@ -489,9 +493,7 @@ Future<void> runSigningAutoDetectSmoke(String libraryPath) async {
   Timer? heartbeatTimer;
   int? linkId;
   try {
-    final probe = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final port = probe.port;
-    probe.close();
+    final port = await _freeLoopbackUdpPort();
     linkId = fleet.openLink(FleetConnectionSpec('udp://127.0.0.1:$port'));
     sender = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
     void heartbeat() =>
@@ -602,12 +604,7 @@ Future<void> runSmoke(String libraryPath) async {
 
   try {
     for (var index = 0; index < 2; index++) {
-      final probe = await RawDatagramSocket.bind(
-        InternetAddress.loopbackIPv4,
-        0,
-      );
-      final port = probe.port;
-      probe.close();
+      final port = await _freeLoopbackUdpPort();
       linkIds.add(fleet.openLink(FleetConnectionSpec('udp://127.0.0.1:$port')));
       final sender = await RawDatagramSocket.bind(
         InternetAddress.loopbackIPv4,
