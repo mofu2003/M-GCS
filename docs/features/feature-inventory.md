@@ -66,17 +66,12 @@
 
 - 经任务文档区段下发/回读/比对围栏与 Rally（`mg_mission_doc_*_fence/rally`、`mg_fence_download`、`mg_rally_download`）。
 
-### 1.8 测绘规划（`flutter_shell/lib/survey/survey_planning_page.dart`）
-
-- 矩形与走廊测绘的相机模型、GSD/重叠/线间距、结果生成与估算（`mg_survey_generate*`）。
-- 结果导出复用时序/航点格式。详情见 `docs/features/survey-and-terrain.md`。
-
-### 1.9 参数（`flutter_shell/lib/configuration/parameters/all_parameters_page.dart`）
+### 1.8 参数（`flutter_shell/lib/configuration/parameters/all_parameters_page.dart`）
 
 - 参数全量请求、按名读取、写入与写进度（`mg_params_request_all`/`get_all`/`get_by_name`/`get_progress`/`get_write_status`）。
 - 按语义角色取值（`mg_config_get_param_roles`，safety.md S6），供 PID、校准、飞行模式、解锁检查等页取固件参数名。
 
-### 1.10 配置工作区其余页
+### 1.9 配置工作区其余页
 
 - 飞控校准（`configuration/calibration/`）：加速度计、磁罗盘、RC 校准；取消要等飞控 ACK（S8）。
 - PID 调参（`configuration/pid/`）：通用参数 + 语义角色。
@@ -84,35 +79,31 @@
 - 电机输出（`configuration/motors/`）：输出只读展示。
 - 飞行模式（`configuration/flight_modes/`）、电池配置（`configuration/battery/`）、解锁检查（`configuration/arming/`）、系统状态（`configuration/system/`）。
 
-### 1.11 MAVLink 签名（`gcs_configuration_workspace.dart`、`connection/signing_controller.dart`）
+### 1.10 MAVLink 签名（`gcs_configuration_workspace.dart`、`connection/signing_controller.dart`）
 
 - 本机密钥库、保存并应用密钥、下发 `SETUP_SIGNING`，均有确认（KD-11）。
 
-### 1.12 日志与文件（`flutter_shell/lib/logging/`）
+### 1.11 日志与文件（`flutter_shell/lib/logging/`）
 
 - 机载 DataFlash 日志：列表、下载、取消、进度、完整性校验、擦除（`onboard_log_page.dart`）。
 - 链路 `.tlog` 录制与离线回放（`flight_log_page.dart`）。
 - 机载文件：MAVLink FTP 浏览/下载/上传（`file_browser_page.dart`）。详情见 `docs/features/flight-logging-and-replay.md`。
 
-### 1.13 相机 / 云台 / 视频（`flutter_shell/lib/payload/`）
+### 1.12 相机 / 云台 / 视频（`flutter_shell/lib/payload/`）
 
 - 相机与云台设备清单、状态回读、拍照/录像/变焦/云台指向/回中。
 - 视频源元数据、本机解码渲染、本地录制与截图落盘、容量上限清理（FFmpeg 仅 LGPL；无后端时诚实降级）。详情见 `docs/features/video-camera-gimbal.md`。
 
-### 1.14 PX4 支持（`docs/features/px4-parity.md`）
 
-- 统一模式表、引导/起飞行为、PX4 参数元数据 profile、任务命令覆盖、PX4 行为与错误路径测试。
 
 ## 2. 部分实现（已交付但有明确边界）
 
 | 功能 | 已做 | 未做 |
 | --- | --- | --- |
 | 固件 | 连接流程中的固件识别 | 刷写与校验（`mg_firmware_flash` 未接 UI） |
-| 地形 | 前端 backend + 在线高程 provider（open-elevation）、剖面查询 | 页面入口（D7） |
 | 参数 | 读写、写进度、语义角色 | 文件导入导出（`.param`/CSV）、变化项查询 |
 | 日志 | 机载日志、tlog 录制/回放、MAVLink FTP | 事件日志服务、会话文件日志 |
 | 相机/云台/视频 | 状态回读、命令、本机解码/录制/截图（macOS arm64 已验证） | 真实硬件回读、其他平台验证 |
-| 测绘/地形 | 矩形/走廊测绘已进页 | 任意多边形、自定义相机库、DEM 瓦片渲染 |
 
 ## 3. 未实现 / 未接入前端
 
@@ -131,17 +122,15 @@
 
 ### 3.2 完全未实现（QGC/MP 有、M-GCS 目前没有）
 
-- **手柄/手动控制（Joystick / MANUAL_CONTROL）**：仓库内除 PX4 参数元数据外无相关代码。
+- **手柄/手动控制（Joystick / MANUAL_CONTROL）**：仓库内无相关代码。
 - **离线地图发行与瓦片持久化**：仅支持在线底图与自定义 XYZ 模板，无离线包管理。
 - **日志分析器**：DataFlash `.bin` 解析与图表（QGC LogViewer / MP LogBrowse 级别）；tlog 仅基本回放。
 - **固件刷写**：无刷写 UI 与下载管理。
-- **地形页面**：有 backend 与 provider，无页面。
 - **相机定义 XML 驱动的完整设置项、云台 on-screen 指向/ROI 向导、热成像/多路画面**。
-- **任意多边形/结构扫描测绘、影像拼接、DEM 瓦片渲染**。
 
 ## 4. 未接入前端的 FFI 导出明细
 
-当前公开导出 280 个、前端已绑定 136 个，未绑定 144 个 = **17 个内部能力** + **10 个延期至 0.3.0 之后的接口** + **6 个退役候选** + **111 个仅测试引用**（分类接口逐符号列于 `bridge/ffi/API_CATALOG.md` 的「已定性的公开导出」一节）。
+当前公开导出 262 个、前端已绑定 130 个，未绑定 132 个 = **10 个内部能力** + **10 个延期至 0.3.0 之后的接口** + **6 个退役候选** + 其余仅测试引用（分类接口逐符号列于 `bridge/ffi/API_CATALOG.md` 的「已定性的公开导出」一节）。
 
 处置方式（沿用 KD-45）：
 
@@ -167,9 +156,8 @@
 | 参数变化项 | `mg_params_get_changed` | 前端按描述符默认值比较 |
 | 参数文件读写 | `mg_params_save_to_file`、`mg_params_load_from_file` | `mg_params_get_all` + `mg_param_file_export` + Dart 文件写入；`mg_param_file_import` + `mg_params_commit_change_set` |
 
-### 4.2 内部能力（17 个，无 UI 计划）
+### 4.2 内部能力（10 个，无 UI 计划）
 
-- **PX4 便捷封装（7）**：`mg_px4_actuator_*`/`flight_mode_get_config`/`safety_*`/`tuning_*`；通用参数页配合 `px4` 描述符 profile 已覆盖同一批参数。
 - **SITL（3）**：`mg_sitl_start/status/stop`；只服务开发与离线分析。
 - **执行器/RC 通道写入（5）**：`mg_actuator_get_limits`/`set_function`/`set_limits`、`mg_rc_set_mapping`/`set_failsafe`；通用参数页覆盖 `SERVOx_*`/`RCMAP_*`。
 - **参数预校验（1）**：`mg_config_validate_param`；前端按描述符范围/枚举本地校验。

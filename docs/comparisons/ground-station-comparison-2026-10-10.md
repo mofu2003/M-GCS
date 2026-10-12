@@ -42,14 +42,13 @@ M-GCS 的当前工作树不是纯 `HEAD`：它包含用户正在进行的收尾�
 | --- | ---: | ---: | ---: | --- |
 | 核心飞行/连接闭环 | 2 | 5 | 5 | M-GCS 主闭环有实现，但固件、输入、外围工具覆盖仍少 |
 | ArduPilot 深度 | 2 | 4 | 5 | MP 的参数、校准、日志、规划和专用设备最深 |
-| PX4 深度 | 2 | 5 | 2 | QGC 的 PX4 插件/UI/测试体系更完整；MP 仓库的主定位是 ArduPilot |
 | 任务规划/数据格式 | 2 | 5 | 4 | M-GCS CAD 文档模型良好，但复杂任务项和前端覆盖较少 |
 | 多机/共享链路 | 3 | 5 | 3 | M-GCS 已实现真实共享链路；QGC 的多机使用历史和 UI 覆盖更成熟 |
 | 参数语义/元数据 | 2 | 5 | 5 | M-GCS 读取和编辑能力在发展中，验证写入仍有缺口 |
-| 校准流程 | 3 | 4 | 4 | M-GCS 有明确取消/超时和 PX4 分支，但多实例、跨源过滤仍需闭环 |
+| 校准流程 | 3 | 4 | 4 | M-GCS 有明确取消/超时，但多实例、跨源过滤仍需闭环 |
 | 日志/分析/回放 | 2 | 4 | 5 | M-GCS 有飞行日志/MAVLink FTP 能力；完整用户链路较少 |
 | 视频/载荷 | 2 | 5 | 4 | QGC 有跨平台 GStreamer 管线；MP 视频和载荷工具较实用；M-GCS 已在 macOS 开发构建闭环本地播放/录制/截图，但仍只有一端、且不在默认发布构建内 |
-| 地图/地形/离线 | 2 | 5 | 5 | M-GCS 地图源固定、离线数据弱；两者拥有更成熟缓存和地理工具 |
+| 地图/离线 | 2 | 5 | 5 | M-GCS 地图源固定、离线数据弱；两者拥有更成熟缓存和地理工具 |
 | 安全契约清晰度 | 5 | 4 | 3 | M-GCS 文件化规则最清楚，但偏差清单显示仍未全部实现 |
 | 安全行为自动验证 | 3 | 4 | 2 | M-GCS 有仿真与规则门禁；上游测试量/平台矩阵更大，MP 测试集中度较低 |
 | 架构可读性与边界 | 4 | 5 | 2 | M-GCS 分层清楚；QGC 抽象成熟但规模巨大；MP 历史耦合更强 |
@@ -67,7 +66,7 @@ M-GCS 的当前工作树不是纯 `HEAD`：它包含用户正在进行的收尾�
 | 任务编辑/上传/执行 | MissionDocument 有导入/导出/验证/编译/撤销重做/任务和围栏集结点；计划失败可回滚 | 专用 Plan View、复杂任务项、survey/structure scan、terrain altitude、resume、battery/time estimate | FlightPlanner 长期支持航点、任务编辑、航线工具和 ArduPilot 专属动作 | M-GCS 命令目录和复杂任务类型、相机触发、勘测覆盖率、固件差异校验、现场工作流仍远少于上游 |
 | 文件互操作 | 通用内部文档与格式接口，当前重点在 QGC plan/任务数据路线 | 原生 `.plan`/地理任务与完整复杂项工作流 | 多种导入导出、WP/WPL/KML/其他任务文件长期兼容 | 要逐格式检查 round-trip、未知字段保存、单位/高度基准、frame/command 不丢失；仅有 import/export API 不足以认定互操作成熟 |
 | 参数调试 | 参数列表、元数据、描述、分组、参数文件与配置页面已有；部分 FFI 尚未连接 UI | Fact System 统一模型：类型/枚举/位掩码/元数据/组件/默认值/持久化，PX4/APM 配置页面集成 | 参数树、搜索、元数据缓存、批量写入、参数文件和 ArduPilot 配置页丰富 | M-GCS 当前主要短板是写入 ACK/回读、参数刷新代际隔离、元数据覆盖率、firmware-specific presets 及参数大规模 UI 性能 |
-| 校准与机体设置 | 陀螺、加速度、罗盘、气压、遥控器策略；取消和 30 s 停滞超时；PX4 的能力差异提示 | Sensors/Radio/Power 等 setup wizard，与 Vehicle/firmware plugin 深度衔接 | ArduPilot 校准、RC、ESC、电机、机体特有配置工具很多 | M-GCS 需要验证多罗盘混合成功/失败、消息来源、取消 ACK/失败、断链中断、PX4 与各 AP 机型行为 |
+| 校准与机体设置 | 陀螺、加速度、罗盘、气压、遥控器策略；取消和 30 s 停滞超时 | Sensors/Radio/Power 等 setup wizard，与 Vehicle/firmware plugin 深度衔接 | ArduPilot 校准、RC、ESC、电机、机体特有配置工具很多 | M-GCS 需要验证多罗盘混合成功/失败、消息来源、取消 ACK/失败、断链中断、PX4 与各 AP 机型行为 |
 | 飞行前检查 | health/prearm/firmware/传感器数据有 core/FFI 和配置页面 | Health and Arming Checks、firmware setup 和多种传感器健康模型 | Pre-arm 消息、状态与大量 ArduPilot 专属 setup 页面 | M-GCS 从数据字段到可操作错误说明、修复建议、机型覆盖仍需实测，不宜把存在 prearm API 等同于完整 preflight UX |
 | 地图与地理数据 | flutter_map；五个预设瓦片源、坐标系转换、机体/航线显示和地图动作 | Qt Location provider、离线/缓存/地形/geo fence/rally/多种复杂任务地图工具 | GMap.NET provider 丰富、用户选择源、地形/高程、WMS/WMTS、离线地图缓存与 GIS 插件 | 缺用户自定义源、缓存/离线包、地形覆盖可视化、地图数据管理和大规模要素交互 |
 | 遥测、仪表、告警 | C++ telemetry cache/freshness、波形环形缓冲、ADSB、Flutter 仪表；过期态门控正在完善 | 大量 Live Fly View 仪表、MAVLink Inspector、vehicle messages、link/health 模型 | FlightData HUD、数据状态、地图 overlay 和可配置 telemetry | M-GCS 当前仪表和告警种类少；需测端到端频率、延迟、丢包、UI rebuild、后台计时器和 stale 状态边界 |
@@ -86,7 +85,7 @@ M-GCS 的当前工作树不是纯 `HEAD`：它包含用户正在进行的收尾�
 | ACK 来源隔离 | M-GCS command queue 已带 sysid/compid；mission ACK 校验 type、target 和活跃事务 | 每个 vehicle/链路有上下文，不能只用抽象类存在推断所有相同 sysid 场景；本地源需针对行为逐条测 | 主要 command ACK 匹配 sysid/compid/command，mission transfer 按目标 sysid 过滤 | M-GCS 在共享链路 mission 防串扰上有明确专门处理；相同命令、同一 sysid 多 endpoint 与 ACK generation/ticket 仍是难点 |
 | 断链与过期状态 | 用户工作树新增 `vehicleStateFresh` 和 UI/backend 门控；native armed 与旧 FFI snapshot 尚有残留（KD-16） | link health/communicationLost 显式通知；并不会简单把真实状态改写成 disarmed | 通信中断警告机制较薄，保留最后状态属于可观察行为 | M-GCS 命令门控方向更保守；要把 freshness 作为域模型字段贯穿 core→FFI→fleet summary，而不只在 Dart |
 | 重试与超时 | safety 规则要求所有长操作限时；任务 ACK 约 1.5 s 状态机，校准停滞约 30 s；命令按类别重试 | 命令队列、mission manager、link watchdog、重连 backoff 等不同层拥有专门时限 | command 默认重试与专用 timeout 广泛存在，但部分操作同步等待且结果只日志化 | 不能简单用超时更短代表更安全；按命令副作用、ACK 语义和重复执行安全性定义策略 |
-| 取消语义 | S8 要求取消下发飞控命令且确认前不能显示停止；校准类型区分固件支持 | APM 校准取消有专门流程；PX4 部分校准明确不支持立即取消 | 许多校准/任务传输的取消能力不统一 | M-GCS 的契约方向优于假装取消；仍要测发送失败、ACK NACK、断链及设备不支持分支 |
+| 取消语义 | S8 要求取消下发飞控命令且确认前不能显示停止 | APM 校准取消有专门流程；PX4 部分校准明确不支持立即取消 | 许多校准/任务传输的取消能力不统一 | M-GCS 的契约方向优于假装取消；仍要测发送失败、ACK NACK、断链及设备不支持分支 |
 | 任务文件完整性 | MissionDocument 为内部状态，导出/保存/上传分离；上传/清除失败回滚 | 本地待写任务与已接受任务分槽处理，成熟文件/任务转换 | 广泛支持任务格式；当前 checkout 的 `setWP`/`setWPint` 在返回拒绝结果前会写本地缓存，存在 rejected item cache coherence 缺陷 | M-GCS 有强数据安全设计；要补复杂项未知字段 round-trip 与 schema migration；MP 该缺陷见第 13 节 |
 | 参数写入安全 | 约束希望以 PARAM_VALUE/PARAM_ERROR 确认和回读；当前偏差登记仍显示写入确认有缺口 | Fact 写入等待、回读/拒绝语义和 UI 错误链更成熟 | 参数设置有成熟专属 metadata/workflow，但各路径验证一致性不同 | M-GCS 应在扩展参数 UI 前先建立 write transaction/generation、目标隔离、回读差异和重试防重 |
 | 终止/急停 | API 有不可逆 `DO_FLIGHTTERMINATION`，UI 决定不暴露；forced disarm 是另一个概念 | 全仓有意不提供 flight termination 面向普通操作入口，提供确认后的常规 guided/arm 操作 | 有 terminate flight 的 Action 入口并确认 | M-GCS 的不暴露决策保守，但需确保“急停”术语只指可恢复 forced disarm，避免操作者误解 |
@@ -105,7 +104,7 @@ M-GCS 有一套独立于 UI 的明确安全规则，涵盖拒绝传播、ACK 成
 - 依赖方向清楚：Flutter → C ABI → C++ core；C ABI 是可替换前端的稳定边界。C++17、Flutter/Dart 在 [CMakeLists.txt](/Users/fansicheng/Projects/M-GCS/CMakeLists.txt:1) 和 [pubspec.yaml](/Users/fansicheng/Projects/M-GCS/flutter_shell/pubspec.yaml:1) 中声明。
 - 在产品规模较小时，Vehicle/session、firmware adapter、MissionDocument、calibration strategy、telemetry cache 分区可读性较好；最近补充的 FFI directory/symbol/version checker 有助于减少 Dart/Native 漂移。
 - 主要结构风险是 `ConnectionController` 仍承载连接、轮询、多机、任务调度、遥测派发、参数和生命周期；C++ core 的模块依赖仍有已登记循环和锁/回调债务。FFI 导出数量大而前端绑定覆盖有限，命名别名和旧 ABI 增加兼容维护面。
-- Video、firmware flashing、部分 payload/PX4 configuration FFI 有声明但不是完整面向用户的产品路径。判断“有接口”不能计入满功能。
+- Video、firmware flashing、部分 payload configuration FFI 有声明但不是完整面向用户的产品路径。判断“有接口”不能计入满功能。
 
 ### QGroundControl
 
@@ -156,10 +155,8 @@ MP README 详细列出固件站点、更新 CDN、参数/日志元数据、地�
 | 领域 | 代码已有的迹象 | 仍需证明的部分 |
 | --- | --- | --- |
 | Firmware flash | `mg_firmware_flash`、状态 API、FirmwareFlasher 类型 | core 实现当前直接返回 unsupported；没有文件选择、固件来源/签名校验、板型约束、进度/取消和真实刷写验收 |
-| PX4 专属 setup | PX4 FFI 读写声明和若干传感器支持 | 与 QGC PX4 setup 页对应的参数/安全/调参面、每个字段语义和真实 PX4 测试 |
 | Camera/Gimbal/Video | camera/gimbal/video FFI；macOS 开发构建已端到端跑通本地解码 + 录制 + 截图（LGPL FFmpeg，含容量上限清理） | 仍在 macOS 之外的一端复现；硬解、跨平台编解码、多画面、断流重连、真实相机/云台硬件自动发现与设备回读、发布包内打包 FFmpeg（R6） |
 | DataFlash/log download | MAVLink FTP、log list/download/record API | 完整可见的用户流程、磁盘/空间/续传、巨大日志、文件校验、解析/图表和错误恢复 |
-| Survey/terrain | survey generator、terrain query、任务估算符号 | 规划表单、相机模型、航线参数、地形源/缓存、实时校验、文件 round-trip 和与上游结果对照 |
 | Map providers/offline | 多个 tile URL enum 和 path provider | 自定义 URL/WMS/WMTS、令牌安全、缓存上限、离线包、版权 attribution、不同坐标体系一致性 |
 | 参数与配置 | 参数 FFI/元数据/配置页面 | 对所有导出能力提供前端入口或正式标为 internal/deprecated；写入 ACK/readback、下载中止、参数版本冲突 |
 | Joystick | MAVLink command/RC models | OS joystick 枚举、校准、按钮动作、deadman、丢失输入、抢占/多机焦点保护 |
@@ -186,7 +183,7 @@ MP README 详细列出固件站点、更新 CDN、参数/日志元数据、地�
 ### P1：把“API 覆盖”转换成可靠的用户功能
 
 1. 建立产品能力矩阵：每个 FFI 标为 `UI-backed / internal / unsupported / deprecated`，拥有者、固件矩阵、错误路径和测试路径。
-2. 首先补日志/DataFlash、离线地图/自定义源、terrain-aware planning、firmware flashing、安全与能力检测、joystick；按用户真实需求选优先级，不应同时铺开。
+2. 首先补日志/DataFlash、离线地图/自定义源、firmware flashing、安全与能力检测、joystick；按用户真实需求选优先级，不应同时铺开。
 3. MissionDocument 做格式 round-trip、未知字段兼容和 schema version；把 QGC `.plan`、WP/WPL、KML/GeoJSON 与 MP 实际工作流按样本对测。
 4. 视频明确区分“收到 MAVLink 视频流信息”“可以解码并显示”“可以控制 camera/gimbal”“可以录制”；按平台做 capability matrix。
 
@@ -196,7 +193,7 @@ MP README 详细列出固件站点、更新 CDN、参数/日志元数据、地�
 2. M-GCS 给所有危险状态和协议约束增加从 API 到 Flutter 的集成测试，并建立 replay fixtures，不能只做单元状态机测试。
 3. 做真实 Linux、Windows、Android 包和 native symbol 检查；CI 中实际跑更新后的 `preflight` 等价全链路。当前 macOS build 不代表平台 parity。
 4. 把用户可见的未实现项从 UI 隐藏或明确为 unsupported，避免声明/菜单/FFI 造成“功能已支持”的错觉。
-5. 维护标准 MAVLink/mission fixtures、ArduPilot/PX4 SITL 版本矩阵和可复现的模拟场景，并记录固件版本、工具版本和运行结果。
+5. 维护标准 MAVLink/mission fixtures、ArduPilot SITL 版本矩阵和可复现的模拟场景，并记录固件版本、工具版本和运行结果。
 
 ## 11. 建议的验收矩阵
 
@@ -204,7 +201,7 @@ MP README 详细列出固件站点、更新 CDN、参数/日志元数据、地�
 
 | 维度 | 最低验收证据 |
 | --- | --- |
-| 飞控与机型 | ArduCopter、ArduPlane/QuadPlane、Rover、至少一个 PX4 机型；列明 unsupported 能力 |
+| 飞控与机型 | ArduCopter、ArduPlane/QuadPlane、Rover；列明 unsupported 能力 |
 | 链路 | UDP/TCP/串口模拟；单链路、多 vehicle、断链、重连、切换焦点、重复 sysid 场景 |
 | ACK/拒绝 | ACCEPTED、TEMPORARILY_REJECTED、DENIED、UNSUPPORTED、IN_PROGRESS、无 ACK、发送失败、延迟旧 ACK |
 | 数据状态 | 初次未知、有效、过期、恢复、切换 Vehicle、后端/前端重建 |

@@ -807,10 +807,13 @@ static void test_concurrent_sends_do_not_cross_contaminate() {
     std::mutex out_mtx;
     std::vector<uint32_t> seen_ids;
     adapter.set_send_callback([&](const uint8_t* data, size_t size) -> bool {
+        // 逐帧解析必须用局部 rx/status：回调会被两个发送线程并发调用，
+        // 共享的 MAVLINK_COMM_1 解析状态会互相踩踏，丢掉合法帧。
         mavlink_message_t parsed{};
-        mavlink_status_t status{};
+        mavlink_status_t status{}, out{};
         for (size_t i = 0; i < size; ++i) {
-            if (mavlink_parse_char(MAVLINK_COMM_1, data[i], &parsed, &status)) {
+            if (mavlink_frame_char_buffer(&parsed, &status, data[i], &parsed, &out) ==
+                MAVLINK_FRAMING_OK) {
                 std::lock_guard<std::mutex> lk(out_mtx);
                 seen_ids.push_back(parsed.msgid);
             }

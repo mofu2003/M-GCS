@@ -2,13 +2,6 @@
 
 每项功能列出 QGC 与 MP 的参考位置、两者的做法、M-GCS 的现状，以及结论。新增或修改功能前，必须先在本表中补全该功能的参考信息（见 `upstream.md` 的 P1）。
 
-> **⚠️ 开发策略说明（2026-10-12）**
-> 
-> 根据 ADR-0008（ArduPilot 优先，PX4 支持延后），**0.2.x 版本聚焦 ArduPilot 固件支持**。
-> 
-> - **本表重点**：QGC 与 MP 在 ArduPilot 固件上的行为
-> - **PX4 相关**：标注为「PX4 专属」的条目延后至 0.3.0+ 验证
-> - **功能对齐**：优先对齐 ArduPilot 主流程，PX4 插件代码保留但不作为验收依据
 
 ## 参考源码版本
 
@@ -19,7 +12,7 @@
 
 核对日期：2026-10-11。版本变化后，相应条目需要重新核对。
 
-状态取值：`已对齐`、`有差距`、`建议偏差`（不阻断合并，但需写明理由）、`有意不同`（需写明理由）、`未核对`、`延后验证`（PX4 专属功能）。
+状态取值：`已对齐`、`有差距`、`建议偏差`（不阻断合并，但需写明理由）、`有意不同`（需写明理由）、`未核对`。
 
 本表只记录行为事实与参考位置，不复制源码。规则的约束与建议见 `safety.md` 等文件。
 
@@ -55,10 +48,10 @@
 
 ### 校准取消
 
-- **QGC**：APM 罗盘校准启动前先发送 `DO_CANCEL_MAG_CAL`，确认后再发送 `DO_START_MAG_CAL`（`APM/APMSensorsComponentController.cc:215-285`）。取消时发送 `DO_CANCEL_MAG_CAL`（`cc:428-436`）。其他类型取消只在本地停止，PX4 发送全零的 `PREFLIGHT_CALIBRATION`（`Vehicle/Vehicle.cc:2485-2497`）。**PX4 上 QGC 不发任何取消命令**——其 PX4 控制器直接注明固件不支持取消、只能等飞控自己结束（`PX4/SensorsComponentController.cc:397-399`）。QGC 自身没有校准超时，依赖固件超时。遥控器校准取消纯本地（`VehicleSetup/RemoteControlCalibrationController.cc:499-502`）。
+- **QGC**：APM 罗盘校准启动前先发送 `DO_CANCEL_MAG_CAL`，确认后再发送 `DO_START_MAG_CAL`（`APM/APMSensorsComponentController.cc:215-285`）。取消时发送 `DO_CANCEL_MAG_CAL`（`cc:428-436`）。其他类型取消只在本地停止（`Vehicle/Vehicle.cc:2485-2497`）。QGC 自身没有校准超时，依赖固件超时。遥控器校准取消纯本地（`VehicleSetup/RemoteControlCalibrationController.cc:499-502`）。
 - **MP**：罗盘取消发送 `DO_CANCEL_MAG_CAL`（`GCSViews/ConfigurationView/ConfigHWCompass.cs:449-510`）。无超时。加速度、电调、遥控器校准无取消（`ConfigAccelerometerCalibration.cs`，`ConfigESCCalibration.cs:31-38`，`ConfigRadioInput.cs:197-227`）。`PREFLIGHT_CALIBRATION` 的超时为 25 s，重试 1 次（`MAVLinkInterface.cs:2725-2760`）。
-- **M-GCS**：取消已按类型下发命令——陀螺/气压/遥控发全零 `PREFLIGHT_CALIBRATION`（对齐 QGC 的 `Vehicle::stopCalibration`），罗盘发 `DO_CANCEL_MAG_CAL` 并关闭流，加速度发 `ACCELCAL_VEHICLE_POS`（位置 16777216 = 取消）。停摆超时 30 s 判失败（`core/src/calibration/calibration_service.cc`）。**PX4 分支**：固件只认 `MAV_CMD_PREFLIGHT_CALIBRATION`（`PX4-Autopilot/src/modules/commander/Commander.cpp:1440-1500` 的 param1/param2/param3/param4/param5 映射），罗盘启动因此改用 `241 param2=1`——原 `DO_START_MAG_CAL` 会被 PX4 直接忽略，界面看着在校准、实际什么都没发生；取消与六面确认在 PX4 上明确返回「不支持」，而不是假装成功（S8）。取消是异步确认：进入 `cancelling` 后保持 `active`，收到飞控针对该取消命令的 `COMMAND_ACK` 才落到 `cancelled`；等待上限 10 s，链路断开或超时直接收尾为 `cancelled`（操作者取消不记为失败），取消命令发不出去时立刻收尾并说明原因。
-- **结论**：有差距。两者的罗盘取消都会下发命令，M-GCS 已下发（`safety.md` 的 S8）。无超时违反 S4，已用 30 s 停摆超时修复。PX4 的命令映射与「不支持取消」的诚实提示均已按 QGC 的做法对齐；S8「飞控确认前不得显示为已停止」也已闭环——取消走 `cancelling` → `COMMAND_ACK` → `cancelled`，两者（QGC/MP）都没有这层确认，M-GCS 比它们更严。超时数值仍可参考 MP 的 25 s 收窄。
+- **M-GCS**：取消已按类型下发命令——陀螺/气压/遥控发全零 `PREFLIGHT_CALIBRATION`（对齐 QGC 的 `Vehicle::stopCalibration`），罗盘发 `DO_CANCEL_MAG_CAL` 并关闭流，加速度发 `ACCELCAL_VEHICLE_POS`（位置 16777216 = 取消）。停摆超时 30 s 判失败（`core/src/calibration/calibration_service.cc`）。取消是异步确认：进入 `cancelling` 后保持 `active`，收到飞控针对该取消命令的 `COMMAND_ACK` 才落到 `cancelled`；等待上限 10 s，链路断开或超时直接收尾为 `cancelled`（操作者取消不记为失败），取消命令发不出去时立刻收尾并说明原因。
+- **结论**：有差距。两者的罗盘取消都会下发命令，M-GCS 已下发（`safety.md` 的 S8）。无超时违反 S4，已用 30 s 停摆超时修复。S8「飞控确认前不得显示为已停止」也已闭环——取消走 `cancelling` → `COMMAND_ACK` → `cancelled`，两者（QGC/MP）都没有这层确认，M-GCS 比它们更严。超时数值仍可参考 MP 的 25 s 收窄。
 
 ### 断链后的状态清理
 
@@ -114,7 +107,7 @@
 - 与"安全行为"中的"校准取消"合并核对。
 - **QGC**：启动使用 `PREFLIGHT_CALIBRATION`，不经过 ACK 队列，不重试，也不显示错误（`Vehicle/Vehicle.cc:2405-2484`）。
 - **MP**：加速度、电调、遥控器的校准分别在对应配置页面中实现（见上文）。
-- **M-GCS**：已按类型下发取消命令，并有 30 s 停摆超时（KD-17 已闭环）。PX4 上不存在的取消命令会明确返回「不支持」而非假装成功，详见上文「校准取消」。
+- **M-GCS**：已按类型下发取消命令，并有 30 s 停摆超时（KD-17 已闭环）。
 
 ### 固件与飞机配置
 
@@ -122,13 +115,6 @@
 - **MP**：没有插件抽象。固件是一个枚举（`ExtLibs/ArduPilot/Firmwares.cs:6-18`）。模式列表在 `Common.cs` 中硬编码，参数名与命令编码在配置页面中硬编码。
 - **M-GCS**：核心层有固件插件（与 QGC 结构相同）。RTL / 降落 / 悬停已改为按**语义角色**向插件请求（`FirmwareAdapter::resolve_mode_role`），通用代码里不再出现模式号字面量。该机型没有这个模式时**不下发**并打印警告（Rover 与 Plane 没有 Land、Sub 没有 RTL），而不是把别的机型的数值发出去。
 - **结论**：结构已对齐 QGC，S6 与 KD-18 闭环。核对过程中还发现模式表本身有错：三张表把「模式列表下标」当成 `custom_mode` 枚举值，从某一号起整体错位——Copter 的 9 写成 Drift（真值 LAND，于是降落时界面显示「Drift」），Rover 的 9 写成 Dock（真值 CIRCLE，而旧 `land()` 恰好发 9，在 Rover 上「降落」= 原地转圈），Tracker 的 1 写成 Scan（真值 STOP）。已按 `ArduCopter/mode.h`、`Rover/mode.h`、`AntennaTracker/mode.h` 的枚举值重写，并用 `test_firmware_adapter.cc` 钉住关键项。
-
-### PX4 固件支持
-
-- **QGC**：PX4 走独立插件 `src/FirmwarePlugin/PX4/PX4FirmwarePlugin.cc`（872 行）。模式表 22 项，每项带 `canBeSet` 与 `adv`，并按机型过滤（`:63-84`、`:96-117`）；协议值镜像 PX4 的 `px4_custom_mode.h`，文件头要求「never renumber or insert, only append」（`px4_custom_mode.h:9-60`）。capability 按机型给（`:174-190`）。`sendHomePositionToVehicle()` 返回 false——PX4 不接受首条位置作 Home（`:201-205`）。引导行为：`pauseVehicle` 发 `DO_REPOSITION` `flags=CHANGE_MODE`（`:276-288`）；`guidedModeTakeoff` 把相对高度换算成 AMSL 再发 `NAV_TAKEOFF`，命令接受后才 arm（`:322-350`）；`isGuidedMode` 判定当前模式是否为 pause/takeoff/land 三者之一（`:664-668`）。参数元数据 `PX4ParameterFactMetaData.json` 有 1836 个参数（v1 结构，`PX4ParameterMetaData.cc`）。许可为 Apache-2.0 / GPL 双许可（仓库根 `LICENSE-APACHE`/`LICENSE-GPL`）。
-- **MP**：PX4 只是一个固件枚举（`ExtLibs/ArduPilot/Firmwares.cs:15`），没有插件抽象，PX4 支持很薄，不作 PX4 行为参考。
-- **M-GCS**：core 有 `PX4Plugin`（`core/src/firmware/firmware_plugin_px4.cc`）。**S1（2026-10-11）把 PX4 模式表合并为唯一事实来源 `core/include/core/firmware/modes/px4_modes.h`**：插件与 `firmware_adapter.cc`（状态栏解码、`resolve_mode_role`）都从该表取，自带 `kPX4Modes` 已删除，一张表漂移的旧问题已消除；同时补齐 PX4 1.14+ 的 `ALTITUDE_CRUISE=11`、POSCTL `ORBIT/SLOW`、`AUTO_GUIDED_COURSE=19`、`VTOL_TAKEOFF=10`。该头文件里另有含义不同的 `px4_fltmode_slot_table()`——`COM_FLTMODE1..6` 的参数枚举（与 `custom_mode` 不是同一编码），`mg_flight_get_mode_mapping` 的 PX4 槽位名/`options` 走它，通道参数改认实际存在的 `RC_MAP_FLTMODE`。7 个 `mg_px4_*`（执行器/模式槽/安全/调参）已实现但前端 0 引用（`API_CATALOG.md` 的 Dart 绑定为空），S5 将其定性为 **FFI 内部能力**（无独立 UI 计划，通用参数页 + `px4` 描述符 profile 覆盖同一批参数）。PX4 参数元数据按 ADR-0007 已引入 `core/src/config/PX4ParameterMetaData.json`（1836 参数快照，独立 profile `px4`）。`docs/capabilities.md` 把 PX4 安全/调参/执行器标为「FFI 内部能力」。 **S2（2026-10-11）**：引导/起飞/暂停/capability 已按 QGC `PX4FirmwarePlugin` 对齐（详见 `docs/features/px4-parity.md` 进度块）。 **S3（2026-10-11）**：PX4 参数元数据引入（ADR-0007）。 **S4（2026-10-11）**：任务命令覆盖对齐 QGC——按 `PX4-MavCmdInfoCommon.json` 的 `paramRemove` 隐藏 PX4 不适用的字段（WAYPOINT 去 param2/3、LAND 去 param1、VIDEO_START_CAPTURE 去 param2），Home 语义核对后确认与 `sendHomePositionToVehicle()=false` 一致（M-GCS 只对 ArduPilot 前置 Home），新增 profile 感知的 `mission_command_uses_location` 让 PX4 的 `DO_LAND_START`(189) 不承载坐标（导入/导出/序列化路径已接入），D6 `DO_SET_MISSION_CURRENT` 版本门控决定不实现（M-GCS 本就发 `MISSION_SET_CURRENT`，行为等价）。 **S5（2026-10-11）**：7 个 `mg_px4_*` 定性为 FFI 内部能力并登记（`capabilities.md`/`API_CATALOG.md` + `check_ffi_contract.py` 的「内部符号被绑定到 Dart 即报错」守卫），顺带修两个真实缺陷——安全断路器不再伪造 `CBRK_GPS_CHK`（改为按飞控实际缓存报告 `CBRK_*`），执行器映射由 8 路扩到 16 路，模式槽明确只读。 **S6（2026-10-11）**：`core/tests/test_sim_ui_paths.cc` 新增四组 PX4 行为/错误路径断言（16 路执行器读写、真实 `CBRK_*` 与伪字段拒绝、6 路模式槽只读、ArduPilot 下 7 个导出全部 `NOT_SUPPORTED`），`test_ffi_contract.cc` 改为断言离线统一错误对象。
-- **结论**：结构对齐 QGC（有插件）。**S1（2026-10-11）已闭环模式表相关差距**：唯一事实来源、补齐 1.14+ 新模式、双表不再漂移（有 256×256 穷举一致性测试钉住）、PX4 槽位名/`options` 与通道参数按参数枚举与真实参数名处理。**S2（2026-10-11）已闭环引导/起飞差距**：`guided_mode_name()`/`is_guided_mode` 改为 QGC 的 `Auto Loiter` + pause/takeoff/land 三模式语义，与前端 `connection_controller.dart` 的 `isGuidedGotoFlightMode`（`auto loiter`）判定统一；`mg_command_takeoff` 在 PX4 下把相对高度换算为 AMSL 并在缺有效位置时本地拒绝；`mg_command_guided_pause` 在 PX4 下改发 `DO_REPOSITION` + `MAV_DO_REPOSITION_FLAGS_CHANGE_MODE`；capability 按机型细化并新增 `roi`/`change_heading` 字段，`orbit`/`roi` 与地图菜单入口一一对应；最小起飞高度改用 QGC 基类默认 3.048 m 并经 `mg_firmware_get_type` 的 `minimum_takeoff_altitude_m` 暴露；死 API `default_loiter_radius` 删除。**S3（2026-10-11）已闭环参数元数据差距**：`ParamDescriptors` 把 QGC 的 `PX4ParameterMetaData.json` 快照加载为独立 profile `px4`，参数页获得分组/描述/单位/枚举，未覆盖项诚实降级，且不回落 ArduPilot 默认描述（ADR-0007）。**S5（2026-10-11）已闭环 `mg_px4_*` 去向**（定性为 FFI 内部能力，无「公开导出但身份不明」的符号）；**S6（2026-10-11）已闭环 PX4 错误路径测试**（关键路径有非 `CHECK(true)` 的行为断言）。另注：可编辑命令目录只有 14 条常用命令，含 `DO_LAND_START`(189) 的任务文档会被 `validate_document()` 判 `entity.command_unsupported`（与固件无关），属目录覆盖范围而非 PX4 分支问题。差距、决策点与 S1–S6 交付切片见 `docs/features/px4-parity.md`。
 
 ### 日志
 
@@ -150,14 +136,6 @@
 - **MP**：**有** `PolygonTools.isInside`（`ExtLibs/ArduPilot/PolygonTools.cs:112`，射线法），但只被**可选插件**使用——`Plugins/example3-fencedist.cs`（FenceDist，实时算飞机离围栏的距离）与 `ExtLibs/ArduPilot/CurrentState.cs:1678`（判定飞机相对 inclusion/exclusion 围栏的内外，用于距离提示）。它不是核心 API。
 - **M-GCS**：`GeofenceManager` 有完整几何算法（`is_inside_fence`/`distance_to_fence`/`calculate_area`/`calculate_perimeter`，对齐 MP 的 `PolygonTools`），且有测试（`test_sim_geofence.cc`）；但编辑方法（`add_point` 等）生产零调用——围栏编辑已与 QGC/MP 一致改走任务文档路径，导致 `points_` 恒空、`mg_geofence_check` 的 `is_inside_fence` 永远返回 `false`。
 - **结论**：M-GCS 的"本地围栏内判断"作为**常驻 FFI 导出**，上游两者都不提供——MP 只把它当可选插件的距离计算。现状是"有实现、缺接线"的**待深度开发项**（拟参照 MP FenceDist 做围栏距离/侵入提示），已登记 KD-48，不按死代码删除。
-
-### 测绘与地形
-
-- **QGC**：测绘是一等复杂项（`MissionManager/SurveyComplexItem.cc:632` 生成 transects、`:524` 与多边形求交、`:424` 调整入口点、`:372` 最短距离优化；`_recalcCameraShots`，`:866` 算拍照点），相机高度模式支持 `AltitudeFrameCalcAboveTerrain`（`CameraCalc.cc`）。地形跟随在 `TransectStyleComplexItem.cc:29-34` 暴露容差/爬升率/下降率三个可调量，`recalcTerrainProfile`（`:88`）拉地形重算航点高度。地形数据由 `Terrain/TerrainTileManager.cc`（493 行）做 tile 缓存 + 磁盘持久化，provider 是 `https://terrain-ce.suite.auterion.com`（`ElevationMapProvider.h:46`，0.01° 瓦片，`TerrainTileCopernicus.h:23,25`）。地形协议由 `Vehicle/TerrainProtocolHandler.cc`（184 行）以 12 Hz 回发 4×4 网格（`:22`、`:99`）。
-- **MP**：测绘在 Grid 插件（`ExtLibs/MissionPlanner.Gridv2/GridUIv2.cs`，1083 行；相机库 `camerasBuiltin.xml`/`cameras.xml`，`:819,821`），导出 KML 走 `writeKML()`（`:542`）。地形跟随在 `ExtLibs/Utilities/TerrainFollow.cs`（166 行）：订阅 `TERRAIN_REQUEST`/`TERRAIN_REPORT`，`QueueSendGrid`（`:84`）对 56 个 bit 逐个发 4×4 网格，`Thread.Sleep(1000/12)`（`:113`）限速 12 Hz，`SendGrid`（`:127`）查本地 DTED/GeoTIFF（`ExtLibs/Utilities/DTED.cs`、`GeoTiff.cs`），无效不发送。许可为 GPLv3（`COPYING.txt`），**不可复制源码**。
-- **M-GCS**：测绘在 S2（2026-10-11）已进 UI——`core/.../survey_calculator.{h,cc}` 的 `generate_grid`/`generate_cross_grid`/`generate_corridor_scan` + GSD/重叠计算经 `mg_survey_generate`/`mg_survey_generate_corridor`（`ffi_api_mission.h:85-86`）接到配置工作区「测绘规划」页（`flutter_shell/lib/survey/`）：三模式配置 → 生成 → 预览航点/航线/航程/用时/面积/拍照数 → 并入任务文档；生成「一次性航点」，不做 QGC 式可编辑复杂项，无地图叠加、无自动上载、无 KML/CSV 导出（D5/D6，导出归 S3）。地形在 S1（2026-10-11）已打通数据链路：`core/.../terrain/terrain_store.{h,cc}` 提供 `TerrainCache`（内存、0.01° 网格、批量淘汰）+ `TerrainStore`（`store`/`lookup`/`sample_line`），`mg_terrain_query`/`mg_terrain_query_line`/`mg_terrain_cache_update`/`mg_terrain_cache_clear`（`ffi_api_environment.h:10-17`）读写挂在 `mg_core_t` 上、跨调用共享的同一份缓存；前端 `flutter_shell/lib/terrain/` 已接 FFI backend 与在线 provider（`OpenElevationProvider`，端点可配置），`TerrainController` 负责「缓存优先 → 缺值经 provider 批量拉取 → `cache_update` 回写 → 重新采样」的编排，provider 不可达时返回明确错误而不是静默无效。仍未做：地形尚未接入页面（D7 前端入口待定）；core 不内置 HTTPS 客户端（架构 A6），高程由前端 provider 拉取；core/bridge 仍无 `TERRAIN_REQUEST`/`TERRAIN_DATA` 处理，profile 不落盘（D3/D4）；survey 只有矩形/走廊，生成一次性航点，不进 QGC `.plan` 复杂项，也没有 KML/CSV 导出（D5/D6）。
-  - S3a（2026-10-11）把任务文件导出接进任务面板（`waypoints` / QGC `.plan`）；S3b（2026-10-11）把**高度基准帧**接进任务编辑与测绘页：实体编辑弹层与任务设置可选「相对高度 (Home)」/「地形跟随 (AGL)」，测绘页选 AGL 后「并入任务」把整条航线统一写成 `MAV_FRAME_GLOBAL_TERRAIN_ALT`（帧 10）。这与 QGC 一致——`SimpleMissionItem.cc:74` 把 `AltitudeFrameTerrain` 映射到 `MAV_FRAME_GLOBAL_TERRAIN_ALT`、`:737` 在帧变更时写回该值；帧 10 在 M-GCS core 侧早已合法（`mission_validation.cc` 允许 0/2/3/10），S3b 只补前端选择与应用。M-GCS **仍不替飞控回发地形网格**（D4），文案明确要求飞控自带该区域地形数据。
-- **结论**：测绘与地形方向差距最大。地形在 S1 后有真实高程来源与跨调用共享缓存（但未进页面、未落盘、无上游地形协议）；测绘在 S2/S3 后有可用 UI（三模式生成 + 并入任务文档 + 高度基准帧 + 任务文件导出）但仍无复杂项、无地图叠加、无 KML/CSV 导出；QGC/MP 都有完整的复杂项/相机模型、磁盘持久化的真实高程来源与 12 Hz 地形协议回发。差距、决策点与 S1/S2/S3a/S3b 交付切片见 `docs/features/survey-and-terrain.md`。
 
 ## 已记录的决定
 

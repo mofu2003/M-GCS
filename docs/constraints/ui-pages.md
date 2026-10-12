@@ -9,12 +9,11 @@
 | 页面 | 代码位置 | 用途 | 布局规划 | 现状 |
 |---|---|---|---|---|
 | 地图主页 | `main.dart`、`map/amap_map_view.dart` | 地图、飞机位置、航点、顶栏状态与命令 | 待规划 | 已有实现 |
-| 任务规划面板 | `mission/mission_planning_panel.dart`、`mission/mission_export.dart` | 航点编辑（含高度基准）、上传、清除、围栏与集结点、导出文件 | 航点卡片列表 + 编辑弹层（含高度基准选择）+ 设置页（默认高度基准/高度/速度）+ 导出弹层 | 已有实现，体量大；导出文件（`waypoints` / `plan`）走 `mission_export.dart` 弹层（S3a）；高度基准（相对 Home / 地形跟随 AGL）写入 `frame`（S3b） |
+| 任务规划面板 | `mission/mission_planning_panel.dart`、`mission/mission_export.dart` | 航点编辑（含高度基准）、上传、清除、围栏与集结点、导出文件 | 航点卡片列表 + 编辑弹层（含高度基准选择）+ 设置页（默认高度基准/高度/速度）+ 导出弹层 | 已有实现，体量大；导出文件（`waypoints` / `plan`）走 `mission_export.dart` 弹层（S3a）；高度基准写入 `frame` |
 | 配置工作区 | `gcs_configuration_workspace.dart`、`configuration/` | 参数、校准、端口、系统、签名 | 待规划 | 已有实现 |
 | 飞行模式面板 | `widgets/mg_top_status_bar.dart`、`configuration/flight_modes/` | 模式选择、解锁 | 待规划 | 旧的独立浮动面板已删除，统一由顶栏和工作区承载 |
 | 遥测仪表 | `widgets/mg_telemetry_dashboard.dart` | 遥测读数 | 待规划 | 已有实现 |
 | 连接 | `connection/` | 链路选择与连接 | 待规划 | 已有实现 |
-| 测绘规划 | `survey/survey_planning_page.dart` | 测绘参数编辑（含高度基准）、生成预览、并入任务 | 模式分段控件 + 两张参数卡（区域/航线含高度基准、相机与重叠）+ 生成行 + 预览统计卡 | 已有实现（S2，配置工作区 `survey`）；高度基准（相对 Home / 地形跟随 AGL）并入任务时写入 `frame`（S3b） |
 | 机载日志 | `logging/onboard_log_page.dart` | 机载 DataFlash 日志列表、下载、取消、擦除 | 顶栏动作（刷新/擦除）+ 提示行 + 列表行 + 进度卡片 + 上传行 | 已有实现（S1，配置工作区 `logs`） |
 | 飞行记录 | `logging/flight_log_page.dart` | 链路 `.tlog` 录制、本地文件列表、离线回放与消息检索 | 录制开关 + 路径行 + 文件列表 + 进度/跳转 + 消息列表 | 已有实现（S2，配置工作区 `flightLog`） |
 | 机载文件 | `logging/file_browser_page.dart` | MAVLink FTP 目录浏览、下载、上传、取消；断链时回填本地缓存 | 路径行 + 常用目录 + 缓存/错误提示 + 传输卡片 + 条目列表 + 上传行 | 已有实现（S3，配置工作区 `files`） |
@@ -28,20 +27,6 @@
 | 电池配置 | `configuration/battery/battery_configuration_page.dart` | 电池配置占位页（本次拆分不新增配置功能） | 待补全 | 已有实现（配置工作区 `battery`）；目前是空占位（`SizedBox.expand()`），用途/布局/组件待补全 |
 | 解锁检查 | `configuration/arming/arming_checks_page.dart` | 解锁检查参数配置，保留 `ARMING_CHECK`/`SKIPCHK` 的相反位掩码语义 | 待补全 | 已有实现（配置工作区 `arming`）；用途/布局/组件待补全 |
 | 全部参数 | `configuration/parameters/all_parameters_page.dart` | 全部参数搜索与分组列表，沿用工作区滚动控制器 | 待补全 | 已有实现（配置工作区 `allParameters`）；用途/布局/组件待补全 |
-
-### 地形模块（`flutter_shell/lib/terrain/`，**无页面**）
-
-U6 要求登记页面；这个模块目前没有页面文件，但它是配置工作区之外的一整块前端代码，此前在本文件里**零提及**，现补登记以免按「未登记」被误判为可删除：
-
-| 文件 | 用途 |
-|---|---|
-| `terrain/terrain_models.dart` | 地形高程领域模型，解析 `mg_terrain_query`/`mg_terrain_query_line` 的 JSON（`complete`/`missing_count`/`missing`/`points`） |
-| `terrain/terrain_backend.dart` | 地形高程的原生边界（只暴露 `mg_terrain_*`）；core 不发网络请求，高程须先经 `cacheUpdate` 写入再查 |
-| `terrain/terrain_ffi_backend.dart` | `mg_terrain_*` 的 `dart:ffi` 绑定（A5 白名单文件） |
-| `terrain/elevation_provider.dart` | 在线高程 provider（`OpenElevationProvider`，端点可配置、分批拉取），在 Flutter 侧发网络请求 |
-| `terrain/terrain_controller.dart` | 「缓存优先 → provider 回填 → 回写 → 重新采样」的编排 |
-
-现状：backend 与 provider 已接通，但**仍未进任何页面**（`docs/features/survey-and-terrain.md` 的 D7 未决；`docs/capabilities.md:20` 也记着 `ffi_api_environment.h` 的地形部分「尚未接入页面」）。补齐前界面不得声称「已支持地形」。
 
 ## 组件
 

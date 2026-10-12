@@ -5,13 +5,13 @@
 
 ## 背景
 
-任务需要在 ArduPilot 与 PX4 工作流之间交换。两种格式的表达能力不同：`.waypoints` 无法无损表达 Survey、Corridor、GeoFence、Rally 等复杂任务，`.plan` 可以。
+任务需要与 Mission Planner / QGroundControl 交换。两种格式的表达能力不同：`.waypoints` 无法无损表达 GeoFence、Rally 等复杂任务，`.plan` 可以。
 
 ## 决定
 
 - `MissionDocument` 是唯一内部主状态。
 - `.waypoints` 与 `.plan` 都是交换格式。
-- ArduPilot 与 Mission Planner 工作流默认推荐 `.waypoints`；PX4 与 QGroundControl 工作流默认推荐 `.plan`。
+- 默认推荐 `.waypoints`（Mission Planner 工作流）；复杂任务推荐 `.plan`（QGroundControl 工作流）。
 - `.waypoints` 无法表达的复杂任务，必须推荐 `.plan`，或明确警告。
 - 不根据格式或飞控静默覆盖用户文件。上传飞控始终从 `MissionDocument` 编译 `MissionPlan`。
 

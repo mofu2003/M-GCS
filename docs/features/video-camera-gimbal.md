@@ -114,7 +114,7 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 - **D2（S1 已决定）**：不引入相机定义 XML；只做 MAVLink 标准字段（信息/设置/拍照状态/存储）。QGC 的 XML 能力留待独立议题。
 - **D3（S3 已决定 → ADR-0008）**：本地视频解码用 **FFmpeg 且只允许 LGPL 构建**（`--disable-gpl`），解码在 native core、帧经 FFI 拷贝交付、前端 `ui.decodeImageFromPixels` 渲染；无后端诚实降级。GStreamer 与平台原生（AVFoundation/MediaFoundation/MediaCodec）保留为未来可选项。理由与许可分析见 `docs/adr/0008-video-decode-backend.md` 与 9 节。
 - **D4（S2 已决定）**：采用 MAVLink compId 寻址（与 QGC 一致）：`> 0` 按组件 id 选择，`<= 0` 表示「第一台 / 活动目标」。前端下拉按 compId 选择。
-- **D5（S1 已决定）**：无相机/云台时读接口返回什么？决定：**`success:true` + `available:false`**（「已查询、当前无设备」是合法状态），命令类在无目标设备时返回 `MG_ERROR_NOT_CONNECTED`/`MG_ERROR_NOT_SUPPORTED` 错误对象。缺值/无设备与「调用失败」是两回事（与 terrain 的 `valid:false` 同理）。
+- **D5（S1 已决定）**：无相机/云台时读接口返回什么？决定：**`success:true` + `available:false`**（「已查询、当前无设备」是合法状态），命令类在无目标设备时返回 `MG_ERROR_NOT_CONNECTED`/`MG_ERROR_NOT_SUPPORTED` 错误对象。缺值/无设备与「调用失败」是两回事。
 
 ## 6. 交付切片
 

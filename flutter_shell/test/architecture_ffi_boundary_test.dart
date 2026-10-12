@@ -24,8 +24,6 @@ const _ffiAllowlist = <String>{
   'logging/file_ffi_backend.dart',
   'logging/log_ffi_backend.dart',
   'logging/tlog_ffi_backend.dart',
-  'terrain/terrain_ffi_backend.dart',
-  'survey/survey_ffi_backend.dart',
 };
 
 /// 原生句柄的痕迹。出现在非白名单文件里即为 A5 违规。

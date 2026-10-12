@@ -106,12 +106,11 @@ void main() {
   });
 
   group('合并后的调用点：不再各自复制 _read', () {
-    // 合并的 7 份：调用共享 helper，文件里不再有本地 jsonDecode。
+    // 合并的 backend：调用共享 helper，文件里不再有本地 jsonDecode。
     const merged = <String>[
       'lib/connection/calibration_ffi_backend.dart',
       'lib/connection/telemetry_ffi_backend.dart',
       'lib/payload/payload_ffi_backend.dart',
-      'lib/terrain/terrain_ffi_backend.dart',
       'lib/logging/tlog_ffi_backend.dart',
       'lib/logging/file_ffi_backend.dart',
       'lib/logging/log_ffi_backend.dart',
@@ -124,7 +123,7 @@ void main() {
       'lib/fleet/fleet_ffi_backend.dart', // 返回 Object? 契约不同
     ];
 
-    test('7 个 backend 调用共享 helper，且没有本地 jsonDecode', () {
+    test('backend 调用共享 helper，且没有本地 jsonDecode', () {
       final libDir = Directory('lib');
       expect(libDir.existsSync(), isTrue, reason: '测试需在 flutter_shell 目录下运行');
 
