@@ -130,6 +130,33 @@ jobs:
         name: mgcs-windows-debug
         path: flutter_shell/build/windows/x64/runner/Debug
 
+  tsan:
+    # ThreadSanitizer 门禁：M-GCS 本轮两个真实竞态正是靠 TSan 才发现，
+    # Release 门禁（ctest -L offline|simulation）跑不出来。
+    # 走 tools/sanitize.sh 而不是在 YAML 里重写一遍，与本地
+    # `tools/sanitize.sh --tsan-only` 是同一份配置，避免门禁漂移（KD-32）：
+    #   cmake -S . -B build_tsan -DMGCORE_BUILD_TESTS=ON -DMGCORE_BUILD_SHARED=OFF
+    #         -DCMAKE_BUILD_TYPE=Debug -DMGCORE_ENABLE_TSAN=ON
+    #   ctest --test-dir build_tsan -L "offline|simulation" -LE "hardware|manual"
+    # MSVC 没有 TSan 运行时，只在 Linux 上跑。
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: 生成 MAVLink C 头
+      run: PYTHON_BIN=python ./tools/generate-mavlink.sh
+
+    - name: 检查 FFI 目录与 Flutter 绑定
+      run: python tools/check_ffi_contract.py
+
+    - name: TSan 门禁（build_tsan，offline|simulation 全量）
+      run: tools/sanitize.sh --tsan-only
+
   android-shell:
     runs-on: ubuntu-latest
 

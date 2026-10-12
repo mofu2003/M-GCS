@@ -67,3 +67,8 @@ docs/superpowers/
 .codex/
 .workbuddy/
 .workbuddy-ai/
+
+# 本地/协作产物（不进版本库）
+build_t*/
+.agent-teams/
+scan*.json

@@ -11,7 +11,8 @@ changed_ref="HEAD"
 backend_scope="full"
 backend_targets=""
 plan_reason=""
-# 参数描述符改动即使不重跑整套 Flutter，也要重跑 S6 字面量守卫。
+# S6 字面量守卫的扫描范围是 flutter_shell/lib + core/src + bridge/ffi，这些范围内
+# 的改动即使不重跑整套 Flutter，也要重跑守卫（守卫本身不到 1 s）。
 want_firmware_literals=0
 
 usage() {
@@ -21,7 +22,7 @@ usage() {
 默认执行：
   1. git diff --check HEAD
   2. UI 设计 token 扫描
-  3. 前端固件参数字面量守卫（S6）
+  3. 固件参数字面量守卫（S6，扫 flutter_shell/lib + core/src + bridge/ffi）
   4. Flutter analyze + test
   5. 编译 build_check 并运行后端口禁
   6. macOS 上执行 flutter build macos --debug
@@ -131,7 +132,7 @@ if [[ "$changed_mode" -eq 1 ]]; then
         want_frontend=1
         ;;
       tools/check_firmware_literals.py|tools/firmware_literals_baseline.json)
-        want_frontend=1
+        want_firmware_literals=1
         ;;
       # 参数描述符是 S6 字面量守卫的事实来源，改了要重跑守卫。
       core/src/config/*.json)
@@ -180,6 +181,14 @@ if [[ "$changed_mode" -eq 1 ]]; then
       *)
         backend_full=1
         backend_full_reason="未分类路径 ${file}（保守起见跑全量）"
+        ;;
+    esac
+
+    # S6 守卫现在也扫 core/src 与 bridge/ffi（不只是前端），命中扫描范围的改动
+    # 一律重跑守卫——否则往桥接层塞一个固件参数名，--changed 会静默放过。
+    case "$file" in
+      flutter_shell/*|core/src/*|core/include/*|bridge/*)
+        want_firmware_literals=1
         ;;
     esac
   done <<< "$changed_list"
@@ -278,7 +287,7 @@ fi
 echo "[preflight] 编译并发：${build_jobs}（可用 MGCORE_BUILD_JOBS 覆盖）"
 
 if [[ "$run_frontend" -eq 1 || "$want_firmware_literals" -eq 1 ]]; then
-  echo "[preflight] 检查前端固件参数字面量（S6）"
+  echo "[preflight] 检查固件参数字面量（S6）"
   "${PYTHON_BIN:-python3}" tools/check_firmware_literals.py
 fi
 

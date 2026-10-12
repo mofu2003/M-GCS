@@ -1,1 +1,100 @@
-{}
+{
+  "bridge/ffi/ffi_actuator.cc": {
+    "SERVO*_FUNCTION": "FFI 桥接层：ffi_actuator.cc 用 SERVO%d_FUNCTION 格式串通过 ffi_fmt_param 按通道号格式化后向核心读参数描述符，是 S6 允许的固件插件路由层，非通用前端硬编码",
+    "SERVO*_MAX": "FFI 桥接层：ffi_actuator.cc 用 SERVO%d_MAX 格式串按通道号格式化后读写飞控参数，是桥接层固件参数路由的合法用途",
+    "SERVO*_MIN": "FFI 桥接层：ffi_actuator.cc 用 SERVO%d_MIN 格式串按通道号格式化后读写飞控参数，是桥接层固件参数路由的合法用途",
+    "SERVO*_REVERSED": "FFI 桥接层：ffi_actuator.cc 用 SERVO%d_REVERSED 格式串按通道号格式化后读写飞控参数，是桥接层固件参数路由的合法用途",
+    "SERVO*_TRIM": "FFI 桥接层：ffi_actuator.cc 用 SERVO%d_TRIM 格式串按通道号格式化后读写飞控参数，是桥接层固件参数路由的合法用途"
+  },
+  "bridge/ffi/ffi_config.cc": {
+    "RCMAP_ROLL": "FFI 桥接层：ffi_config.cc 注释中引用 mg_config_get_param_roles 返回值示例，非硬编码使用，是文档说明"
+  },
+  "bridge/ffi/ffi_flight_modes.cc": {
+    "FLTMODE_CH": "FFI 桥接层：ffi_flight_modes.cc 通过 read_param 读取 ArduPilot Plane/Copter 的模式选择通道参数，是固件适配层按固件类型路由参数名的合法用途",
+    "SUPER_SIMPLE": "FFI 桥接层：ffi_flight_modes.cc 读取 ArduPilot Copter 的 Simple/SuperSimple 位掩码参数，是固件适配层读取飞控参数的合法用途"
+  },
+  "bridge/ffi/ffi_geofence.cc": {
+    "FENCE_ACTION": "FFI 桥接层：ffi_geofence.cc 通过 geofence_param 读取 ArduPilot 电子围栏动作参数，是桥接层按参数名读取飞控配置的合法用途",
+    "FENCE_ENABLE": "FFI 桥接层：ffi_geofence.cc 通过 geofence_param 读取 ArduPilot 电子围栏使能参数，是桥接层按参数名读取飞控配置的合法用途",
+    "FENCE_MARGIN": "FFI 桥接层：ffi_geofence.cc 通过 geofence_param 读取 ArduPilot 电子围栏裕度参数，是桥接层按参数名读取飞控配置的合法用途"
+  },
+  "bridge/ffi/ffi_internal.h": {
+    "SERVO*_MIN": "FFI 桥接层：ffi_internal.h 注释中引用 ffi_fmt_param 的格式串示例 SERVO%d_MIN，是文档说明而非硬编码使用",
+    "SERVO1_MIN": "FFI 桥接层：ffi_internal.h 注释中引用 ffi_fmt_param 展开结果示例，是文档说明而非硬编码使用"
+  },
+  "bridge/ffi/ffi_rc_config.cc": {
+    "RC*_MAX": "FFI 桥接层：ffi_rc_config.cc 用 RC%d_MAX 格式串通过 snprintf 按通道号格式化后读写 PX4 飞控 RC 参数，是桥接层固件参数路由的合法用途",
+    "RC*_MIN": "FFI 桥接层：ffi_rc_config.cc 用 RC%d_MIN 格式串通过 snprintf 按通道号格式化后读写 PX4 飞控 RC 参数，是桥接层固件参数路由的合法用途",
+    "RC*_TRIM": "FFI 桥接层：ffi_rc_config.cc 用 RC%d_TRIM 格式串通过 snprintf 按通道号格式化后读写 PX4 飞控 RC 参数，是桥接层固件参数路由的合法用途",
+    "RCMAP_PITCH": "FFI 桥接层：ffi_rc_config.cc 在 AP 通道映射参数数组中引用 RCMAP_PITCH，是桥接层读取飞控 RC 通道映射参数的合法用途",
+    "RCMAP_ROLL": "FFI 桥接层：ffi_rc_config.cc 在 AP 通道映射参数数组中引用 RCMAP_ROLL，是桥接层读取飞控 RC 通道映射参数的合法用途",
+    "RCMAP_THROTTLE": "FFI 桥接层：ffi_rc_config.cc 在 AP 通道映射参数数组中引用 RCMAP_THROTTLE，是桥接层读取飞控 RC 通道映射参数的合法用途",
+    "RCMAP_YAW": "FFI 桥接层：ffi_rc_config.cc 在 AP 通道映射参数数组中引用 RCMAP_YAW，是桥接层读取飞控 RC 通道映射参数的合法用途"
+  },
+  "bridge/ffi/ffi_sensor_decode.cc": {
+    "BARO1_DEVID": "FFI 桥接层：ffi_sensor_decode.cc 读取 ArduPilot 气压计设备 ID 参数以解码传感器，是桥接层按参数名读取飞控传感器配置的合法用途",
+    "BARO2_DEVID": "FFI 桥接层：ffi_sensor_decode.cc 读取 ArduPilot 气压计设备 ID 参数以解码传感器，是桥接层按参数名读取飞控传感器配置的合法用途",
+    "BARO3_DEVID": "FFI 桥接层：ffi_sensor_decode.cc 读取 ArduPilot 气压计设备 ID 参数以解码传感器，是桥接层按参数名读取飞控传感器配置的合法用途"
+  },
+  "bridge/ffi/ffi_serial.cc": {
+    "SERIAL0_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL0_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL0_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL0_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL1_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL1_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL1_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL1_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL2_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL2_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL2_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL2_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL3_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL3_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL3_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL3_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL4_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL4_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL4_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL4_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL5_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL5_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL5_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL5_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL6_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL6_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL6_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL6_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL7_BAUD": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL7_BAUD，是桥接层按参数名枚举飞控串口配置的合法用途",
+    "SERIAL7_PROTOCOL": "FFI 桥接层：ffi_serial.cc 在 ArduPilot 串口参数名数组中引用 SERIAL7_PROTOCOL，是桥接层按参数名枚举飞控串口配置的合法用途"
+  },
+  "core/src/config/param_file_io.cc": {
+    "ARSPD_OFFSET": "核心参数文件 I/O 层：param_file_io.cc 在参数文件白名单中引用 ARSPD_OFFSET，是参数文件读写层处理固件参数名的合法用途",
+    "FENCE_TOTAL": "核心参数文件 I/O 层：param_file_io.cc 在参数文件白名单中引用 FENCE_TOTAL，是参数文件读写层处理固件参数名的合法用途",
+    "FORMAT_VERSION": "核心参数文件 I/O 层：param_file_io.cc 在参数文件白名单中引用 FORMAT_VERSION，是参数文件读写层处理固件参数名的合法用途"
+  },
+  "core/src/firmware/param_remapping.cc": {
+    "AIRSPEED_MAX": "固件适配器参数重映射表：param_remapping.cc 的 ArduPilot 改名对照表把新旧参数名写在同一层，是 S6 允许的固件插件参数名映射层（Plane 4.5 起 ARSPD_FBW_MAX 改名为 AIRSPEED_MAX）",
+    "AIRSPEED_MIN": "固件适配器参数重映射表：param_remapping.cc 的 ArduPilot 改名对照表把新旧参数名写在同一层，是 S6 允许的固件插件参数名映射层（Plane 4.5 起 ARSPD_FBW_MIN 改名为 AIRSPEED_MIN）",
+    "ARMING_CHECK": "固件适配器参数重映射表：param_remapping.cc 的 ArduPilot 改名对照表把新旧参数名写在同一层，是 S6 允许的固件插件参数名映射层（Copter/Rover 4.7 起 ARMING_CHECK 改名为 ARMING_SKIPCHK，此处是旧名一侧）",
+    "ARMING_SKIPCHK": "固件适配器参数重映射表：param_remapping.cc 的 ArduPilot 改名对照表把新旧参数名写在同一层，是 S6 允许的固件插件参数名映射层（Copter/Rover 4.7 起 ARMING_CHECK 改名为 ARMING_SKIPCHK）",
+    "RTL_ALTITUDE": "固件适配器参数重映射表：param_remapping.cc 的 ArduPilot 改名对照表把新旧参数名写在同一层，是 S6 允许的固件插件参数名映射层（Plane 4.5 起 ALT_HOLD_RTL 改名为 RTL_ALTITUDE）",
+    "TUNE_MAX": "固件适配器参数重映射表：param_remapping.cc 的 ArduPilot 改名对照表把新旧参数名写在同一层，是 S6 允许的固件插件参数名映射层（Copter 4.0 起 TUNE_HIGH 改名为 TUNE_MAX）",
+    "TUNE_MIN": "固件适配器参数重映射表：param_remapping.cc 的 ArduPilot 改名对照表把新旧参数名写在同一层，是 S6 允许的固件插件参数名映射层（Copter 4.0 起 TUNE_LOW 改名为 TUNE_MIN）",
+    "WPNAV_RADIUS": "固件适配器参数重映射表：param_remapping.cc 的 ArduPilot 改名对照表把新旧参数名写在同一层，是 S6 允许的固件插件参数名映射层（4.7 起 WPNAV_RADIUS 改名为 WP_RADIUS_M，此处是旧名一侧）",
+    "WPNAV_SPEED": "固件适配器参数重映射表：param_remapping.cc 的 ArduPilot 改名对照表把新旧参数名写在同一层，是 S6 允许的固件插件参数名映射层（4.7 起 WPNAV_SPEED 改名为 WP_SPD，此处是旧名一侧）",
+    "WP_ACC": "固件适配器参数重映射表：param_remapping.cc 的 ArduPilot 改名对照表把新旧参数名写在同一层，是 S6 允许的固件插件参数名映射层（4.7 起 WPNAV_ACCEL 改名为 WP_ACC）",
+    "WP_SPD": "固件适配器参数重映射表：param_remapping.cc 的 ArduPilot 改名对照表把新旧参数名写在同一层，是 S6 允许的固件插件参数名映射层（4.7 起 WPNAV_SPEED 改名为 WP_SPD）"
+  },
+  "flutter_shell/lib/components/realtime_waveform.dart": {
+    "COMPASS_EXTERNAL*": "前端硬编码固件参数名：realtime_waveform.dart 用 COMPASS_EXTERNAL$suffix 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构"
+  },
+  "flutter_shell/lib/configuration/calibration/rc_calibration_view.dart": {
+    "RC*_REVERSED": "前端硬编码固件参数名：rc_calibration_view.dart 用 RC${channel}_REVERSED 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构"
+  },
+  "flutter_shell/lib/configuration/motors/motor_output_page.dart": {
+    "SERVO*_FUNCTION": "前端硬编码固件参数名：motor_output_page.dart 用 SERVO${channel}_FUNCTION 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构",
+    "SERVO*_MAX": "前端硬编码固件参数名：motor_output_page.dart 用 SERVO${channel}_MAX 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构",
+    "SERVO*_MIN": "前端硬编码固件参数名：motor_output_page.dart 用 SERVO${channel}_MIN 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构",
+    "SERVO*_REVERSED": "前端硬编码固件参数名：motor_output_page.dart 用 SERVO${channel}_REVERSED 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构",
+    "SERVO*_TRIM": "前端硬编码固件参数名：motor_output_page.dart 用 SERVO${channel}_TRIM 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构"
+  },
+  "flutter_shell/lib/configuration/ports/ports_configuration_page.dart": {
+    "SERIAL*_BAUD": "前端硬编码固件参数名：ports_configuration_page.dart 用 SERIAL${port}_BAUD 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构",
+    "SERIAL*_PROTOCOL": "前端硬编码固件参数名：ports_configuration_page.dart 用 SERIAL${port}_PROTOCOL 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构"
+  },
+  "flutter_shell/lib/configuration/widgets/parameter_helpers.dart": {
+    "COMPASS_ORIENT": "前端硬编码固件参数名：parameter_helpers.dart 注释中引用 COMPASS_ORIENT 作为 Mission Planner 做法的示例，非实际硬编码使用；是文档说明",
+    "RC*_MAX": "前端硬编码固件参数名：parameter_helpers.dart 用 RC${channel}_MAX 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构",
+    "RC*_TRIM": "前端硬编码固件参数名：parameter_helpers.dart 用 RC${channel}_TRIM 直接按名读飞控参数，应改为由固件插件角色表提供；本轮只扩门禁覆盖、不改前端，登记豁免待后续重构"
+  },
+  "flutter_shell/lib/connection/parameter_ffi_backend.dart": {
+    "RCMAP_ROLL": "前端参数后端层：parameter_ffi_backend.dart 注释中引用 mg_config_get_param_roles 返回值示例 RCMAP_ROLL，非硬编码使用，是文档说明"
+  }
+}
