@@ -1,9 +1,22 @@
 #pragma once
 
 #include "core/mission/cad/mission_document.h"
-#include "core/mission/survey_calculator.h"
 
 namespace mg::core::mission::cad::detail {
+
+// Survey功能已删除的临时存根
+struct SurveyResult {
+    bool success{false};
+    bool valid{false};
+    std::string error;
+    std::vector<MissionEntity> entities;
+    std::vector<MissionEntity> items;
+    // Estimate需要的字段
+    int waypoint_count{0};
+    double total_distance_m{0.0};
+    float estimated_time_s{0.0f};
+    int photo_count{0};
+};
 
 void add_diagnostic(
     MissionValidationReport& report,

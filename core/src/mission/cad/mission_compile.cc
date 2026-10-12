@@ -4,62 +4,14 @@
 
 namespace mg::core::mission::cad::detail {
 
-namespace {
-
-CameraSpec survey_camera_spec(const MissionSurveySpec& survey) {
-    CameraSpec camera;
-    camera.focal_length_mm = survey.focal_length_mm;
-    camera.sensor_width_mm = survey.sensor_width_mm;
-    camera.sensor_height_mm = survey.sensor_height_mm;
-    camera.image_width_px = survey.image_width_px;
-    camera.image_height_px = survey.image_height_px;
-    camera.min_overlap_pct = survey.forward_overlap_pct;
-    camera.side_overlap_pct = survey.side_overlap_pct;
-    return camera;
-}
-
-SurveyConfig survey_grid_config(const MissionEntity& entity) {
-    const MissionSurveySpec& spec = entity.survey;
-    SurveyConfig config;
-    config.center_lat_deg = entity.latitude;
-    config.center_lon_deg = entity.longitude;
-    config.width_m = spec.width_m;
-    config.length_m = spec.length_m;
-    config.altitude_m = spec.altitude_m;
-    config.speed_ms = spec.speed_ms;
-    config.angle_deg = spec.angle_deg;
-    config.cross_grid = spec.cross_grid;
-    config.return_to_start = spec.return_to_start;
-    config.camera = survey_camera_spec(spec);
-    return config;
-}
-
-CorridorConfig corridor_config(const MissionEntity& entity) {
-    const MissionSurveySpec& spec = entity.survey;
-    CorridorConfig config;
-    config.center_lat_deg = entity.latitude;
-    config.center_lon_deg = entity.longitude;
-    config.end_lat_deg = spec.end_latitude;
-    config.end_lon_deg = spec.end_longitude;
-    config.width_m = spec.corridor_width_m;
-    config.altitude_m = spec.altitude_m;
-    config.speed_ms = spec.speed_ms;
-    config.side_overlap_pct = spec.side_overlap_pct;
-    config.return_to_start = spec.return_to_start;
-    config.camera = survey_camera_spec(spec);
-    return config;
-}
-
-} // namespace
-
+// Survey功能已完全删除，保留存根避免编译错误
 SurveyResult expand_survey_entity(const MissionEntity& entity) {
-    if (entity.type == "corridor") {
-        return SurveyCalculator::generate_corridor_scan(corridor_config(entity));
-    }
-    if (entity.survey.cross_grid) {
-        return SurveyCalculator::generate_cross_grid(survey_grid_config(entity));
-    }
-    return SurveyCalculator::generate_grid(survey_grid_config(entity));
+    (void)entity;
+    SurveyResult result;
+    result.success = false;
+    result.valid = false;
+    result.error = "Survey generation removed (0.2.x ArduPilot-only)";
+    return result;
 }
 
 bool expand_document_entities(
@@ -69,8 +21,7 @@ bool expand_document_entities(
     error.clear();
     out.clear();
 
-    // Preserved QGC complex items carry their own computed mission items, so the
-    // document order can be rebuilt without re-deriving survey geometry.
+    // Preserved QGC complex items carry their own computed mission items
     std::vector<size_t> complex_order(document.complex_items.size());
     for (size_t i = 0; i < complex_order.size(); ++i) complex_order[i] = i;
     std::stable_sort(
@@ -108,7 +59,6 @@ bool expand_document_entities(
         out.push_back({entity, entity.id});
     }
     if (!emit_complex_before(document.entities.size())) return false;
-    // Flush complex items marked "append at end".
     if (!emit_complex_before(kComplexItemAppendAtEnd)) return false;
     return true;
 }
@@ -140,30 +90,18 @@ MissionCompileResult compile_document_impl(const MissionDocument& document) {
             continue;
         }
 
+        // Survey功能已删除：如果是Survey类型，直接报错
         if (is_parameterized_survey_type(entity.type)) {
-            // Parameterized entities store intent and expand through one shared
-            // calculator path so compile and estimate cannot diverge.
-            const SurveyResult generated = expand_survey_entity(entity);
-            if (!generated.valid || generated.items.empty()) {
-                add_diagnostic(
-                    result.report,
-                    DiagnosticSeverity::Error,
-                    "entity.survey_expansion_failed",
-                    generated.error.empty()
-                        ? "Survey entity produced no mission items"
-                        : generated.error,
-                    entity.id,
-                    "survey");
-                result.plan.valid = false;
-                result.valid = false;
-                return result;
-            }
-            for (MissionItem item : generated.items) {
-                item.seq = static_cast<uint16_t>(result.plan.items.size());
-                result.plan.items.push_back(item);
-                result.source_entity_ids.push_back(expanded.source_id);
-            }
-            continue;
+            add_diagnostic(
+                result.report,
+                DiagnosticSeverity::Error,
+                "entity.survey_removed",
+                "Survey generation removed in 0.2.x (ArduPilot-only)",
+                entity.id,
+                "type");
+            result.plan.valid = false;
+            result.valid = false;
+            return result;
         }
 
         MissionItem item{};
@@ -204,17 +142,17 @@ namespace mg::core::mission::cad {
 
 namespace {
 
-// MAV_CMD_NAV_FENCE_* / MAV_FRAME_* 常量，取值与 QGC GeoFenceManager 一致。
+// MAV_CMD_NAV_FENCE_* / MAV_FRAME_* 常量
 constexpr uint16_t kFenceReturnPoint = 5000;
 constexpr uint16_t kFencePolygonVertexInclusion = 5001;
 constexpr uint16_t kFencePolygonVertexExclusion = 5002;
 constexpr uint16_t kFenceCircleInclusion = 5003;
 constexpr uint16_t kFenceCircleExclusion = 5004;
-constexpr uint8_t kFrameGlobal = 0;             // MAV_FRAME_GLOBAL
-constexpr uint8_t kFrameGlobalRelAlt = 3;       // MAV_FRAME_GLOBAL_RELATIVE_ALT
-constexpr uint8_t kMissionTypeFence = 1;        // MAV_MISSION_TYPE_FENCE
-constexpr uint16_t kNavRallyPoint = 5100;       // MAV_CMD_NAV_RALLY_POINT
-constexpr uint8_t kMissionTypeRally = 2;        // MAV_MISSION_TYPE_RALLY
+constexpr uint8_t kFrameGlobal = 0;
+constexpr uint8_t kFrameGlobalRelAlt = 3;
+constexpr uint8_t kMissionTypeFence = 1;
+constexpr uint16_t kNavRallyPoint = 5100;
+constexpr uint8_t kMissionTypeRally = 2;
 
 bool fence_coordinate_valid(const MissionGeoPoint& point) {
     return std::isfinite(point.latitude) &&

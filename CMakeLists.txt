@@ -113,8 +113,6 @@ set(MGCORE_SOURCES
     core/src/mavlink/mavlink_message_names.cc
     core/src/firmware/firmware_adapter.cc
     core/src/firmware/firmware_plugin_ardupilot.cc
-    core/src/firmware/firmware_plugin_px4.cc
-    core/src/firmware/param_remapping.cc
     core/src/sensor/sensor_id_decoder.cc
     core/src/calibration/calibration_validator.cc
     core/src/calibration/calibration_service.cc
@@ -135,7 +133,6 @@ set(MGCORE_SOURCES
     core/src/transport/udp_link.cc
     # Mission management
     core/src/mission/mission_item_factory.cc
-    core/src/mission/survey_calculator.cc
     core/src/mission/cad/mission_document.cc
     core/src/mission/cad/mission_validation.cc
     core/src/mission/cad/mission_compile.cc
@@ -160,7 +157,6 @@ set(MGCORE_SOURCES
     core/src/telemetry/waveform_buffer.cc
     core/src/telemetry/adsb_tracker.cc
     # Geofence
-    core/src/geofence/geofence_manager.cc
     # Terrain
     core/src/terrain/terrain_store.cc
     # Video
@@ -202,20 +198,16 @@ set(MGCORE_SOURCES
     bridge/ffi/ffi_mission_catalog.cc
     bridge/ffi/ffi_payload_commands.cc
     bridge/ffi/ffi_sitl_commands.cc
-    bridge/ffi/ffi_survey_commands.cc
-    bridge/ffi/ffi_terrain_commands.cc
     bridge/ffi/ffi_vehicle_info.cc
     bridge/ffi/ffi_vehicle_session.cc
     bridge/ffi/ffi_mission_bridge.cc
     bridge/ffi/ffi_config.cc
     bridge/ffi/ffi_config_extra.cc
     bridge/ffi/ffi_telemetry.cc
-    bridge/ffi/ffi_geofence.cc
     bridge/ffi/ffi_vehicle_manager.cc
     bridge/ffi/ffi_serial.cc
     bridge/ffi/ffi_actuator.cc
     bridge/ffi/ffi_rc_config.cc
-    bridge/ffi/ffi_px4.cc
 )
 
 # cJSON (C source, compile as part of the library)
@@ -330,7 +322,6 @@ set(MGCORE_DATA_FILES
     core/src/sensor/SensorDeviceInfo.json
     core/src/config/ParameterDescriptors.json
     core/src/config/ParameterTranslations.zh-CN.json
-    core/src/config/PX4ParameterMetaData.json
 )
 foreach(DATA_FILE ${MGCORE_DATA_FILES})
     get_filename_component(DATA_NAME ${DATA_FILE} NAME)
@@ -374,7 +365,6 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_in_memory.cc
         core/tests/test_telemetry_cache.cc
         core/tests/test_multi_vehicle.cc
-        core/tests/test_geofence.cc
         core/tests/test_param_file_io.cc
         core/tests/test_param_descriptors.cc
         core/tests/test_sensor_decode_offline.cc
@@ -395,12 +385,10 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_mavlink_send_callback_reentrancy.cc
         core/tests/test_shared_link_transports.cc
 
-        tests/test_px4_sensor_offline.cc
         tests/manual/test_real_fc_cal_mission.cc
         tests/manual/test_sitl_mission_scenario.cc
         tests/manual/test_real_fc_calibration.cc
         tests/manual/test_real_fc_modes.cc
-        tests/manual/test_real_fc_px4_ops.cc
         tests/test_mp_qgc_features.cc
 
         # Simulation tests (MockFlightController)
@@ -410,12 +398,10 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_sim_mission_document.cc
         core/tests/test_sim_commands.cc
         core/tests/test_sim_calibration.cc
-        core/tests/test_sim_survey.cc
         core/tests/test_terrain.cc
         core/tests/test_state_machines.cc
         core/tests/test_transport_links.cc
         core/tests/test_new_modules.cc
-        core/tests/test_sim_geofence.cc
         core/tests/test_sim_fence_rally.cc
         core/tests/test_sim_full_flow.cc
         core/tests/test_sim_ui_paths.cc

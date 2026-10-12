@@ -28,7 +28,6 @@
 #include "core/firmware/modes/ardu_rover_modes.h"
 #include "core/firmware/modes/ardu_sub_modes.h"
 #include "core/firmware/modes/ardu_tracker_modes.h"
-#include "core/firmware/modes/px4_modes.h"
 
 namespace mg::core::firmware {
 
@@ -38,11 +37,11 @@ FirmwareAdapter::FirmwareAdapter() = default;
 FirmwareAdapter::~FirmwareAdapter() = default;
 
 void FirmwareAdapter::detect(uint8_t autopilot_type, uint8_t vehicle_type) {
-    // Detect firmware kind
-    switch (autopilot_type) {
-        case 3:  firmware_kind_ = FirmwareKind::ArduPilot; break;  // MAV_AUTOPILOT_ARDUPILOTMEGA
-        case 12: firmware_kind_ = FirmwareKind::PX4;       break;  // MAV_AUTOPILOT_PX4
-        default: firmware_kind_ = FirmwareKind::Unknown;   break;
+    // Detect firmware kind (PX4支持已删除，只识别ArduPilot)
+    if (autopilot_type == 3) {  // MAV_AUTOPILOT_ARDUPILOTMEGA
+        firmware_kind_ = FirmwareKind::ArduPilot;
+    } else {
+        firmware_kind_ = FirmwareKind::Unknown;
     }
 
     // Detect vehicle kind
@@ -176,10 +175,8 @@ FlightModeInfo FirmwareAdapter::decode_flight_mode(uint32_t custom_mode) const {
     if (firmware_kind_ == FirmwareKind::ArduPilot) {
         info.mode_name = decode_ardupilot_mode(custom_mode);
         info.valid = !info.mode_name.empty();
-    } else if (firmware_kind_ == FirmwareKind::PX4) {
-        info.mode_name = decode_px4_mode(custom_mode);
-        info.valid = !info.mode_name.empty();
     }
+    // PX4支持已删除
 
     if (!info.valid) {
         info.mode_name = "Mode(" + std::to_string(custom_mode) + ")";
@@ -218,16 +215,7 @@ std::optional<uint32_t> FirmwareAdapter::encode_flight_mode(const std::string& n
         return mode_name_equals(candidate, name);
     };
 
-    if (firmware_kind_ == FirmwareKind::PX4) {
-        // PX4 把 main_mode/sub_mode 打包进 custom_mode，要两维都扫。
-        for (uint32_t main = 0; main <= 0xFF; ++main) {
-            for (uint32_t sub = 0; sub <= 0xFF; ++sub) {
-                const uint32_t custom = (main << 16) | (sub << 24);
-                if (matches(custom)) return custom;
-            }
-        }
-        return std::nullopt;
-    }
+    // PX4支持已删除，只处理ArduPilot
 
     for (uint32_t mode = 0; mode <= 0xFF; ++mode) {
         if (matches(mode)) return mode;

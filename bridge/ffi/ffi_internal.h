@@ -24,7 +24,6 @@
 #include "core/settings/flight_logging_service.h"
 #include "core/telemetry/telemetry_ring_buffer.h"
 #include "core/telemetry/waveform_buffer.h"
-#include "core/geofence/geofence_manager.h"
 #include "core/flight/flight_mode_manager.h"
 #include "core/mission/mission_types.h"
 #include "core/settings/mavlink_log_writer.h"

@@ -9,7 +9,6 @@ enum MgSettingsDestination {
   connection,
   configuration,
   missionPlanning,
-  survey,
   payload,
   logs,
   flightLog,
@@ -106,14 +105,6 @@ class _MgSettingsPanel extends StatelessWidget {
                 onTap: () => Navigator.of(
                   context,
                 ).pop(MgSettingsDestination.missionPlanning),
-              ),
-              Divider(height: 1, color: colors.hairline),
-              _SettingsRow(
-                icon: CupertinoIcons.map_pin_ellipse,
-                title: '测绘规划',
-                subtitle: '矩形/交叉网格、走廊扫描，生成后并入任务',
-                onTap: () =>
-                    Navigator.of(context).pop(MgSettingsDestination.survey),
               ),
               Divider(height: 1, color: colors.hairline),
               _SettingsRow(

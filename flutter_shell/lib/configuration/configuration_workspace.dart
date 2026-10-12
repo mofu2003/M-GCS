@@ -5,7 +5,6 @@ import 'package:mgcs_frontend/logging/file_browser_page.dart';
 import 'package:mgcs_frontend/logging/flight_log_page.dart';
 import 'package:mgcs_frontend/logging/onboard_log_page.dart';
 import 'package:mgcs_frontend/payload/camera_gimbal_page.dart';
-import 'package:mgcs_frontend/survey/survey_planning_page.dart';
 import 'package:mgcs_frontend/widgets/app_workspace_shell.dart';
 
 import 'arming/arming_checks_page.dart';
@@ -52,7 +51,6 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
     _ConfigPageInfo('battery', '电池配置', CupertinoIcons.battery_100),
     _ConfigPageInfo('arming', '解锁检查', CupertinoIcons.checkmark_shield),
     _ConfigPageInfo('allParameters', '全部参数', CupertinoIcons.list_number),
-    _ConfigPageInfo('survey', '测绘规划', CupertinoIcons.map_pin_ellipse),
     _ConfigPageInfo('payload', '相机与云台', CupertinoIcons.camera),
     _ConfigPageInfo('logs', '机载日志', CupertinoIcons.doc_text),
     _ConfigPageInfo('flightLog', '飞行记录', CupertinoIcons.stopwatch),
@@ -144,10 +142,6 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
     ),
     'system' => SystemStatusPage(controller: widget.connectionController),
     'calibration' => CalibrationPage(controller: widget.connectionController),
-    'survey' => SurveyPlanningPage(
-      controller: widget.connectionController,
-      scrollController: scrollController,
-    ),
     'payload' => CameraGimbalPage(
       controller: widget.connectionController.payloadController,
       scrollController: scrollController,

@@ -3,7 +3,6 @@
 #include "core/calibration/calibration_service.h"
 #include "core/flight/flight_mode_manager.h"
 #include "core/telemetry/flight_message_log.h"
-#include "core/geofence/geofence_manager.h"
 #include "core/platform/platform_mutex.h"
 #include "core/sensor/sensor_id_decoder.h"
 #include "core/settings/flight_log_writer.h"
@@ -173,7 +172,7 @@ public:
 
     mg::core::calibration::CalibrationService& calibration() { return calibration_; }
     mg::core::flight::FlightModeManager& flight_modes() { return flight_modes_; }
-    mg::core::geofence::GeofenceManager& geofence() { return geofence_; }
+    // GeofenceManager已删除（独立模块，前端未接入）
     mg::core::settings::MavlinkLogWriter& mavlink_log() { return mavlink_log_; }
     mg::core::settings::FlightLoggingService& flight_log() { return flight_log_; }
     /// 飞控消息历史（消息框用）。缓存只留最新一条，历史单独放这里。
@@ -259,7 +258,7 @@ private:
 
     mg::core::calibration::CalibrationService calibration_;
     mg::core::flight::FlightModeManager flight_modes_;
-    mg::core::geofence::GeofenceManager geofence_;
+    // mg::core::geofence::GeofenceManager geofence_; // 已删除
     mg::core::settings::MavlinkLogWriter mavlink_log_;
     mg::core::settings::FlightLoggingService flight_log_;
     mg::core::telemetry::FlightMessageLog message_log_;

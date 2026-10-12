@@ -40,7 +40,6 @@
 #include <vector>
 #include <cstdint>
 #include <memory>
-#include "core/firmware/param_remapping.h"
 
 namespace mg::core::firmware {
 

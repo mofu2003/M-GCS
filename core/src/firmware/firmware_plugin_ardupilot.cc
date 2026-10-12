@@ -168,53 +168,21 @@ float ArduPilotPlugin::minimum_takeoff_altitude(VehicleKind vehicle) const {
 
 
 
-// ================================================================
-// Parameter remapping implementation
-// ================================================================
-
-void ArduPilotPlugin::ensure_remap_loaded(VehicleKind vehicle) const {
-    mg::core::platform::LockGuard lk(remap_mtx_);
-    if (remap_loaded_) return;
-    ApVehicle av = classify_ap_vehicle(vehicle);
-    switch (av) {
-        case ApVehicle::Copter:  remap_.load_ardupilot_copter_tables(); break;
-        case ApVehicle::Plane:   remap_.load_ardupilot_plane_tables(); break;
-        case ApVehicle::Rover:   remap_.load_ardupilot_rover_tables(); break;
-        default:                 remap_.load_ardupilot_copter_tables(); break;
-    }
-    remap_loaded_ = true;
-}
-
-std::string ArduPilotPlugin::remap_param_name(VehicleKind vehicle, int major, int minor, const std::string& name) const {
-    ensure_remap_loaded(vehicle);
-    return remap_.remap(major, minor, name);
-}
-
-std::string ArduPilotPlugin::canonical_param_name(VehicleKind vehicle, int major, int minor, const std::string& name) const {
-    ensure_remap_loaded(vehicle);
-    return remap_.canonical_name(major, minor, name);
-}
-
-bool ArduPilotPlugin::has_param_remapping() const { return true; }
+// ParamRemapping功能已删除（PX4专属），ArduPilot不需要参数名重映射
 
 } // namespace mg::core::firmware
 
 // ================================================================
 // Factory function
 // ================================================================
-#include "core/firmware/px4_plugin.h"
 
 namespace mg::core::firmware {
 
 std::unique_ptr<IFirmwarePlugin> create_firmware_plugin(FirmwareKind kind) {
-    switch (kind) {
-        case FirmwareKind::ArduPilot:
-            return std::make_unique<ArduPilotPlugin>();
-        case FirmwareKind::PX4:
-            return std::make_unique<PX4Plugin>();
-        default:
-            return nullptr;
+    if (kind == FirmwareKind::ArduPilot) {
+        return std::make_unique<ArduPilotPlugin>();
     }
+    return nullptr;
 }
 
 } // namespace mg::core::firmware
