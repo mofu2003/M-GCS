@@ -19,6 +19,14 @@
 
 using namespace mg::bridge::ffi_helpers;
 
+// ArduPilot-specific MAVLink command codes
+// These are calibration-related commands from the ArduPilot firmware
+namespace {
+    constexpr uint16_t MAV_CMD_PREFLIGHT_CALIBRATION_CMD = 241;      // Calibration
+    constexpr uint16_t MAV_CMD_DO_CANCEL_MAG_CAL_CMD = 42426;         // Cancel magnetometer calibration
+    constexpr uint16_t MAV_CMD_ACCELCAL_VEHICLE_POS_CMD = 42429;      // Accelerometer calibration position
+}
+
 MGCORE_API char* mg_calibration_start(mg_core_t* core, int type, int accel_mode) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto& cal = get_active_calibration(core);
@@ -53,11 +61,11 @@ MGCORE_API char* mg_calibration_cancel(mg_core_t* core) {
     if (mav && status.current_type == mg::core::calibration::CalibrationType::Accelerometer) {
         command_sent = mav->send_command_long(
             active_target_sys(core), active_target_comp(core),
-            42429, 0, 16777216.0f, 0, 0, 0, 0, 0, 0);
+            MAV_CMD_ACCELCAL_VEHICLE_POS_CMD, 0, 16777216.0f, 0, 0, 0, 0, 0, 0);
     } else if (mav && status.current_type == mg::core::calibration::CalibrationType::Magnetometer) {
         command_sent = mav->send_command_long(
             active_target_sys(core), active_target_comp(core),
-            42426, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+            MAV_CMD_DO_CANCEL_MAG_CAL_CMD, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
         // Do not leave the explicit 10 Hz calibration streams running after
         // cancellation.
         mav->request_message_interval(
@@ -70,7 +78,7 @@ MGCORE_API char* mg_calibration_cancel(mg_core_t* core) {
         // 只改本地状态而不通知飞控，会让飞控继续校准而界面显示"已取消"。
         command_sent = mav->send_command_long(
             active_target_sys(core), active_target_comp(core),
-            241, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+            MAV_CMD_PREFLIGHT_CALIBRATION_CMD, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     }
     if (!command_sent) {
         // 取消命令没发出去，就不会有飞控确认。立刻收尾为 Cancelled 并写明原因，
@@ -119,6 +127,6 @@ MGCORE_API char* mg_calibration_accel_confirm(mg_core_t* core, int position) {
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
     const bool sent = mav->send_command_long(
         active_target_sys(core), active_target_comp(core),
-        42429, 0, static_cast<float>(position), 0, 0, 0, 0, 0, 0);
+        MAV_CMD_ACCELCAL_VEHICLE_POS_CMD, 0, static_cast<float>(position), 0, 0, 0, 0, 0, 0);
     return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "failed to confirm accelerometer position");
 }

@@ -234,7 +234,7 @@ inline std::string ffi_ardupilot_vehicle_class(mg_core_t* core) {
     auto mav = shared_active_mavlink(core);
     if (!mav) return "";
     auto hb = mav->latest_heartbeat();
-    if (!hb.has_value() || hb->autopilot_type != 3) return "";
+    if (!hb.has_value() || hb->autopilot_type != MAV_AUTOPILOT_ARDUPILOTMEGA) return "";
 
     mg::core::firmware::FirmwareAdapter adapter;
     adapter.detect(hb->autopilot_type, hb->vehicle_type);

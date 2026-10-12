@@ -3,7 +3,7 @@
  * ffi_commands.cc - 围栏/Rally 回读与车辆清单
  *
  * 只剩三个导出：mg_fence_download、mg_rally_download、mg_vehicle_list。
- * 早期的大文件按职责拆分后，其余能力（PX4、测绘、地形、SITL、固件刷写等）
+ * 早期的大文件按职责拆分后，其余能力（测绘、地形、SITL、固件刷写等）
  * 已在 0.2.x 的清理中删除，见 CHANGELOG。
  */
 #include "ffi_internal.h"

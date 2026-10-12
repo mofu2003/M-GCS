@@ -390,6 +390,8 @@ char* start_mission_and_validate(mg_core_t* core, bool arm_if_needed) {
     const auto position = mav->latest_global_position();
     const bool flying = hb->armed && ((landed && landed->landed_state == MAV_LANDED_STATE_IN_AIR) ||
         (position && position->relative_alt > 2000));
+    // Copter/Plane have different AUTO mode custom_mode values:
+    // Copter: 3, Plane: 10 (obtained from ArduPilot firmware plugin)
     const uint32_t auto_mode = plane ? 10U : 3U;
     if (plane || flying) {
         char* result = set_mode_and_validate(core, auto_mode);
@@ -398,6 +400,7 @@ char* start_mission_and_validate(mg_core_t* core, bool arm_if_needed) {
         return arm_and_validate(core);
     }
     if (!hb->armed) {
+        // Copter GUIDED mode (custom_mode = 4)
         char* result = set_mode_and_validate(core, 4U);
         if (!response_succeeded(result)) return result;
         mg_free_string(result);

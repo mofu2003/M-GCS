@@ -2,7 +2,7 @@
 
 无人机地面站，对标 Mission Planner 与 QGroundControl。
 
-**当前版本（0.2.2）支持 ArduPilot 固件**。
+**当前版本（1.0.0）支持 ArduPilot 固件**（Copter/Plane/VTOL/Rover）。
 
 ## 结构
 

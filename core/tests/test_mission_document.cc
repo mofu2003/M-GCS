@@ -1598,14 +1598,14 @@ static void test_mission_vehicle_capability() {
               "NAV_WAYPOINT is not flagged on a rover");
     }
 
-    // PX4 文档不套用 ArduPilot 能力表。
+    // 未知固件文档不套用 ArduPilot 能力表。
     {
-        MissionDocument px4 = valid_document();
-        px4.metadata.firmware_profile = "px4";
-        px4.metadata.vehicle_type = "rover";
-        const auto report = MissionDocumentService::validate_document(px4);
+        MissionDocument unknown = valid_document();
+        unknown.metadata.firmware_profile = "unknown";
+        unknown.metadata.vehicle_type = "rover";
+        const auto report = MissionDocumentService::validate_document(unknown);
         CHECK(!report_has_code(report, "entity.command_vehicle_unsupported"),
-              "a PX4 document is not judged by the ArduPilot capability table");
+              "an unknown-firmware document is not judged by the ArduPilot capability table");
     }
 
     // NAV_LOITER_UNLIM(17) 按设计不在 13 条命令目录里（docs/mission-capability-table.md:55：
@@ -1701,7 +1701,7 @@ static void test_mission_vehicle_capability() {
                   !mission_command_parameter_applies(waypoint, 4, "rover"),
               "no ArduPilot build stores the waypoint yaw field");
         CHECK(mission_command_parameter_applies(waypoint, 4, ""),
-              "PX4 (unnormalised vehicle class) keeps the waypoint yaw field");
+              "unknown firmware (unnormalised vehicle class) keeps the waypoint yaw field");
 
         CHECK(mission_command_parameter_applies(waypoint, 1, "") &&
                   mission_command_parameter_applies(waypoint, 2, ""),

@@ -18,6 +18,13 @@
 #include "core/calibration/strategies/baro_calibration.h"
 #include "core/calibration/strategies/radio_calibration.h"
 #include "core/mavlink/mavlink_adapter.h"
+
+namespace {
+    // ArduPilot-specific MAVLink command codes
+    constexpr uint16_t MAV_CMD_PREFLIGHT_CALIBRATION_CMD = 241;      // Calibration
+    constexpr uint16_t MAV_CMD_DO_CANCEL_MAG_CAL_CMD = 42426;         // Cancel magnetometer calibration
+    constexpr uint16_t MAV_CMD_ACCELCAL_VEHICLE_POS_CMD = 42429;      // Accelerometer calibration position
+}
 #include "core/transport/connection_manager.h"
 #include "core/log/logging.h"
 #include <chrono>
@@ -521,10 +528,12 @@ bool CalibrationService::is_active() const {
 
 bool CalibrationService::is_cancel_command(uint16_t command) {
     // 本服务的取消路径只可能发这三条命令（见 bridge/ffi/ffi_calibration.cc）：
-    //  241   MAV_CMD_PREFLIGHT_CALIBRATION（陀螺/气压/遥控，全零参数）
-    //  42426 MAV_CMD_DO_CANCEL_MAG_CAL（罗盘）
-    //  42429 MAV_CMD_ACCELCAL_VEHICLE_POS（加速度计，position 16777216 = 取消）
-    return command == 241 || command == 42426 || command == 42429;
+    //  MAV_CMD_PREFLIGHT_CALIBRATION（陀螺/气压/遥控，全零参数）
+    //  MAV_CMD_DO_CANCEL_MAG_CAL（罗盘）
+    //  MAV_CMD_ACCELCAL_VEHICLE_POS（加速度计，position 16777216 = 取消）
+    return command == MAV_CMD_PREFLIGHT_CALIBRATION_CMD ||
+           command == MAV_CMD_DO_CANCEL_MAG_CAL_CMD ||
+           command == MAV_CMD_ACCELCAL_VEHICLE_POS_CMD;
 }
 
 bool CalibrationService::finish_cancel(const std::string& reason) {
