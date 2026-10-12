@@ -484,11 +484,11 @@ static void test_session_adapter_access_survives_concurrent_disconnect() {
 static void test_command_ack_wait_survives_concurrent_disconnect() {
     fprintf(stderr, "\n[Group] command ACK wait vs concurrent disconnect\n");
     CommandEnv env(/*ack_commands=*/false);
-    if (!env.wait_connected()) {
-        CHECK(false, "mock vehicle connects for the disconnect test");
-        return;
-    }
-    CHECK(true, "mock vehicle connects for the disconnect test");
+    // T2：不能写 CHECK(true, ...)——那是恒真的假断言。把前置条件的真实
+    // 结果断言一次，失败时仍然提前返回。
+    const bool connected = env.wait_connected();
+    CHECK(connected, "mock vehicle connects for the disconnect test");
+    if (!connected) return;
     env.start_pump();
 
     std::string result;
@@ -515,11 +515,11 @@ static void test_command_ack_wait_survives_concurrent_disconnect() {
 static void test_command_queue_reclaims_never_polled_slots() {
     fprintf(stderr, "\n[Group] command queue slot reclamation\n");
     CommandEnv env;
-    if (!env.wait_connected()) {
-        CHECK(false, "mock vehicle connects for the queue test");
-        return;
-    }
-    CHECK(true, "mock vehicle connects for the queue test");
+    // T2：不能写 CHECK(true, ...)——那是恒真的假断言。把前置条件的真实
+    // 结果断言一次，失败时仍然提前返回。
+    const bool connected = env.wait_connected();
+    CHECK(connected, "mock vehicle connects for the queue test");
+    if (!connected) return;
 
     // 造出"连续提交、结果已就绪、客户端从未 poll"的满队列状态。
     {
@@ -553,11 +553,11 @@ static void test_command_queue_reclaims_never_polled_slots() {
 static void test_completed_command_is_reclaimable_without_poll() {
     fprintf(stderr, "\n[Group] unpolled completed command reclamation\n");
     CommandEnv env;
-    if (!env.wait_connected()) {
-        CHECK(false, "mock vehicle connects for the unpolled test");
-        return;
-    }
-    CHECK(true, "mock vehicle connects for the unpolled test");
+    // T2：不能写 CHECK(true, ...)——那是恒真的假断言。把前置条件的真实
+    // 结果断言一次，失败时仍然提前返回。
+    const bool connected = env.wait_connected();
+    CHECK(connected, "mock vehicle connects for the unpolled test");
+    if (!connected) return;
     env.start_pump();
 
     const uint64_t ticket = ticket_of(mg_command_submit_for_vehicle(

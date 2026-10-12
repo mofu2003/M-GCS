@@ -45,6 +45,10 @@ public:
     bool mission_clear_received = false;
     bool mission_set_current_received = false;
     int  mission_set_current_seq = -1;
+    /// GCS 发来的 MISSION_ACK（上传被接受、任务传输被取消）。S8 要求"取消必须
+    /// 到达飞控"，所以取消用的 MISSION_ACK 必须能被测试看见，而不只是看本地终态。
+    struct ReceivedMissionAck { uint8_t type; uint8_t mission_type; };
+    std::vector<ReceivedMissionAck> received_mission_acks;
     bool cal_start_received = false;
     uint8_t last_cal_param1 = 0;
 
@@ -459,6 +463,11 @@ private:
                 }
                 send(r);
             }
+            break; }
+        case MAVLINK_MSG_ID_MISSION_ACK: {
+            // GCS -> 飞控的 MISSION_ACK：上传被接受、或任务传输被取消（S8）。
+            mavlink_mission_ack_t a; mavlink_msg_mission_ack_decode(&msg,&a);
+            received_mission_acks.push_back({a.type, a.mission_type});
             break; }
         case MAVLINK_MSG_ID_MISSION_COUNT: {
             mavlink_mission_count_t mc; mavlink_msg_mission_count_decode(&msg,&mc);

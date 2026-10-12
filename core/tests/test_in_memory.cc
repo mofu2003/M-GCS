@@ -124,8 +124,9 @@ int main() {
 
     conn.disconnect();
     CHECK(!conn.is_connected(), "disconnected");
+    // T2：destroy 之后不能断言（对象已释放），把断言放在销毁之前，并给出真实条件。
+    CHECK(core != nullptr, "core exists before destroy");
     mg_destroy(core);
-    CHECK(true, "destroy");
 
     std::cout << "\n=== " << tests_passed << " passed, " << tests_failed << " failed ===" << std::endl;
     return tests_failed > 0 ? 1 : 0;

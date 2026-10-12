@@ -11,6 +11,8 @@
 #include "mock_vehicle_test_env.h"
 #include "ffi_api.h"
 #include "ardupilotmega/mavlink.h"
+#include "core/transport/link_session.h"
+#include "core/vehicle/vehicle.h"
 
 #include <chrono>
 #include <cstdio>
@@ -1190,6 +1192,115 @@ void test_payload_device_inventory() {
     if (r) mg_free_string(r);
 }
 
+// ================================================================
+// S5：断链必须通知界面，而不只是让状态悄悄过期
+// ================================================================
+
+struct ConnectionProbe {
+    int events = 0;
+    bool connected_value = true;   // 事件里的 connected 字段
+    std::string reason;
+};
+
+void connection_probe_cb(mg_event_type_t type, char* json, void* user_data) {
+    auto* probe = static_cast<ConnectionProbe*>(user_data);
+    if (probe != nullptr && type == MG_EVENT_CONNECTION) {
+        probe->events++;
+        if (json != nullptr) {
+            const std::string text(json);
+            probe->connected_value = text.find("\"connected\":true") != std::string::npos;
+            const auto reason_at = text.find("\"reason\":\"");
+            if (reason_at != std::string::npos) {
+                const auto from = reason_at + std::strlen("\"reason\":\"");
+                const auto to = text.find('"', from);
+                if (to != std::string::npos) {
+                    probe->reason = text.substr(from, to - from);
+                }
+            }
+        }
+    }
+    if (json != nullptr) mg_free_string(json);
+}
+
+/// S5 的前半句：链路断开时事件必须发出（界面据此提示）；状态失效那半句由
+/// test_mode_state_reports_freshness 覆盖。
+///
+/// 这里刻意走生产接线：`attach_shared_session()` → `finish_connect()` 才会装上
+/// `Vehicle::install_connection_state_callback`，它把连接状态变化转成
+/// `kConnection` 事件（= MG_EVENT_CONNECTION）。MockVehicleTestEnv 用
+/// wire_for_test() 旁路了 finish_connect()，所以这条断言自己建会话。
+void test_link_loss_notifies_the_interface() {
+    fprintf(stderr, "\n[Group] S5 link loss notification\n");
+
+    mg_core_t* core = mg_create();
+    auto link = std::make_shared<mg::core::transport::InMemoryLink>();
+    link->open();
+    auto session =
+        std::make_shared<mg::core::transport::LinkSession>(link, "inmemory://s5");
+
+    // fallback vehicle 的 id 是 0，attach_shared_session() 拒绝 route_id <= 0，
+    // 所以这里按会话路径注册一台正常编号的飞机（test_bridge_vehicle_session 同款）。
+    auto vehicle = std::make_shared<mg::core::vehicle::Vehicle>(5);
+    core->vehicles.add_for_test(vehicle);
+    core->vehicles.set_active_vehicle(5);
+    vehicle->set_event_callback([core](int event_type, const std::string& json) {
+        core->events.fire(static_cast<mg_event_type_t>(event_type), json);
+    });
+
+    CHECK(vehicle->attach_shared_session(session, "inmemory://s5", 1, 1),
+          "shared session attaches through the production path");
+    // 生产顺序：先 attach 再 open()（open() 才把链路接收回调接到 router 上）。
+    CHECK(session->open(), "shared session opens after attaching");
+
+    {
+        // 模拟飞控只在本块内存活：它持有链路引用，必须在释放链路之前销毁。
+        MockFlightController mock(*link, MockFlightController::Config());
+        for (int i = 0; i < 60; i++) {
+            mock.tick(100);
+            auto outgoing = link->take_outgoing();
+            if (outgoing.empty()) continue;
+            mock.on_gcs_data(outgoing.data(), outgoing.size());
+            if (vehicle->conn().is_connected()) break;
+        }
+    }
+    CHECK(vehicle->conn().is_connected(),
+          "vehicle is connected before the link drops");
+
+    ConnectionProbe probe;
+    mg_set_event_callback(core, connection_probe_cb, &probe);
+
+    char* before = mg_connection_get_state(core);
+    CHECK(json_has(before, "\"heartbeat_fresh\":true"),
+          "state is fresh while the link is up");
+    if (before) mg_free_string(before);
+    CHECK(probe.events == 0, "no connection event is emitted while the link is up");
+
+    // 断开：走 UI 用的生产路径 mg_connection_disconnect（close_vehicle →
+    // Vehicle::disconnect → ConnectionManager::disconnect → reset → 连接状态回调
+    // → kConnection 事件）。
+    char* result = mg_connection_disconnect(core);
+    if (result) mg_free_string(result);
+
+    CHECK(probe.events >= 1, "S5: disconnecting emits a connection event");
+    CHECK(!probe.connected_value, "S5: the event tells the interface the link is gone");
+    CHECK(!probe.reason.empty(), "the event carries a reason string for the UI");
+
+    char* after = mg_connection_get_state(core);
+    CHECK(json_has(after, "\"connected\":false"), "state reports disconnected");
+    CHECK(json_has(after, "\"heartbeat_fresh\":false"),
+          "S5: dependent state is marked stale, not left as the last value");
+    if (after) mg_free_string(after);
+
+    mg_set_event_callback(core, nullptr, nullptr);
+
+    // 先放掉本用例持有的飞机与链路，再销毁 core：Vehicle 析构会走断链清理，
+    // 而事件回调捕获了 core，顺序颠倒就是 use-after-free。
+    vehicle.reset();
+    session.reset();
+    link.reset();
+    mg_destroy(core);
+}
+
 int main() {
     fprintf(stderr, "=== FFI UI path simulation tests ===\n");
     test_params_get_by_name();
@@ -1205,6 +1316,7 @@ int main() {
     test_config_param_write_path();
     test_flight_log_captures_statustext();
     test_waypoint_reached_event_is_emitted();
+    test_link_loss_notifies_the_interface();
     test_home_position_is_requested_on_identify();
     test_log_list_reports_real_entries();
     test_log_download_reports_saved_bytes();

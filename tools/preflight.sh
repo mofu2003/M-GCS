@@ -260,6 +260,16 @@ ffi_library_is_sanitized() {
 echo "[preflight] 检查 FFI 声明与前端绑定"
 "${PYTHON_BIN:-python3}" tools/check_ffi_contract.py
 
+# T2：假断言写法（恒真条件、OR 组合恒真、只查非空、无条件 SKIP）。
+echo "[preflight] 检查假断言写法（T2）"
+"${PYTHON_BIN:-python3}" tools/check_fake_assertions.py
+"${PYTHON_BIN:-python3}" tools/check_fake_assertions.py --self-test
+
+# F1：改了 bridge/ffi/ffi_api*.h 就必须是成套变更（实现/测试/catalog/文档）。
+echo "[preflight] 检查 FFI 公开头的成套变更（F1）"
+"${PYTHON_BIN:-python3}" tools/check_api_change_set.py --self-test
+"${PYTHON_BIN:-python3}" tools/check_api_change_set.py --base "${changed_ref:-HEAD}"
+
 # 编译并发上限。
 # 不带数字的 `cmake --build --parallel` 等于不限并发：16 GB 机器上 10+ 个 clang
 # 同时编译 mavlink 重头文件的 TU 会触发换页，实测 165 s，而限成 8 路只要 26 s。

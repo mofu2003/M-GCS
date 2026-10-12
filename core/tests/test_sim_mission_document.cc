@@ -6,6 +6,10 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include "mgcs_test_check.h"
 
 // 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
@@ -105,10 +109,148 @@ static void test_verify_ignores_fields_the_vehicle_cannot_store() {
     if (result) mg_free_string(result);
 }
 
+/// 读取文件全部字节；用于"原文件逐字节不变"的断言（S7）。
+static std::string read_file_bytes(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input.is_open()) return {};
+    return std::string((std::istreambuf_iterator<char>(input)),
+                       std::istreambuf_iterator<char>());
+}
+
+/// S7：MissionDocument 是唯一内部状态，上传前从它编译 MissionPlan。
+/// 导入（读盘）、导出、上传都不得改写用户的原始文件，也不得替换其内容。
+static void test_mission_file_is_never_rewritten() {
+    fprintf(stderr, "\n[Group] S7 mission file is not silently rewritten\n");
+    MockVehicleTestEnv env;
+    for (int i = 0; i < 15; ++i) env.tick(100);
+
+    const auto dir =
+        std::filesystem::temp_directory_path() / "M-GCS-test" / "s7-mission-file";
+    std::error_code ignored;
+    std::filesystem::remove_all(dir, ignored);
+    std::filesystem::create_directories(dir);
+    const auto source = dir / "user-mission.mgcs";
+    const auto exported = dir / "exported-copy.mgcs";
+
+    // 1) 用户原始文件：先建一份任务文档并落盘。
+    char* result = mg_mission_doc_create(env.core, R"({"metadata":{"name":"s7"}})");
+    if (result) mg_free_string(result);
+    result = mg_mission_doc_apply(
+        env.core,
+        R"({"operation":"add","expected_revision":1,"entity":{"type":"waypoint","command":16,"lat":31.227,"lon":121.49,"alt_m":50,"params":[0,2,0,0]}})");
+    if (result) mg_free_string(result);
+    result = mg_mission_doc_save(env.core, source.string().c_str());
+    CHECK(result && strstr(result, "\"success\":true"),
+          "the user's mission file is written to disk");
+    if (result) mg_free_string(result);
+
+    const std::string before = read_file_bytes(source);
+    CHECK(!before.empty(), "the source file really has content to protect");
+
+    // 2) 导入：从磁盘读回文档（真实读盘路径，而不是内存 JSON）。
+    result = mg_mission_doc_load(env.core, source.string().c_str());
+    CHECK(result && strstr(result, "\"success\":true"),
+          "the mission document loads from the user's file");
+    if (result) mg_free_string(result);
+
+    result = mg_mission_doc_get(env.core);
+    CHECK(result && strstr(result, "31.227") != nullptr,
+          "the loaded document carries the file's waypoint (the read really happened)");
+    if (result) mg_free_string(result);
+
+    // 3) 导出：原生 JSON + QGC plan 文本，都不接触源文件。
+    result = mg_mission_doc_export(env.core);
+    CHECK(result && strstr(result, "31.227") != nullptr,
+          "exporting the document succeeds");
+    if (result) mg_free_string(result);
+    result = mg_mission_doc_export_format(env.core, "plan");
+    CHECK(result && strstr(result, "Plan") != nullptr,
+          "exporting to a QGC plan file succeeds");
+    if (result) mg_free_string(result);
+
+    // 4) 上传：飞控真的收到了任务（否则下面的"文件没变"毫无意义）。
+    result = mg_mission_doc_upload(env.core, 2);
+    if (result) mg_free_string(result);
+    for (int i = 0; i < 60; ++i) env.tick(50);
+    CHECK(!env.mock->stored_mission().empty(),
+          "the mission reached the flight controller");
+
+    // 5) 另存到新路径：只写目标文件。
+    result = mg_mission_doc_save(env.core, exported.string().c_str());
+    CHECK(result && strstr(result, "\"success\":true"),
+          "saving to a new path succeeds");
+    if (result) mg_free_string(result);
+    CHECK(std::filesystem::exists(exported) &&
+              read_file_bytes(exported).find("31.227") != std::string::npos,
+          "the new file holds the exported document");
+
+    // 6) 源文件逐字节不变（导入 / 导出 / 上传 / 另存都没有改写它）。
+    const std::string after = read_file_bytes(source);
+    CHECK(after.size() == before.size(),
+          "S7: the source file size is unchanged after import/export/upload");
+    CHECK(after == before,
+          "S7: the source file is byte-identical after import/export/upload");
+    CHECK(std::filesystem::exists(source) && std::filesystem::exists(exported),
+          "both the source and the new export exist as separate files");
+
+    // 反向自检：这条断言要能发现"文件被改写"，否则就是恒真的假断言（T2）。
+    {
+        std::ofstream mutated(source, std::ios::binary | std::ios::trunc);
+        mutated << before << "\n";
+    }
+    CHECK(read_file_bytes(source) != before,
+          "the byte comparison really detects a rewritten source file");
+
+    std::filesystem::remove_all(dir, ignored);
+}
+
+/// S8：任务传输取消必须把命令发给飞控（MISSION_ACK + OPERATION_CANCELLED），
+/// 不能只把本地状态改成 idle 就算"已取消"。
+static void test_mission_cancel_reaches_the_vehicle() {
+    fprintf(stderr, "\n[Group] S8 mission cancel reaches the vehicle\n");
+    MockVehicleTestEnv env;
+    for (int i = 0; i < 15; ++i) env.tick(100);
+
+    // 对照：取消之前飞控没有收到任何 MISSION_ACK，说明下面的断言不是"总有"。
+    env.mock->received_mission_acks.clear();
+    char* result = mg_mission_download(env.core);
+    CHECK(result && strstr(result, "\"success\":true"),
+          "a mission download starts and stays active");
+    if (result) mg_free_string(result);
+    CHECK(env.mock->received_mission_acks.empty(),
+          "no MISSION_ACK is sent while the transfer is running");
+
+    result = mg_operations_cancel(env.core, "mission");
+    CHECK(result && strstr(result, "\"canceled\":true"),
+          "the active mission transfer is cancelled locally");
+    if (result) mg_free_string(result);
+
+    // 命令要真的走到链路对端（env.tick 会把 GCS 的出站字节喂给模拟飞控）。
+    for (int i = 0; i < 10; ++i) env.tick(50);
+
+    bool cancel_ack_received = false;
+    for (const auto& ack : env.mock->received_mission_acks) {
+        if (ack.type == MAV_MISSION_OPERATION_CANCELLED &&
+            ack.mission_type == MAV_MISSION_TYPE_MISSION) {
+            cancel_ack_received = true;
+        }
+    }
+    CHECK(cancel_ack_received,
+          "S8: cancelling sends MISSION_ACK(OPERATION_CANCELLED) to the vehicle");
+
+    // 本地终态同样保持（但这不是唯一的断言）。
+    result = mg_mission_get_progress(env.core);
+    CHECK(result && strstr(result, "\"state\":\"idle\""),
+          "the local transfer state is idle after the cancel");
+    if (result) mg_free_string(result);
+}
+
 int main() {
     fprintf(stderr, "=== Mission Document Simulation Tests ===\n");
     test_verify_tolerates_position_quantization();
     test_verify_ignores_fields_the_vehicle_cannot_store();
+    test_mission_file_is_never_rewritten();
+    test_mission_cancel_reaches_the_vehicle();
     MockVehicleTestEnv env;
     for (int i = 0; i < 15; ++i) env.tick(100);
 

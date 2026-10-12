@@ -147,6 +147,35 @@ int main() {
         mg_free_string(v);
     }
 
+    // 3b. F3：mg_error_string 返回常量，调用方不得 mg_free_string 释放它。
+    // 契约的可见后果有两条：返回的是稳定地址（每次调用同一个指针），并且
+    // 与 F4 error 对象里的 name 字段一致。测试用指针相等钉住"常量"这一点——
+    // 一旦有人改成返回堆分配字符串，这两条都会失败。
+    fprintf(stderr, "[Group] F3 mg_error_string ownership\n");
+    {
+        const struct { mg_error_t error; const char* name; } cases[] = {
+            {MG_ERROR_NOT_CONNECTED, "NOT_CONNECTED"},
+            {MG_ERROR_TIMEOUT, "TIMEOUT"},
+            {MG_ERROR_REJECTED, "REJECTED"},
+            {MG_ERROR_INVALID_PARAM, "INVALID_PARAM"},
+        };
+        for (const auto& c : cases) {
+            const char* first = mg_error_string(c.error);
+            const char* second = mg_error_string(c.error);
+            CHECK(first != nullptr, "mg_error_string returns a non-null constant");
+            CHECK(first == second,
+                  "mg_error_string returns the same constant pointer (never a fresh allocation)");
+            CHECK(first[0] != '\0', "the constant text is not empty");
+            CHECK(std::strcmp(ffi_error_name(c.error), c.name) == 0,
+                  "ffi_error_name matches the documented mg_error_t symbol");
+        }
+        // 未知错误码也要回常量，而不是 nullptr（否则调用方可能去 free 空指针）。
+        const char* unknown = mg_error_string(static_cast<mg_error_t>(-999));
+        CHECK(unknown != nullptr && unknown ==
+                  mg_error_string(static_cast<mg_error_t>(-999)),
+              "an unknown error code still returns a stable constant");
+    }
+
     // 4. Error system
     fprintf(stderr, "[Group] Error system\n");
     {
