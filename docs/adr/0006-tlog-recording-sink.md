@@ -38,7 +38,7 @@
 
 - 录制会在接收线程 / FFI 线程上做一次文件写（buffered `fwrite`），但发生在
   adapter 锁之外，不影响链路读线程与状态查询的时延。
-- 记录格式由 `core/log/tlog_format.h` 唯一约束，writer / replayer / QGC / MP
+- 记录格式由 `core/include/core/log/tlog_format.h` 唯一约束，writer / replayer / QGC / MP
   四方一致；旧版 writer 写的 `3E 00 00 00` + 长度前缀既不是 tlog 也无法回放，
   本次一并修正。
 - 发送失败时仍会记录「已尝试发送」的帧（对齐 QGC：日志记录链路意图，
@@ -48,5 +48,5 @@
 
 - `docs/constraints/architecture.md`（A3、A4、A6）
 - `docs/adr/0005-deferred-sends-outside-adapter-lock.md`
-- `core/log/tlog_format.h`、`core/src/mavlink/mavlink_adapter.cc`、
+- `core/include/core/log/tlog_format.h`、`core/src/mavlink/mavlink_adapter.cc`、
   `core/src/settings/mavlink_log_writer.cc`

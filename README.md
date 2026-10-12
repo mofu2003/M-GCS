@@ -27,5 +27,6 @@
 - [docs/plans/mgcs-development-plan-2026-10-10.md](docs/plans/mgcs-development-plan-2026-10-10.md)：分阶段开发计划与当前进度
 - [docs/comparisons/ground-station-comparison-2026-10-10.md](docs/comparisons/ground-station-comparison-2026-10-10.md)：与 QGroundControl、Mission Planner 的多维对比报告
 - [docs/features/feature-inventory.md](docs/features/feature-inventory.md)：功能清单与交付分类（已实现 / 部分实现 / 未实现 / 未接入前端的 FFI 导出明细）
+- [docs/CODEBASE-INVENTORY.md](docs/CODEBASE-INVENTORY.md)：全量代码与接口盘点（FFI 导出逐项、core 模块、前端页面、测试与门禁）
 - [docs/features/](docs/features/)：阶段 3 功能简报（逐方向的需求、上游研究、差距、验收标准）：[视频/相机/云台](docs/features/video-camera-gimbal.md)、[飞行日志与回放](docs/features/flight-logging-and-replay.md)
 - [CHANGELOG.md](CHANGELOG.md)：按版本记录的变更（Keep a Changelog + SemVer）

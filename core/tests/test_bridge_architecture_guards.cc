@@ -188,7 +188,7 @@ static const char* const kBridgeHeaderNames[] = {
     "ffi_api.h", "ffi_api_core.h", "ffi_api_connection.h", "ffi_api_telemetry.h",
     "ffi_api_firmware.h", "ffi_api_params.h", "ffi_api_mission.h",
     "ffi_api_flight.h", "ffi_api_configuration.h", "ffi_api_geofence.h",
-    "ffi_api_logging.h", "ffi_api_payload.h", "ffi_api_environment.h",
+    "ffi_api_logging.h", "ffi_api_payload.h",
     "ffi_internal.h", "ffi_core_context.h", "ffi_response.h",
     "ffi_vehicle_session.h", "ffi_mission_bridge.h",
 };

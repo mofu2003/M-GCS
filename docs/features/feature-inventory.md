@@ -45,9 +45,10 @@
 ### 1.4 遥测与仪表（`widgets/mg_telemetry_dashboard.dart`、`widgets/mg_top_status_bar.dart`）
 
 - 姿态、GPS、电池、高度、地速、航向等实时量与顶栏状态。
-- RC 通道、健康位、振动、IMU、气压、风速估计、ESC 状态、预解锁定检查等（`mg_vehicle_get_*`、`mg_health_get_all`）。
+- 聚合读数：`mg_telemetry_get_dashboard_snapshot`（姿态 / GPS / 电池 / 位置 / VFR / 传感器健康）、`mg_vehicle_get_summary`（心跳与机载信息）、`mg_vehicle_get_{{attitude,global_position,home_position,vfr_hud,extended_sys_state,firmware_version}}`。
+- RC 与舵机：`mg_rc_get_channels`、`mg_servo_get_outputs`；传感器健康：`mg_sensors_get_health`。
 - 实时波形（`components/realtime_waveform.dart` + `mg_waveform_*`）。
-- **未接线（诚实标注）**：ADS-B 与距离传感器。MAVLink 层已实现 `ADSB_VEHICLE` 处理（`on_adsb_vehicle` 回调 + `ADSBTracker` 类，见 `core/src/telemetry/adsb_tracker.cc`），但 `mg_vehicle_get_adsb_traffic`/`mg_vehicle_get_distance_sensors` 仍是返回空数组的存根，未把回调接到 tracker。接线完成前不计入"已交付"。
+- **未接线（诚实标注）**：ADS-B 与距离传感器。MAVLink 层有 `ADSB_VEHICLE` 处理与 `on_adsb_vehicle` 回调，但 `telemetry/adsb_tracker.{h,cc}` 的 `ADSBTracker` **在仓库内从未被实例化**（FFI 导出已删除），也没有距离传感器的 FFI 入口。
 
 ### 1.5 地图（`flutter_shell/lib/map/amap_map_view.dart`）
 
@@ -100,37 +101,29 @@
 
 | 功能 | 已做 | 未做 |
 | --- | --- | --- |
-| 固件 | 连接流程中的固件识别 | 刷写与校验（`mg_firmware_flash` 未接 UI） |
-| 参数 | 读写、写进度、语义角色 | 文件导入导出（`.param`/CSV）、变化项查询 |
-| 日志 | 机载日志、tlog 录制/回放、MAVLink FTP | 事件日志服务、会话文件日志 |
+| 固件 | 连接流程中的固件识别、版本回读 | 刷写与校验（导出已删除，待独立 ADR） |
+| 参数 | 全量读取、按名读写、写进度、语义角色 | 参数文件导入导出（导出侧已删除，导入侧 `mg_mission_doc_import_format` 之外无入口） |
+| 日志 | 机载日志、tlog 录制/回放、MAVLink FTP 收发 | 事件日志服务、会话文件日志（导出已删除）、`.bin` 解析与图表 |
 | 相机/云台/视频 | 状态回读、命令、本机解码/录制/截图（macOS arm64 已验证） | 真实硬件回读、其他平台验证 |
 
 ## 3. 未实现 / 未接入前端
 
-### 3.1 FFI 已有、但未接 UI（延期至 0.3.0 之后或退役候选）
+### 3.1 FFI 导出但未绑定前端（24 个，全部有正当定位）
 
-| 能力 | 导出 | 实现 | 现状 |
-| --- | --- | --- | --- |
-| 参数文件导入 | `mg_param_file_import` | `bridge/ffi/ffi_telemetry.cc` | 延期至 0.3.0 之后；导入入口无 UI，磁盘读写由 Dart 负责；导出/CSV 转换是独立接口 |
-| 参数预设 | `mg_config_get_presets`/`apply_preset` | `bridge/ffi/ffi_config.cc` | 延期至 0.3.0 之后；当前无预设管理 UI |
-| 空速校准 | `mg_calibration_start_airspeed` | `bridge/ffi/ffi_calibration.cc` | 延期至 0.3.0 之后；校准页无该入口 |
-| 设备发现 | `mg_discover_devices` | `bridge/ffi/ffi_vehicle_manager.cc` | 延期至 0.3.0 之后；连接面板走端口枚举 |
-| 事件日志状态 | `mg_event_log_get_status` | `bridge/ffi/ffi_logging.cc` | 延期至 0.3.0 之后；事件日志服务未接 UI |
-| 会话文件日志 | `mg_session_log_start/stop/status` | `bridge/ffi/ffi_telemetry.cc` | 延期至 0.3.0 之后；当前未接 UI |
-| 遥测 series 记录器 | `mg_telemetry_*`（6 个） | `bridge/ffi/ffi_telemetry.cc` | 退役候选，本次保留 ABI；前端波形走 `mg_waveform_*` |
-| 跳转到航点 | `mg_mission_set_current` | `bridge/ffi/ffi_mission_commands.cc` | 延期至 0.3.0 之后；当前无入口 |
+见 §4「未绑定导出明细」。这里不重复列举；**当前没有「能力已实现却不接 UI」的悬空项**——
+前两轮清理已把所有「无前端绑定、无内部调用方、无未来用途」的导出一律删除。
 
 ### 3.2 完全未实现（QGC/MP 有、M-GCS 目前没有）
 
 - **手柄/手动控制（Joystick / MANUAL_CONTROL）**：仓库内无相关代码。
 - **离线地图发行与瓦片持久化**：仅支持在线底图与自定义 XYZ 模板，无离线包管理。
 - **日志分析器**：DataFlash `.bin` 解析与图表（QGC LogViewer / MP LogBrowse 级别）；tlog 仅基本回放。
-- **固件刷写**：无刷写 UI 与下载管理。
+- **固件刷写**：导出与存根已删除（`mg_firmware_flash` 原为 `NOT_SUPPORTED` 占位）；待独立 ADR 后重做。
 - **相机定义 XML 驱动的完整设置项、云台 on-screen 指向/ROI 向导、热成像/多路画面**。
 
 ## 4. 未接入前端的 FFI 导出明细
 
-当前公开导出 154 个、前端已绑定 130 个，未绑定 24 个 = **3 个内部能力** + 其余由契约测试钉住（分类接口逐符号列于 `bridge/ffi/API_CATALOG.md` 的「已定性的公开导出」一节）。
+当前公开导出 **154** 个、前端已绑定 **130** 个，未绑定 **24** 个。逐符号定位见 `bridge/ffi/API_CATALOG.md`（含「公开类型」段）。这 24 个全部有正当用途，**没有待处置债务**。
 
 处置方式（沿用 KD-45）：
 
@@ -141,9 +134,12 @@
 - **退役候选**：登记进 `RETIREMENT_CANDIDATE_NOTES`，本轮不删除 ABI；先确认仓库外兼容性和独立用途。
 - **删除旧路径**：被更新接口取代、且确认无未来用途的历史导出，直接删除并登记进 `RETIRED_SYMBOLS`，防止误恢复。
 
-### 4.1 已删除的旧路径（0.2.1 清理记录）
+### 4.1 已删除的导出（三轮清理记录）
 
-以下历史导出已确认无调用方、无后续用途，**已从源码与本轮 ABI 中物理删除**（详见 CHANGELOG）。
+全部登记在 `tools/check_ffi_contract.py` 的 `RETIRED_SYMBOLS`（重新引入即门禁失败）。
+公开导出从 **280 → 154**。详见 `CHANGELOG.md`。
+
+**第一轮（0.2.1）——旧路径被新接口取代：**
 
 | 簇 | 导出 | 取代者 |
 | --- | --- | --- |
@@ -154,23 +150,58 @@
 | 旧串口读写 | `mg_serial_get_config`/`set_baud`/`set_protocol` | 通用参数页 `SERIALx_*`/`SER_TELx_*` |
 | 旧 RC 校准状态 | `mg_rc_calibrate_status` | 通用 `mg_calibration_get_status`（type=radio） |
 | 参数变化项 | `mg_params_get_changed` | 前端按描述符默认值比较 |
-| 参数文件读写 | `mg_params_save_to_file`、`mg_params_load_from_file` | `mg_params_get_all` + `mg_param_file_export` + Dart 文件写入；`mg_param_file_import` + `mg_params_commit_change_set` |
+| 参数文件读写 | `mg_params_save_to_file`、`mg_params_load_from_file` | `mg_params_get_all` + Dart 侧文件读写 |
 
-### 4.2 内部能力（10 个，无 UI 计划）
+**第二轮——PX4 / 测绘 / 围栏 / 地形的功能级删除：**
+`mg_geofence_check`、`mg_geofence_get_config`、`mg_fence_enable`、`mg_survey_generate*`、
+`mg_terrain_*`、`mg_px4_*`（7 个）。
 
-- **SITL（3）**：`mg_sitl_start/status/stop`；只服务开发与离线分析。
-- **执行器/RC 通道写入（5）**：`mg_actuator_get_limits`/`set_function`/`set_limits`、`mg_rc_set_mapping`/`set_failsafe`；通用参数页覆盖 `SERVOx_*`/`RCMAP_*`。
-- **参数预校验（1）**：`mg_config_validate_param`；前端按描述符范围/枚举本地校验。
-- **ABI 基础设施（1）**：`mg_error_string`（错误码→字符串常量）。
+**第三轮——未绑定导出清理（无前端绑定、无内部调用方、无未来用途）：**
+逐消息遥测 getter（`mg_vehicle_get_{{gps,imu,pressure,vibration,esc_status,wind_estimate,
+servo_output,rc_channels,highres_imu,battery,flight_time,adsb_traffic,distance_sensors}}`）、
+旧任务入口（`mg_mission_{{upload,get_plan,get_progress,get_current}}`、`mg_fence_get_plan`、
+`mg_rally_get_plan`）、飞行模式辅助（`mg_flight_{{set_mode,get_mode_status,
+get_available_modes,get_mode_history,get_loiter_radius,set_loiter_radius,
+get_takeoff_altitude,set_takeoff_altitude}}`）、参数分组与批量
+（`mg_config_{{get_groups,read_group,get_group_descriptor,metadata_coverage,write_params}}`、
+`mg_params_{{set,refresh,get_refresh_status,prepare_change_set,commit_change_set}}`）、
+连接辅助（`mg_connection_{{get_state,disconnect,connect,connect_udp,check_heartbeat,
+get_heartbeat_age}}`）、`mg_serial_get_configs`、`mg_discover_devices`、SITL 启停
+（`mg_sitl_*`）、固件刷写存根（`mg_firmware_flash*`）、事件日志（`mg_event_log_*`）、
+会话日志（`mg_session_log_*`）、传感器解码（`mg_sensor_decode_*`、`mg_sensors_identify_all`、
+`mg_sensors_get_statustext`）、参数文件变换（`mg_param_file_*`）、RC 与执行器配置
+（`mg_rc_get_*`/`set_*`、`mg_actuator_*`）、校准历史与重试（`mg_calibration_get_history`、
+`mg_calibration_get_retry_info`、`mg_calibration_start_airspeed`）、围栏/任务检查
+（`mg_preflight_check`）、`mg_vehicle_count`、`mg_vehicle_close`、`mg_waveform_clear`、
+`mg_operations_get_snapshot_for_vehicle`、`mg_set_event_callback`（含事件推送 ABI）。
 
-### 4.3 延期接口与退役候选（16 个）
+**第四轮——FFI 事件转发链**（与第三轮同批落地，独立成一条记录）：
+`mg_event_type_t`、`mg_event_callback_t`、`mg_core_t::events`（`EventDispatcher`）、
+`post_event`、连接时的事件转发 lambda。前端从未注册回调（KD-27 采用轮询），
+这条链已在空转。
 
-原先固化在 `tools/ffi_unbound_baseline.json` 的 16 个未绑定接口已完成分类，保留原生实现与 ABI：
+### 4.2 未绑定导出的定位（24 个）
 
-- **延期至 0.3.0 之后（10）**：`mg_calibration_start_airspeed`、`mg_config_apply_preset`、`mg_config_get_presets`、`mg_discover_devices`、`mg_event_log_get_status`、`mg_mission_set_current`、`mg_param_file_import`、`mg_session_log_start`、`mg_session_log_status`、`mg_session_log_stop`。延期表示当前版本不接 UI，不表示该功能已经交付。
-- **退役候选（6）**：`mg_telemetry_append`、`mg_telemetry_clear`、`mg_telemetry_get_series`、`mg_telemetry_get_series_names`、`mg_telemetry_get_stats`、`mg_telemetry_register_series`。这些接口本次继续保留 ABI；删除前需确认仓库外兼容性及是否存在独立用途。
+**a. 命令族（15 个）——由 submit/poll worker 内部调用**
+`mg_command_arm`/`disarm`/`takeoff`/`land`/`rtl`/`set_mode`/`set_home`/`set_global_origin`/
+`orbit`/`set_roi`/`guided_pause`/`guided_point`/`change_altitude`/`change_heading`/
+`execute_for_vehicle`。
+前端走 `mg_command_submit_for_vehicle` + `mg_command_poll`（异步、带 ACK 校验）；这些同步入口
+是 worker 解析命令 JSON 后实际下发所调用的函数，**不是废弃路径**。
 
-`tools/ffi_unbound_baseline.json` 不再包含这批已分类接口。门禁仍会拒绝新增的「无前端绑定、无分类、无测试引用」导出。
+**b. ABI 错误基础设施（4 个）**
+`mg_error_string`（错误码→常量字符串）、`mg_get_last_error`、`mg_set_last_error`、
+`mg_clear_last_error`。供原生调用方与测试使用，前端读统一响应对象里的 `error` 字段，不需要它们。
+
+**c. 诊断与仪表盘聚合（3 个）——打包校验必需**
+`mg_connection_get_diagnostics`、`mg_system_get_diagnostics`、
+`mg_telemetry_get_dashboard_snapshot`。`tools/ffi_bundle_symbols.dart` 要求它们在产物里可解析，
+用来验证打包后的动态库确实导出了完整 ABI。
+
+**d. 其它（2 个）**
+- `mg_vehicle_open`：`mg_connection_open` 的内部实现路径，并供硬件诊断工具直接开单机会话。
+- `mg_mission_doc_import_format`：任务文件导入的规范入口，前端目前只绑定了导出侧
+  （`mg_mission_doc_export_format`）；导入在硬件工具与原生测试中使用。
 
 ## 5. 维护规则
 

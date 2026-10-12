@@ -29,6 +29,5 @@
 #include "ffi_api_configuration.h"
 #include "ffi_api_logging.h"
 #include "ffi_api_payload.h"
-#include "ffi_api_environment.h"
 
 #endif /* MGCORE_FFI_API_H */

@@ -43,13 +43,73 @@ CATEGORIES = (
 )
 
 
-def missing_categories(changed: list[str]) -> tuple[list[str], list[str]]:
-    """返回 (缺失的类别, 触发的 API 头文件)。"""
-    headers = sorted(p for p in changed if API_HEADER.match(p))
+def has_exports(path: str) -> bool:
+    """工作区版本是否有导出声明。"""
+    file = ROOT / path
+    if not file.exists():
+        return False
+    source = re.sub(r"/\*.*?\*/|//[^\n]*", "", file.read_text(encoding="utf-8-sig"), flags=re.S)
+    return "MGCORE_API" in source
+
+
+def header_had_exports(path: str, base: str) -> bool:
+    """该头文件在 `base` 上是否有导出声明（读基准版本，而非工作区）。"""
+    result = subprocess.run(
+        ["git", "show", f"{base}:{path}"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return True  # 读不到就按「有导出」处理，宁可严不放松
+    source = re.sub(r"/\*.*?\*/|//[^\n]*", "", result.stdout, flags=re.S)
+    return "MGCORE_API" in source
+
+
+def missing_categories(
+    changed: list[str], empty_deletions: frozenset[str] = frozenset(),
+    base: str = "HEAD",
+) -> tuple[list[str], list[str]]:
+    """返回 (缺失的类别, 触发的 API 头文件)。
+
+    `empty_deletions` 是调用方判定的「被删除且在基准里零导出」的头文件集合
+    （自检时显式传入，保持判定逻辑不依赖 git 状态）。
+
+    一例外：整个改动集里的公开头**都**属于这种情况时，实现与 API 目录没有可改的
+    东西——空头本来就没有实现，目录也不曾列过它。测试与文档仍然要求，以证明
+    确实看过影响面。
+    """
+    # 只有「承载导出声明」的头才算 ABI 表面。`ffi_api.h` 是纯 include 聚合
+    # （0 条 MGCORE_API），注释或增删一个 include 不是 ABI 变更，不该要求
+    # 实现/目录/测试成套；被删除的头按基准版本判断。
+    headers = sorted(
+        p
+        for p in changed
+        if API_HEADER.match(p)
+        and (
+            has_exports(p)
+            or (ROOT / p).exists() is False and p in empty_deletions
+            or not (ROOT / p).exists() and header_had_exports(p, base)
+        )
+    )
     if not headers:
         return [], []
+
+    purely_empty_deletions = all(p in empty_deletions for p in headers)
+    required = CATEGORIES
+    if purely_empty_deletions:
+        required = tuple(
+            (label, matches)
+            for label, matches in CATEGORIES
+            if label not in (
+                "实现 bridge/ffi/ffi_*.cc",
+                "API 目录 bridge/ffi/API_CATALOG.md",
+            )
+        )
+
     missing = [
-        label for label, matches in CATEGORIES if not any(matches(p) for p in changed)
+        label for label, matches in required if not any(matches(p) for p in changed)
     ]
     return missing, headers
 
@@ -110,13 +170,33 @@ SELF_TEST_CASES = (
         ["bridge/ffi/ffi_internal.h", "core/tests/test_ffi_contract.cc"],
         None,
     ),
+    (
+        "删除零导出空头 + 测试 + 文档：豁免实现与目录，判定通过",
+        [
+            "bridge/ffi/ffi_api_environment.h",
+            "core/tests/test_bridge_architecture_guards.cc",
+            "docs/features/feature-inventory.md",
+        ],
+        0,
+        frozenset({"bridge/ffi/ffi_api_environment.h"}),
+    ),
+    (
+        "删除零导出空头但缺测试：仍报 1 类",
+        [
+            "bridge/ffi/ffi_api_environment.h",
+            "docs/features/feature-inventory.md",
+        ],
+        1,
+        frozenset({"bridge/ffi/ffi_api_environment.h"}),
+    ),
 )
 
 
 def self_test() -> int:
     failures: list[str] = []
-    for label, changed, expected in SELF_TEST_CASES:
-        missing, headers = missing_categories(changed)
+    for label, changed, expected, *rest in SELF_TEST_CASES:
+        empty = rest[0] if rest else frozenset()
+        missing, headers = missing_categories(changed, empty, base="HEAD")
         if expected is None:
             if headers:
                 failures.append(f"自检失败：{label} 不应触发，却报了 {headers}")
@@ -148,7 +228,17 @@ def main() -> int:
         return self_test()
 
     changed = changed_files(args.base, args.head)
-    missing, headers = missing_categories(changed)
+    empty_deletions = frozenset(
+        p
+        for p in changed
+        if API_HEADER.match(p) and not (ROOT / p).exists() and not header_had_exports(p, args.base)
+    )
+    missing, headers = missing_categories(changed, empty_deletions)
+    if empty_deletions:
+        print(
+            "[api-change-set] 删除零导出公开头，实现与目录无对应改动："
+            + ", ".join(sorted(empty_deletions))
+        )
     if not headers:
         print("[api-change-set] 本次改动没有触及 bridge/ffi/ffi_api*.h，无需成套校验")
         return 0

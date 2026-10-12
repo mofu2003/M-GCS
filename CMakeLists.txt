@@ -155,7 +155,6 @@ set(MGCORE_SOURCES
     # Telemetry
     core/src/telemetry/telemetry_ring_buffer.cc
     core/src/telemetry/waveform_buffer.cc
-    core/src/telemetry/adsb_tracker.cc
     # Geofence
     # Terrain
     # Video
@@ -167,7 +166,6 @@ set(MGCORE_SOURCES
     core/src/transport/link_config.cc
     core/src/transport/link_factory.cc
     # SITL
-    core/src/sitl/sitl_launcher.cc
     # Bridge / FFI
     bridge/ffi/ffi_connection.cc
     bridge/ffi/ffi_diagnostics.cc

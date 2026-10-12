@@ -7,7 +7,6 @@
 #include "core/platform/platform_mutex.h"
 #include "core/settings/flight_log_writer.h"
 #include "core/video/video_decoder.h"
-#include "core/sitl/sitl_launcher.h"
 #include "core/vehicle/multi_vehicle_manager.h"
 
 #include <cstdlib>
@@ -46,7 +45,6 @@ struct mg_core_t {
 
     mg::core::settings::FlightLogWriter      log_writer;
     // 在 core 上以跨 FFI 调用共享（旧实现每次调用新建查询对象，缓存不跨调用）。
-    mg::core::sitl::SitlLauncher             sitl;
     // 本地视频源解码器（S3/ADR-0008）：帧缓冲挂在 core 上，FFI 轮询拷贝取帧。
     mg::core::video::VideoDecoder            video_decoder;
     std::shared_ptr<mg::core::mission::cad::MissionDocumentService>
