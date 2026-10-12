@@ -1,3 +1,9 @@
+/// 任务文件互操作：按交换格式（`waypoints` / QGC `.plan`）导入与导出。
+///
+/// 导出把当前任务文档写成文本文件，导入把文本文件读回文档。两者共用同一份
+/// 格式定义（[missionExportFormats]）与默认目录，改一处必须同时改另一处。
+library;
+
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
@@ -299,6 +305,228 @@ class _MissionExportSheetState extends State<_MissionExportSheet> {
                       child: _busy
                           ? const ProgressCircle(radius: 7)
                           : const Text('导出'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 一次导入的结果：读了哪个文件、导入了多少条实体。
+final class MissionImportResult {
+  const MissionImportResult({required this.path, required this.itemCount});
+
+  final String path;
+  final int itemCount;
+}
+
+/// 打开任务导入面板。成功返回 [MissionImportResult]；取消或关闭返回 null。
+Future<MissionImportResult?> showMissionImportSheet({
+  required BuildContext context,
+  required MissionDocumentController controller,
+  Future<Directory> Function()? directoryProvider,
+}) {
+  return showMgSheet<MissionImportResult>(
+    context: context,
+    builder: (sheetContext) => _MissionImportSheet(
+      controller: controller,
+      directoryProvider: directoryProvider ?? defaultMissionExportDirectory,
+    ),
+  );
+}
+
+class _MissionImportSheet extends StatefulWidget {
+  const _MissionImportSheet({
+    required this.controller,
+    required this.directoryProvider,
+  });
+
+  final MissionDocumentController controller;
+  final Future<Directory> Function() directoryProvider;
+
+  @override
+  State<_MissionImportSheet> createState() => _MissionImportSheetState();
+}
+
+class _MissionImportSheetState extends State<_MissionImportSheet> {
+  final TextEditingController _path = TextEditingController();
+  final MacosTabController _formatTabs = MacosTabController(
+    length: missionExportFormats.length,
+  );
+  bool _busy = false;
+  String? _error;
+  bool _seeded = false;
+
+  MissionExportFormat get _format => missionExportFormats[_formatTabs.index];
+
+  @override
+  void initState() {
+    super.initState();
+    _seedPath();
+  }
+
+  @override
+  void dispose() {
+    _formatTabs.dispose();
+    _path.dispose();
+    super.dispose();
+  }
+
+  /// 预填目录（不填文件名）：导入的文件名由用户决定，不给默认名。
+  Future<void> _seedPath() async {
+    Directory directory;
+    try {
+      directory = await widget.directoryProvider();
+    } catch (_) {
+      directory = Directory.current;
+    }
+    if (!mounted) return;
+    setState(() {
+      _path.text = '${directory.path}${Platform.pathSeparator}';
+      _seeded = true;
+    });
+  }
+
+  /// 按所选格式补扩展名，方便用户只填文件名。
+  String _resolvePath() {
+    final trimmed = _path.text.trim();
+    if (trimmed.isEmpty) return '';
+    final name = trimmed.split(RegExp(r'[/\\]')).last;
+    if (!name.contains('.')) return '$trimmed${_format.extension}';
+    return trimmed;
+  }
+
+  Future<void> _import() async {
+    final path = _resolvePath();
+    if (path.isEmpty) {
+      setState(() => _error = '请填写要导入的文件路径');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final file = File(path);
+      if (!await file.exists()) {
+        throw const FileSystemException('文件不存在');
+      }
+      final text = await file.readAsString();
+      await widget.controller.importInterchange(_format.id, text);
+      if (!mounted) return;
+      Navigator.of(context).pop(
+        MissionImportResult(
+          path: path,
+          itemCount: widget.controller.document?.entities.length ?? 0,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = '导入失败：$error';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    return Center(
+      child: MacosSheet(
+        insetPadding: EdgeInsets.zero,
+        child: SizedBox(
+          width: 460,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '导入任务文件',
+                        style: MacosTheme.of(context).typography.title3,
+                      ),
+                    ),
+                    MacosIconButton(
+                      icon: const MacosIcon(CupertinoIcons.xmark, size: 13),
+                      semanticLabel: '关闭',
+                      onPressed: _busy
+                          ? null
+                          : () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '读入任务文件并替换当前文档。上传飞控需另在航线规划里单独执行，'
+                  '导入本身不改变飞控状态。',
+                  style: MgTypography.sans(
+                    MgTypography.caption.copyWith(color: colors.textSecondary),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Center(
+                  child: MacosSegmentedControl(
+                    controller: _formatTabs,
+                    tabs: [
+                      for (final format in missionExportFormats)
+                        MacosTab(label: format.label),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _format.description,
+                  style: MgTypography.sans(
+                    MgTypography.caption.copyWith(color: colors.textSecondary),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                AlignedFieldRow(
+                  label: '文件路径',
+                  child: MacosTextField(
+                    controller: _path,
+                    placeholder: _seeded ? null : '载入中…',
+                    onSubmitted: (_) => _busy ? null : _import(),
+                  ),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: MgTypography.sans(
+                      MgTypography.caption.copyWith(color: colors.danger),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    PushButton(
+                      controlSize: ControlSize.regular,
+                      secondary: true,
+                      onPressed: _busy
+                          ? null
+                          : () => Navigator.of(context).pop(),
+                      child: const Text('取消'),
+                    ),
+                    const SizedBox(width: 8),
+                    PushButton(
+                      controlSize: ControlSize.regular,
+                      onPressed: _busy ? null : _import,
+                      child: _busy
+                          ? const ProgressCircle(radius: 7)
+                          : const Text('导入'),
                     ),
                   ],
                 ),

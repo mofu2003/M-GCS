@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:macos_ui/macos_ui.dart';
 import 'package:mgcs_frontend/mission/mission_document_controller.dart';
 import 'package:mgcs_frontend/mission/mission_document_models.dart';
-import 'package:mgcs_frontend/mission/mission_export.dart';
+import 'package:mgcs_frontend/mission/mission_interchange.dart';
 
 import 'support/mission_backend_fake.dart';
 
@@ -180,6 +180,107 @@ void main() {
     expect(result, isNull);
     expect(backend.lastInterchangeFormat, isNull);
   });
+
+  testWidgets('导入面板读文件并把文本交给控制器', (tester) async {
+    final directory = _tempDirectory();
+    final file = File('${directory.path}${Platform.pathSeparator}in.waypoints');
+    // 真实文件 I/O 必须走 runAsync：testWidgets 的测试体在 FakeAsync 区域里跑，
+    // 直接 await 真实 I/O 的 Future 永远不会完成（表现为测试挂死）。
+    await tester.runAsync(() async {
+      await file.writeAsString(
+        'QGC WPL 110\n0\t1\t0\t16\t0\t0\t0\t0\t0\t0\t0\t1\n',
+      );
+    });
+
+    final backend = FakeMissionBackend();
+    final controller = MissionDocumentController(backend: backend)
+      ..bindSession(1);
+    await controller.initialize();
+
+    MissionImportResult? result;
+    await _pumpImportHost(
+      tester,
+      controller: controller,
+      directory: directory,
+      onResult: (value) => result = value,
+    );
+    await tester.tap(find.text('打开导入'));
+    await _pumpFrames(tester);
+
+    await tester.enterText(find.byType(MacosTextField), file.path);
+    await _pumpFrames(tester);
+    await _tapImport(tester, done: () => result != null);
+    await _pumpFrames(tester);
+
+    expect(
+      result,
+      isNotNull,
+      reason: 'calls=${backend.interchangeImportCalls} '
+          'err=${find.textContaining("导入失败").evaluate().length}',
+    );
+    expect(result!.path, file.path);
+    expect(backend.interchangeImportCalls, 1);
+    expect(backend.lastInterchangeFormat, 'waypoints');
+    expect(backend.lastInterchangeText, contains('QGC WPL 110'));
+  });
+
+  testWidgets('导入面板对不存在的文件给出错误且不调用控制器', (tester) async {
+    final directory = _tempDirectory();
+    final backend = FakeMissionBackend();
+    final controller = MissionDocumentController(backend: backend)
+      ..bindSession(1);
+    await controller.initialize();
+
+    MissionImportResult? result;
+    await _pumpImportHost(
+      tester,
+      controller: controller,
+      directory: directory,
+      onResult: (value) => result = value,
+    );
+    await tester.tap(find.text('打开导入'));
+    await _pumpFrames(tester);
+
+    await tester.enterText(
+      find.byType(MacosTextField),
+      '${directory.path}${Platform.pathSeparator}missing.waypoints',
+    );
+    await _pumpFrames(tester);
+    await _tapImport(tester, done: () => false);
+    await _pumpFrames(tester);
+
+    expect(result, isNull, reason: '文件不存在时面板不关闭');
+    expect(backend.interchangeImportCalls, 0);
+    expect(find.textContaining('导入失败'), findsOneWidget);
+  });
+
+  testWidgets('切换导入格式只改扩展名，不动目录', (tester) async {
+    final directory = _tempDirectory();
+    final backend = FakeMissionBackend();
+    final controller = MissionDocumentController(backend: backend)
+      ..bindSession(1);
+    await controller.initialize();
+
+    await _pumpImportHost(
+      tester,
+      controller: controller,
+      directory: directory,
+      onResult: (_) {},
+    );
+    await tester.tap(find.text('打开导入'));
+    await _pumpFrames(tester);
+
+    // 预设只有目录（没有文件名），切格式不应凭空造出文件名。
+    final field = tester.widget<MacosTextField>(find.byType(MacosTextField));
+    expect(field.controller!.text.endsWith(Platform.pathSeparator), isTrue);
+    await tester.tap(find.text('QGC .plan'));
+    await _pumpFrames(tester);
+    expect(
+      tester.widget<MacosTextField>(find.byType(MacosTextField))
+          .controller!.text,
+      endsWith(Platform.pathSeparator),
+    );
+  });
 }
 
 Directory _tempDirectory() {
@@ -251,3 +352,51 @@ Future<void> _pumpHost(
     ),
   );
 }
+
+/// 导入面板的宿主，与 [_pumpHost] 同构。
+Future<void> _pumpImportHost(
+  WidgetTester tester, {
+  required MissionDocumentController controller,
+  required Directory directory,
+  required ValueChanged<MissionImportResult?> onResult,
+}) {
+  return tester.pumpWidget(
+    MacosTheme(
+      data: MacosThemeData.light(),
+      child: MaterialApp(
+        builder: (context, child) => DefaultTextStyle(
+          style: MacosTheme.of(context).typography.body,
+          child: child!,
+        ),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () async {
+                  final result = await showMissionImportSheet(
+                    context: context,
+                    controller: controller,
+                    directoryProvider: () async => directory,
+                  );
+                  onResult(result);
+                },
+                child: const Text('打开导入'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> _tapImport(
+  WidgetTester tester, {
+  required bool Function() done,
+}) => tester.runAsync(() async {
+  await tester.tap(find.text('导入'));
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  while (!done() && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+});

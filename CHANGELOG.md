@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`mg_mission_upload`/`get_plan`/`get_progress`), flight-mode helpers, parameter group and
   batch APIs, connection helpers, SITL, firmware-flash stubs, event/session logging, sensor
   decoding, parameter file transforms, and the seven `mg_px4_*`. **Public exports drop from
-  280 to 154** (130 still bound by Flutter). Every removed symbol is registered in
+  280 to 154** (127 bound by Flutter). Every removed symbol is registered in
   `RETIRED_SYMBOLS`; re-introducing one fails the gate.
 - **FFI event push removed**: `mg_set_event_callback`, `mg_event_callback_t`,
   `mg_event_type_t`, the `EventDispatcher` and its forwarding lambdas are gone — the frontend
@@ -72,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   functions — previously a typedef could be deleted without leaving a trace anywhere.
 - `core/src/transport/USBBoardInfo.LICENSE.txt`: Apache-2.0 attribution for the QGC-derived
   board database, including the modification notice the licence requires.
+- **Mission file import in the UI**: `mg_mission_doc_import_format` was the one remaining
+  half-wired exchange path — export had a Flutter sheet, import had none, so a `.waypoints`
+  or `.plan` file could only be read by the native tests. The 航线规划 transfer bar now has a
+  「导入文件」button next to 「导出文件」, backed by `MissionDocumentBackend.importMissionInterchange`
+  and `MissionDocumentController.importInterchange`. It reads the chosen file and replaces the
+  current document; uploading to the flight controller stays a separate, confirmed step, and a
+  missing file reports an inline error without touching the document. Bound exports 126 → 127.
 
 ### Changed
 

@@ -108,7 +108,7 @@
 
 ## 3. 未实现 / 未接入前端
 
-### 3.1 FFI 导出但未绑定前端（28 个，全部有正当定位）
+### 3.1 FFI 导出但未绑定前端（27 个，全部有正当定位）
 
 见 §4「未绑定导出明细」。这里不重复列举；**当前没有「能力已实现却不接 UI」的悬空项**——
 前两轮清理已把所有「无前端绑定、无内部调用方、无未来用途」的导出一律删除。
@@ -123,7 +123,7 @@
 
 ## 4. 未接入前端的 FFI 导出明细
 
-当前公开导出 **154** 个、前端已绑定 **126** 个，未绑定 **28** 个。逐符号定位见 `bridge/ffi/API_CATALOG.md`（含「公开类型」段）。这 28 个全部有正当用途，**没有待处置债务**。
+当前公开导出 **154** 个、前端已绑定 **127** 个，未绑定 **27** 个。逐符号定位见 `bridge/ffi/API_CATALOG.md`（含「公开类型」段）。这 27 个全部有正当用途，**没有待处置债务**。
 
 处置方式（沿用 KD-45）：
 
@@ -180,7 +180,7 @@ get_heartbeat_age}}`）、`mg_serial_get_configs`、`mg_discover_devices`、SITL
 `post_event`、连接时的事件转发 lambda。前端从未注册回调（KD-27 采用轮询），
 这条链已在空转。
 
-### 4.2 未绑定导出的定位（28 个）
+### 4.2 未绑定导出的定位（27 个）
 
 **a. 命令族（15 个）——由 submit/poll worker 内部调用**
 `mg_command_arm`/`disarm`/`takeoff`/`land`/`rtl`/`set_mode`/`set_home`/`set_global_origin`/
@@ -207,10 +207,10 @@ get_heartbeat_age}}`）、`mg_serial_get_configs`、`mg_discover_devices`、SITL
 围栏/Rally 下发走 `uploadFence`/`uploadRally`（内部自行编译）。2026-10 删掉这层无人使用的
 Dart 包装后，四个导出保留在 ABI 中，由 `core/tests/test_mission_document.cc` 覆盖。
 
-**e. 其它（2 个）**
+**e. 其它（1 个）**
 - `mg_vehicle_open`：`mg_connection_open` 的内部实现路径，并供硬件诊断工具直接开单机会话。
-- `mg_mission_doc_import_format`：任务文件导入的规范入口，前端目前只绑定了导出侧
-  （`mg_mission_doc_export_format`）；导入在硬件工具与原生测试中使用。
+- `mg_mission_doc_import_format`：任务文件导入入口。前端 `MissionDocumentFfiBackend`
+  已绑定，由航线规划的「导入文件」弹层调用（读盘后交给 `importInterchange`）。
 
 ## 5. 维护规则
 

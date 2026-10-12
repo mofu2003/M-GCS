@@ -11,7 +11,7 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 任务上传的即时响应表示传输启动，最终结果需读取 operation 状态。
 符号检查不等于完整的参数类型或行为验证；真实交互另由 FFI smoke 和合约测试覆盖。
 
-公开函数：154；Flutter 绑定：126。
+公开函数：154；Flutter 绑定：127。
 公开类型：2。
 
 ## ffi_api_configuration.h
@@ -138,7 +138,7 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `char* mg_mission_doc_get(mg_core_t* core);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
 | `char* mg_mission_doc_import(mg_core_t* core, const char* json_document);` | — |
 | `char* mg_mission_doc_import_fence_from_vehicle(mg_core_t* core);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
-| `char* mg_mission_doc_import_format( mg_core_t* core, const char* format, const char* text);` | — |
+| `char* mg_mission_doc_import_format( mg_core_t* core, const char* format, const char* text);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
 | `char* mg_mission_doc_import_from_vehicle(mg_core_t* core);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
 | `char* mg_mission_doc_import_rally_from_vehicle(mg_core_t* core);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
 | `char* mg_mission_doc_load(mg_core_t* core, const char* filepath);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |

@@ -10,7 +10,7 @@
 | 层 | 内容 | 规模 |
 |---|---|---|
 | 前端 | Flutter/Dart，`flutter_shell/lib` | 30 个页面/面板 + 9 控制器 + 17 后端 + 20 组件 |
-| 桥接 | C ABI，`bridge/ffi` | 11 个公开头，**154** 个导出（126 已绑定）+ 2 个公开类型 |
+| 桥接 | C ABI，`bridge/ffi` | 11 个公开头，**154** 个导出（127 已绑定）+ 2 个公开类型 |
 | 核心 | C++17，`core/` | 15 个模块 |
 | 第三方 | `third_party/` | MAVLink 生成头、cJSON（禁止修改） |
 | 测试 | 42 个套件 | 33 core + 6 顶层 + 4 硬件/手工 |
@@ -143,7 +143,7 @@
 
 `mg_firmware_get_type`（固件类型 + capability 位 + 最小起飞高度）、`mg_vehicle_get_firmware`、`mg_vehicle_request_firmware_version`。
 
-### 1.11 未绑定导出（28 个）的定位
+### 1.11 未绑定导出（27 个）的定位
 
 | 类别 | 数量 | 说明 |
 |---|---|---|
@@ -151,7 +151,7 @@
 | ABI 基础设施 | 4 | 错误码读写与字符串化 |
 | 打包校验必需 | 3 | 诊断与仪表盘聚合，`tools/ffi_bundle_symbols.dart` 要求可解析 |
 | 任务文档 JSON / 围栏·Rally 编译 | 4 | `mg_mission_doc_export`·`import`·`compile_fence`·`compile_rally`：前端曾有 Dart 包装但零调用（导入导出走文件与交换格式，围栏/Rally 下发内部自行编译），2026-10 删掉包装后由原生测试覆盖 |
-| 其它 | 2 | `mg_vehicle_open`（连接实现路径）、`mg_mission_doc_import_format`（导入规范入口） |
+| 其它 | 1 | `mg_vehicle_open`（连接实现路径） |
 
 ---
 
@@ -315,7 +315,9 @@
 | UI 约束 | KD-36（画廊豁免 U3）、KD-40（不做 golden 截图） |
 | 架构建议 | KD-27（**采用轮询**，事件推送 ABI 已删）、KD-47（`JsonMap` typedef 层次倒挂，接受） |
 | 门禁范围 | KD-45（FFI 契约守卫，存量已分类）、KD-50（S6 只拦参数名，数值型固件值待立项） |
-| 合规 | KD-56（`USBBoardInfo.json` 来源与许可未登记） |
+| 合规 | KD-58（枚举标签暂留，待决定） |
+| 待修复 | KD-54（遥控校准的 STATUSTEXT 文本判定口径不一致） |
+| 待验证 | KD-57（遥测回调捕获裸 `ConnectionManager*` 的所有权） |
 
 ---
 

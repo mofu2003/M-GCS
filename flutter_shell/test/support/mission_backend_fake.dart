@@ -70,8 +70,27 @@ final class FakeMissionBackend implements MissionDocumentBackend {
   );
 
   String interchangeText = 'QGC WPL 110\n0\t1\t0\t16\t0\t0\t0\t0\t0\t0\t0\t1\n';
+  String? lastInterchangeText;
+  int interchangeImportCalls = 0;
+  String? interchangeImportError;
+  MissionDocument? interchangeImportDocument;
   List<String> interchangeWarnings = const [];
   String? lastInterchangeFormat;
+
+  @override
+  Future<MissionDocument> importMissionInterchange(
+    String format,
+    String text,
+  ) async {
+    lastInterchangeFormat = format;
+    lastInterchangeText = text;
+    interchangeImportCalls++;
+    if (interchangeImportError != null) {
+      throw StateError(interchangeImportError!);
+    }
+    _document = interchangeImportDocument ?? const MissionDocument();
+    return _document;
+  }
 
   @override
   Future<MissionInterchangeExport> exportMissionInterchange(

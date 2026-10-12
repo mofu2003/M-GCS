@@ -9,7 +9,7 @@
 | 页面 | 代码位置 | 用途 | 布局规划 | 现状 |
 |---|---|---|---|---|
 | 地图主页 | `main.dart`、`map/amap_map_view.dart` | 地图、飞机位置、航点、顶栏状态与命令 | 待规划 | 已有实现 |
-| 任务规划面板 | `mission/mission_planning_panel.dart`、`mission/mission_export.dart` | 航点编辑（含高度基准）、上传、清除、围栏与集结点、导出文件 | 航点卡片列表 + 编辑弹层（含高度基准选择）+ 设置页（默认高度基准/高度/速度）+ 导出弹层 | 已有实现，体量大；导出文件（`waypoints` / `plan`）走 `mission_export.dart` 弹层（S3a）；高度基准写入 `frame` |
+| 任务规划面板 | `mission/mission_planning_panel.dart`、`mission/mission_interchange.dart` | 航点编辑（含高度基准）、上传、清除、围栏与集结点、导入/导出文件 | 航点卡片列表 + 编辑弹层（含高度基准选择）+ 设置页（默认高度基准/高度/速度）+ 导入/导出弹层 | 已有实现，体量大；任务文件互换（`waypoints` / `plan`）走 `mission_interchange.dart` 的两个弹层；导出落盘、导入读盘并替换当前文档（S3a）；高度基准写入 `frame` |
 | 配置工作区 | `gcs_configuration_workspace.dart`、`configuration/` | 参数、校准、端口、系统、签名 | 待规划 | 已有实现 |
 | 飞行模式面板 | `widgets/mg_top_status_bar.dart`、`configuration/flight_modes/` | 模式选择、解锁 | 待规划 | 旧的独立浮动面板已删除，统一由顶栏和工作区承载 |
 | 遥测仪表 | `widgets/mg_telemetry_dashboard.dart` | 遥测读数 | 待规划 | 已有实现 |

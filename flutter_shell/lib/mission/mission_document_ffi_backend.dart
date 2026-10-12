@@ -33,6 +33,7 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     _missionDocVerify = _lookupVerify('mg_mission_doc_verify');
     _missionCommandCatalog = _lookup1('mg_mission_get_command_catalog');
     _missionDocExportFormat = _lookup2('mg_mission_doc_export_format');
+    _missionDocImportFormat = _lookup3('mg_mission_doc_import_format');
     _missionDocSave = _lookup2('mg_mission_doc_save');
     _missionDocLoad = _lookup2('mg_mission_doc_load');
     _missionDocImportFromVehicle = _lookup1(
@@ -87,6 +88,8 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   late final Pointer<Utf8> Function(Pointer<Void>) _missionCommandCatalog;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _missionDocExportFormat;
+  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+  _missionDocImportFormat;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _missionDocSave;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
@@ -115,6 +118,15 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
 
   Pointer<Utf8> Function(Pointer<Void>) _lookup1(String symbol) => _library
       .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(symbol)
+      .asFunction();
+
+  Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+  _lookup3(String symbol) => _library
+      .lookup<
+        NativeFunction<
+          Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+        >
+      >(symbol)
       .asFunction();
 
   Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>) _lookup2(
@@ -365,6 +377,23 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
       return MissionInterchangeExport.fromJson(Map<String, Object?>.from(json));
     } finally {
       malloc.free(nativeFormat);
+    }
+  }
+
+  @override
+  Future<MissionDocument> importMissionInterchange(
+    String format,
+    String text,
+  ) async {
+    final nativeFormat = format.toNativeUtf8();
+    final nativeText = text.toNativeUtf8();
+    try {
+      return _documentFromEnvelope(
+        _readJson(_missionDocImportFormat(_core, nativeFormat, nativeText)),
+      );
+    } finally {
+      malloc.free(nativeFormat);
+      malloc.free(nativeText);
     }
   }
 

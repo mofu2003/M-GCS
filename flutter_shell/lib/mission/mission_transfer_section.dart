@@ -12,7 +12,7 @@ import '../widgets/mg_dialog.dart';
 import '../widgets/mg_inline_notice.dart';
 import 'mission_document_controller.dart';
 import 'mission_document_models.dart';
-import 'mission_export.dart';
+import 'mission_interchange.dart';
 
 /// 任务动作条、传输/校验展示与传输/执行命令。
 ///
@@ -38,8 +38,8 @@ class MissionTransferSection extends StatefulWidget {
 }
 
 class _MissionTransferSectionState extends State<MissionTransferSection> {
-  /// 导出成功后的内联提示；关闭或下一次导出时更新。
-  String? _exportNotice;
+  /// 导出/导入成功后的内联提示；关闭或下一次操作时更新。
+  String? _interchangeNotice;
 
   /// 命令守卫：失败信息由任务文档控制器的 status / error 呈现。
   Future<void> _mutate(Future<void> Function() operation) async {
@@ -153,6 +153,21 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
                 ],
               ),
             ),
+            PushButton(
+              controlSize: ControlSize.regular,
+              secondary: true,
+              onPressed: busy || transferring || document == null
+                  ? null
+                  : _importMission,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  MacosIcon(CupertinoIcons.square_arrow_down, size: 13),
+                  SizedBox(width: 6),
+                  Text('导入文件'),
+                ],
+              ),
+            ),
             MacosTooltip(
               message: widget.mission.dirty ? '请先上传任务' : '解锁并开始任务',
               child: PushButton(
@@ -217,14 +232,14 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
             ).typography.caption1.copyWith(color: colors.textSecondary),
           ),
         ],
-        if (_exportNotice != null) ...[
+        if (_interchangeNotice != null) ...[
           const SizedBox(height: 6),
           MgInlineNotice(
             icon: CupertinoIcons.checkmark_circle,
             color: colors.success,
-            text: _exportNotice!,
+            text: _interchangeNotice!,
             trailing: MgDismissButton(
-              onPressed: () => setState(() => _exportNotice = null),
+              onPressed: () => setState(() => _interchangeNotice = null),
             ),
           ),
         ],
@@ -372,7 +387,19 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
         ? ''
         : '（${result.warnings.length} 条提示）';
     setState(() {
-      _exportNotice = '已导出 ${result.itemCount} 条到 ${result.path}$warnings';
+      _interchangeNotice = '已导出 ${result.itemCount} 条到 ${result.path}$warnings';
+    });
+  }
+
+  /// 从任务文件导入（`waypoints` / `plan`），替换当前文档；不改动飞控。
+  Future<void> _importMission() async {
+    final result = await showMissionImportSheet(
+      context: context,
+      controller: widget.mission,
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _interchangeNotice = '已从 ${result.path} 导入 ${result.itemCount} 条';
     });
   }
 

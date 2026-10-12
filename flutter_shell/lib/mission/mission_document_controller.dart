@@ -476,6 +476,19 @@ final class MissionDocumentController extends ChangeNotifier {
   Future<MissionInterchangeExport> exportInterchange(String format) =>
       backend.exportMissionInterchange(format);
 
+  /// 从交换格式文本导入：替换当前文档，并使校验/编译/估算等派生状态失效。
+  /// 与 [load] 同构——导入的是一份新文档，不是对现有文档的编辑。
+  Future<void> importInterchange(String format, String text) =>
+      _run('正在导入任务…', () async {
+        document = await backend.importMissionInterchange(format, text);
+        validation = null;
+        compileResult = null;
+        estimate = null;
+        verification = null;
+        selectedEntityIndex = null;
+        dirty = true;
+      });
+
   Future<void> save(String filePath) =>
       _run('正在保存任务…', () => backend.saveMissionDocument(filePath));
 
