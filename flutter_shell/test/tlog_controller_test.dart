@@ -195,9 +195,13 @@ void main() {
   });
 
   test('录制 start/stop 驱动状态并轮询字节数', () async {
+    // 队列只提供「递增」的两帧，队列耗尽后回落到 statusResponse。若回落值仍是
+    // 录制中，轮询就不会在第 2、3 次之间把 bytes 清零——否则断言能否通过纯看
+    // 测试的检查是否恰好插在两次轮询之间（全量跑时会 flaky）。
     backend.statusQueue
       ..add(_ok({'recording': true, 'file': 'x', 'bytes': 100}))
       ..add(_ok({'recording': true, 'file': 'x', 'bytes': 200}));
+    backend.statusResponse = _ok({'recording': true, 'file': 'x', 'bytes': 200});
 
     await controller!.startRecording();
     expect(backend.startCalls, 1);
