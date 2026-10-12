@@ -27,7 +27,6 @@
 #include "ffi_api_mission.h"
 #include "ffi_api_flight.h"
 #include "ffi_api_configuration.h"
-#include "ffi_api_geofence.h"
 #include "ffi_api_logging.h"
 #include "ffi_api_payload.h"
 #include "ffi_api_environment.h"

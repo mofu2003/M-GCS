@@ -27,23 +27,6 @@ bool CompassCalibration::send_calibration_command(
     MGC_LOG_INFO("[CompassCal] Sending magnetometer calibration command to sys=%u comp=%u",
                  target_sys, target_comp);
 
-    // PX4 不处理 DO_START_MAG_CAL/DO_CANCEL_MAG_CAL（其 commander 只认
-    // PREFLIGHT_CALIBRATION）。QGC 的 PX4 控制器走
-    // Vehicle::startCalibration(CalibrationMag)，对应 241 param2=1。
-    // 继续发 42424 的话飞控会直接忽略，界面看着"开始校准"实际什么都没发生。
-    const auto heartbeat = mav ? mav->latest_heartbeat() : std::nullopt;
-    if (heartbeat.has_value() && heartbeat->autopilot_type == MAV_AUTOPILOT_PX4) {
-        return mav->send_command_long(target_sys, target_comp,
-                                      241,  // MAV_CMD_PREFLIGHT_CALIBRATION
-                                      0,
-                                      0.0f,  // param1: gyro
-                                      1.0f,  // param2: compass
-                                      0.0f,  // param3: baro
-                                      0.0f,  // param4: RC
-                                      0.0f,  // param5: accel
-                                      0.0f, 0.0f);
-    }
-
     // ArduPilot streams MAG_CAL_PROGRESS/REPORT under the EXTRA3 stream.  The
     // stream can be disabled on real aircraft, so request the two messages
     // explicitly before starting. QGC also cancels the previous attempt first;

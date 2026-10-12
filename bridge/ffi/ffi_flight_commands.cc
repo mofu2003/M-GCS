@@ -145,27 +145,11 @@ MGCORE_API char* mg_command_rtl(mg_core_t* core) {
     return result;
 }
 
-// 起飞。PX4 与 ArduPilot 的高度语义不同：
-//   - ArduPilot：`NAV_TAKEOFF` 的 param7 是**相对 Home 的高度**（QGC APM 同）。
-//   - PX4：QGC `PX4FirmwarePlugin::guidedModeTakeoff`（:322-350）把界面给的相对
-//     高度加上当前 MSL 高度后写进 param7（AMSL），并在拿不到 MSL 高度时直接拒绝。
+// 起飞：`NAV_TAKEOFF` 的 param7 是相对 Home 的起飞高度（与 QGC APM 一致）。
 MGCORE_API char* mg_command_takeoff(mg_core_t* core, float altitude_m) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto mav = shared_active_mavlink(core);
-    float param7 = altitude_m;
-    if (ffi_is_px4(core)) {
-        auto* cache = get_active_cache(core);
-        if (!cache) return fail(MG_ERROR_INVALID_STATE, "no telemetry cache");
-        const auto gp_snap = cache->snapshot_global_pos();
-        const auto& gp = gp_snap.data;
-        // GLOBAL_POSITION_INT 从未收到时缓存里是全零，与 global_position JSON 的
-        // valid 判定保持一致：没有有效位置就拒绝，而不是发一个假的 AMSL 高度。
-        if (gp.lat == 0 && gp.lon == 0) {
-            return fail(MG_ERROR_INVALID_STATE,
-                        "PX4 takeoff requires a known MSL altitude");
-        }
-        param7 = altitude_m + static_cast<float>(gp.alt / 1000.0);
-    }
+    const float param7 = altitude_m;
     return ffi_cmd_result_queued(mav, MAV_CMD_NAV_TAKEOFF,
         active_target_sys(core), active_target_comp(core),
         0, 0, 0, 0, 0, 0, param7);
@@ -262,23 +246,6 @@ MGCORE_API char* mg_command_guided_pause(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    if (ffi_is_px4(core)) {
-        // QGC `PX4FirmwarePlugin::pauseVehicle`（:276-288）：不是零速度
-        // SET_POSITION_TARGET（那条会过期），而是 DO_REPOSITION +
-        // MAV_DO_REPOSITION_FLAGS_CHANGE_MODE，让飞控切进 Auto Loiter 并停在原地。
-        // param1 = -1 表示沿用当前速度，param3 = 0，param5/6/7 允许 NaN，因为
-        // CHANGE_MODE 分支下飞控不会用这些位置参数。
-        auto* result = ffi_cmd_result_queued(
-            mav, MAV_CMD_DO_REPOSITION,
-            active_target_sys(core), active_target_comp(core),
-            -1.0f, static_cast<float>(MAV_DO_REPOSITION_FLAGS_CHANGE_MODE),
-            0.0f, 0.0f,
-            static_cast<float>(NAN), static_cast<float>(NAN),
-            static_cast<float>(NAN));
-        get_active_flight_log(core).on_command_result(
-            "guided_pause", result && strstr(result, "\"success\":true"), "queued");
-        return result;
-    }
     bool sent = mav->cmd_guided_pause(active_target_sys(core), active_target_comp(core));
     get_active_flight_log(core).on_command_result("guided_pause", sent, sent ? "sent" : "send_failed");
     return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "send failed");
@@ -357,7 +324,7 @@ MGCORE_API char* mg_command_set_global_origin(mg_core_t* core, double lat,
 
     // QGC 首选带 COMMAND_ACK 的 MAV_CMD_DO_SET_GLOBAL_ORIGIN（COMMAND_INT +
     // MAV_FRAME_GLOBAL，经纬度用 degE7），ArduPilot（GCS_Common.cpp:5329、5712）
-    // 与 PX4（Commander.cpp:1709-1710）都实现并回 ACK。只有飞控确认才算成功（S2）：
+    // 实现并回 ACK。只有飞控确认才算成功（S2）：
     // 原来发完已废弃的 SET_GPS_GLOBAL_ORIGIN 报文就回 success，界面把"已发出"
     // 显示成了成功。
     const auto mav = shared_active_mavlink(core);
@@ -443,7 +410,7 @@ char* arm_and_validate(mg_core_t* core) {
 
 // Shared workflow for single/batch starts. QGC APMFirmwarePlugin::startMission
 // uses AUTO before arming both Plane and VTOL (tilt-rotor safety); MP retains
-// GUIDED before arming Copter. PX4FirmwarePlugin selects AUTO_MISSION.
+// GUIDED before arming Copter.
 char* start_mission_and_validate(mg_core_t* core, bool arm_if_needed) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto mav = shared_active_mavlink(core);
@@ -452,7 +419,7 @@ char* start_mission_and_validate(mg_core_t* core, bool arm_if_needed) {
     if (!hb) return fail(MG_ERROR_INVALID_STATE, "vehicle identity is not available");
     if (!arm_if_needed && !hb->armed)
         return fail(MG_ERROR_INVALID_STATE, "vehicle must already be armed for batch mission start");
-    if (hb->autopilot_type != MAV_AUTOPILOT_ARDUPILOTMEGA && hb->autopilot_type != MAV_AUTOPILOT_PX4)
+    if (hb->autopilot_type != MAV_AUTOPILOT_ARDUPILOTMEGA)
         return fail(MG_ERROR_NOT_SUPPORTED, "mission start workflow unsupported for this autopilot");
     const bool plane = hb->vehicle_type == MAV_TYPE_FIXED_WING ||
         (hb->vehicle_type >= MAV_TYPE_VTOL_TAILSITTER_DUOROTOR && hb->vehicle_type <= MAV_TYPE_VTOL_RESERVED5);
@@ -460,8 +427,8 @@ char* start_mission_and_validate(mg_core_t* core, bool arm_if_needed) {
     const auto position = mav->latest_global_position();
     const bool flying = hb->armed && ((landed && landed->landed_state == MAV_LANDED_STATE_IN_AIR) ||
         (position && position->relative_alt > 2000));
-    const uint32_t auto_mode = hb->autopilot_type == MAV_AUTOPILOT_PX4 ? 0x04040000U : plane ? 10U : 3U;
-    if (hb->autopilot_type == MAV_AUTOPILOT_PX4 || plane || flying) {
+    const uint32_t auto_mode = plane ? 10U : 3U;
+    if (plane || flying) {
         char* result = set_mode_and_validate(core, auto_mode);
         if (!response_succeeded(result)) return result;
         mg_free_string(result);

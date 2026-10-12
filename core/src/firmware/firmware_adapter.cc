@@ -12,11 +12,9 @@
  *   modes/ardu_rover_modes.h    - Rover/mode.h
  *   modes/ardu_sub_modes.h      - ArduSub/mode.h
  *   modes/ardu_tracker_modes.h  - AntennaTracker/mode.h
- *   modes/px4_modes.h           - px4_custom_mode.h
  *
  * References:
  *   QGC: src/FirmwarePlugin/APM/APMFirmwarePlugin.cc
- *   QGC: src/FirmwarePlugin/PX4/PX4FirmwarePlugin.cc
  *   MP:  ExtLibs/ArduPilot/ArduPilot.cs
  */
 
@@ -37,7 +35,7 @@ FirmwareAdapter::FirmwareAdapter() = default;
 FirmwareAdapter::~FirmwareAdapter() = default;
 
 void FirmwareAdapter::detect(uint8_t autopilot_type, uint8_t vehicle_type) {
-    // Detect firmware kind (PX4支持已删除，只识别ArduPilot)
+    // Detect firmware kind (只有 ArduPilot)
     if (autopilot_type == 3) {  // MAV_AUTOPILOT_ARDUPILOTMEGA
         firmware_kind_ = FirmwareKind::ArduPilot;
     } else {
@@ -95,7 +93,6 @@ VehicleKind  FirmwareAdapter::vehicle_kind()  const { return vehicle_kind_; }
 std::string FirmwareAdapter::firmware_name() const {
     switch (firmware_kind_) {
         case FirmwareKind::ArduPilot: return "ArduPilot";
-        case FirmwareKind::PX4:       return "PX4";
         default:                      return "Unknown";
     }
 }
@@ -176,7 +173,6 @@ FlightModeInfo FirmwareAdapter::decode_flight_mode(uint32_t custom_mode) const {
         info.mode_name = decode_ardupilot_mode(custom_mode);
         info.valid = !info.mode_name.empty();
     }
-    // PX4支持已删除
 
     if (!info.valid) {
         info.mode_name = "Mode(" + std::to_string(custom_mode) + ")";
@@ -215,8 +211,6 @@ std::optional<uint32_t> FirmwareAdapter::encode_flight_mode(const std::string& n
         return mode_name_equals(candidate, name);
     };
 
-    // PX4支持已删除，只处理ArduPilot
-
     for (uint32_t mode = 0; mode <= 0xFF; ++mode) {
         if (matches(mode)) return mode;
     }
@@ -225,25 +219,12 @@ std::optional<uint32_t> FirmwareAdapter::encode_flight_mode(const std::string& n
 
 std::optional<uint32_t> FirmwareAdapter::resolve_mode_role(ModeRole role) const {
     const char* ardupilot_name = nullptr;
-    const char* px4_name = nullptr;
     switch (role) {
-        case ModeRole::ReturnToLaunch:
-            ardupilot_name = "RTL";
-            px4_name = "Auto RTL";
-            break;
-        case ModeRole::Land:
-            ardupilot_name = "Land";
-            px4_name = "Auto Land";
-            break;
-        case ModeRole::Loiter:
-            ardupilot_name = "Loiter";
-            px4_name = "Auto Loiter";
-            break;
+        case ModeRole::ReturnToLaunch: ardupilot_name = "RTL";    break;
+        case ModeRole::Land:           ardupilot_name = "Land";   break;
+        case ModeRole::Loiter:         ardupilot_name = "Loiter"; break;
     }
 
-    if (firmware_kind_ == FirmwareKind::PX4) {
-        return px4_name ? encode_flight_mode(px4_name) : std::nullopt;
-    }
     if (firmware_kind_ == FirmwareKind::ArduPilot) {
         return ardupilot_name ? encode_flight_mode(ardupilot_name) : std::nullopt;
     }

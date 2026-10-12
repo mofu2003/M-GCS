@@ -1,9 +1,9 @@
 ﻿/**
  * firmware_plugin.h - Firmware-specific behavior strategy (QGC FirmwarePlugin pattern)
- * 固件插件接口 — 统一封装固件特有逻辑，ArduPilot/PX4 各自实现
+ * 固件插件接口 — 统一封装固件特有逻辑，ArduPilot 实现
  *
  * Consolidates ALL firmware-specific logic behind one interface.
- * Each firmware (ArduPilot, PX4) provides a concrete implementation.
+ * ArduPilot provides the concrete implementation.
  *
  * What moves into FirmwarePlugin:
  *   - Flight mode names and numbers (from FlightModeManager hardcoding)
@@ -21,7 +21,6 @@
  * Design:
  *   - FirmwarePlugin is an abstract interface (pure virtual)
  *   - ArduPilotPlugin implements for ArduPilot (all vehicle types)
- *   - PX4Plugin implements for PX4
  *   - FirmwarePluginFactory creates the right plugin from HEARTBEAT
  *
  * QGC precedent: src/FirmwarePlugin/FirmwarePlugin.h (24KB, 100+ virtual methods)
@@ -129,18 +128,6 @@ public:
     /// `mg_firmware_get_type` as `minimum_takeoff_altitude_m`.
     virtual float minimum_takeoff_altitude(VehicleKind vehicle) const = 0;
 
-    // ================================================================
-    // Parameter Name Remapping (QGC FirmwarePlugin::remapParamNameMajorVersionMap_t)
-    // ================================================================
-
-    /// Remap a parameter name for the given firmware version.
-    virtual std::string remap_param_name(VehicleKind vehicle, int major, int minor, const std::string& name) const = 0;
-
-    /// Translate a firmware-era parameter name to the newest canonical name.
-    virtual std::string canonical_param_name(VehicleKind vehicle, int major, int minor, const std::string& name) const = 0;
-
-    /// Check if the plugin has parameter remapping support.
-    virtual bool has_param_remapping() const = 0;
 };
 
 /// Factory: create the right plugin from detected firmware kind.

@@ -356,37 +356,7 @@ int main() {
         mg_free_string(s);
     }
 
-    // 8. PX4 convenience exports are PX4-only. Offline (no active vehicle) they
-    //    must return the unified error envelope, not a half-populated payload
-    //    (ffi-contract.md F4). See docs/features/px4-parity.md S5.
-    fprintf(stderr, "[Group] PX4 exports offline\n");
-    {
-        mg_core_t* core = mg_create();
-
-        char* a = mg_px4_actuator_get_config(core);
-        CHECK(json_has(a, "\"success\":false") && json_has(a, "\"name\":\"NOT_SUPPORTED\""),
-              "px4_actuator_get_config returns NOT_SUPPORTED when offline");
-        mg_free_string(a);
-
-        char* b = mg_px4_flight_mode_get_config(core);
-        CHECK(json_has(b, "\"success\":false") && json_has(b, "\"name\":\"NOT_SUPPORTED\""),
-              "px4_flight_mode_get_config returns NOT_SUPPORTED when offline");
-        mg_free_string(b);
-
-        char* c = mg_px4_safety_get(core);
-        CHECK(json_has(c, "\"success\":false") && json_has(c, "\"name\":\"NOT_SUPPORTED\""),
-              "px4_safety_get returns NOT_SUPPORTED when offline");
-        mg_free_string(c);
-
-        char* d = mg_px4_tuning_get(core);
-        CHECK(json_has(d, "\"success\":false") && json_has(d, "\"name\":\"NOT_SUPPORTED\""),
-              "px4_tuning_get returns NOT_SUPPORTED when offline");
-        mg_free_string(d);
-
-        mg_destroy(core);
-    }
-
-    // 9. Settings APIs are safe while disconnected
+    // 8. Settings APIs are safe while disconnected
     fprintf(stderr, "[Group] Settings API disconnected safety\n");
     {
         mg_core_t* core = mg_create();

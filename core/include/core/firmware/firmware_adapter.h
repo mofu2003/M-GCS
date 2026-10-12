@@ -2,18 +2,15 @@
  * firmware_adapter.h - Firmware-specific flight mode mapping
  * 固件类型检测和适配 — 自动识别固件类型，路由飞行模式解码
  *
- * Each firmware family (ArduPilot, PX4) encodes flight modes differently
- * in HEARTBEAT.custom_mode. This module provides a unified interface
- * to decode custom_mode into human-readable mode names.
+ * ArduPilot encodes flight modes in HEARTBEAT.custom_mode; this module
+ * decodes custom_mode into human-readable mode names.
  *
  * Design:
  *   - FirmwareAdapter is the public entry point (auto-detects firmware)
- *   - ArduPilotAdapter handles ArduPilot-specific mode mapping
- *   - PX4Adapter will be added later
+ *   - ArduPilot mode mapping lives in modes/ardu_*_modes.h
  *
  * References:
  *   ArduPilot: ArduCopter/mode.h, ArduPlane/mode.h, Rover/mode.h, ArduSub/mode.h
- *   PX4: px4_custom_mode.h
  */
 
 #ifndef MGCORE_FIRMWARE_ADAPTER_H
@@ -27,7 +24,6 @@ namespace mg::core::firmware {
 enum class FirmwareKind : uint8_t {
     Unknown       = 0,
     ArduPilot     = 3,   // MAV_AUTOPILOT_ARDUPILOTMEGA
-    PX4           = 12,  // MAV_AUTOPILOT_PX4
 };
 
 /// Vehicle type (matches MAV_TYPE enum values)
@@ -77,7 +73,7 @@ public:
     /// Get detected vehicle kind
     VehicleKind vehicle_kind() const;
 
-    /// Get firmware name string (e.g. "ArduPilot", "PX4")
+    /// Get firmware name string (e.g. "ArduPilot")
     std::string firmware_name() const;
 
     /// Get vehicle type string (e.g. "Copter", "Plane", "Rover")
@@ -100,9 +96,9 @@ public:
     /// 模式号只能来自插件，通用代码不得写字面量）。
     std::optional<uint32_t> encode_flight_mode(const std::string& name) const;
 
-    /// 语义化模式角色。通用代码只按角色请求，具体模式号与名称由插件决定：
-    /// ArduPilot 用 "RTL"/"Land"/"Loiter"，PX4 用 "Auto RTL"/"Auto Land"/
-    /// "Auto Loiter"。不属于该固件的角色返回 nullopt，调用方必须放弃下发。
+    /// 语义化模式角色。通用代码只按角色请求，具体模式号与名称由插件决定
+    /// （ArduPilot 用 "RTL"/"Land"/"Loiter"）。不属于该固件的角色返回
+    /// nullopt，调用方必须放弃下发。
     enum class ModeRole { ReturnToLaunch, Land, Loiter };
     std::optional<uint32_t> resolve_mode_role(ModeRole role) const;
 
@@ -115,9 +111,6 @@ private:
     ArduPilotVehicle ardu_vehicle_ = ArduPilotVehicle::Unknown;
 
     std::string decode_ardupilot_mode(uint32_t custom_mode) const;
-
-    // PX4 decode (in modes/px4_modes.h, called from decode_flight_mode)
-    
 };
 
 } // namespace mg::core::firmware

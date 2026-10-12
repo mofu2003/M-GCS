@@ -1,6 +1,6 @@
 {
-    "comment": "Sensor device ID database for ArduPilot and PX4",
-    "version": 3,
+    "comment": "Sensor device ID database for ArduPilot",
+    "version": 4,
 
     "ardupilot_encoding": {
         "description": "ArduPilot AP_HAL Device.h encoding",
@@ -8,15 +8,6 @@
         "bus": "(devid >> 3) & 0x1F (5 bits)",
         "address": "(devid >> 8) & 0xFF (8 bits)",
         "devtype": "(devid >> 16) & 0xFF (8 bits)"
-    },
-
-    "px4_encoding": {
-        "description": "PX4 sensors.hpp DeviceID encoding",
-        "devid": "(devtype << 24) | (bus_type << 16) | (bus << 8) | address",
-        "devtype": "(devid >> 24) & 0xFF",
-        "bus_type": "(devid >> 16) & 0xFF",
-        "bus": "(devid >> 8) & 0xFF",
-        "address": "devid & 0xFF"
     },
 
     "ardupilot_imu_devtypes": {
@@ -126,64 +117,6 @@
         "8":   {"name":"Analog","family":"Analog"},
         "9":   {"name":"NMEA_Airspeed","family":"NMEA"},
         "10":  {"name":"ASP5033","family":"MS"}
-    },
-
-    "px4_imu_devtypes": {
-        "96":  {"name":"MPU6000","sensor":"IMU","family":"InvenSense"},
-        "97":  {"name":"MPU9250","sensor":"IMU","family":"InvenSense"},
-        "104": {"name":"BMI055","sensor":"IMU","family":"Bosch"},
-        "105": {"name":"BMI160","sensor":"IMU","family":"Bosch"},
-        "107": {"name":"BMX055","sensor":"IMU","family":"Bosch"},
-        "110": {"name":"LSM9DS1","sensor":"IMU","family":"ST"},
-        "115": {"name":"LSM6DS3","sensor":"IMU","family":"ST"},
-        "116": {"name":"LSM6DSO","sensor":"IMU","family":"ST"},
-        "117": {"name":"LSM6DSOX","sensor":"IMU","family":"ST"},
-        "121": {"name":"BMI088","sensor":"IMU","family":"Bosch"},
-        "136": {"name":"ICM20602","sensor":"IMU","family":"InvenSense"},
-        "137": {"name":"ICM20689","sensor":"IMU","family":"InvenSense"},
-        "138": {"name":"ICM20948","sensor":"IMU","family":"InvenSense"},
-        "144": {"name":"ICM42688-P","sensor":"IMU","family":"InvenSense"},
-        "172": {"name":"ICM42605","sensor":"IMU","family":"InvenSense"},
-        "173": {"name":"ICM42670P","sensor":"IMU","family":"InvenSense"},
-        "176": {"name":"BMI270","sensor":"IMU","family":"Bosch"},
-        "210": {"name":"FAKE_IMU","sensor":"IMU","family":"SITL"}
-    },
-
-    "px4_mag_devtypes": {
-        "97":  {"name":"HMC5883","sensor":"Mag","family":"Honeywell"},
-        "114": {"name":"QMC5883L","sensor":"Mag","family":"QST"},
-        "130": {"name":"IST8310","sensor":"Mag","family":"Isentek"},
-        "131": {"name":"LIS2MDL","sensor":"Mag","family":"ST"},
-        "196": {"name":"LIS3MDL","sensor":"Mag","family":"ST"},
-        "197": {"name":"IST8308","sensor":"Mag","family":"Isentek"},
-        "198": {"name":"LIS2MDL_V2","sensor":"Mag","family":"ST"},
-        "199": {"name":"AK09915","sensor":"Mag","family":"AKM"},
-        "200": {"name":"AK09916","sensor":"Mag","family":"AKM"},
-        "210": {"name":"FAKE_Mag","sensor":"Mag","family":"SITL"}
-    },
-
-    "px4_baro_devtypes": {
-        "48":  {"name":"BMP280","sensor":"Baro","family":"Bosch"},
-        "49":  {"name":"LPS25H","sensor":"Baro","family":"ST"},
-        "50":  {"name":"MS5611","sensor":"Baro","family":"TE"},
-        "51":  {"name":"SPL06","sensor":"Baro","family":"Goertek"},
-        "52":  {"name":"DPS310","sensor":"Baro","family":"Infineon"},
-        "53":  {"name":"BM1390GLC","sensor":"Baro","family":"Bosch"},
-        "56":  {"name":"ICP10100","sensor":"Baro","family":"TDK"},
-        "88":  {"name":"LPS22HB","sensor":"Baro","family":"ST"},
-        "99":  {"name":"MS5611_2","sensor":"Baro","family":"TE"},
-        "100": {"name":"MS5837","sensor":"Baro","family":"TE"},
-        "118": {"name":"TDK_520","sensor":"Baro","family":"TDK"},
-        "177": {"name":"BMP388","sensor":"Baro","family":"Bosch"},
-        "178": {"name":"BMP390","sensor":"Baro","family":"Bosch"},
-        "210": {"name":"FAKE_Baro","sensor":"Baro","family":"SITL"}
-    },
-
-    "px4_differential_pressure_devtypes": {
-        "5":   {"name":"DPS310_DP","sensor":"DiffPressure","family":"Infineon"},
-        "9":   {"name":"SDP3X","sensor":"DiffPressure","family":"Sensirion"},
-        "13":  {"name":"MS4525DO","sensor":"DiffPressure","family":"TE"},
-        "15":  {"name":"MS5525","sensor":"DiffPressure","family":"TE"},
-        "210": {"name":"FAKE_DP","sensor":"DiffPressure","family":"SITL"}
     }
+
 }

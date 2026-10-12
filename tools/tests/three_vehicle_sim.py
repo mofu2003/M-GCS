@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Three lightweight MAVLink vehicles for local M-GCS UI validation.
 
-This is intentionally a protocol simulator, not an ArduPilot/PX4 flight-dynamics
+This is intentionally a protocol simulator, not an ArduPilot flight-dynamics
 model. Each vehicle listens on its own loopback UDP endpoint, sends heartbeat and
 basic telemetry, accepts common GCS commands, and ACKs them so connection,
 multi-vehicle switching and guided-action UI paths can be exercised locally.

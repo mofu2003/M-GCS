@@ -129,7 +129,7 @@ MGCORE_API char* mg_config_write_param(mg_core_t* core, const char* param_name, 
 
     auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    const std::string vehicle_name = ffi_param_vehicle_name(core, param_name);
+    const std::string vehicle_name = param_name;
     auto cached = mav->get_param_by_name(vehicle_name.c_str());
     if (!cached.has_value()) cached = mav->get_param_by_name(param_name);
     uint8_t type = cached.has_value() ? cached->type : 9; // MAV_PARAM_TYPE_REAL32
@@ -189,7 +189,7 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
             continue;
         }
 
-        const std::string vehicle_name = ffi_param_vehicle_name(core, pname);
+        const std::string vehicle_name = pname;
         auto cached = mav->get_param_by_name(vehicle_name.c_str());
         if (!cached.has_value()) cached = mav->get_param_by_name(pname);
         uint8_t type = cached.has_value() ? cached->type : 9;

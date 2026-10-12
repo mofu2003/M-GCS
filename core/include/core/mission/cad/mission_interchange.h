@@ -63,9 +63,8 @@ bool is_supported_interchange_format(const std::string& format);
 
 /// 根据 firmware profile 和任务复杂度推荐外部交换格式。
 ///
-/// 规则见 ADR 0008：
+/// 规则见 ADR-0003：
 /// - ArduPilot + 普通任务：waypoints
-/// - PX4：plan
 /// - 参数化 Survey / Corridor：plan，避免展开后丢失设计意图
 /// - 未知固件：waypoints
 std::string recommended_mission_interchange_format(

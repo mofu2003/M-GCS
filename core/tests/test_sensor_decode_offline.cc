@@ -1,7 +1,7 @@
 /**
  * test_sensor_decode_offline.cc - Comprehensive sensor ID decoder tests
  *
- * Tests all AP and PX4 sensor categories with known device IDs.
+ * Tests all ArduPilot sensor categories with known device IDs.
  * No hardware needed — purely offline database lookups.
  */
 #include "core/sensor/sensor_id_decoder.h"
@@ -29,79 +29,6 @@ int main() {
     std::string db_path = mg::core::platform::find_data_file("SensorDeviceInfo.json");
     mg::core::sensor::SensorIdDecoder dec(db_path);
     CHECK(dec.is_loaded(), "database loaded successfully");
-
-    // PX4 IMU sensors
-    fprintf(stderr, "[Group] PX4 IMU sensors\n");
-    {
-        auto r = dec.decode_px4_type_value(144, "imu");
-        CHECK(r.valid && r.name == "ICM42688-P", "PX4 ICM42688-P");
-    }
-    {
-        auto r = dec.decode_px4_type_value(176, "imu");
-        CHECK(r.valid && r.name == "BMI270", "PX4 BMI270");
-    }
-    {
-        auto r = dec.decode_px4_type_value(136, "imu");
-        CHECK(r.valid && r.name == "ICM20602", "PX4 ICM20602");
-    }
-    {
-        auto r = dec.decode_px4_type_value(96, "imu");
-        CHECK(r.valid && r.name == "MPU6000", "PX4 MPU6000");
-    }
-    {
-        auto r = dec.decode_px4_type_value(97, "imu");
-        CHECK(r.valid && r.name == "MPU9250", "PX4 MPU9250");
-    }
-    {
-        auto r = dec.decode_px4_type_value(105, "imu");
-        CHECK(r.valid && r.name == "BMI160", "PX4 BMI160");
-    }
-    {
-        auto r = dec.decode_px4_type_value(121, "imu");
-        CHECK(r.valid && r.name == "BMI088", "PX4 BMI088");
-    }
-    {
-        auto r = dec.decode_px4_type_value(173, "imu");
-        CHECK(r.valid && r.name == "ICM42670P", "PX4 ICM42670P");
-    }
-
-    // PX4 Mag sensors
-    fprintf(stderr, "[Group] PX4 Mag sensors\n");
-    {
-        auto r = dec.decode_px4_type_value(196, "mag");
-        CHECK(r.valid && r.name == "LIS3MDL", "PX4 LIS3MDL");
-    }
-    {
-        auto r = dec.decode_px4_type_value(200, "mag");
-        CHECK(r.valid && r.name == "AK09916", "PX4 AK09916");
-    }
-    {
-        auto r = dec.decode_px4_type_value(114, "mag");
-        CHECK(r.valid && r.name == "QMC5883L", "PX4 QMC5883L");
-    }
-    {
-        auto r = dec.decode_px4_type_value(97, "mag");
-        CHECK(r.valid && r.name == "HMC5883", "PX4 HMC5883");
-    }
-
-    // PX4 Baro sensors
-    fprintf(stderr, "[Group] PX4 Baro sensors\n");
-    {
-        auto r = dec.decode_px4_type_value(50, "baro");
-        CHECK(r.valid && r.name == "MS5611", "PX4 MS5611");
-    }
-    {
-        auto r = dec.decode_px4_type_value(48, "baro");
-        CHECK(r.valid && r.name == "BMP280", "PX4 BMP280");
-    }
-    {
-        auto r = dec.decode_px4_type_value(177, "baro");
-        CHECK(r.valid && r.name == "BMP388", "PX4 BMP388");
-    }
-    {
-        auto r = dec.decode_px4_type_value(52, "baro");
-        CHECK(r.valid && r.name == "DPS310", "PX4 DPS310");
-    }
 
     // ArduPilot INS sensors
     fprintf(stderr, "[Group] ArduPilot INS sensors\n");
@@ -160,17 +87,6 @@ int main() {
         CHECK(r.valid && r.name == "BMP390", "AP BMP390 (devid=20)");
     }
 
-    // Auto-detect firmware from ID pattern
-    fprintf(stderr, "[Group] Auto-detect firmware\n");
-    {
-        auto r = dec.decode_device_id(0x90000118, "imu");
-        CHECK(r.detected_firmware == mg::core::sensor::SensorIdFirmware::PX4, "large ID detected as PX4");
-    }
-    {
-        auto r = dec.decode_device_id(56 << 16, "ins");
-        CHECK(r.detected_firmware == mg::core::sensor::SensorIdFirmware::ArduPilot, "small ID detected as AP");
-    }
-
     // Unknown sensor
     fprintf(stderr, "[Group] Unknown sensor\n");
     {
@@ -193,18 +109,13 @@ int main() {
         struct TableSpec {
             const char* section;
             const char* category;
-            bool px4;
             bool type_param;  // airspeed 走 decode_type_param（ParamEntry 风格）
         };
         const TableSpec tables[] = {
-            {"ardupilot_imu_devtypes", "ins", false, false},
-            {"ardupilot_compass_devtypes", "compass", false, false},
-            {"ardupilot_baro_devtypes", "baro", false, false},
-            {"ardupilot_airspeed_devtypes", "airspeed", false, true},
-            {"px4_imu_devtypes", "imu", true, false},
-            {"px4_mag_devtypes", "mag", true, false},
-            {"px4_baro_devtypes", "baro", true, false},
-            {"px4_differential_pressure_devtypes", "airspeed", true, false},
+            {"ardupilot_imu_devtypes", "ins", false},
+            {"ardupilot_compass_devtypes", "compass", false},
+            {"ardupilot_baro_devtypes", "baro", false},
+            {"ardupilot_airspeed_devtypes", "airspeed", true},
         };
 
         size_t total_entries = 0;
@@ -220,8 +131,6 @@ int main() {
                 bool ok = false;
                 if (table.type_param) {
                     ok = dec.decode_type_param(static_cast<int>(devtype), table.category).valid;
-                } else if (table.px4) {
-                    ok = dec.decode_px4_type_value(static_cast<int>(devtype), table.category).valid;
                 } else {
                     ok = dec.decode_device_id(static_cast<uint32_t>(devtype) << 16,
                                               table.category).valid;
@@ -237,7 +146,7 @@ int main() {
         }
         char total_message[160];
         snprintf(total_message, sizeof(total_message),
-                 "8 devtype tables decoded completely: %zu/%zu entries",
+                 "4 devtype tables decoded completely: %zu/%zu entries",
                  total_decoded, total_entries);
         CHECK(total_entries > 0 && total_decoded == total_entries, total_message);
         cJSON_Delete(root);

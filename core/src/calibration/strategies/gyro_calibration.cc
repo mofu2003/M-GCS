@@ -14,17 +14,14 @@ namespace mg::core::calibration {
 
 namespace {
 
-/// 完成短语必须整句匹配，不能用 "success"/"complete"/"done" 子串：
+/// 完成短语必须整句匹配，不能用 "success"/"complete" 子串：
 /// "Gyro calibration unsuccessful" 也含 "success"，子串匹配会把飞控报的失败
 /// 读成成功（同目录 compass_calibration.cc 按整句 "Calibration successful" 判定）。
 bool mentions_completion(const std::string& text) {
     return text.find("calibration successful") != std::string::npos ||
            text.find("Calibration successful") != std::string::npos ||
            text.find("calibration complete") != std::string::npos ||
-           text.find("Calibration complete") != std::string::npos ||
-           // PX4 gyro_calibration.cpp 完成后发 "[cal] calibration done: gyro"。
-           text.find("calibration done") != std::string::npos ||
-           text.find("Calibration done") != std::string::npos;
+           text.find("Calibration complete") != std::string::npos;
 }
 
 /// 失败要在完成之前判定："unsuccessful" 本身含 "successful"。

@@ -39,10 +39,6 @@ public:
     uint32_t capabilities(VehicleKind vehicle) const override;
     float minimum_takeoff_altitude(VehicleKind vehicle) const override;
 
-    // ParamRemapping功能已删除（PX4专属），返回空实现
-    std::string remap_param_name(VehicleKind, int, int, const std::string& name) const override { return name; }
-    std::string canonical_param_name(VehicleKind, int, int, const std::string& name) const override { return name; }
-    bool has_param_remapping() const override { return false; }
 
 private:
 };

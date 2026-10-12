@@ -17,7 +17,7 @@ std::string recommended_mission_interchange_format(
         [](const MissionEntity& entity) {
             return is_parameterized_survey_type(entity.type);
         });
-    if (document.metadata.firmware_profile == "px4" || has_complex_entity) {
+    if (has_complex_entity) {
         return "plan";
     }
     return "waypoints";

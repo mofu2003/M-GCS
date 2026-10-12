@@ -69,9 +69,9 @@ MGCORE_API char* mg_failsafe_get_status(mg_core_t* core) {
     jb.field("gps_fix", gps ? static_cast<int>(gps->fix_type) : 0);
     jb.field("gps_satellites", gps ? static_cast<int>(gps->satellites_visible) : 0);
 
-    auto& geofence = get_active_geofence(core);
-    auto fence_cfg = geofence.get_config();
-    jb.field("fence_enabled", fence_cfg.enabled);
+    // 围栏状态改由飞控回读的围栏计划判定（本地 GeofenceManager 已删除）
+    const auto fence_plan = mav->fence_get_plan_snapshot();
+    jb.field("fence_enabled", fence_plan.plan.valid && !fence_plan.plan.items.empty());
     jb.field("all_ok", battery_ok && gps_ok);
 
     jb.end_object();

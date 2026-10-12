@@ -14,18 +14,14 @@
 | [ADR-0004](0004-ui-design-system-and-font.md) | UI 设计系统与字体 | 已接受 | - |
 | [ADR-0005](0005-deferred-sends-outside-adapter-lock.md) | 延迟发送在适配器锁外 | 已接受 | - |
 | [ADR-0006](0006-tlog-recording-sink.md) | TLog 记录接收器 | 已接受 | - |
-| [ADR-0007](0007-px4-parameter-metadata.md) | PX4 参数元数据 | 已接受 | - |
-| [ADR-0008](0008-ardupilot-first-px4-deferred.md) | **ArduPilot 优先，PX4 支持延后** | 已接受 | 2026-10-12 |
-| [ADR-0009](0009-send-mutex-and-ownership-model.md) | **发送锁与所有权模型** | 已接受 | 2026-10-12 |
-| [ADR-0010](0010-video-decode-backend.md) | 视频解码后端 | 已接受 | - |
+| [ADR-0007](0007-send-mutex-and-ownership-model.md) | **发送锁与所有权模型** | 已接受 | 2026-10-12 |
+| [ADR-0008](0008-video-decode-backend.md) | 视频解码后端 | 已接受 | - |
 
 ## 最近变更
 
 ### 2026-10-12
 
-- **ADR-0008**：记录 ArduPilot 优先策略，PX4 支持延后至 0.3.0+
-- **ADR-0009**：定义 `send_mtx` 边界与锁序，修复 KD-49（死锁）和 KD-52（use-after-free）
-- **重新编号**：原 ADR-0007（send-mutex）→ ADR-0009，原 ADR-0008（video）→ ADR-0010
+- **ADR-0007**：定义 `send_mtx` 边界与锁序，修复 KD-49（死锁）和 KD-52（use-after-free）
 
 ## ADR 编写指南
 

@@ -50,7 +50,6 @@ static void test_null_core() {
     CHECK(is_failure(mg_servo_get_outputs(nullptr)), "servo_get_outputs null");
     CHECK(is_failure(mg_params_request_all(nullptr)), "params_request_all null");
     CHECK(is_failure(mg_params_get_by_name(nullptr, "TEST")), "params_get_by_name null");
-    check_failure_and_free(mg_geofence_get_config(nullptr), "geofence_get_config null");
     check_failure_and_free(mg_tlog_status(nullptr), "logging_stats null");
     CHECK(mg_vehicle_get_active(nullptr) == -1, "vehicle_get_active null -> -1");
     CHECK(mg_vehicle_select(nullptr, 0) == nullptr || is_failure(mg_vehicle_select(nullptr, 0)), "vehicle_select null");
@@ -228,7 +227,7 @@ static void test_backend_hardening_contracts() {
 }
 
 static void test_disconnected_config() {
-    fprintf(stderr, "\n[Group] Config & geofence (disconnected)\n");
+    fprintf(stderr, "\n[Group] Config (disconnected)\n");
     mg_core_t* core = mg_create();
 
     char* metadata = mg_config_read_param(core, "TEST");
@@ -238,10 +237,6 @@ static void test_disconnected_config() {
     CHECK(is_failure(mg_config_write_param(core, "TEST", 1.0f)), "config_write disconnected -> fail");
 
     char* r;
-    r = mg_geofence_get_config(core);
-    CHECK(contains(r, "\"enabled\":false"), "geofence defaults to disabled");
-    mg_free_string(r);
-
     r = mg_tlog_status(core);
     CHECK(contains(r, "\"recording\":false"), "logging is inactive before connection");
     mg_free_string(r);
@@ -259,8 +254,6 @@ static void test_disconnected_stubs() {
     CHECK(is_success(stopped), "stopping an idle simulator succeeds");
     mg_free_string(stopped);
     CHECK(is_failure(mg_firmware_flash(core, "")), "firmware_flash -> NOT_SUPPORTED");
-    CHECK(is_failure(mg_px4_actuator_set_config(core, "")), "px4_actuator -> NOT_SUPPORTED");
-    CHECK(is_failure(mg_px4_flight_mode_get_config(core)), "px4_flight_mode -> NOT_SUPPORTED");
 
     mg_destroy(core);
 }
@@ -297,14 +290,6 @@ static void test_sensor_decode() {
 
     r = mg_sensor_decode_type_param(core, 0, "ins");
     CHECK(r != nullptr, "decode_type_param no crash");
-    mg_free_string(r);
-
-    r = mg_sensor_decode_px4_id(core, 0x00010001, "imu");
-    CHECK(r != nullptr, "decode_px4_id no crash");
-    mg_free_string(r);
-
-    r = mg_sensor_decode_px4_type(core, 0, "imu");
-    CHECK(r != nullptr, "decode_px4_type no crash");
     mg_free_string(r);
 
     mg_destroy(core);

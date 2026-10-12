@@ -68,8 +68,6 @@ MGCORE_API char* mg_telemetry_get_messages(mg_core_t* core, unsigned long long s
 MGCORE_API char* mg_health_get_all(mg_core_t* core);
 
 MGCORE_API char* mg_sensor_decode_device_id(mg_core_t* core, int device_id, const char* category);
-MGCORE_API char* mg_sensor_decode_px4_id(mg_core_t* core, int device_id, const char* category);
-MGCORE_API char* mg_sensor_decode_px4_type(mg_core_t* core, int type_value, const char* category);
 MGCORE_API char* mg_sensor_decode_type_param(mg_core_t* core, int type_value, const char* category);
 MGCORE_API char* mg_sensors_identify_all(mg_core_t* core);
 

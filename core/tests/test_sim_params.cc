@@ -511,39 +511,6 @@ static void test_config_uses_ardupilot_profile_metadata() {
     mg_free_string(values);
 }
 
-static void test_geofence_get_uses_loaded_ardupilot_params() {
-    fprintf(stderr, "\n[Group] Geofence config from parameters\n");
-    TestEnv env;
-
-    env.mock->add_param("FENCE_ENABLE", 1, 2);
-    env.mock->add_param("FENCE_TYPE", 7, 2);
-    env.mock->add_param("FENCE_ACTION", 1, 2);
-    env.mock->add_param("FENCE_ALT_MAX", 100, 9);
-    env.mock->add_param("FENCE_ALT_MIN", -10, 9);
-    env.mock->add_param("FENCE_MARGIN", 2, 9);
-
-    env.tick(1100);
-    char* res = mg_params_request_all(env.core);
-    mg_free_string(res);
-
-    for (int i = 0; i < 50; i++) {
-        env.tick(50);
-        char* prog = mg_params_get_progress(env.core);
-        const int r = parse_progress_received(prog);
-        const int t = parse_progress_total(prog);
-        mg_free_string(prog);
-        if (t > 0 && r >= t) break;
-    }
-
-    char* fence = mg_geofence_get_config(env.core);
-    CHECK(strstr(fence, "\"enabled\":true") != nullptr, "FENCE_ENABLE maps to enabled true");
-    CHECK(strstr(fence, "\"max_altitude\":100") != nullptr, "FENCE_ALT_MAX maps to max_altitude 100");
-    CHECK(strstr(fence, "\"min_altitude\":-10") != nullptr, "FENCE_ALT_MIN maps to min_altitude -10");
-    CHECK(strstr(fence, "\"action\":1") != nullptr, "FENCE_ACTION maps to action 1");
-    CHECK(strstr(fence, "\"breach_distance\":2") != nullptr, "FENCE_MARGIN maps to breach_distance 2");
-    mg_free_string(fence);
-}
-
 static bool load_all_params(TestEnv& env) {
     env.tick(1100);
     char* res = mg_params_request_all(env.core);
@@ -671,7 +638,6 @@ int main() {
     test_change_set_planning();
     test_change_set_commit_orders_enable_last();
     test_config_uses_ardupilot_profile_metadata();
-    test_geofence_get_uses_loaded_ardupilot_params();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

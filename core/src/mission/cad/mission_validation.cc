@@ -44,8 +44,8 @@ const MissionCommandDescriptor* find_command_descriptor(uint16_t command) {
     return found == catalog.end() ? nullptr : &*found;
 }
 
-/// ArduPilot 机型 capability table 只覆盖 ArduPilot；PX4 或未声明 firmware 的
-/// 文档不做机型判断，避免用 ArduPilot 的能力表拒绝 PX4 任务。
+/// ArduPilot 机型 capability table 只覆盖 ArduPilot；未声明 firmware 的
+/// 文档不做机型判断。
 bool capability_table_applies(const MissionDocument& document) {
     return document.metadata.firmware_profile.empty() ||
            document.metadata.firmware_profile == "ardupilot";

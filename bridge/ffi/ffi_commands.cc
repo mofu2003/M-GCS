@@ -79,27 +79,6 @@ MGCORE_API char* mg_fence_get_plan(mg_core_t* core) {
     });
 }
 
-MGCORE_API char* mg_fence_enable(mg_core_t* core, int enable) {
-    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
-    auto mav = shared_active_mavlink(core);
-    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
-    // MAV_CMD_DO_FENCE_ENABLE (4010): param1 = 1 enable, 0 disable
-    bool ok_send = mav->send_command_long(
-        active_target_sys(core), active_target_comp(core),
-        4010, 0,  // MAV_CMD_DO_FENCE_ENABLE
-        static_cast<float>(enable),
-        0, 0, 0, 0, 0, 0);
-    if (ok_send) {
-        // Also update local config
-        auto& gf = get_active_geofence(core);
-        auto cfg = gf.get_config();
-        cfg.enabled = (enable != 0);
-        gf.set_config(cfg);
-        return ok();
-    }
-    return fail(MG_ERROR_SEND_FAILED, "fence enable send failed");
-}
-
 // ================================================================
 // Multi-vehicle
 // ================================================================

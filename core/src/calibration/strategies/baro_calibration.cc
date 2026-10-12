@@ -18,15 +18,12 @@ namespace {
 /// 完成短语必须整句匹配："Barometer calibration incomplete" 也含 "complete"，
 /// 用子串匹配会把失败读成成功（同目录 compass_calibration.cc 按整句判定）。
 /// ArduPilot AP_Baro::calibrate() 完成时发 "Barometer %u calibration complete"，
-/// 快速校准 update_calibration() 发 "Barometer calibration complete"；
-/// PX4 baro_calibration.cpp 发 "[cal] calibration done: baro"。
+/// 快速校准 update_calibration() 发 "Barometer calibration complete"。
 bool mentions_completion(const std::string& text) {
     return text.find("calibration complete") != std::string::npos ||
            text.find("Calibration complete") != std::string::npos ||
            text.find("calibration successful") != std::string::npos ||
-           text.find("Calibration successful") != std::string::npos ||
-           text.find("calibration done") != std::string::npos ||
-           text.find("Calibration done") != std::string::npos;
+           text.find("Calibration successful") != std::string::npos;
 }
 
 /// 失败要在完成之前判定："unsuccessful" 含 "successful"，"incomplete" 含 "complete"。
@@ -108,8 +105,7 @@ CalibrationStage BaroCalibration::interpret_ack(
         case 0:  // MAV_RESULT_ACCEPTED
             // ACK 只确认飞控受理了启动命令（与 radio_calibration.cc:84-88、
             // compass_calibration.cc:187-190 同一语义）。ArduPilot 在回 ACCEPTED
-            // 之前就发了 "Barometer calibration complete"，PX4 完成后发
-            // "[cal] calibration done: baro"，结果由 STATUSTEXT 给出。
+            // 之前就发了 "Barometer calibration complete"，结果由 STATUSTEXT 给出。
             return CalibrationStage::Calibrating;
         case 5:  // MAV_RESULT_IN_PROGRESS
             return CalibrationStage::Calibrating;

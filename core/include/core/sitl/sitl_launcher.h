@@ -1,8 +1,8 @@
 /**
  * sitl_launcher.h - SITL (Software In The Loop) integration
- * SITL 仿真 — 启动和管理 ArduPilot/PX4 仿真进程
+ * SITL 仿真 — 启动和管理 ArduPilot 仿真进程
  *
- * Launches and manages SITL simulator processes for ArduPilot and PX4.
+ * Launches and manages ArduPilot SITL simulator processes.
  * Supports:
  *   - Start/stop SITL
  *   - Connection management

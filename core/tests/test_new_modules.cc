@@ -441,19 +441,8 @@ static void test_failsafe_ffi() {
     mg_core_t* core = mg_create();
     CHECK(core != nullptr, "mg_create");
 
-    // Fence enable - should fail with not connected
-    char* r = mg_fence_enable(core, 1);
-    CHECK(r != nullptr, "fence_enable returns non-null");
-    CHECK(json_has(r, "error"), "fence_enable returns error when disconnected");
-    if (r) mg_free_string(r);
-
-    // Fence disable
-    r = mg_fence_enable(core, 0);
-    CHECK(r != nullptr, "fence_disable returns non-null");
-    if (r) mg_free_string(r);
-
     // Battery failsafe configure
-    r = mg_battery_failsafe_configure(core, 1, 14.0f, 13.0f);
+    char* r = mg_battery_failsafe_configure(core, 1, 14.0f, 13.0f);
     CHECK(r != nullptr, "battery_failsafe_configure returns non-null");
     if (r) mg_free_string(r);
 

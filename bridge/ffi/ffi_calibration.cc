@@ -19,19 +19,6 @@
 
 using namespace mg::bridge::ffi_helpers;
 
-namespace {
-
-/// 当前飞机是否为 PX4。校准命令里有几条是 ArduPilot 专有的
-/// （DO_CANCEL_MAG_CAL / ACCELCAL_VEHICLE_POS），PX4 会直接忽略。
-bool active_is_px4(mg_core_t* core) {
-    auto mav = shared_active_mavlink(core);
-    if (!mav) return false;
-    const auto heartbeat = mav->latest_heartbeat();
-    return heartbeat.has_value() && heartbeat->autopilot_type == MAV_AUTOPILOT_PX4;
-}
-
-}  // namespace
-
 MGCORE_API char* mg_calibration_start(mg_core_t* core, int type, int accel_mode) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     auto& cal = get_active_calibration(core);
@@ -53,15 +40,6 @@ MGCORE_API char* mg_calibration_cancel(mg_core_t* core) {
     CHECK_CORE(core);
     auto& cal = get_active_calibration(core);
     if (!cal.is_active()) return fail(MG_ERROR_INVALID_STATE, "no calibration in progress");
-    // QGC 的 PX4 控制器同样不发取消命令，并注明固件不支持
-    // （SensorsComponentController.cc:397-399 "The firmware doesn't allow us to
-    // cancel calibration. The best we can do is wait"）。与其让界面显示"已取消"
-    // 而飞控仍在采样，不如明确告知不支持（S8）。
-    if (active_is_px4(core)) {
-        return fail(MG_ERROR_NOT_SUPPORTED,
-                    "PX4 firmware does not support cancelling calibration; wait for the "
-                    "flight controller to finish");
-    }
     const auto status = cal.get_status();
     auto mav = shared_active_mavlink(core);
 
@@ -147,11 +125,6 @@ MGCORE_API char* mg_calibration_accel_confirm(mg_core_t* core, int position) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     if (position < 1 || position > 6) {
         return fail(MG_ERROR_INVALID_PARAM, "invalid accelerometer position");
-    }
-    if (active_is_px4(core)) {
-        // ACCELCAL_VEHICLE_POS 是 ArduPilot 专有的六面确认流程，PX4 不处理。
-        return fail(MG_ERROR_NOT_SUPPORTED,
-                    "PX4 does not use the six-face accelerometer confirmation flow");
     }
     const auto status = get_active_calibration(core).get_status();
     if (!status.active ||

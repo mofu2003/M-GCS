@@ -17,8 +17,6 @@ const char* firmware_profile(mg::core::firmware::FirmwareKind kind) {
     switch (kind) {
         case mg::core::firmware::FirmwareKind::ArduPilot:
             return "ardupilot";
-        case mg::core::firmware::FirmwareKind::PX4:
-            return "px4";
         default:
             return "unknown";
     }
@@ -31,7 +29,7 @@ void capability_field(mg::core::telemetry::JsonBuilder& jb,
     jb.field(name, (flags & static_cast<uint32_t>(capability)) != 0);
 }
 
-std::string capability_json(uint32_t flags, bool has_param_remapping) {
+std::string capability_json(uint32_t flags) {
     mg::core::telemetry::JsonBuilder caps;
     caps.begin_object();
     capability_field(caps, "guided_mode", flags,
@@ -49,7 +47,6 @@ std::string capability_json(uint32_t flags, bool has_param_remapping) {
     capability_field(caps, "roi", flags, mg::core::firmware::CapRoi);
     capability_field(caps, "change_heading", flags,
                      mg::core::firmware::CapChangeHeading);
-    caps.field("param_remapping", has_param_remapping);
     caps.end_object();
     return caps.str();
 }
@@ -110,7 +107,7 @@ MGCORE_API char* mg_firmware_get_type(mg_core_t* core) {
         empty.field("vehicle_type_id", 0);
         empty.field("capability_flags", 0);
         empty.field("minimum_takeoff_altitude_m", 0.0);
-        empty.raw_field("capabilities", capability_json(0, false));
+        empty.raw_field("capabilities", capability_json(0));
         empty.end_object();
         return mg::bridge::ffi::response::ok(empty.str());
     }
@@ -122,7 +119,6 @@ MGCORE_API char* mg_firmware_get_type(mg_core_t* core) {
         mg::core::firmware::create_firmware_plugin(adapter.firmware_kind());
     const uint32_t flags =
         plugin ? plugin->capabilities(adapter.vehicle_kind()) : 0;
-    const bool has_param_remapping = plugin && plugin->has_param_remapping();
     const float minimum_takeoff_altitude_m =
         plugin ? plugin->minimum_takeoff_altitude(adapter.vehicle_kind()) : 0.0f;
 
@@ -137,7 +133,7 @@ MGCORE_API char* mg_firmware_get_type(mg_core_t* core) {
     jb.field("capability_flags", static_cast<unsigned>(flags));
     jb.field("minimum_takeoff_altitude_m",
              static_cast<double>(minimum_takeoff_altitude_m));
-    jb.raw_field("capabilities", capability_json(flags, has_param_remapping));
+    jb.raw_field("capabilities", capability_json(flags));
     jb.end_object();
     return mg::bridge::ffi::response::ok(jb.str());
 }

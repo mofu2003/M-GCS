@@ -94,9 +94,6 @@ ParamDescriptors::ParamDescriptors(const std::string& json_path,
         std::string zh_path = translation_path;
         if (zh_path.empty()) zh_path = find_translation_file();
         if (!zh_path.empty()) load_translation_json(zh_path);
-
-        // Optional: PX4 parameters come from a separate upstream snapshot.
-        load_px4_metadata(path);
     }
     if (loaded_) {
         MGC_LOG_INFO("[ParamDesc] Loaded %zu parameter descriptors, %zu groups",
@@ -160,7 +157,6 @@ GroupDescriptor ParamDescriptors::get_group(const std::string& profile, const st
     auto groups = merged_profile_groups(normalized, 0);
     auto group_it = groups.find(group_name);
     if (group_it != groups.end()) return group_it->second;
-    if (standalone_profiles_.count(normalized) != 0) return {};
     return get_group(group_name);
 }
 
@@ -788,160 +784,6 @@ std::string ParamDescriptors::find_translation_file() const {
     return find_data_path("ParameterTranslations.zh-CN.json", "");
 }
 
-/// Load the PX4 parameter metadata snapshot (see docs/adr/0007-px4-parameter-metadata.md).
-///
-/// Source format is PX4's generated `parameters.json` / QGC's
-/// `PX4ParameterFactMetaData.json`, kept verbatim in the repository so the file can
-/// be re-generated and diffed against upstream. Only display metadata is taken from
-/// it: name, descriptions, group, unit, default, enum values, reboot/read-only flags.
-/// No extra value constraints are invented -- a range is only enforced when the
-/// snapshot provides both `min` and `max`, because `ParamDescriptor` has no
-/// separate has-min/has-max flags (a lone `min` would otherwise be read as
-/// `max == 0` by validate()).
-bool ParamDescriptors::load_px4_metadata(const std::string& anchor_path) {
-    const std::string path = find_data_path("PX4ParameterMetaData.json", anchor_path);
-    if (path.empty()) {
-        MGC_LOG_INFO("[ParamDesc] PX4 metadata not found; PX4 parameters stay name-only");
-        return false;
-    }
-
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        MGC_LOG_WARN("[ParamDesc] Cannot open PX4 metadata: %s", path.c_str());
-        return false;
-    }
-    std::string content((std::istreambuf_iterator<char>(file)),
-                         std::istreambuf_iterator<char>());
-
-    cJSON* root = mg::core::json::parse(content.c_str());
-    if (!root) {
-        MGC_LOG_WARN("[ParamDesc] PX4 metadata JSON parse error: %s", path.c_str());
-        return false;
-    }
-
-    cJSON* version = cJSON_GetObjectItem(root, "version");
-    if (!version || !cJSON_IsNumber(version) || version->valueint < 1) {
-        MGC_LOG_WARN("[ParamDesc] PX4 metadata version too old: %s", path.c_str());
-        cJSON_Delete(root);
-        return false;
-    }
-
-    cJSON* parameters = cJSON_GetObjectItem(root, "parameters");
-    if (!parameters || !cJSON_IsArray(parameters)) {
-        MGC_LOG_WARN("[ParamDesc] PX4 metadata has no parameters array: %s", path.c_str());
-        cJSON_Delete(root);
-        return false;
-    }
-
-    std::map<std::string, ParamDescriptor> descriptors;
-    std::map<std::string, GroupDescriptor> groups;
-    int loaded = 0;
-
-    cJSON* entry = nullptr;
-    cJSON_ArrayForEach(entry, parameters) {
-        if (!entry || !cJSON_IsObject(entry)) continue;
-
-        cJSON* name = cJSON_GetObjectItem(entry, "name");
-        if (!name || !cJSON_IsString(name) || name->valuestring[0] == '\0') continue;
-
-        ParamDescriptor desc;
-        desc.param_name = name->valuestring;
-        desc.found = true;
-        desc.display_name = desc.param_name;
-        desc.description = "Parameter " + desc.param_name;
-
-        cJSON* short_desc = cJSON_GetObjectItem(entry, "shortDesc");
-        if (short_desc && cJSON_IsString(short_desc)) {
-            desc.display_name = replace_newlines_with_spaces(short_desc->valuestring);
-        }
-        cJSON* long_desc = cJSON_GetObjectItem(entry, "longDesc");
-        if (long_desc && cJSON_IsString(long_desc)) {
-            desc.description = replace_newlines_with_spaces(long_desc->valuestring);
-        } else {
-            desc.description = desc.display_name;
-        }
-
-        cJSON* group = cJSON_GetObjectItem(entry, "group");
-        if (group && cJSON_IsString(group)) desc.group = group->valuestring;
-
-        cJSON* type = cJSON_GetObjectItem(entry, "type");
-        if (type && cJSON_IsString(type)) {
-            const std::string raw = type->valuestring;
-            if (raw == "Float") desc.type = "float";
-            else if (raw == "Int32" || raw == "Int64") desc.type = "int";
-            else if (raw == "Bool") desc.type = "bool";
-            else desc.type = raw;
-        }
-        if (desc.type.empty()) desc.type = "int";
-
-        cJSON* category = cJSON_GetObjectItem(entry, "category");
-        if (category && cJSON_IsString(category)) desc.category = category->valuestring;
-        if (desc.category.empty()) desc.category = "Standard";
-
-        cJSON* unit = cJSON_GetObjectItem(entry, "units");
-        if (unit && cJSON_IsString(unit)) desc.unit = unit->valuestring;
-
-        cJSON* default_value = cJSON_GetObjectItem(entry, "default");
-        if (default_value && cJSON_IsNumber(default_value)) {
-            desc.default_value = static_cast<float>(default_value->valuedouble);
-        }
-        cJSON* increment = cJSON_GetObjectItem(entry, "increment");
-        if (increment && cJSON_IsNumber(increment)) {
-            desc.increment = static_cast<float>(increment->valuedouble);
-        }
-
-        cJSON* min_value = cJSON_GetObjectItem(entry, "min");
-        cJSON* max_value = cJSON_GetObjectItem(entry, "max");
-        if (min_value && max_value && cJSON_IsNumber(min_value) && cJSON_IsNumber(max_value)) {
-            desc.min_value = static_cast<float>(min_value->valuedouble);
-            desc.max_value = static_cast<float>(max_value->valuedouble);
-        }
-
-        cJSON* reboot = cJSON_GetObjectItem(entry, "rebootRequired");
-        if (reboot && cJSON_IsBool(reboot)) desc.requires_reboot = cJSON_IsTrue(reboot);
-        cJSON* is_volatile = cJSON_GetObjectItem(entry, "volatile");
-        if (is_volatile && cJSON_IsBool(is_volatile) && cJSON_IsTrue(is_volatile)) {
-            desc.read_only = true;
-        }
-
-        cJSON* values = cJSON_GetObjectItem(entry, "values");
-        if (values && cJSON_IsArray(values)) {
-            cJSON* value_entry = nullptr;
-            cJSON_ArrayForEach(value_entry, values) {
-                ParamOption opt;
-                cJSON* value = cJSON_GetObjectItem(value_entry, "value");
-                cJSON* value_desc = cJSON_GetObjectItem(value_entry, "description");
-                if (value && cJSON_IsNumber(value)) opt.value = value->valueint;
-                if (value_desc && cJSON_IsString(value_desc)) {
-                    opt.label = replace_newlines_with_spaces(value_desc->valuestring);
-                    opt.english_label = opt.label;
-                }
-                desc.options.push_back(opt);
-            }
-        }
-
-        const std::string param_name = desc.param_name;
-        const std::string group_name = desc.group;
-        descriptors[param_name] = std::move(desc);
-        if (!group_name.empty()) groups[group_name].param_names.push_back(param_name);
-        ++loaded;
-    }
-
-    for (auto& [group_name, group] : groups) {
-        group.name = group_name;
-        group.display_name = group_name;
-    }
-
-    profile_descriptors_["px4"] = std::move(descriptors);
-    profile_groups_["px4"] = std::move(groups);
-    standalone_profiles_.insert("px4");
-    cJSON_Delete(root);
-
-    MGC_LOG_INFO("[ParamDesc] Loaded %d PX4 parameter descriptors from %s",
-                 loaded, path.c_str());
-    return true;
-}
-
 std::string ParamDescriptors::normalize_profile(const std::string& profile) const {
     std::string result;
     result.reserve(profile.size());
@@ -970,15 +812,6 @@ ParamDescriptor ParamDescriptors::get_from_profile(const std::string& profile,
     if (extends_it != profile_extends_.end()) {
         auto inherited = get_from_profile(extends_it->second, param_name, depth + 1);
         if (inherited.found) return inherited;
-    }
-
-    // Snapshot profiles (PX4) end here: no ArduPilot default-descriptor fallback.
-    if (standalone_profiles_.count(profile) != 0) {
-        ParamDescriptor missing;
-        missing.param_name = param_name;
-        missing.display_name = param_name;
-        missing.found = false;
-        return missing;
     }
 
     return get(param_name);

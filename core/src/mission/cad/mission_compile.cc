@@ -115,8 +115,7 @@ MissionCompileResult compile_document_impl(const MissionDocument& document) {
         item.param4 = entity.params[3];
         const bool has_geographic_position =
             is_global_coordinate_frame(item.frame) &&
-            mission_command_uses_location(
-                item.command, document.metadata.firmware_profile);
+            mission_command_uses_location(item.command);
         if (has_geographic_position && std::isfinite(entity.latitude)) {
             item.x = static_cast<int32_t>(std::llround(entity.latitude * 1e7));
         }

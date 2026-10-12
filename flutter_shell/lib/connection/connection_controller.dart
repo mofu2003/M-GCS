@@ -24,13 +24,6 @@ import '../mission/mission_document_models.dart';
 import '../payload/payload_backend.dart';
 import '../payload/payload_controller.dart';
 import '../payload/payload_ffi_backend.dart';
-import '../terrain/elevation_provider.dart';
-import '../terrain/terrain_backend.dart';
-import '../terrain/terrain_controller.dart';
-import '../terrain/terrain_ffi_backend.dart';
-import '../survey/survey_backend.dart';
-import '../survey/survey_controller.dart';
-import '../survey/survey_ffi_backend.dart';
 import 'telemetry_ffi_backend.dart';
 import 'parameter_ffi_backend.dart';
 import 'calibration_ffi_backend.dart';
@@ -290,7 +283,7 @@ class FlightMessage {
 
 enum ConnectionTransport { serial, udp, tcp }
 
-/// 飞行模式表里的一项。`id` 是 MAVLink custom_mode（PX4 为 main/sub 打包值）。
+/// 飞行模式表里的一项。`id` 是 MAVLink custom_mode。
 class FlightModeOption {
   const FlightModeOption({
     required this.id,
@@ -515,11 +508,6 @@ final class ConnectionController extends ChangeNotifier {
   TlogController? _tlogController;
   FileBackend? _fileBackend;
   FileController? _fileController;
-  TerrainBackend? _terrainBackend;
-  TerrainController? _terrainController;
-  ElevationProvider? _elevationProvider;
-  SurveyBackend? _surveyBackend;
-  SurveyController? _surveyController;
   PayloadBackend? _payloadBackend;
   PayloadController? _payloadController;
 
@@ -650,40 +638,6 @@ final class ConnectionController extends ChangeNotifier {
       native.handle,
       isConnected: () => isConnected && sessionId != null,
     );
-  }
-
-  /// 地形高程控制器：native 缓存 + 在线 provider。
-  ///
-  /// S1 只交付取数能力（缓存命中/回填），尚未接入具体页面——前端入口待
-  /// docs/features/survey-and-terrain.md 的 D7 决策。provider 默认 open-elevation，
-  /// 可替换为自建端点。
-  TerrainController get terrainController =>
-      _terrainController ??= TerrainController(
-        backend: _terrainBackend ??= _makeTerrainBackend(),
-        provider: _elevationProvider ??= OpenElevationProvider(),
-      );
-
-  TerrainBackend _makeTerrainBackend() {
-    final native = _native;
-    if (native == null) {
-      return const TerrainUnavailableBackend();
-    }
-    return TerrainFfiBackend(native.library, native.handle);
-  }
-
-  /// 测绘规划控制器：native 纯计算生成航线，前端负责配置与并入任务。
-  ///
-  /// 生成不需要连接飞控；并把结果并入任务文档由 [SurveyController] 处理，
-  /// 上传仍走任务面板。入口见 docs/constraints/ui-pages.md 的「测绘规划」。
-  SurveyController get surveyController => _surveyController ??=
-      SurveyController(backend: _surveyBackend ??= _makeSurveyBackend());
-
-  SurveyBackend _makeSurveyBackend() {
-    final native = _native;
-    if (native == null) {
-      return const SurveyUnavailableBackend();
-    }
-    return SurveyFfiBackend(native.library, native.handle);
   }
 
   /// 「相机与云台」页的控制器：设备清单、状态与拍摄/指向命令。
@@ -822,13 +776,11 @@ final class ConnectionController extends ChangeNotifier {
   /// 当前是否处于 Go To 会保持目标的飞行模式。
   ///
   /// 对应 QGC `FlyViewMap.qml` 的
-  /// `_activeVehicle.flightMode === _activeVehicle.gotoFlightMode`：
-  /// ArduPilot 是 Guided，PX4 的 Go To 模式是 Auto Loiter。离开该模式后，
-  /// Go To 图标和固定翼盘旋圆都不再代表当前目的地。
+  /// `_activeVehicle.flightMode === _activeVehicle.gotoFlightMode`。
+  /// 离开该模式后，Go To 图标和固定翼盘旋圆都不再代表当前目的地。
   bool get isGuidedGotoFlightMode {
     final mode = vehicleFlightMode.trim().toLowerCase();
     if (mode.isEmpty) return false;
-    if (vehicleAutopilotType == 12) return mode == 'auto loiter';
     return mode == 'guided';
   }
 
@@ -1003,17 +955,6 @@ final class ConnectionController extends ChangeNotifier {
       final name = roleParam(role);
       final value = name == null ? null : parameters[name]?.value;
       return value != null && value > 0 ? value : null;
-    }
-
-    // PX4 没有 ArduPilot 那套 `PILOT_TKO_ALT_M` 参数：QGC 的 PX4 插件直接用
-    // `FirmwarePlugin::minimumTakeoffAltitudeMeters` 基类默认值（10 ft = 3.048 m）。
-    // core 固件插件把它经 `mg_firmware_get_type` 的 `minimum_takeoff_altitude_m`
-    // 暴露出来，这里优先采用。
-    final firmware = firmwareInfo?['firmware']?.toString().toLowerCase();
-    if (firmware == 'px4') {
-      return (firmwareInfo?['minimum_takeoff_altitude_m'] as num?)
-              ?.toDouble() ??
-          0;
     }
 
     if (controlProfile == VehicleControlProfile.planeVtol) {
@@ -2461,10 +2402,8 @@ final class ConnectionController extends ChangeNotifier {
     if (!supportsGuidedTakeoff) {
       throw StateError('起飞失败：当前机型不支持引导起飞');
     }
-    // QGC `_guidedModeTakeoff` 在 `altitudeAMSL` 为 NaN 时直接拒绝。PX4 把
-    // 相对高度换算成 AMSL 后才能发命令，所以还要求位置有效（bridge 侧也会拒绝）。
-    if (absoluteAltitudeMeters == null ||
-        (vehicleAutopilotType == 12 && !vehiclePositionValid)) {
+    // QGC `_guidedModeTakeoff` 在 `altitudeAMSL` 为 NaN 时直接拒绝。
+    if (absoluteAltitudeMeters == null) {
       throw StateError('起飞失败：飞机位置未知');
     }
     // QGC：起飞高度取 `max(飞控最小起飞高度, 用户值)`，用户不可能把它调低。
@@ -2474,17 +2413,7 @@ final class ConnectionController extends ChangeNotifier {
       takeoffAltitude = minimumAltitude;
     }
 
-    // QGC PX4 flow sends takeoff first and arms after the command is accepted.
     // ArduPilot requires GUIDED and an armed vehicle before NAV_TAKEOFF.
-    if (vehicleAutopilotType == 12) {
-      _requireCommandSuccess(
-        await flightCommandBackend.takeoff(takeoffAltitude),
-        '起飞',
-      );
-      if (!vehicleArmed) await _armVehicleAndValidate();
-      return;
-    }
-
     await _setFlightModeAndValidate(_guidedCustomMode, 'Guided');
     if (!vehicleArmed) await _armVehicleAndValidate();
     _requireCommandSuccess(
@@ -2495,7 +2424,7 @@ final class ConnectionController extends ChangeNotifier {
 
   /// Shared native workflow, also used by explicitly targeted batch starts.
   /// QGC APM: Plane/VTOL AUTO before arm; Copter GUIDED before arm.
-  /// PX4 uses AUTO_MISSION. Worker validates ACK and heartbeat state.
+  /// Worker validates ACK and heartbeat state.
   Future<void> startMission() async {
     _requireFreshVehicleState('启动任务');
     _requireCommandSuccess(await flightCommandBackend.startMission(), '启动任务');
@@ -2664,20 +2593,18 @@ final class ConnectionController extends ChangeNotifier {
     // ArduPilot's guided pause is a flight-mode change, not just a zero
     // velocity target. A one-shot velocity command can expire and silently
     // let the mission continue.
-    if (vehicleAutopilotType != 12) {
-      if (vehicleType == 10 || vehicleType == 11) {
-        await _setFlightModeAndValidate(3, 'Hold');
-        return;
-      }
-      if (controlProfile == VehicleControlProfile.copter) {
-        await _setFlightModeAndValidate(17, 'Brake');
-        return;
-      }
-      if (controlProfile == VehicleControlProfile.fixedWing ||
-          controlProfile == VehicleControlProfile.planeVtol) {
-        await _setFlightModeAndValidate(12, 'Loiter');
-        return;
-      }
+    if (vehicleType == 10 || vehicleType == 11) {
+      await _setFlightModeAndValidate(3, 'Hold');
+      return;
+    }
+    if (controlProfile == VehicleControlProfile.copter) {
+      await _setFlightModeAndValidate(17, 'Brake');
+      return;
+    }
+    if (controlProfile == VehicleControlProfile.fixedWing ||
+        controlProfile == VehicleControlProfile.planeVtol) {
+      await _setFlightModeAndValidate(12, 'Loiter');
+      return;
     }
     _requireCommandSuccess(await flightCommandBackend.guidedPause(), '暂停');
   }

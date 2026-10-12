@@ -137,41 +137,6 @@ void test_params_get_by_name() {
     if (null_name) mg_free_string(null_name);
 }
 
-// S4：任务命令目录按固件覆盖参数（QGC PX4-MavCmdInfoCommon.json 的 paramRemove）。
-// PX4 隐藏 NAV_WAYPOINT 的接受半径/通过半径；ArduPilot 保留全部字段。
-void test_mission_catalog_param_remove_per_firmware() {
-    fprintf(stderr, "\n[Group] mg_mission_get_command_catalog (paramRemove)\n");
-
-    {
-        MockFlightController::Config cfg; // 默认 ArduPilot
-        TestEnv env(cfg);
-        env.connect();
-        char* catalog = mg_mission_get_command_catalog(env.core);
-        CHECK(json_has(catalog, "\"name\":\"accept_radius\""),
-              "ArduPilot catalog keeps the waypoint acceptance radius");
-        CHECK(json_has(catalog, "\"name\":\"pass_radius\""),
-              "ArduPilot catalog keeps the waypoint pass radius");
-        if (catalog) mg_free_string(catalog);
-    }
-
-    {
-        MockFlightController::Config cfg;
-        cfg.firmware = MockFlightController::PX4;
-        TestEnv env(cfg);
-        env.connect();
-        char* catalog = mg_mission_get_command_catalog(env.core);
-        CHECK(!json_has(catalog, "\"name\":\"accept_radius\""),
-              "PX4 catalog hides the waypoint acceptance radius (paramRemove 2)");
-        CHECK(!json_has(catalog, "\"name\":\"pass_radius\""),
-              "PX4 catalog hides the waypoint pass radius (paramRemove 3)");
-        CHECK(json_has(catalog, "\"name\":\"hold_time\""),
-              "PX4 catalog keeps the waypoint hold time (not removed)");
-        CHECK(json_has(catalog, "\"name\":\"yaw\""),
-              "PX4 catalog keeps the waypoint yaw (not removed)");
-        if (catalog) mg_free_string(catalog);
-    }
-}
-
 void test_stream_set_interval() {
     fprintf(stderr, "\n[Group] mg_stream_set_interval\n");
     TestEnv env;
@@ -686,6 +651,32 @@ void test_mission_request_propagates_send_failure() {
     if (ok_result) mg_free_string(ok_result);
 }
 
+// 遥控通道 → 飞行模式的映射（对标 MP ConfigFlightModes）：读 FLTMODE1..6、
+// FLTMODE_CH 与 Copter 的 SIMPLE / SUPER_SIMPLE，槽位名用模式表反查。
+void test_flight_mode_mapping_reads_ardupilot_params() {
+    fprintf(stderr, "\n[Group] mg_flight_get_mode_mapping\n");
+
+    TestEnv env;  // 默认 ArduPilot/Copter
+    env.connect();
+    env.mock->add_param("FLTMODE1", 0);   // Stabilize
+    env.mock->add_param("FLTMODE2", 6);   // RTL
+    env.mock->add_param("FLTMODE_CH", 5);
+    env.mock->add_param("SIMPLE", 1);
+    env.load_params();
+
+    char* json = env.call_with_pump(mg_flight_get_mode_mapping);
+    CHECK(json != nullptr, "mode mapping returns json");
+    CHECK(json_has(json, "\"available\":true"), "FLTMODE1 present -> mapping available");
+    CHECK(json_has(json, "\"param_prefix\":\"FLTMODE\""), "ArduPilot uses the FLTMODE prefix");
+    CHECK(json_has(json, "\"channel_param\":\"FLTMODE_CH\""), "mode channel param is FLTMODE_CH");
+    CHECK(json_has(json, "\"channel\":5"), "mode channel value is read");
+    CHECK(json_has(json, "\"param\":\"FLTMODE2\"") && json_has(json, "\"value\":6"),
+          "slot 2 reports the RTL mode number");
+    CHECK(json_has(json, "\"name\":\"RTL\""), "slot name is resolved through the mode table");
+    CHECK(json_has(json, "\"SIMPLE\":1"), "Copter SIMPLE mask is reported");
+    if (json) mg_free_string(json);
+}
+
 void test_serial_get_uart_names() {
     fprintf(stderr, "\n[Group] mg_serial_get_uart_names\n");
 
@@ -889,188 +880,6 @@ void test_home_position_is_requested_on_identify() {
     if (home) mg_free_string(home);
 }
 
-// S1：PX4 的 COM_FLTMODE1..6 是参数枚举（不是 custom_mode），模式选择通道是
-// RC_MAP_FLTMODE。槽位名与 options 都必须来自参数枚举表，不能拿模式表反查。
-void test_px4_mode_mapping_uses_param_enum() {
-    fprintf(stderr, "\n[Group] mg_flight_get_mode_mapping (PX4)\n");
-    MockFlightController::Config cfg;
-    cfg.firmware = MockFlightController::PX4;
-    TestEnv env(cfg);
-    env.mock->add_param("COM_FLTMODE1", 2);   // Position
-    env.mock->add_param("COM_FLTMODE2", 3);   // Mission
-    env.mock->add_param("COM_FLTMODE3", 5);   // Return
-    env.mock->add_param("COM_FLTMODE4", 6);   // Acro
-    env.mock->add_param("COM_FLTMODE5", 7);   // Offboard（参数枚举，不是 custom_mode 0x00060000）
-    env.mock->add_param("COM_FLTMODE6", 9);   // Position Slow
-    env.mock->add_param("RC_MAP_FLTMODE", 6, 4);
-    env.connect();
-    env.load_params();
-
-    char* mapping = mg_flight_get_mode_mapping(env.core);
-    CHECK(json_has(mapping, "\"available\":true"), "PX4 mapping reports available");
-    CHECK(json_has(mapping, "\"param_prefix\":\"COM_FLTMODE\""),
-          "param prefix is COM_FLTMODE");
-    CHECK(json_has(mapping, "\"channel_param\":\"RC_MAP_FLTMODE\""),
-          "channel param is RC_MAP_FLTMODE");
-    CHECK(!json_has(mapping, "\"channel_param\":\"FLTMODE_CH\""),
-          "ArduPilot channel param does not leak into PX4 mapping");
-    CHECK(json_has(mapping, "\"name\":\"Position\""),
-          "slot name decodes from the param enum table (value 2 -> Position)");
-    CHECK(!json_has(mapping, "\"name\":\"Position Control\""),
-          "custom_mode name does not leak into the param-enum slots/options");
-    CHECK(json_has(mapping, "\"name\":\"Offboard\""),
-          "param value 7 decodes to Offboard (param enum, not custom_mode)");
-    // options 来自参数枚举表：包含 Mission/Return 等只在该表出现的名字。
-    CHECK(json_has(mapping, "\"name\":\"Return\""),
-          "options list comes from the param enum table");
-    if (mapping) mg_free_string(mapping);
-}
-
-// S6：PX4 执行器映射读写 16 路 PWM_MAIN_FUNC（旧实现只读写前 8 路，9..16 永远
-// 报 0 并静默丢弃写入）。同时钉住字段形状。
-void test_px4_actuator_maps_all_sixteen_channels() {
-    fprintf(stderr, "\n[Group] mg_px4_actuator_get/set_config (PX4)\n");
-    MockFlightController::Config cfg;
-    cfg.firmware = MockFlightController::PX4;
-    TestEnv env(cfg);
-    for (int i = 1; i <= 16; i++) {
-        env.mock->add_param("PWM_MAIN_FUNC" + std::to_string(i), static_cast<float>(i));
-    }
-    env.connect();
-    env.load_params();
-
-    char* got = mg_px4_actuator_get_config(env.core);
-    CHECK(json_has(got, "\"firmware\":\"PX4\""), "actuator config reports PX4 firmware");
-    CHECK(json_has(got, "\"param_prefix\":\"PWM_MAIN_FUNC\""), "actuator config reports the PWM_MAIN_FUNC prefix");
-    CHECK(json_has(got, "\"channel_count\":16"), "actuator config reports 16 main channels");
-    CHECK(json_has(got, "\"main_functions\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]"),
-          "actuator read covers all 16 PWM_MAIN_FUNC values, not just the first 8");
-    if (got) mg_free_string(got);
-
-    env.mock->received_params_set.clear();
-    char* set = mg_px4_actuator_set_config(
-        env.core, "{\"main_functions\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]}");
-    CHECK(json_has(set, "\"success\":true"), "actuator set reports success");
-    CHECK(json_has(set, "\"written\":16"), "actuator set reports 16 writes");
-    if (set) mg_free_string(set);
-    env.tick(50);
-
-    bool wrote9 = false, wrote16 = false;
-    for (const auto& name : env.mock->received_params_set) {
-        if (name == "PWM_MAIN_FUNC9") wrote9 = true;
-        if (name == "PWM_MAIN_FUNC16") wrote16 = true;
-    }
-    CHECK(wrote9 && wrote16, "actuator write sends PWM_MAIN_FUNC9..16, not only the first 8");
-
-    char* bad = mg_px4_actuator_set_config(env.core, "{\"main_functions\":\"nope\"}");
-    CHECK(json_has(bad, "\"success\":false") && json_has(bad, "\"name\":\"INVALID_PARAM\""),
-          "actuator set rejects a non-array main_functions");
-    if (bad) mg_free_string(bad);
-}
-
-// S6：PX4 安全只报告飞控实际缓存的 CBRK_*（旧实现写死 CBRK_AIRSPD_CHK /
-// CBRK_GPS_CHK / CBRK_IO_SAFETY，其中 CBRK_GPS_CHK 在 PX4 与 QGC 中都不存在）。
-void test_px4_safety_reports_only_real_circuit_breakers() {
-    fprintf(stderr, "\n[Group] mg_px4_safety_get/set (PX4)\n");
-    MockFlightController::Config cfg;
-    cfg.firmware = MockFlightController::PX4;
-    TestEnv env(cfg);
-    env.mock->add_param("CBRK_IO_SAFETY", 0, 2);
-    env.mock->add_param("CBRK_USB_CHK", 1, 2);
-    env.connect();
-    env.load_params();
-
-    char* got = mg_px4_safety_get(env.core);
-    CHECK(json_has(got, "\"circuit_breakers\":{\"CBRK_IO_SAFETY\":0,\"CBRK_USB_CHK\":1}"),
-          "safety get reports exactly the cached CBRK_* parameters");
-    CHECK(!json_has(got, "\"CBRK_GPS_CHK\""),
-          "safety get does not fabricate CBRK_GPS_CHK (absent from PX4 and QGC)");
-    CHECK(!json_has(got, "\"CBRK_AIRSPD_CHK\""),
-          "safety get does not fabricate CBRK_AIRSPD_CHK when the vehicle lacks it");
-    if (got) mg_free_string(got);
-
-    char* missing = mg_px4_safety_set(env.core, "{\"circuit_breakers\":{\"CBRK_GPS_CHK\":1}}");
-    CHECK(json_has(missing, "\"success\":false") && json_has(missing, "\"name\":\"NOT_FOUND\""),
-          "safety set rejects a breaker the vehicle does not have");
-    if (missing) mg_free_string(missing);
-
-    char* not_a_breaker = mg_px4_safety_set(env.core, "{\"circuit_breakers\":{\"NOT_A_CBRK\":1}}");
-    CHECK(json_has(not_a_breaker, "\"success\":false") && json_has(not_a_breaker, "\"name\":\"INVALID_PARAM\""),
-          "safety set rejects a key that is not a CBRK_* parameter");
-    if (not_a_breaker) mg_free_string(not_a_breaker);
-
-    env.mock->received_params_set.clear();
-    char* ok = mg_px4_safety_set(env.core, "{\"circuit_breakers\":{\"CBRK_IO_SAFETY\":1}}");
-    CHECK(json_has(ok, "\"success\":true") && json_has(ok, "\"written\":1"),
-          "safety set writes a breaker the vehicle has");
-    if (ok) mg_free_string(ok);
-    env.tick(50);
-
-    bool forwarded = false;
-    for (const auto& name : env.mock->received_params_set) {
-        if (name == "CBRK_IO_SAFETY") forwarded = true;
-    }
-    CHECK(forwarded, "safety set forwards PARAM_SET to the flight controller");
-}
-
-// S6：PX4 模式槽只读 COM_FLTMODE1..6，形如参数枚举值而不是 custom_mode。
-void test_px4_flight_mode_slots_are_read_only_list() {
-    fprintf(stderr, "\n[Group] mg_px4_flight_mode_get_config (PX4)\n");
-    MockFlightController::Config cfg;
-    cfg.firmware = MockFlightController::PX4;
-    TestEnv env(cfg);
-    env.mock->add_param("COM_FLTMODE1", 2);   // Position
-    env.mock->add_param("COM_FLTMODE2", 3);   // Mission
-    env.mock->add_param("COM_FLTMODE3", 5);   // Return
-    env.mock->add_param("COM_FLTMODE4", 6);   // Acro
-    env.mock->add_param("COM_FLTMODE5", 7);   // Offboard
-    env.mock->add_param("COM_FLTMODE6", 9);   // Position Slow
-    env.connect();
-    env.load_params();
-
-    char* modes = mg_px4_flight_mode_get_config(env.core);
-    CHECK(json_has(modes, "\"param_prefix\":\"COM_FLTMODE\""), "flight mode config uses the COM_FLTMODE prefix");
-    CHECK(json_has(modes, "\"slot_count\":6"), "flight mode config reports six slots");
-    CHECK(json_has(modes, "\"flight_modes\":[2,3,5,6,7,9]"),
-          "flight mode slots carry the raw COM_FLTMODE parameter values");
-    if (modes) mg_free_string(modes);
-}
-
-// S6：ArduPilot 车辆上 7 个 mg_px4_* 全部明确拒绝，不能对非 PX4 悄悄给结果。
-void test_px4_apis_reject_ardupilot() {
-    fprintf(stderr, "\n[Group] mg_px4_* on ArduPilot\n");
-    TestEnv env;  // 默认 ArduPilot/Copter
-    env.connect();
-
-    char* a = mg_px4_actuator_get_config(env.core);
-    CHECK(json_has(a, "\"name\":\"NOT_SUPPORTED\""), "actuator get rejects ArduPilot");
-    if (a) mg_free_string(a);
-
-    char* b = mg_px4_actuator_set_config(env.core, "{\"main_functions\":[1]}");
-    CHECK(json_has(b, "\"name\":\"NOT_SUPPORTED\""), "actuator set rejects ArduPilot");
-    if (b) mg_free_string(b);
-
-    char* c = mg_px4_safety_get(env.core);
-    CHECK(json_has(c, "\"name\":\"NOT_SUPPORTED\""), "safety get rejects ArduPilot");
-    if (c) mg_free_string(c);
-
-    char* d = mg_px4_safety_set(env.core, "{\"circuit_breakers\":{\"CBRK_IO_SAFETY\":1}}");
-    CHECK(json_has(d, "\"name\":\"NOT_SUPPORTED\""), "safety set rejects ArduPilot");
-    if (d) mg_free_string(d);
-
-    char* e = mg_px4_flight_mode_get_config(env.core);
-    CHECK(json_has(e, "\"name\":\"NOT_SUPPORTED\""), "flight mode get rejects ArduPilot");
-    if (e) mg_free_string(e);
-
-    char* f = mg_px4_tuning_get(env.core);
-    CHECK(json_has(f, "\"name\":\"NOT_SUPPORTED\""), "tuning get rejects ArduPilot");
-    if (f) mg_free_string(f);
-
-    char* g = mg_px4_tuning_set(env.core, "{\"mc_roll_p\":0.1}");
-    CHECK(json_has(g, "\"name\":\"NOT_SUPPORTED\""), "tuning set rejects ArduPilot");
-    if (g) mg_free_string(g);
-}
-
 // ---- 相机/云台设备清单（S2 前端页面的读接口基础） ----
 //
 // S1 的读接口只能返回「第一台设备 + 数量」，前端无法列出多台设备。
@@ -1098,6 +907,40 @@ void inject_message(TestEnv& env, mavlink_message_t& msg) {
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     env.link->inject_incoming(buf, len);
+}
+
+// 电机测试：MAV_CMD_DO_MOTOR_TEST(209)，参数校验与命令下发。
+void test_actuator_motor_test_sends_command() {
+    fprintf(stderr, "\n[Group] mg_actuator_motor_test\n");
+
+    TestEnv env;
+    env.connect();
+    env.mock->received_cmds.clear();
+
+    env.start_pump();
+    char* bad_motor = mg_actuator_motor_test(env.core, 0, 50.0f, 1000);
+    env.stop_pump();
+    CHECK(json_has(bad_motor, "\"success\":false"), "motor 0 is rejected");
+    if (bad_motor) mg_free_string(bad_motor);
+
+    env.start_pump();
+    char* bad_throttle = mg_actuator_motor_test(env.core, 1, 150.0f, 1000);
+    env.stop_pump();
+    CHECK(json_has(bad_throttle, "\"success\":false"), "throttle above 100 is rejected");
+    if (bad_throttle) mg_free_string(bad_throttle);
+
+    env.start_pump();
+    char* sent = mg_actuator_motor_test(env.core, 3, 25.0f, 2000);
+    env.tick(20);
+    env.stop_pump();
+    CHECK(json_has(sent, "\"success\":true"), "valid motor test is accepted");
+    if (sent) mg_free_string(sent);
+
+    bool found = false;
+    for (const auto& cmd : env.mock->received_cmds) {
+        if (cmd.command == 209 && cmd.p1 == 3.0f && cmd.p3 == 25.0f) found = true;
+    }
+    CHECK(found, "DO_MOTOR_TEST carries motor index and throttle percent");
 }
 
 void test_payload_device_inventory() {
@@ -1330,12 +1173,6 @@ void test_link_loss_notifies_the_interface() {
 int main() {
     fprintf(stderr, "=== FFI UI path simulation tests ===\n");
     test_params_get_by_name();
-    test_px4_mode_mapping_uses_param_enum();
-    test_px4_actuator_maps_all_sixteen_channels();
-    test_px4_safety_reports_only_real_circuit_breakers();
-    test_px4_flight_mode_slots_are_read_only_list();
-    test_px4_apis_reject_ardupilot();
-    test_mission_catalog_param_remove_per_firmware();
     test_stream_set_interval();
     test_vehicle_request_firmware_version();
     test_calibration_cancel();
@@ -1355,8 +1192,10 @@ int main() {
     test_log_download_unknown_size_is_unverified();
     test_log_erase_gating();
     test_mission_request_propagates_send_failure();
+    test_flight_mode_mapping_reads_ardupilot_params();
     test_serial_get_uart_names();
     test_fs_transfer_async_ffi();
+    test_actuator_motor_test_sends_command();
     test_payload_device_inventory();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

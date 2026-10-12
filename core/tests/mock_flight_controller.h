@@ -23,15 +23,13 @@
 
 class MockFlightController {
 public:
-    enum FirmwareType { ArduPilot, PX4 };
     enum VehicleType  { Copter, Plane, Rover };
 
     struct Config {
-        FirmwareType firmware;
         VehicleType  vehicle;
         uint8_t system_id;
         uint8_t component_id;
-        Config() : firmware(ArduPilot), vehicle(Copter), system_id(1), component_id(1) {}
+        Config() : vehicle(Copter), system_id(1), component_id(1) {}
     };
 
     struct ParamDef { float value; uint8_t type; };
@@ -289,7 +287,7 @@ private:
     void send_heartbeat() {
         mavlink_message_t m;
         uint8_t t=(config_.vehicle==Copter)?MAV_TYPE_QUADROTOR:(config_.vehicle==Plane)?MAV_TYPE_FIXED_WING:MAV_TYPE_GROUND_ROVER;
-        uint8_t a=(config_.firmware==ArduPilot)?MAV_AUTOPILOT_ARDUPILOTMEGA:MAV_AUTOPILOT_PX4;
+        uint8_t a=MAV_AUTOPILOT_ARDUPILOTMEGA;
         mavlink_msg_heartbeat_pack(config_.system_id,config_.component_id,&m,t,a,MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,0,MAV_STATE_STANDBY);
         send(m);
     }

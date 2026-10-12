@@ -174,55 +174,6 @@ static void test_chinese_translation_overlay() {
     CHECK(plane_coverage.localized_descriptions * 100 >= plane_coverage.total * 99, "Plane localized description coverage at least 99%");
 }
 
-static void test_px4_metadata() {
-    fprintf(stderr, "\n[Group] PX4 parameter metadata snapshot (ADR-0007)\n");
-
-    ParamDescriptors db(descriptor_path());
-    CHECK(db.has_px4_metadata(), "PX4 metadata loaded alongside ArduPilot descriptors");
-
-    const auto mode_slot = db.get("px4", "COM_FLTMODE1");
-    CHECK(mode_slot.found, "PX4 COM_FLTMODE1 found");
-    CHECK(mode_slot.display_name == "Mode slot 1", "PX4 COM_FLTMODE1 display name");
-    CHECK(mode_slot.group == "Commander", "PX4 COM_FLTMODE1 group");
-    CHECK(mode_slot.type == "int", "PX4 COM_FLTMODE1 type");
-    CHECK(mode_slot.options.size() >= 20, "PX4 COM_FLTMODE1 options");
-    CHECK(db.enum_label("px4", "COM_FLTMODE1", 5) == "Return", "PX4 COM_FLTMODE1 enum label");
-    CHECK(mode_slot.category == "Standard", "PX4 COM_FLTMODE1 category");
-    CHECK(!mode_slot.read_only, "PX4 COM_FLTMODE1 keeps known actions writable");
-
-    CHECK(db.get("px4", "ADSB_CALLSIGN_1").requires_reboot, "PX4 reboot flag parsed from snapshot");
-    CHECK(db.get("px4", "ASPD_SCALE_1").read_only, "PX4 volatile parameter is read-only");
-    CHECK(!db.validate("px4", "ASPD_SCALE_1", 1.0f).empty(), "PX4 read-only parameter rejects writes");
-
-    const auto float_param = db.get("px4", "MPC_XY_VEL_MAX");
-    CHECK(float_param.found, "PX4 float parameter found");
-    CHECK(float_param.type == "float", "PX4 float parameter type");
-    CHECK(!float_param.unit.empty(), "PX4 float parameter unit");
-    CHECK(float_param.min_value != float_param.max_value, "PX4 parameter range only from complete min/max");
-
-    const auto lonemin = db.get("px4", "ASPD_FP_T_WINDOW");
-    CHECK(lonemin.found && lonemin.max_value == 0.0f &&
-          db.validate("px4", "ASPD_FP_T_WINDOW", 9999.0f).empty(), "PX4 parameter with min-only keeps no bogus upper bound");
-
-    const auto missing = db.get("px4", "MGC_DOES_NOT_EXIST");
-    CHECK(!missing.found && missing.param_name == "MGC_DOES_NOT_EXIST", "unknown PX4 parameter falls back to name-only");
-
-    const auto px4_groups = db.get_group_names("px4");
-    CHECK(px4_groups.size() > 20, "PX4 groups come from metadata");
-    const auto commander = db.get_group("px4", "Commander");
-    CHECK(commander.param_names.size() > 10, "PX4 Commander group has parameters");
-    CHECK(commander.display_name == "Commander", "PX4 Commander group display name");
-
-    const auto px4_coverage = db.coverage("px4", {"COM_FLTMODE1", "MGC_UNKNOWN"});
-    CHECK(px4_coverage.total == 2 && px4_coverage.described == 1 &&
-          px4_coverage.fallback == 1, "PX4 coverage reports described and fallback");
-
-    // PX4 must not leak into the ArduPilot profiles and vice versa.
-    CHECK(!db.get("copter", "COM_FLTMODE1").found, "ArduPilot profile does not resolve PX4-only metadata");
-    CHECK(!db.get("px4", "BATT_MONITOR").found, "PX4 profile does not resolve ArduPilot-only metadata");
-}
-
-
 static void test_param_roles() {
     fprintf(stderr, "\n[Group] Semantic parameter roles (S6)\n");
 
@@ -266,7 +217,6 @@ static void test_param_roles() {
 
     CHECK(db.roles("rover").size() == db.roles("ardupilot").size(), "rover inherits only the ardupilot base roles");
 
-    CHECK(db.roles("px4").empty(), "PX4 profile has no role table");
     CHECK(db.roles("does-not-exist").empty(), "unknown profile has no role table");
 }
 
@@ -275,7 +225,6 @@ int main() {
 
     test_ardupilot_profiles();
     test_chinese_translation_overlay();
-    test_px4_metadata();
     test_param_roles();
 
     fprintf(stderr, "\n=== Results: %d/%d passed ===\n", g_passed, g_passed + g_failed);

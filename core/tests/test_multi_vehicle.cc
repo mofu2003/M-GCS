@@ -71,7 +71,7 @@ int main() {
         mg::core::vehicle::Vehicle v2(2);
 
         v1.set_identity(1, 1, "ArduPilot", "Copter");
-        v2.set_identity(2, 1, "PX4", "Copter");
+        v2.set_identity(2, 1, "ArduPilot", "Copter");
 
         // Each vehicle has its own cache
         v1.cache().gps.data.lat = 399042000;  // 39.9042 deg * 1e7
@@ -82,7 +82,6 @@ int main() {
         // Each vehicle has its own subsystems
         CHECK(&v1.calibration() != &v2.calibration(), "different CalibrationService instances");
         CHECK(&v1.flight_modes() != &v2.flight_modes(), "different FlightModeManager instances");
-        CHECK(&v1.geofence() != &v2.geofence(), "different GeofenceManager instances");
     }
 
     // 4. Concurrent vehicle access

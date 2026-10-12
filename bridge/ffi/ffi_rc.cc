@@ -2,14 +2,13 @@
 /**
  * ffi_rc.cc - RC Input / Servo Output
  *
- * RC 遥控输入通道和舵机输出 PWM 读取，AP/PX4 通用。
+ * RC 遥控输入通道和舵机输出 PWM 读取（ArduPilot）。
  *
  * Terminology (aligned with QGC/MP):
  *   RC_CHANNELS  msg 65  -> "rc"   (remote control input channels)
  *   SERVO_OUTPUT_RAW msg 36 -> "output" (actuator/servo PWM output)
  *
- * Both AP and PX4 send RC_CHANNELS. SERVO_OUTPUT_RAW is mainly AP;
- * PX4 uses ACTUATOR_OUTPUT (not yet parsed) but also emits SERVO_OUTPUT_RAW in compat mode.
+ * ArduPilot sends RC_CHANNELS and SERVO_OUTPUT_RAW.
  *
  * All data read from active vehicle's mg::core::telemetry::TelemetryCache.
  */
@@ -20,7 +19,7 @@
 
 // ================================================================
 // RC Input (RC_CHANNELS msg 65)
-// Unified for both AP and PX4
+// ArduPilot RC and servo output
 // ================================================================
 MGCORE_API char* mg_rc_get_channels(mg_core_t* core) {
     CHECK_CORE(core);
@@ -35,7 +34,7 @@ MGCORE_API char* mg_rc_get_channels(mg_core_t* core) {
 
 // ================================================================
 // Servo/Actuator Output (SERVO_OUTPUT_RAW msg 36)
-// AP calls these "servo", PX4 calls them "actuator" or "ch"
+// ArduPilot calls these "servo" or "ch"
 // We use "output" as the unified term in JSON
 // ================================================================
 MGCORE_API char* mg_servo_get_outputs(mg_core_t* core) {

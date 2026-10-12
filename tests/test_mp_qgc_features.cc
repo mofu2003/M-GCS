@@ -107,11 +107,6 @@ int main() {
     TJ("mg_flight_get_mode_status", mg_flight_get_mode_status(core));
     TJ("mg_flight_get_mode_history", mg_flight_get_mode_history(core));
 
-    // --- Geofence ---
-    printf("\n--- Geofence ---\n"); fflush(stdout);
-    TJ("mg_geofence_get_config", mg_geofence_get_config(core));
-    TJ("mg_geofence_check", mg_geofence_check(core, 37.0, -122.0));
-
     // --- Rally / Fence ---
     printf("\n--- Rally / Fence Protocol ---\n"); fflush(stdout);
     TJ("mg_rally_get_plan", mg_rally_get_plan(core));
@@ -135,13 +130,6 @@ int main() {
     TJ("mg_calibration_get_status", mg_calibration_get_status(core));
     TJ("mg_calibration_get_history", mg_calibration_get_history(core, 0));
     TJ("mg_calibration_get_retry_info", mg_calibration_get_retry_info(core));
-
-    // --- PX4 Specific ---
-    printf("\n--- PX4 Specific ---\n"); fflush(stdout);
-    TJ("mg_px4_actuator_get_config", mg_px4_actuator_get_config(core));
-    TJ("mg_px4_flight_mode_get_config", mg_px4_flight_mode_get_config(core));
-    TJ("mg_px4_safety_get", mg_px4_safety_get(core));
-    TJ("mg_px4_tuning_get", mg_px4_tuning_get(core));
 
     // --- Flight Commands (verify FFI calls return valid JSON) ---
     printf("\n--- Flight Commands (FFI call check) ---\n"); fflush(stdout);

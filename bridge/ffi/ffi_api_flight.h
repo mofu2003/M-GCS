@@ -38,8 +38,8 @@ MGCORE_API char* mg_command_poll(mg_core_t* core, uint64_t ticket);
 MGCORE_API char* mg_command_arm(mg_core_t* core, int force);
 MGCORE_API char* mg_command_disarm(mg_core_t* core, int force);
 MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_mode);
-// 飞行模式操作台接口。模式表按机型给（ArduPilot 用 Copter/Plane/Rover/Sub/Tracker 各自
-// 的枚举号，PX4 用 main/sub 打包），与 MP 的 CMB_modes、QGC 的 flightMode 菜单同源。
+// 飞行模式操作台接口。模式表按机型给（Copter/Plane/Rover/Sub/Tracker 各自的
+// 枚举号），与 MP 的 CMB_modes、QGC 的 flightMode 菜单同源。
 // mg_flight_get_modes 返回 available / current_mode / armed / modes[{id,name,settable}]，
 // 以及 heartbeat_fresh / heartbeat_age_ms：heartbeat_fresh 为 false 时 armed 与
 // current_mode 来自最后一帧，调用方必须按“未知”处理，不能当成当前值（S5）。
@@ -49,10 +49,8 @@ MGCORE_API char* mg_command_set_mode(mg_core_t* core, int base_mode, int custom_
 MGCORE_API char* mg_flight_get_modes(mg_core_t* core);
 MGCORE_API char* mg_flight_set_mode(mg_core_t* core, const char* mode_name);
 // 遥控通道 → 飞行模式的映射（对标 MP 的 ConfigFlightModes 页面）：读取
-// FLTMODE1..6 / COM_FLTMODE1..6、通道参数 FLTMODE_CH|MODE_CH（PX4 为
-// RC_MAP_FLTMODE），以及 Copter/Rover 的 SIMPLE / SUPER_SIMPLE 位掩码。
-// PX4 的 COM_FLTMODEn 取值是参数枚举（非 custom_mode），槽位名与 options
-// 由 core 的 px4_fltmode_slot_table() 提供。写回复用 mg_config_write_params。
+// FLTMODE1..6、通道参数 FLTMODE_CH|MODE_CH，以及 Copter/Rover 的
+// SIMPLE / SUPER_SIMPLE 位掩码。写回复用 mg_config_write_params。
 MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core);
 MGCORE_API char* mg_command_rtl(mg_core_t* core);
 MGCORE_API char* mg_command_takeoff(mg_core_t* core, float altitude_m);

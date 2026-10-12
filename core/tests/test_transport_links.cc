@@ -241,7 +241,7 @@ static void test_windows_serial_configuration() {
 
 // USBBoardInfo.json 的 boardDescriptionFallback 是一张按端口描述匹配的兜底表。
 // 手写扫描器曾用 find(']') 找数组结尾，遇到正则里的 ']'（"^fmuv[2345]$"）就提前
-// 收尾，只读到 35/51 条，静默丢弃后面 16 条板卡（ARK 系列、PX4 TROPIC、
+// 收尾，只读到 35/51 条，静默丢弃后面 16 条板卡（ARK 系列、TROPIC、
 // mRoControlZeroF7、FT231X 等）。这里用那些被丢弃条目才能匹配的描述做行为断言。
 static void test_board_info_fallback_table_is_loaded_completely() {
     fprintf(stderr, "\n[Group] USBBoardInfo description fallbacks are all loaded\n");

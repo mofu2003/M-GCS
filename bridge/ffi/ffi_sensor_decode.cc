@@ -32,52 +32,17 @@ MGCORE_API char* mg_sensor_decode_type_param(mg_core_t* core, int type_value, co
     return to_cstr(mg::bridge::sensor_decode_type_json(result.name, result.family, result.valid));
 }
 
-MGCORE_API char* mg_sensor_decode_px4_id(mg_core_t* core, int device_id, const char* category) {
-    CHECK_CORE(core);
-    auto decoded = get_active_sensor_decoder(core).decode_px4_id(device_id, (category && category[0]) ? category : "imu");
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("device_id", device_id);
-    jb.field("name", decoded.name);
-    jb.field("type", decoded.sensor_type);
-    jb.field("family", decoded.family);
-    jb.field("devtype", decoded.devtype);
-    jb.field("bus_type", decoded.bus_type);
-    jb.field("bus", decoded.bus);
-    jb.field("address", decoded.address);
-    jb.field("valid", decoded.valid);
-    jb.field("encoding", "px4");
-    jb.end_object();
-    return to_cstr(jb.str());
-}
-
-MGCORE_API char* mg_sensor_decode_px4_type(mg_core_t* core, int type_value, const char* category) {
-    CHECK_CORE(core);
-    auto decoded = get_active_sensor_decoder(core).decode_px4_type_value(type_value, (category && category[0]) ? category : "imu");
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("type_value", type_value);
-    jb.field("name", decoded.name);
-    jb.field("type", decoded.sensor_type);
-    jb.field("family", decoded.family);
-    jb.field("valid", decoded.valid);
-    jb.end_object();
-    return to_cstr(jb.str());
-}
-
 MGCORE_API char* mg_sensors_identify_all(mg_core_t* core) {
     CHECK_CORE(core);
     auto mav = shared_active_mavlink(core);
     if (!mav) return to_cstr("{}");
-    auto hb = mav->latest_heartbeat();
-    bool px4 = hb.has_value() && hb->autopilot_type == 12;
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
-    jb.field("firmware", px4 ? "PX4" : "ArduPilot");
+    jb.field("firmware", "ArduPilot");
     {
         mg::core::telemetry::JsonBuilder arr;
         arr.begin_array();
-        if (!px4) {
+        {
             const char* gyro_params[] = {"INS_GYR_ID", "INS_GYR2_ID", "INS_GYR3_ID", nullptr};
             const char* accel_params[] = {"INS_ACC_ID", "INS_ACC2_ID", "INS_ACC3_ID", nullptr};
             for (int i = 0; gyro_params[i]; i++) {
@@ -119,7 +84,7 @@ MGCORE_API char* mg_sensors_identify_all(mg_core_t* core) {
     {
         mg::core::telemetry::JsonBuilder arr;
         arr.begin_array();
-        if (!px4) {
+        {
             const char* params[] = {"COMPASS_DEV_ID", "COMPASS_DEV_ID2", "COMPASS_DEV_ID3", nullptr};
             for (int i = 0; params[i]; i++) {
                 int device_id = static_cast<int>(get_pval(core, params[i]));
@@ -143,7 +108,7 @@ MGCORE_API char* mg_sensors_identify_all(mg_core_t* core) {
     {
         mg::core::telemetry::JsonBuilder arr;
         arr.begin_array();
-        if (!px4) {
+        {
             const char* params[] = {"BARO1_DEVID", "BARO2_DEVID", "BARO3_DEVID", nullptr};
             for (int i = 0; params[i]; i++) {
                 int device_id = static_cast<int>(get_pval(core, params[i]));

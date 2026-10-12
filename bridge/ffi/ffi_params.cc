@@ -168,7 +168,7 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
             }
             for (const auto& param : params) {
                 const std::string canonical_name =
-                    ffi_param_canonical_name(core, param.name);
+                    param.name;
                 if (canonical_name.rfind(prefix, 0) != 0) continue;
                 if (seen.insert(param.name).second) resolved.push_back(param.name);
                 else duplicates++;
@@ -176,7 +176,7 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
             continue;
         }
 
-        const std::string vehicle_name = ffi_param_vehicle_name(core, entry);
+        const std::string vehicle_name = entry;
         if (available.count(vehicle_name) == 0) {
             unknown.push_back(entry);
             continue;
@@ -314,7 +314,7 @@ MGCORE_API char* mg_params_set(mg_core_t* core, const char* param_name, float pa
         return fail(MG_ERROR_INVALID_STATE, "params not loaded; call mg_params_request_all() first and wait for completion");
     }
 
-    const std::string vehicle_name = ffi_param_vehicle_name(core, param_name);
+    const std::string vehicle_name = param_name;
     uint8_t mav_type = static_cast<uint8_t>(param_type);
     if (mav_type == 0) {
         auto p = mav->get_param_by_name(vehicle_name.c_str());

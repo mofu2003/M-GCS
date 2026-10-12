@@ -59,7 +59,7 @@ void main() {
     });
 
     test('orbit and ROI follow the firmware capability, not guided mode', () {
-      // 固件声明支持引导但没给 orbit/roi（例如 PX4 固定翼只给 orbit）时，
+      // 固件声明支持引导但没给 orbit/roi 时，
       // 地图上不应该出现飞控不执行的入口。
       final fixedWing = mapActionVisibility(
         guidedEnabled: true,

@@ -2,14 +2,10 @@
 /**
  * ffi_serial.cc - Serial port configuration
  *
- * 串口配置：波特率和协议参数读写，自动适配 AP/PX4 参数命名。
+ * 串口配置：波特率和协议参数读写（ArduPilot 参数命名）。
  *
- * Reads/writes SERIAL*_BAUD and SERIAL*_PROTOCOL parameters.
- * Auto-detects AP vs PX4 parameter naming:
- *   AP:  SERIAL{n}_BAUD, SERIAL{n}_PROTOCOL
- *   PX4: SER_TEL{n}_BAUD, SER_TEL{n}_PROT
- *
- * Both use the same underlying PARAM_SET command.
+ * Reads/writes SERIAL{n}_BAUD and SERIAL{n}_PROTOCOL parameters
+ * via the standard PARAM_SET command.
  */
 #include "ffi_internal.h"
 #include "core/telemetry/json_serializers.h"
@@ -25,15 +21,6 @@ static const char* ap_serial_params[] = {
 static const char* ap_proto_params[] = {
     "SERIAL0_PROTOCOL", "SERIAL1_PROTOCOL", "SERIAL2_PROTOCOL", "SERIAL3_PROTOCOL",
     "SERIAL4_PROTOCOL", "SERIAL5_PROTOCOL", "SERIAL6_PROTOCOL", "SERIAL7_PROTOCOL", NULL
-};
-
-static const char* px4_serial_params[] = {
-    "SER_TEL1_BAUD", "SER_TEL2_BAUD", "SER_TEL3_BAUD", "SER_TEL4_BAUD",
-    "SER_GPS1_BAUD", "SER_GPS2_BAUD", NULL
-};
-static const char* px4_proto_params[] = {
-    "SER_TEL1_PROT", "SER_TEL2_PROT", "SER_TEL3_PROT", "SER_TEL4_PROT",
-    "SER_GPS1_PROT", "SER_GPS2_PROT", NULL
 };
 
 static const char* ap_proto_names[] = {
@@ -53,9 +40,8 @@ static std::string serial_port_name_from_param(const char* param_name) {
 
 MGCORE_API char* mg_serial_get_configs(mg_core_t* core) {
     CHECK_CORE(core);
-    bool px4 = ffi_is_px4(core);
-    const char** baud_params = px4 ? px4_serial_params : ap_serial_params;
-    const char** proto_params = px4 ? px4_proto_params : ap_proto_params;
+    const char** baud_params = ap_serial_params;
+    const char** proto_params = ap_proto_params;
 
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_array();
@@ -80,7 +66,7 @@ MGCORE_API char* mg_serial_get_configs(mg_core_t* core) {
         int proto_id = (int)proto;
         obj.field("protocol", proto_id);
 
-        if (!px4 && proto_id >= 0 && proto_id < 10 && ap_proto_names[proto_id]) {
+        if (proto_id >= 0 && proto_id < 10 && ap_proto_names[proto_id]) {
             obj.field("protocol_name", ap_proto_names[proto_id]);
         }
 

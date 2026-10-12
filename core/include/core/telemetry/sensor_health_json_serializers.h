@@ -137,9 +137,7 @@ inline std::string sensor_health_json(const mg::core::mavlink::SysStatusInfo& ss
         collect_item(def);
     }
 
-    const char* firmware_name = "generic";
-    if (autopilot_type == 3) firmware_name = "ardupilot";
-    else if (autopilot_type == 12) firmware_name = "px4";
+    const char* firmware_name = (autopilot_type == 3) ? "ardupilot" : "generic";
 
     auto list_to_json = [](const std::vector<std::string>& items) {
         JsonBuilder jb;
@@ -191,15 +189,6 @@ inline std::string sensor_health_json(const mg::core::mavlink::SysStatusInfo& ss
             sensor_health_item_json(sensor_health_bit_defs()[5], present, enabled, health),
             sensor_health_item_json(sensor_health_bit_defs()[15], present, enabled, health),
             sensor_health_item_json(sensor_health_bit_defs()[16], present, enabled, health),
-            sensor_health_item_json(extended_sensor_health_bit_defs()[3], present, enabled, health),
-        }));
-    } else if (autopilot_type == 12) {
-        firmware_view.raw_field("px4", init_list_to_json({
-            sensor_health_item_json(sensor_health_bit_defs()[0], present, enabled, health),
-            sensor_health_item_json(sensor_health_bit_defs()[1], present, enabled, health),
-            sensor_health_item_json(sensor_health_bit_defs()[2], present, enabled, health),
-            sensor_health_item_json(sensor_health_bit_defs()[5], present, enabled, health),
-            sensor_health_item_json(sensor_health_bit_defs()[15], present, enabled, health),
             sensor_health_item_json(extended_sensor_health_bit_defs()[3], present, enabled, health),
         }));
     } else {

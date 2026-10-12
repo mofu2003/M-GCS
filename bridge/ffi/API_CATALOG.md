@@ -11,7 +11,7 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 任务上传的即时响应表示传输启动，最终结果需读取 operation 状态。
 符号检查不等于完整的参数类型或行为验证；真实交互另由 FFI smoke 和合约测试覆盖。
 
-公开函数：280；Flutter 绑定：136。
+公开函数：262；Flutter 绑定：130。
 
 ## ffi_api_configuration.h
 
@@ -36,13 +36,6 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `char* mg_config_get_presets(mg_core_t* core);` | — |
 | `char* mg_config_read_group(mg_core_t* core, const char* group_name);` | — |
 | `char* mg_config_validate_param(mg_core_t* core, const char* param_name, float value);` | — |
-| `char* mg_px4_actuator_get_config(mg_core_t* core);` | — |
-| `char* mg_px4_actuator_set_config(mg_core_t* core, const char* json_config);` | — |
-| `char* mg_px4_flight_mode_get_config(mg_core_t* core);` | — |
-| `char* mg_px4_safety_get(mg_core_t* core);` | — |
-| `char* mg_px4_safety_set(mg_core_t* core, const char* json_config);` | — |
-| `char* mg_px4_tuning_get(mg_core_t* core);` | — |
-| `char* mg_px4_tuning_set(mg_core_t* core, const char* json_config);` | — |
 | `char* mg_rc_get_calibration(mg_core_t* core);` | — |
 | `char* mg_rc_get_failsafe(mg_core_t* core);` | — |
 | `char* mg_rc_get_mapping(mg_core_t* core);` | — |
@@ -91,7 +84,7 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `mg_core_t* mg_create(void);` | `flutter_shell/lib/connection/native_core.dart` |
 | `void mg_destroy(mg_core_t* core);` | `flutter_shell/lib/connection/native_core.dart` |
 | `const char* mg_error_string(mg_error_t error);` | — |
-| `void mg_free_string(char* str);` | `flutter_shell/lib/connection/calibration_ffi_backend.dart`<br>`flutter_shell/lib/connection/flight_command_ffi_backend.dart`<br>`flutter_shell/lib/connection/native_core.dart`<br>`flutter_shell/lib/connection/parameter_ffi_backend.dart`<br>`flutter_shell/lib/connection/telemetry_ffi_backend.dart`<br>`flutter_shell/lib/fleet/fleet_ffi_backend.dart`<br>`flutter_shell/lib/logging/file_ffi_backend.dart`<br>`flutter_shell/lib/logging/log_ffi_backend.dart`<br>`flutter_shell/lib/logging/tlog_ffi_backend.dart`<br>`flutter_shell/lib/mission/mission_document_ffi_backend.dart`<br>`flutter_shell/lib/payload/payload_ffi_backend.dart`<br>`flutter_shell/lib/survey/survey_ffi_backend.dart`<br>`flutter_shell/lib/terrain/terrain_ffi_backend.dart` |
+| `void mg_free_string(char* str);` | `flutter_shell/lib/connection/calibration_ffi_backend.dart`<br>`flutter_shell/lib/connection/flight_command_ffi_backend.dart`<br>`flutter_shell/lib/connection/native_core.dart`<br>`flutter_shell/lib/connection/parameter_ffi_backend.dart`<br>`flutter_shell/lib/connection/telemetry_ffi_backend.dart`<br>`flutter_shell/lib/fleet/fleet_ffi_backend.dart`<br>`flutter_shell/lib/logging/file_ffi_backend.dart`<br>`flutter_shell/lib/logging/log_ffi_backend.dart`<br>`flutter_shell/lib/logging/tlog_ffi_backend.dart`<br>`flutter_shell/lib/mission/mission_document_ffi_backend.dart`<br>`flutter_shell/lib/payload/payload_ffi_backend.dart` |
 | `mg_error_t mg_get_last_error(void);` | — |
 | `char* mg_get_version(void);` | — |
 | `char* mg_operations_cancel(mg_core_t* core, const char* operation_id);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
@@ -109,10 +102,6 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `char* mg_sitl_start(mg_core_t* core, const char* json_config);` | — |
 | `char* mg_sitl_status(mg_core_t* core);` | — |
 | `char* mg_sitl_stop(mg_core_t* core);` | — |
-| `char* mg_terrain_cache_clear(mg_core_t* core);` | `flutter_shell/lib/terrain/terrain_ffi_backend.dart` |
-| `char* mg_terrain_cache_update(mg_core_t* core, const char* json_config);` | `flutter_shell/lib/terrain/terrain_ffi_backend.dart` |
-| `char* mg_terrain_query(mg_core_t* core, double lat, double lon);` | `flutter_shell/lib/terrain/terrain_ffi_backend.dart` |
-| `char* mg_terrain_query_line(mg_core_t* core, double lat1, double lon1, double lat2, double lon2, int samples);` | `flutter_shell/lib/terrain/terrain_ffi_backend.dart` |
 
 ## ffi_api_firmware.h
 
@@ -163,16 +152,6 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `char* mg_flight_set_takeoff_altitude(mg_core_t* core, float altitude_m);` | — |
 | `char* mg_preflight_check(mg_core_t* core);` | — |
 
-## ffi_api_geofence.h
-
-| 声明 | Flutter 绑定位置 |
-| --- | --- |
-| `char* mg_fence_download(mg_core_t* core);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
-| `char* mg_fence_enable(mg_core_t* core, int enable);` | — |
-| `char* mg_fence_get_plan(mg_core_t* core);` | — |
-| `char* mg_geofence_check(mg_core_t* core, double lat, double lon);` | — |
-| `char* mg_geofence_get_config(mg_core_t* core);` | — |
-
 ## ffi_api_logging.h
 
 | 声明 | Flutter 绑定位置 |
@@ -207,6 +186,8 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 
 | 声明 | Flutter 绑定位置 |
 | --- | --- |
+| `char* mg_fence_download(mg_core_t* core);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
+| `char* mg_fence_get_plan(mg_core_t* core);` | — |
 | `char* mg_mission_clear(mg_core_t* core);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
 | `char* mg_mission_doc_apply(mg_core_t* core, const char* json_command);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
 | `char* mg_mission_doc_clear_fence(mg_core_t* core);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
@@ -245,8 +226,6 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `char* mg_mission_upload(mg_core_t* core, const char* json_wps);` | — |
 | `char* mg_rally_download(mg_core_t* core);` | `flutter_shell/lib/mission/mission_document_ffi_backend.dart` |
 | `char* mg_rally_get_plan(mg_core_t* core);` | — |
-| `char* mg_survey_generate(mg_core_t* core, const char* json_config);` | `flutter_shell/lib/survey/survey_ffi_backend.dart` |
-| `char* mg_survey_generate_corridor(mg_core_t* core, const char* json_config);` | `flutter_shell/lib/survey/survey_ffi_backend.dart` |
 
 ## ffi_api_params.h
 
@@ -309,8 +288,6 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `char* mg_rc_get_channel(mg_core_t* core, int channel);` | — |
 | `char* mg_rc_get_channels(mg_core_t* core);` | `flutter_shell/lib/connection/telemetry_ffi_backend.dart` |
 | `char* mg_sensor_decode_device_id(mg_core_t* core, int device_id, const char* category);` | — |
-| `char* mg_sensor_decode_px4_id(mg_core_t* core, int device_id, const char* category);` | — |
-| `char* mg_sensor_decode_px4_type(mg_core_t* core, int type_value, const char* category);` | — |
 | `char* mg_sensor_decode_type_param(mg_core_t* core, int type_value, const char* category);` | — |
 | `char* mg_sensors_get_health(mg_core_t* core);` | `flutter_shell/lib/connection/telemetry_ffi_backend.dart` |
 | `char* mg_sensors_get_statustext(mg_core_t* core);` | — |
@@ -374,13 +351,6 @@ Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。
 | `mg_event_log_get_status` | 0.3.0 之后延期 | 延期至 0.3.0 之后；事件日志服务当前不接入 UI |
 | `mg_mission_set_current` | 0.3.0 之后延期 | 延期至 0.3.0 之后；当前版本不提供跳转到航点入口 |
 | `mg_param_file_import` | 0.3.0 之后延期 | 延期至 0.3.0 之后；参数文件导入 UI 尚未接入 |
-| `mg_px4_actuator_get_config` | 内部能力 | PX4 执行器映射；内部能力（通用参数页覆盖 PWM_MAIN_FUNC1..16） |
-| `mg_px4_actuator_set_config` | 内部能力 | PX4 执行器映射；内部能力（通用参数页覆盖 PWM_MAIN_FUNC1..16） |
-| `mg_px4_flight_mode_get_config` | 内部能力 | PX4 模式槽只读视图（COM_FLTMODE1..6）；写入走通用参数页，避免与 RC 模式通道脱节 |
-| `mg_px4_safety_get` | 内部能力 | PX4 安全断路器；内部能力（按飞控实际 CBRK_* 缓存报告，不伪造固定字段） |
-| `mg_px4_safety_set` | 内部能力 | PX4 安全断路器；内部能力（只写飞控实际存在的 CBRK_*） |
-| `mg_px4_tuning_get` | 内部能力 | PX4 姿态/角速度 PID；内部能力（通用参数页覆盖 MC_* 参数） |
-| `mg_px4_tuning_set` | 内部能力 | PX4 姿态/角速度 PID；内部能力（通用参数页覆盖 MC_* 参数） |
 | `mg_rc_set_failsafe` | 内部能力 | RC 失联保护写入；内部能力（通用参数页覆盖 RC_FS_* / *FS_* 参数） |
 | `mg_rc_set_mapping` | 内部能力 | RC 通道映射写入；内部能力（通用参数页覆盖 RCMAP_* / RC_MAP_*） |
 | `mg_session_log_start` | 0.3.0 之后延期 | 延期至 0.3.0 之后；会话文件日志当前不接入 UI |

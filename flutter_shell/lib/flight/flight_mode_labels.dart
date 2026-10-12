@@ -65,9 +65,6 @@ const Map<String, String> _flightModeLabels = {
   'Turtle': '翻正',
   'Termination': '紧急终止',
   'Initialising': '初始化中',
-
-  // ── PX4 ──
-  'Offboard': '外部控制',
 };
 
 /// 未收录的模式直接回退成原始英文标识。

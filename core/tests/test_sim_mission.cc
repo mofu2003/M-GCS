@@ -239,11 +239,10 @@ static void test_mission_download_compat_item() {
     CHECK(has_lat && has_lon, "compat mission item download preserves coordinates");
 }
 
-// S4：DO_LAND_START(189) 的 x/y 语义按固件区分。ArduPilot
-// `AP_Mission::stored_in_location()` 把它当坐标；QGC 的 PX4 MavCmdInfo
-// 覆盖成纯标记，0/无关值不能被画到地图上。
-static void test_mission_plan_json_land_start_per_firmware() {
-    fprintf(stderr, "\n[Group] Mission plan JSON DO_LAND_START per firmware\n");
+// DO_LAND_START(189) 的 x/y 按 ArduPilot `AP_Mission::stored_in_location()`
+// 语义当坐标处理。
+static void test_mission_plan_json_land_start() {
+    fprintf(stderr, "\n[Group] Mission plan JSON DO_LAND_START\n");
 
     auto land_start_mission = [] {
         std::vector<mavlink_mission_item_int_t> items(2);
@@ -286,31 +285,6 @@ static void test_mission_plan_json_land_start_per_firmware() {
         CHECK(keeps_waypoint, "ArduPilot plan JSON keeps the waypoint coordinates");
     }
 
-    {
-        MockFlightController::Config cfg;
-        cfg.firmware = MockFlightController::PX4;
-        TestEnv env(cfg);
-        for (int i = 0; i < 15; i++) env.tick(100);
-        env.mock->set_mission(land_start_mission());
-
-        char* started = mg_mission_download(env.core);
-        if (started) mg_free_string(started);
-        for (int i = 0; i < 80; i++) env.tick(50);
-
-        char* plan = mg_mission_get_plan(env.core);
-        const bool lists_command =
-            plan != nullptr && strstr(plan, "\"command\":189") != nullptr;
-        const bool drops_land_start =
-            plan != nullptr && strstr(plan, "\"lat\":47.5") == nullptr &&
-            strstr(plan, "\"lon\":85.4") == nullptr;
-        const bool keeps_waypoint =
-            plan != nullptr && strstr(plan, "\"lat\":39.9") != nullptr;
-        if (plan) mg_free_string(plan);
-        CHECK(lists_command, "PX4 plan JSON still lists DO_LAND_START");
-        CHECK(drops_land_start,
-              "PX4 plan JSON treats DO_LAND_START x/y as a marker, not a position");
-        CHECK(keeps_waypoint, "PX4 plan JSON keeps the waypoint coordinates");
-    }
 }
 
 static void test_mission_clear() {
@@ -746,7 +720,7 @@ int main() {
     test_mission_upload_compat_request();
     test_mission_download();
     test_mission_download_compat_item();
-    test_mission_plan_json_land_start_per_firmware();
+    test_mission_plan_json_land_start();
     test_mission_clear();
     test_mission_transfer_guards();
     test_mission_ack_source_validation();

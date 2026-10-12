@@ -6,7 +6,6 @@
 #include <cstring>
 
 #include "core/telemetry/json_builder.h"
-#include "core/firmware/modes/px4_modes.h"
 
 #include <optional>
 #include <string>
@@ -84,27 +83,15 @@ MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core) {
         return info->value;
     };
 
-    // ArduPilot 用 FLTMODE1..6，PX4 用 COM_FLTMODE1..6：以实际存在的参数为准。
+    // ArduPilot 用 FLTMODE1..6 保存模式槽。
     const char* prefix = "FLTMODE";
-    if (!read_param("FLTMODE1").has_value() &&
-        read_param("COM_FLTMODE1").has_value()) {
-        prefix = "COM_FLTMODE";
-    }
-    const bool is_px4 = strcmp(prefix, "COM_FLTMODE") == 0;
-    const bool available = read_param(prefix == std::string("FLTMODE") ? "FLTMODE1"
-                                                                       : "COM_FLTMODE1")
-                               .has_value();
+    const bool available = read_param("FLTMODE1").has_value();
     jb.field("available", available);
     jb.field("param_prefix", prefix);
 
-    // 模式选择通道：Plane/Copter 用 FLTMODE_CH，Rover 用 MODE_CH，
-    // PX4 用 RC_MAP_FLTMODE（值是通道号，语义与 ArduPilot 的 *_CH 相同）。
+    // 模式选择通道：Plane/Copter 用 FLTMODE_CH，Rover 用 MODE_CH。
     const char* channel_param = nullptr;
-    if (is_px4) {
-        if (read_param("RC_MAP_FLTMODE").has_value()) {
-            channel_param = "RC_MAP_FLTMODE";
-        }
-    } else if (read_param("FLTMODE_CH").has_value()) {
+    if (read_param("FLTMODE_CH").has_value()) {
         channel_param = "FLTMODE_CH";
     } else if (read_param("MODE_CH").has_value()) {
         channel_param = "MODE_CH";
@@ -126,18 +113,15 @@ MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core) {
         item.field("slot", slot);
         item.field("param", name);
         item.field("value", mode_id);
-        // PX4 的 COM_FLTMODEn 取值是参数枚举，和 custom_mode 不是同一套编码，
-        // 不能拿模式表反查；ArduPilot 的 FLTMODEn 才是模式号。
-        item.field("name", is_px4
-                               ? std::string(mg::core::firmware::modes::px4_fltmode_slot_name(mode_id))
-                               : get_active_flight_modes(core).decode_mode_name(mode_id));
+        // ArduPilot 的 FLTMODEn 就是模式号，可直接用模式表反查。
+        item.field("name", get_active_flight_modes(core).decode_mode_name(mode_id));
         item.end_object();
         slots.append_json(item.str());
     }
     slots.end_array();
     jb.raw_field("slots", slots.str());
 
-    // Copter/Rover 的 Simple / SuperSimple 位掩码（Plane 与 PX4 没有）。
+    // Copter/Rover 的 Simple / SuperSimple 位掩码（Plane 没有）。
     for (const char* simple_param : {"SIMPLE", "SUPER_SIMPLE"}) {
         const auto value = read_param(simple_param);
         if (!value.has_value()) continue;
@@ -146,28 +130,13 @@ MGCORE_API char* mg_flight_get_mode_mapping(mg_core_t* core) {
 
     mg::core::telemetry::JsonBuilder options;
     options.begin_array();
-    if (is_px4) {
-        // PX4 的模式槽写入的是 COM_FLTMODE 枚举值，不是 custom_mode。
-        size_t slot_count = 0;
-        const auto* slots = mg::core::firmware::modes::px4_fltmode_slot_table(slot_count);
-        for (size_t i = 0; i < slot_count; ++i) {
-            if (slots[i].value < 0) continue;  // -1 = Unassigned，不进可选列表
-            mg::core::telemetry::JsonBuilder item;
-            item.begin_object();
-            item.field("value", slots[i].value);
-            item.field("name", slots[i].name);
-            item.end_object();
-            options.append_json(item.str());
-        }
-    } else {
-        for (const auto& entry : get_active_flight_modes(core).mode_entries()) {
-            mg::core::telemetry::JsonBuilder item;
-            item.begin_object();
-            item.field("value", static_cast<unsigned long long>(entry.custom_mode));
-            item.field("name", entry.name);
-            item.end_object();
-            options.append_json(item.str());
-        }
+    for (const auto& entry : get_active_flight_modes(core).mode_entries()) {
+        mg::core::telemetry::JsonBuilder item;
+        item.begin_object();
+        item.field("value", static_cast<unsigned long long>(entry.custom_mode));
+        item.field("name", entry.name);
+        item.end_object();
+        options.append_json(item.str());
     }
     options.end_array();
     jb.raw_field("options", options.str());

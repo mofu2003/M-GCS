@@ -7,7 +7,7 @@
 namespace mg::bridge {
 
 /// `firmware_profile` 使用 `mg::bridge::ffi::ffi_param_profile()` 的取值
-/// （`"px4"`/`"ardupilot"`/归一化机型/空串）。空串等价 ArduPilot 语义，
+/// （`"ardupilot"`/归一化机型/空串）。空串等价 ArduPilot 语义，
 /// 用于没有活动会话（离线文档）或本地生成航点的场景。
 inline std::string mission_item_json(
     const mg::core::mission::MissionItem& item,
@@ -29,8 +29,7 @@ inline std::string mission_item_json(
     jb.field("y",            item.y);
     jb.field("z",            item.z);
     if (mg::core::mission::is_global_coordinate_frame(item.frame) &&
-        mg::core::mission::mission_command_uses_location(
-            item.command, firmware_profile)) {
+        mg::core::mission::mission_command_uses_location(item.command)) {
         jb.field("lat", static_cast<double>(item.x) / 1e7);
         jb.field("lon", static_cast<double>(item.y) / 1e7);
     }

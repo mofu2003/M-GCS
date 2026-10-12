@@ -248,7 +248,7 @@ void SerialPortDiscovery::refresh() {
 // 历史上这里是一段手写的括号扫描器，有两个真实缺陷：
 //   1. 用 `find(']')` 找数组结尾，遇到正则字符串里的 ']' 就提前收尾：
 //      `"^fmuv[2345]$"` 会让 boardDescriptionFallback 只读到 35/51 条，
-//      静默丢弃 16 条板卡描述（ARK/PX4 TROPIC/mRoControlZeroF7 等）。
+//      静默丢弃 16 条板卡描述（ARK TROPIC/mRoControlZeroF7 等）。
 //   2. 用"找下一个引号字符串"的方式读 androidOnly，而它在 JSON 里是 bool，
 //      于是 android_only 恒为 false——那条标注 "too dangerous for non-android"
 //      的宽泛 fallback 本应在桌面端被排除。

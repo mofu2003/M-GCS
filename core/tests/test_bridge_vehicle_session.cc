@@ -353,9 +353,9 @@ static void test_nonblocking_commands_and_mission_rejection() {
     CHECK(done.find("timeout") != std::string::npos, "MISSION_START missing ACK times out");
 }
 
-static void test_mission_workflow_by_firmware_and_vehicle_type() {
+static void test_mission_workflow_by_vehicle_type() {
     for (const auto type : {MAV_TYPE_QUADROTOR, MAV_TYPE_FIXED_WING, MAV_TYPE_VTOL_FIXEDROTOR}) {
-        for (const auto autopilot : {MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_AUTOPILOT_PX4}) {
+        {
             TwoVehicleMockEnv env;
             env.add(41, 1);
             CHECK(env.wait_connected(), "workflow vehicle identified");
@@ -366,7 +366,7 @@ static void test_mission_workflow_by_firmware_and_vehicle_type() {
             std::vector<uint32_t> modes;
             auto heartbeat = [&] {
                 mavlink_message_t msg{};
-                mavlink_msg_heartbeat_pack(1, 1, &msg, type, autopilot,
+                mavlink_msg_heartbeat_pack(1, 1, &msg, type, MAV_AUTOPILOT_ARDUPILOTMEGA,
                     MAV_MODE_FLAG_CUSTOM_MODE_ENABLED | (armed ? MAV_MODE_FLAG_SAFETY_ARMED : 0), mode, MAV_STATE_ACTIVE);
                 uint8_t bytes[MAVLINK_MAX_PACKET_LEN];
                 const auto n = mavlink_msg_to_send_buffer(bytes, &msg);
@@ -401,13 +401,13 @@ static void test_mission_workflow_by_firmware_and_vehicle_type() {
             const auto done = poll_command(env.core, ticket);
             running = false; responder.join();
             CHECK(done.find("\"result\":{\"success\":true") != std::string::npos, "workflow completes with ACK and state");
-            const auto expected = autopilot == MAV_AUTOPILOT_PX4 ? 0x04040000U : type == MAV_TYPE_QUADROTOR ? 4U : 10U;
-            CHECK(!modes.empty() && modes.front() == expected, "firmware/type chooses correct mode before arm");
+            const auto expected = type == MAV_TYPE_QUADROTOR ? 4U : 10U;
+            CHECK(!modes.empty() && modes.front() == expected, "vehicle type chooses correct mode before arm");
             CHECK(commands.size() >= 2 && commands[0] == MAV_CMD_DO_SET_MODE && commands[1] == MAV_CMD_COMPONENT_ARM_DISARM,
                   "mode is confirmed before arming");
             const bool sent_start = std::find(commands.begin(), commands.end(), MAV_CMD_MISSION_START) != commands.end();
-            CHECK(sent_start == (autopilot == MAV_AUTOPILOT_ARDUPILOTMEGA && type == MAV_TYPE_QUADROTOR),
-                  "Plane/VTOL/PX4 do not take Copter MISSION_START path");
+            CHECK(sent_start == (type == MAV_TYPE_QUADROTOR),
+                  "Plane/VTOL do not take the Copter MISSION_START path");
         }
     }
 }
@@ -955,7 +955,7 @@ int main() {
     test_independent_vehicle_telemetry_and_registry_lease();
     test_targeted_command_dispatch_isolated();
     test_nonblocking_commands_and_mission_rejection();
-    test_mission_workflow_by_firmware_and_vehicle_type();
+    test_mission_workflow_by_vehicle_type();
     test_redundant_routes_inherit_signing_and_keep_operation_owner();
     test_fallback_session_is_available();
     test_live_vehicle_session_wins_when_selected();

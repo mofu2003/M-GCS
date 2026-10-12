@@ -770,10 +770,6 @@ static void test_calibration_strategy_result_semantics() {
                                   CalibrationStage::Calibrating);
         CHECK(r.new_stage == CalibrationStage::Success,
               "gyro completion text still means success");
-        r = gyro.parse_statustext("[cal] calibration done: gyro", 6,
-                                  CalibrationStage::Calibrating);
-        CHECK(r.new_stage == CalibrationStage::Success,
-              "PX4 gyro done text means success");
     }
 
     {
@@ -937,72 +933,6 @@ static void test_calibration_stall_timeout_fails() {
 }
 
 
-// ================================================================
-// PX4 固件分支（S6：固件专属命令不能只在 ArduPilot 上正确）
-// ================================================================
-
-/// PX4 只认 MAV_CMD_PREFLIGHT_CALIBRATION；发 DO_START_MAG_CAL 会被直接忽略。
-static void test_px4_compass_calibration_uses_preflight_calibration() {
-    fprintf(stderr, "\n[Group] PX4 calibration command mapping\n");
-    MockFlightController::Config cfg;
-    cfg.firmware = MockFlightController::PX4;
-    TestEnv env(cfg);
-    for (int i = 0; i < 15; ++i) env.tick(100);
-
-    env.mock->received_cmds.clear();
-    char* start = mg_calibration_start(env.core, 2 /*compass*/, 0);
-    CHECK(start && strstr(start, "\"success\":true") != nullptr,
-          "PX4 compass calibration starts");
-    if (start) mg_free_string(start);
-    for (int i = 0; i < 10; ++i) env.tick(20);  // 命令是异步下发的，先让它发出去
-
-    bool sent_preflight_compass = false;
-    bool sent_ardupilot_only = false;
-    for (const auto& command : env.mock->received_cmds) {
-        if (command.command == 241 && command.p2 == 1.0f) sent_preflight_compass = true;
-        if (command.command == 42424 || command.command == 42426) sent_ardupilot_only = true;
-    }
-    CHECK(sent_preflight_compass,
-          "PX4 gets PREFLIGHT_CALIBRATION with param2=1 for the compass");
-    CHECK(!sent_ardupilot_only,
-          "PX4 is not sent ArduPilot-only MAG_CAL commands");
-}
-
-/// PX4 固件没有取消校准的命令，界面不能显示"已取消"。
-static void test_px4_calibration_cancel_is_refused() {
-    fprintf(stderr, "\n[Group] PX4 calibration cancel\n");
-    MockFlightController::Config cfg;
-    cfg.firmware = MockFlightController::PX4;
-    TestEnv env(cfg);
-    for (int i = 0; i < 15; ++i) env.tick(100);
-
-    char* start = mg_calibration_start(env.core, 2, 0);
-    CHECK(start && strstr(start, "\"success\":true") != nullptr,
-          "PX4 compass calibration starts before cancel");
-    if (start) mg_free_string(start);
-    for (int i = 0; i < 10; ++i) env.tick(20);  // 等启动命令发完，再统计取消命令
-
-    env.mock->received_cmds.clear();
-    char* cancel = mg_calibration_cancel(env.core);
-    CHECK(cancel != nullptr, "cancel returns a result");
-    CHECK(cancel && strstr(cancel, "\"success\":false") != nullptr,
-          "PX4 cancel is reported as unsupported instead of pretending to succeed");
-    CHECK(cancel && strstr(cancel, "PX4") != nullptr,
-          "the refusal names PX4 so the operator knows why");
-    if (cancel) mg_free_string(cancel);
-
-    for (int i = 0; i < 5; ++i) env.tick(20);
-    bool sent_any_cancel = false;
-    for (const auto& command : env.mock->received_cmds) {
-        if (command.command == 42426 || command.command == 42429 ||
-            command.command == 241) {
-            sent_any_cancel = true;
-        }
-    }
-    CHECK(!sent_any_cancel, "no cancel command is sent to a PX4 vehicle");
-    CHECK(mg_calibration_get_status(env.core) != nullptr,
-          "status stays readable after a refused cancel");
-}
 
 int main() {
     fprintf(stderr, "=== Calibration Simulation Tests ===\n");
@@ -1031,8 +961,6 @@ int main() {
     test_calibration_strategy_result_semantics();
     test_calibration_failure_text_beats_parameter_readback();
     test_non_magnetometer_cancel_reaches_vehicle();
-    test_px4_compass_calibration_uses_preflight_calibration();
-    test_px4_calibration_cancel_is_refused();
     test_calibration_fails_when_link_is_lost();
     test_calibration_stall_timeout_fails();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);

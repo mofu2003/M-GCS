@@ -23,9 +23,9 @@
     "SERVO1_MIN": "FFI 桥接层：ffi_internal.h 注释中引用 ffi_fmt_param 展开结果示例，是文档说明而非硬编码使用"
   },
   "bridge/ffi/ffi_rc_config.cc": {
-    "RC*_MAX": "FFI 桥接层：ffi_rc_config.cc 用 RC%d_MAX 格式串通过 snprintf 按通道号格式化后读写 PX4 飞控 RC 参数，是桥接层固件参数路由的合法用途",
-    "RC*_MIN": "FFI 桥接层：ffi_rc_config.cc 用 RC%d_MIN 格式串通过 snprintf 按通道号格式化后读写 PX4 飞控 RC 参数，是桥接层固件参数路由的合法用途",
-    "RC*_TRIM": "FFI 桥接层：ffi_rc_config.cc 用 RC%d_TRIM 格式串通过 snprintf 按通道号格式化后读写 PX4 飞控 RC 参数，是桥接层固件参数路由的合法用途",
+    "RC*_MAX": "FFI 桥接层：ffi_rc_config.cc 用 RC%d_MAX 格式串通过 snprintf 按通道号格式化后读写飞控 RC 参数，是桥接层固件参数路由的合法用途",
+    "RC*_MIN": "FFI 桥接层：ffi_rc_config.cc 用 RC%d_MIN 格式串通过 snprintf 按通道号格式化后读写飞控 RC 参数，是桥接层固件参数路由的合法用途",
+    "RC*_TRIM": "FFI 桥接层：ffi_rc_config.cc 用 RC%d_TRIM 格式串通过 snprintf 按通道号格式化后读写飞控 RC 参数，是桥接层固件参数路由的合法用途",
     "RCMAP_PITCH": "FFI 桥接层：ffi_rc_config.cc 在 AP 通道映射参数数组中引用 RCMAP_PITCH，是桥接层读取飞控 RC 通道映射参数的合法用途",
     "RCMAP_ROLL": "FFI 桥接层：ffi_rc_config.cc 在 AP 通道映射参数数组中引用 RCMAP_ROLL，是桥接层读取飞控 RC 通道映射参数的合法用途",
     "RCMAP_THROTTLE": "FFI 桥接层：ffi_rc_config.cc 在 AP 通道映射参数数组中引用 RCMAP_THROTTLE，是桥接层读取飞控 RC 通道映射参数的合法用途",

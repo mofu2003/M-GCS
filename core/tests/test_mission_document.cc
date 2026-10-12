@@ -446,146 +446,6 @@ static void test_ffi_contract() {
     mg_destroy(core);
 }
 
-// 参数化测绘实体：文档只存设计意图，编译期由 SurveyCalculator 展开。
-static void test_parameterized_survey_entities() {
-    fprintf(stderr, "\n[Group] Parameterized survey entities\n");
-
-    MissionDocument document = valid_document();
-    document.entities.clear();
-
-    MissionEntity survey;
-    survey.id = "survey-1";
-    survey.type = "survey_grid";
-    survey.latitude = 39.9;
-    survey.longitude = 116.4;
-    survey.survey.width_m = 200.0;
-    survey.survey.length_m = 300.0;
-    survey.survey.altitude_m = 80.0f;
-    survey.survey.speed_ms = 8.0f;
-    survey.survey.angle_deg = 30.0;
-    document.entities.push_back(survey);
-
-    MissionValidationReport report =
-        MissionDocumentService::validate_document(document);
-    CHECK(!report.has_errors(),
-          "survey_grid entity validates without the old not-implemented error");
-
-    MissionCompileResult compiled =
-        MissionDocumentService::compile_document(document);
-    CHECK(compiled.valid, "survey_grid compiles");
-    CHECK(compiled.plan.items.size() > 2,
-          "survey_grid expands into multiple mission items");
-    CHECK(compiled.source_entity_ids.size() == compiled.plan.items.size(),
-          "every expanded item maps back to the source entity");
-    bool all_from_survey = true;
-    for (const auto& id : compiled.source_entity_ids) {
-        if (id != "survey-1") all_from_survey = false;
-    }
-    CHECK(all_from_survey, "expanded items all reference the survey entity");
-    bool sequenced = true;
-    for (size_t i = 0; i < compiled.plan.items.size(); ++i) {
-        if (compiled.plan.items[i].seq != i) sequenced = false;
-    }
-    CHECK(sequenced, "expanded items are re-sequenced contiguously");
-
-    MissionEstimate estimate =
-        MissionDocumentService::estimate_document(document);
-    CHECK(estimate.total_distance_m > 0.0, "survey estimate has distance");
-    CHECK(estimate.waypoint_count > 0, "survey estimate counts waypoints");
-    CHECK(estimate.photo_count > 0, "survey estimate counts photos");
-
-    // 序列化往返必须保留 survey 参数，否则前端保存后参数会丢。
-    const std::string json = serialize_mission_document(document);
-    MissionDocument reloaded;
-    std::string error;
-    CHECK(deserialize_mission_document(json, reloaded, error),
-          "survey document round-trips through JSON");
-    CHECK(reloaded.entities.size() == 1 &&
-              std::fabs(reloaded.entities[0].survey.width_m - 200.0) < 1e-6 &&
-              std::fabs(reloaded.entities[0].survey.length_m - 300.0) < 1e-6 &&
-              std::fabs(reloaded.entities[0].survey.angle_deg - 30.0) < 1e-6,
-          "survey parameters survive serialization");
-
-    // 走廊实体：起终点必须都能通过校验，终点缺失要报错。
-    MissionDocument corridor_document = valid_document();
-    corridor_document.entities.clear();
-    MissionEntity corridor;
-    corridor.id = "corridor-1";
-    corridor.type = "corridor";
-    corridor.latitude = 39.9;
-    corridor.longitude = 116.4;
-    corridor.survey.end_latitude = 39.905;
-    corridor.survey.end_longitude = 116.4;
-    corridor.survey.corridor_width_m = 60.0;
-    corridor.survey.altitude_m = 60.0f;
-    corridor_document.entities.push_back(corridor);
-
-    report = MissionDocumentService::validate_document(corridor_document);
-    CHECK(!report.has_errors(), "corridor entity validates");
-    compiled = MissionDocumentService::compile_document(corridor_document);
-    CHECK(compiled.valid && compiled.plan.items.size() > 2,
-          "corridor expands into mission items");
-
-    MissionEntity broken = corridor;
-    broken.id = "corridor-2";
-    broken.survey.end_latitude = std::numeric_limits<double>::quiet_NaN();
-    MissionDocument broken_document = valid_document();
-    broken_document.entities.clear();
-    broken_document.entities.push_back(broken);
-    report = MissionDocumentService::validate_document(broken_document);
-    CHECK(report.has_errors(), "corridor without an end point is rejected");
-    compiled = MissionDocumentService::compile_document(broken_document);
-    CHECK(!compiled.valid, "invalid corridor does not compile");
-
-    MissionEntity bad_grid = survey;
-    bad_grid.id = "survey-bad";
-    bad_grid.survey.width_m = 0.0;
-    MissionDocument bad_document = valid_document();
-    bad_document.entities.clear();
-    bad_document.entities.push_back(bad_grid);
-    report = MissionDocumentService::validate_document(bad_document);
-    CHECK(report.has_errors(), "zero-width survey is rejected");
-}
-
-// 前端走的是 FFI 路径：add 一个 survey 实体 -> validate -> compile -> export。
-static void test_ffi_survey_entity_roundtrip() {
-    fprintf(stderr, "\n[Group] Survey entity through FFI\n");
-    mg_core_t* core = mg_create();
-    CHECK(core != nullptr, "mg_create succeeds (survey)");
-
-    char* result = mg_mission_doc_create(
-        core, R"({"metadata":{"name":"Survey Mission"}})");
-    if (result) mg_free_string(result);
-
-    const char* add_survey =
-        R"({"operation":"add","expected_revision":1,"entity":{"type":"survey_grid",)"
-        R"("lat":39.9,"lon":116.4,"survey":{"width_m":200,"length_m":200,)"
-        R"("alt_m":70,"speed_ms":7,"angle_deg":15}}})";
-    result = mg_mission_doc_apply(core, add_survey);
-    CHECK(result && strstr(result, "\"success\":true"),
-          "FFI add survey_grid succeeds");
-    if (result) mg_free_string(result);
-
-    result = mg_mission_doc_validate(core);
-    CHECK(result && strstr(result, "\"valid\":true"),
-          "FFI validates the survey document");
-    if (result) mg_free_string(result);
-
-    result = mg_mission_doc_compile(core);
-    CHECK(result && strstr(result, "\"valid\":true"),
-          "FFI compiles the survey document");
-    CHECK(result && strstr(result, "\"source_entity_ids\""),
-          "compile returns the source entity mapping");
-    if (result) mg_free_string(result);
-
-    result = mg_mission_doc_export(core);
-    CHECK(result && strstr(result, "\"survey\""),
-          "exported document keeps the survey spec");
-    if (result) mg_free_string(result);
-
-    mg_destroy(core);
-}
-
 // .waypoints 互操作：导出格式对齐 Mission Planner 的写出实现，且能原样读回。
 static void test_waypoints_interchange() {
     fprintf(stderr, "\n[Group] .waypoints interchange\n");
@@ -718,9 +578,6 @@ static bool json_float_near(cJSON* array, int index, double expected,
            std::fabs(item->valuedouble - expected) < epsilon;
 }
 
-// 本地创建的 survey_grid / corridor 必须导出成 QGC 可重新打开的
-// ComplexItem，而不是报错丢任务。这里同时校验 JSON 结构和展开任务项的
-// 精度，确保 QGC 载入后看到的是同一个测绘区域和同一条航线。
 static void test_qgc_plan_preserves_unknown_fields() {
     fprintf(stderr, "\n[Group] QGC .plan unknown-field round-trip\n");
 
@@ -846,131 +703,6 @@ static void test_qgc_plan_preserves_unknown_fields() {
           "unknown QGC mission version is reported as a warning");
 }
 
-static void test_qgc_complex_item_export() {
-    fprintf(stderr, "\n[Group] QGC ComplexItem export\n");
-    std::vector<std::string> warnings;
-    std::string error;
-
-    MissionDocument survey_document = valid_document();
-    survey_document.entities.clear();
-    MissionEntity survey;
-    survey.id = "survey-1";
-    survey.type = "survey_grid";
-    survey.latitude = 39.9;
-    survey.longitude = 116.4;
-    survey.survey.width_m = 200.0;
-    survey.survey.length_m = 300.0;
-    survey.survey.altitude_m = 80.0f;
-    survey.survey.speed_ms = 8.0f;
-    survey.survey.angle_deg = 30.0;
-    survey_document.entities.push_back(survey);
-
-    const std::string survey_text =
-        export_qgc_plan_json(survey_document, warnings, error);
-    CHECK(error.empty(), "survey_grid exports to QGC plan without error");
-    CHECK(!survey_text.empty(), "survey_grid export produced JSON");
-
-    cJSON* survey_root = mg::core::json::parse(survey_text.c_str());
-    cJSON* survey_mission = json_at(survey_root, "mission");
-    cJSON* survey_items = json_at(survey_mission, "items");
-    CHECK(survey_items && json_array_size(survey_items) == 1,
-          "survey_grid becomes a single complex mission item");
-    cJSON* survey_item = survey_items ? cJSON_GetArrayItem(survey_items, 0) : nullptr;
-    cJSON* survey_type = json_at(survey_item, "complexItemType");
-    CHECK(survey_type && cJSON_IsString(survey_type) &&
-              std::string(survey_type->valuestring) == "survey",
-          "survey_grid complex item type is survey");
-    cJSON* survey_polygon = json_at(survey_item, "polygon");
-    CHECK(json_array_size(survey_polygon) == 4,
-          "survey_grid exports a four-corner polygon");
-    cJSON* survey_transect = json_at(survey_item, "TransectStyleComplexItem");
-    cJSON* survey_embedded_items = json_at(survey_transect, "Items");
-    const MissionCompileResult survey_compiled =
-        MissionDocumentService::compile_document(survey_document);
-    CHECK(survey_embedded_items &&
-              json_array_size(survey_embedded_items) ==
-                  survey_compiled.plan.items.size(),
-          "survey_grid embeds every compiled mission item");
-    CHECK(survey_embedded_items &&
-              json_float_near(
-                  json_at(cJSON_GetArrayItem(survey_embedded_items, 0), "params"),
-                  4, survey_compiled.plan.items[0].x / 1e7, 1e-6),
-          "embedded survey items keep their coordinates");
-    cJSON_Delete(survey_root);
-
-    MissionDocument survey_reimport;
-    warnings.clear();
-    error.clear();
-    CHECK(import_qgc_plan_json(survey_text, survey_reimport, warnings, error),
-          "exported survey complex item re-imports");
-    CHECK(survey_reimport.complex_items.size() == 1 &&
-              survey_reimport.complex_items[0].item_type == "survey",
-          "re-imported survey keeps its complex item type");
-    std::vector<MissionEntity> survey_expanded;
-    error.clear();
-    CHECK(!survey_reimport.complex_items.empty() &&
-              expand_complex_item_entities(
-                  survey_reimport.complex_items[0], survey_expanded, error),
-          "re-imported survey complex item expands");
-    CHECK(survey_expanded.size() == survey_compiled.plan.items.size(),
-          "survey round-trip preserves the expanded item count");
-    bool survey_coordinates_match = survey_expanded.size() == survey_compiled.plan.items.size();
-    for (size_t i = 0; i < survey_expanded.size() && survey_coordinates_match; ++i) {
-        if (!std::isfinite(survey_expanded[i].latitude)) {
-            survey_coordinates_match =
-                survey_compiled.plan.items[i].x == 0 &&
-                survey_compiled.plan.items[i].y == 0;
-        } else {
-            survey_coordinates_match =
-                std::fabs(survey_expanded[i].latitude -
-                          survey_compiled.plan.items[i].x / 1e7) < 1e-6 &&
-                std::fabs(survey_expanded[i].longitude -
-                          survey_compiled.plan.items[i].y / 1e7) < 1e-6;
-        }
-    }
-    CHECK(survey_coordinates_match,
-          "survey round-trip preserves expanded coordinates");
-
-    MissionDocument corridor_document = valid_document();
-    corridor_document.entities.clear();
-    MissionEntity corridor;
-    corridor.id = "corridor-1";
-    corridor.type = "corridor";
-    corridor.latitude = 39.9;
-    corridor.longitude = 116.4;
-    corridor.survey.end_latitude = 39.91;
-    corridor.survey.end_longitude = 116.4;
-    corridor.survey.corridor_width_m = 60.0;
-    corridor.survey.altitude_m = 60.0f;
-    corridor_document.entities.push_back(corridor);
-
-    warnings.clear();
-    error.clear();
-    const std::string corridor_text =
-        export_qgc_plan_json(corridor_document, warnings, error);
-    CHECK(error.empty(), "corridor exports to QGC plan without error");
-
-    cJSON* corridor_root = mg::core::json::parse(corridor_text.c_str());
-    cJSON* corridor_items = json_at(json_at(corridor_root, "mission"), "items");
-    cJSON* corridor_item =
-        corridor_items ? cJSON_GetArrayItem(corridor_items, 0) : nullptr;
-    cJSON* corridor_type = json_at(corridor_item, "complexItemType");
-    CHECK(corridor_type && cJSON_IsString(corridor_type) &&
-              std::string(corridor_type->valuestring) == "CorridorScan",
-          "corridor complex item type is CorridorScan");
-    CHECK(json_array_size(json_at(corridor_item, "polyline")) == 2,
-          "corridor exports the start/end polyline");
-    cJSON_Delete(corridor_root);
-
-    MissionDocument corridor_reimport;
-    warnings.clear();
-    error.clear();
-    CHECK(import_qgc_plan_json(corridor_text, corridor_reimport, warnings, error),
-          "exported corridor complex item re-imports");
-    CHECK(corridor_reimport.complex_items.size() == 1 &&
-              corridor_reimport.complex_items[0].item_type == "CorridorScan",
-          "re-imported corridor keeps its complex item type");
-}
 
 static void test_frame_mission_command_import() {
     fprintf(stderr, "\n[Group] MAV_FRAME_MISSION command import\n");
@@ -1049,109 +781,6 @@ static void test_frame_mission_command_import() {
           "fixed-wing NAV_TAKEOFF keeps its geographic position");
 }
 
-// S4：DO_LAND_START(189) 的坐标语义按固件区分。ArduPilot 的
-// `AP_Mission::stored_in_location()` 含 189；QGC `PX4-MavCmdInfoCommon.json`
-// 把 PX4 的 189 标成 `specifiesCoordinate:false`，x/y 是纯标记。
-static void test_land_start_location_override_per_firmware() {
-    fprintf(stderr, "\n[Group] DO_LAND_START location override per firmware\n");
-
-    const uint16_t land_start = 189; // MAV_CMD_DO_LAND_START
-
-    MissionItem item{};
-    item.seq = 0;
-    item.frame = 3; // GLOBAL_RELATIVE_ALT
-    item.command = land_start;
-    item.x = static_cast<int32_t>(47.5 * 1e7);
-    item.y = static_cast<int32_t>(85.4 * 1e7);
-    item.z = 30.0f;
-    MissionPlan transport;
-    transport.valid = true;
-    transport.items.push_back(item);
-
-    // 单参重载保持 ArduPilot 物理语义，供不区分固件的调用点使用。
-    CHECK(mission_command_uses_location(land_start) &&
-              mission_command_uses_location(land_start, "ardupilot") &&
-              mission_command_uses_location(land_start, "") &&
-              !mission_command_uses_location(land_start, "px4"),
-          "DO_LAND_START location semantics follow the firmware profile");
-
-    MissionDocument ardupilot_document; // 默认 profile = "ardupilot"
-    std::string error;
-    CHECK(import_mission_plan_into_document(
-              transport, ardupilot_document, error) &&
-              ardupilot_document.entities.size() == 1 &&
-              std::fabs(ardupilot_document.entities[0].latitude - 47.5) < 1e-6 &&
-              std::fabs(ardupilot_document.entities[0].longitude - 85.4) < 1e-6,
-          "ArduPilot imports DO_LAND_START x/y as a position");
-
-    MissionDocument px4_document;
-    px4_document.metadata.firmware_profile = "px4";
-    CHECK(import_mission_plan_into_document(transport, px4_document, error) &&
-              px4_document.entities.size() == 1 &&
-              std::isnan(px4_document.entities[0].latitude) &&
-              std::isnan(px4_document.entities[0].longitude),
-          "PX4 imports DO_LAND_START x/y as a marker, not a position");
-
-    // 编译路径也按固件 profile 判定 189 是否承载坐标（`mission_compile.cc` 调用
-    // `mission_command_uses_location(command, profile)`）。但 M-GCS 的可编辑命令
-    // 目录目前只覆盖 14 条常用命令，不含 DO_LAND_START，所以这一步先在
-    // `validate_document()` 报 `entity.command_unsupported`，与固件 profile 无关。
-    // 两条断言固定这个现状：目录纳入 189 后，profile 覆盖才会真正生效。
-    const MissionCompileResult ardupilot_compiled =
-        MissionDocumentService::compile_document(ardupilot_document);
-    CHECK(!ardupilot_compiled.valid &&
-              report_has_code(ardupilot_compiled.report,
-                              "entity.command_unsupported"),
-          "ArduPilot compile reports DO_LAND_START outside the editable catalog");
-
-    const MissionCompileResult px4_compiled =
-        MissionDocumentService::compile_document(px4_document);
-    CHECK(!px4_compiled.valid &&
-              report_has_code(px4_compiled.report, "entity.command_unsupported"),
-          "PX4 compile reports DO_LAND_START outside the editable catalog");
-
-    std::vector<std::string> warnings;
-    const std::string px4_text =
-        export_qgc_plan_json(px4_document, warnings, error);
-    CHECK(error.empty(), "PX4 DO_LAND_START document exports without error");
-    cJSON* px4_root = mg::core::json::parse(px4_text.c_str());
-    cJSON* px4_mission = json_at(px4_root, "mission");
-    cJSON* px4_items = json_at(px4_mission, "items");
-    cJSON* px4_item = px4_items ? cJSON_GetArrayItem(px4_items, 0) : nullptr;
-    cJSON* px4_params = json_at(px4_item, "params");
-    cJSON* px4_firmware_type = json_at(px4_mission, "firmwareType");
-    CHECK(px4_firmware_type && px4_firmware_type->valueint == 12,
-          "PX4 document exports firmwareType 12");
-    CHECK(px4_params && cJSON_GetArraySize(px4_params) == 7 &&
-              cJSON_IsNull(cJSON_GetArrayItem(px4_params, 4)) &&
-              cJSON_IsNull(cJSON_GetArrayItem(px4_params, 5)),
-          "PX4 .plan export leaves DO_LAND_START params 5/6 null");
-    cJSON_Delete(px4_root);
-
-    MissionDocument px4_reimport;
-    warnings.clear();
-    CHECK(import_qgc_plan_json(px4_text, px4_reimport, warnings, error) &&
-              px4_reimport.metadata.firmware_profile == "px4" &&
-              px4_reimport.entities.size() == 1 &&
-              std::isnan(px4_reimport.entities[0].latitude),
-          "re-imported PX4 plan invents no DO_LAND_START position");
-
-    warnings.clear();
-    const std::string ardupilot_text =
-        export_qgc_plan_json(ardupilot_document, warnings, error);
-    CHECK(error.empty(), "ArduPilot DO_LAND_START document exports without error");
-    cJSON* ardupilot_root = mg::core::json::parse(ardupilot_text.c_str());
-    cJSON* ardupilot_items = json_at(json_at(ardupilot_root, "mission"), "items");
-    cJSON* ardupilot_item =
-        ardupilot_items ? cJSON_GetArrayItem(ardupilot_items, 0) : nullptr;
-    cJSON* ardupilot_params = json_at(ardupilot_item, "params");
-    CHECK(ardupilot_params && cJSON_GetArraySize(ardupilot_params) == 7 &&
-              cJSON_IsNumber(cJSON_GetArrayItem(ardupilot_params, 4)) &&
-              std::fabs(cJSON_GetArrayItem(ardupilot_params, 4)->valuedouble -
-                       47.5) < 1e-6,
-          "ArduPilot .plan export writes DO_LAND_START coordinates");
-    cJSON_Delete(ardupilot_root);
-}
 
 static void test_qgc_plan_interchange() {
     fprintf(stderr, "\n[Group] QGC .plan interchange\n");
@@ -1443,21 +1072,6 @@ static void test_qgc_plan_interchange() {
     CHECK(rally_export.find("\"rallyPoints\"") != std::string::npos &&
               rally_export.find("39.91") != std::string::npos,
           "formal Rally points are restored on QGC export");
-
-    MissionDocument survey_document;
-    MissionEntity survey;
-    survey.id = "survey-1";
-    survey.type = "survey_grid";
-    survey.command = 0;
-    survey_document.entities.push_back(survey);
-    warnings.clear();
-    error.clear();
-    const std::string survey_export =
-        export_qgc_plan_json(survey_document, warnings, error);
-    CHECK(error.empty() &&
-              survey_export.find("\"complexItemType\"") != std::string::npos &&
-              survey_export.find("\"survey\"") != std::string::npos,
-          "parameterized survey export becomes a QGC complex item");
 }
 
 static void test_mission_format_recommendation() {
@@ -1466,21 +1080,6 @@ static void test_mission_format_recommendation() {
     CHECK(
         recommended_mission_interchange_format(ardupilot) == "waypoints",
         "ArduPilot simple missions recommend waypoints");
-
-    ardupilot.metadata.firmware_profile = "px4";
-    CHECK(
-        recommended_mission_interchange_format(ardupilot) == "plan",
-        "PX4 missions recommend plan");
-
-    MissionDocument survey = valid_document();
-    MissionEntity complex;
-    complex.id = "survey-recommendation";
-    complex.type = "survey_grid";
-    complex.command = 0;
-    survey.entities.push_back(std::move(complex));
-    CHECK(
-        recommended_mission_interchange_format(survey) == "plan",
-        "parameterized survey missions recommend plan");
 
     MissionDocument unknown = valid_document();
     unknown.metadata.firmware_profile = "unknown";
@@ -1727,105 +1326,6 @@ static void test_fence_rally_plan_roundtrip() {
           "unsupported rally command is rejected");
 }
 
-static void test_complex_item_expansion() {
-    fprintf(stderr, "\n[Group] QGC ComplexItem expansion\n");
-
-    // QGC saves the computed mission items inside the complex item. M-GCS reuses
-    // them instead of re-deriving the survey geometry.
-    MissionDocument document;
-    document.metadata.id = "complex-expand";
-    document.home.set = true;
-    document.home.latitude = 39.9;
-    document.home.longitude = 116.4;
-    document.defaults.altitude_m = 50.0f;
-    document.defaults.speed_ms = 10.0f;
-
-    MissionEntity waypoint;
-    waypoint.id = "waypoint-1";
-    waypoint.type = "waypoint";
-    waypoint.command = static_cast<uint16_t>(NavCommand::NavWaypoint);
-    waypoint.latitude = 39.9001;
-    waypoint.longitude = 116.4001;
-    waypoint.altitude_m = 50.0f;
-    document.entities.push_back(waypoint);
-
-    MissionComplexItem survey;
-    survey.id = "plan-complex-item-2";
-    survey.item_type = "Survey";
-    survey.entity_insert_index = 1;
-    survey.json = R"({
-        "type": "ComplexItem",
-        "complexItemType": "Survey",
-        "TransectStyleComplexItem": {
-            "version": 2,
-            "Items": [
-                {"type": "SimpleItem", "frame": 3, "command": 16,
-                 "autoContinue": true, "doJumpId": 1,
-                 "params": [0, 2, 0, 0, 39.91, 116.41, 60]},
-                {"type": "SimpleItem", "frame": 3, "command": 16,
-                 "autoContinue": true, "doJumpId": 2,
-                 "params": [0, 2, 0, 0, 39.92, 116.42, 60]}
-            ]
-        }
-    })";
-    document.complex_items.push_back(survey);
-
-    std::vector<MissionEntity> expanded;
-    std::string error;
-    CHECK(expand_complex_item_entities(survey, expanded, error) &&
-              expanded.size() == 2,
-          "complex item expands into its stored mission items");
-    if (expanded.size() == 2) {
-        CHECK(expanded[0].id == "plan-complex-item-2-item-1" &&
-                  std::fabs(expanded[1].latitude - 39.92) < 1e-9,
-              "expanded items keep stable ids and coordinates");
-    }
-
-    const auto report = MissionDocumentService::validate_document(document);
-    CHECK(report.valid, "document with an expandable complex item is valid");
-    CHECK(report_has_code(report, "complex_item.expanded"),
-          "expanded complex item is reported as read-only");
-    CHECK(!report_has_code(report, "complex_item.unsupported"),
-          "expandable complex item no longer blocks validation");
-
-    const auto compiled = MissionDocumentService::compile_document(document);
-    CHECK(compiled.valid && compiled.plan.items.size() == 3,
-          "compile includes the expanded complex item items");
-    CHECK(compiled.source_entity_ids.size() == 3 &&
-              compiled.source_entity_ids[1] == "plan-complex-item-2" &&
-              compiled.source_entity_ids[2] == "plan-complex-item-2",
-          "expanded items report the complex item as their source");
-
-    const auto estimate = MissionDocumentService::estimate_document(document);
-    CHECK(estimate.waypoint_count == 3,
-          "estimate counts the expanded complex item waypoints");
-
-    MissionComplexItem broken;
-    broken.id = "plan-complex-item-3";
-    broken.item_type = "Survey";
-    broken.json = R"({
-        "type": "ComplexItem",
-        "complexItemType": "Survey",
-        "polygon": [[39.9, 116.4], [39.91, 116.41], [39.92, 116.4]]
-    })";
-    CHECK(!expand_complex_item_entities(broken, expanded, error),
-          "complex item without TransectStyleComplexItem is rejected");
-
-    MissionDocument unsupported = document;
-    unsupported.complex_items[0].json = R"({
-        "TransectStyleComplexItem": {
-            "Items": [{"type": "SimpleItem", "frame": 3, "command": 9999,
-                       "autoContinue": true,
-                       "params": [0, 0, 0, 0, 39.9, 116.4, 50]}]
-        }
-    })";
-    const auto unsupported_report =
-        MissionDocumentService::validate_document(unsupported);
-    CHECK(!unsupported_report.valid &&
-              report_has_code(unsupported_report,
-                              "complex_item.unsupported_command"),
-          "expanded command outside the catalog fails validation");
-}
 
 static void test_ffi_geofence_compile() {
     fprintf(stderr, "\n[Group] GeoFence compile through FFI\n");
@@ -2232,34 +1732,6 @@ static void test_mission_vehicle_capability() {
               "a command outside the catalog is not judged");
     }
 
-    // 参数可见性：固件级覆盖（QGC PX4-MavCmdInfoCommon.json 的 paramRemove）。
-    // 与上面按机型判断的 applies 不同，这里只决定前端是否显示该字段。
-    {
-        const uint16_t waypoint = static_cast<uint16_t>(NavCommand::NavWaypoint);
-        const uint16_t land = static_cast<uint16_t>(NavCommand::NavLand);
-        const uint16_t video_start = 2500; // MAV_CMD_VIDEO_START_CAPTURE
-
-        // ArduPilot 与未知固件不隐藏任何字段。
-        CHECK(mission_command_parameter_visible(waypoint, 2, "ardupilot") &&
-                  mission_command_parameter_visible(waypoint, 3, "ardupilot") &&
-                  mission_command_parameter_visible(land, 1, "ardupilot") &&
-                  mission_command_parameter_visible(waypoint, 2, "") &&
-                  mission_command_parameter_visible(waypoint, 2, "unknown"),
-              "ArduPilot/unknown firmware hides no mission command parameter");
-
-        // PX4 隐藏 WAYPOINT param2/3、LAND param1、VIDEO_START_CAPTURE param2。
-        CHECK(!mission_command_parameter_visible(waypoint, 2, "px4") &&
-                  !mission_command_parameter_visible(waypoint, 3, "px4") &&
-                  !mission_command_parameter_visible(land, 1, "px4") &&
-                  !mission_command_parameter_visible(video_start, 2, "px4"),
-              "PX4 hides the params QGC removes via paramRemove");
-
-        // PX4 未列出的字段仍然显示（WAYPOINT 停留时间/偏航、LAND 精确降落）。
-        CHECK(mission_command_parameter_visible(waypoint, 1, "px4") &&
-                  mission_command_parameter_visible(waypoint, 4, "px4") &&
-                  mission_command_parameter_visible(land, 2, "px4"),
-              "PX4 keeps the params QGC does not remove");
-    }
 }
 
 /// RTL（MAV_CMD_NAV_RETURN_TO_LAUNCH = 20）的高度必须参与校验：
@@ -2355,21 +1827,16 @@ int main() {
     test_geofence_rally_validation();
     test_geofence_compile();
     test_fence_rally_plan_roundtrip();
-    test_complex_item_expansion();
     test_ffi_geofence_compile();
     test_rally_compile();
     test_ffi_rally_compile();
-    test_parameterized_survey_entities();
     test_ffi_contract();
-    test_ffi_survey_entity_roundtrip();
     test_waypoints_interchange();
     test_entity_type_for_command();
     test_ffi_waypoints_interchange();
     test_frame_mission_command_import();
-    test_land_start_location_override_per_firmware();
     test_qgc_plan_interchange();
     test_qgc_plan_preserves_unknown_fields();
-    test_qgc_complex_item_export();
     test_mission_format_recommendation();
     test_vtol_takeoff_and_land_commands();
     test_mission_vehicle_capability();

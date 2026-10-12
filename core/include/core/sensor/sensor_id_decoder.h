@@ -1,9 +1,9 @@
 ﻿/**
  * sensor_id_decoder.h - Offline sensor device ID decoder
- * 传感器识别 — 离线解码 ArduPilot/PX4 传感器设备 ID
+ * 传感器识别 — 离线解码 ArduPilot 传感器设备 ID
  *
  * Loads SensorDeviceInfo.json at construction time.
- * Decodes ArduPilot and PX4 device IDs into human-readable sensor names.
+ * Decodes ArduPilot device IDs into human-readable sensor names.
  * Zero network dependency.
  *
  * ArduPilot encoding:
@@ -11,12 +11,6 @@
  *   bus      = (devid >> 3) & 0x1F (5 bits)
  *   address  = (devid >> 8) & 0xFF (8 bits)
  *   devtype  = (devid >> 16) & 0xFF (8 bits)
- *
- * PX4 encoding:
- *   address    = devid & 0xFF         (8 bits)
- *   bus        = (devid >> 8) & 0xFF  (8 bits)
- *   bus_type   = (devid >> 16) & 0xFF (8 bits)
- *   devtype    = (devid >> 24) & 0xFF (8 bits)
  */
 
 #pragma once
@@ -25,13 +19,6 @@
 #include <map>
 
 namespace mg::core::sensor {
-
-/// Firmware family for sensor ID decoding
-enum class SensorIdFirmware {
-    Auto,         // Auto-detect from ID patterns (try PX4 first if high bits set)
-    ArduPilot,
-    PX4,
-};
 
 struct DecodedSensor {
     std::string name;
@@ -42,7 +29,6 @@ struct DecodedSensor {
     int devtype = 0;
     int bus_type = 0;
     bool valid = false;
-    SensorIdFirmware detected_firmware = SensorIdFirmware::ArduPilot;
 };
 
 struct DecodedParamSensor {
@@ -59,14 +45,8 @@ public:
     /// Decode a device ID using ArduPilot encoding
     DecodedSensor decode_ardupilot_id(int device_id, const std::string& category) const;
 
-    /// Decode a device ID using PX4 encoding
-    DecodedSensor decode_px4_id(int device_id, const std::string& category) const;
-
-    /// Decode a device ID, auto-detecting firmware if needed
+    /// Decode a device ID (ArduPilot encoding)
     DecodedSensor decode_device_id(int device_id, const std::string& category) const;
-
-    /// Decode a PX4 type parameter value (direct lookup by devtype)
-    DecodedSensor decode_px4_type_value(int devtype, const std::string& category) const;
 
     /// Legacy: decode type parameter (airspeed only, ArduPilot)
     DecodedParamSensor decode_type_param(int type_value, const std::string& category) const;
@@ -84,12 +64,6 @@ private:
     std::map<int, DeviceEntry> ardu_compass_devtypes_;
     std::map<int, DeviceEntry> ardu_baro_devtypes_;
     std::map<int, ParamEntry>  ardu_airspeed_types_;
-
-    // PX4 tables (keyed by devtype)
-    std::map<int, DeviceEntry> px4_imu_devtypes_;
-    std::map<int, DeviceEntry> px4_mag_devtypes_;
-    std::map<int, DeviceEntry> px4_baro_devtypes_;
-    std::map<int, DeviceEntry> px4_dp_devtypes_;
 
     bool loaded_ = false;
 };

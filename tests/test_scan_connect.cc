@@ -130,9 +130,6 @@ int main(int argc, char* argv[]) {
     show_param("MIS_TOTAL");
     show_param("SERIAL0_BAUD");
 
-    fprintf(stderr, "\n--- Geofence Config (after params) ---\n");
-    dump("fence", mg_geofence_get_config(core));
-
     // Final battery check with updated data
     fprintf(stderr, "\n--- Final Battery Status ---\n");
     dump("battery", mg_vehicle_get_battery(core));

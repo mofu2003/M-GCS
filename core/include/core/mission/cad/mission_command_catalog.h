@@ -22,9 +22,8 @@ inline constexpr uint16_t kTracker = 1u << 5;
 
 /// 仅用于 `MissionCommandParameter::vehicles`：显式表示「ArduPilot 的任何机型都不
 /// 存储这个字段」。例如 `MAV_CMD_NAV_WAYPOINT` 的 param4（yaw）——ArduPilot 的
-/// 任务结构里没有航点偏航位，偏航由 `WP_YAW_BEHAVIOR` 之类的机型参数决定；
-/// 而 PX4 会存 yaw。机型归一化结果为空（PX4 或未知固件）时仍按「有效」处理，
-/// 因此这个位只影响 ArduPilot 机型。
+/// 任务结构里没有航点偏航位，偏航由 `WP_YAW_BEHAVIOR` 之类的机型参数决定。
+/// 机型归一化结果为空时仍按「有效」处理，因此这个位只影响已归一化的机型。
 inline constexpr uint16_t kArduPilotNone = 1u << 15;
 } // namespace mission_vehicle
 
@@ -55,7 +54,7 @@ struct MissionCommandParameter {
     /// 该参数在哪些机型上会被飞控存储并回读（`mission_vehicle::k*` 的并集）。
     ///
     /// - `0`：未标注，所有机型都当成有效——「没有数据就不判」。
-    /// - `kArduPilotNone`：ArduPilot 的每个机型都不存储该字段（PX4 等未建模固件
+    /// - `kArduPilotNone`：ArduPilot 的每个机型都不存储该字段（未建模固件
     ///   仍然按有效处理）。
     ///
     /// 用途见 `mission_command_parameter_applies`：核对回读时，连接机型不存储的
@@ -106,30 +105,11 @@ bool mission_command_supports_vehicle(
 ///
 /// - 命令或参数不在目录里返回 true。
 /// - `MissionCommandParameter::vehicles == 0`（未标注）返回 true。
-/// - `vehicle_class` 为空或无法归一化（PX4、未知固件）时返回 true，不做判断。
+/// - `vehicle_class` 为空或无法归一化（未识别固件）时返回 true，不做判断。
 /// - 其余情况按 `vehicles` 位掩码判断；`kArduPilotNone` 只对 ArduPilot 机型生效。
 bool mission_command_parameter_applies(
     uint16_t command,
     uint8_t parameter_index,
     const std::string& vehicle_class);
-
-/// 该参数是否应在给定固件的任务编辑器里显示（新建/编辑命令时）。
-///
-/// 与 `mission_command_parameter_applies` 的分工不同：后者判断「回读核对时该字段
-/// 是否应报 difference」（按 ArduPilot 机型），本函数判断「前端是否显示该字段」
-/// （按固件）。依据是 QGC 各固件的 `MavCmdInfo` `paramRemove`：
-///
-/// - PX4（`PX4-MavCmdInfoCommon.json`）隐藏 `NAV_WAYPOINT` 的 param2/3
-///   （接受半径/通过半径）、`NAV_LAND` 的 param1（中止高度）、
-///   `MAV_CMD_VIDEO_START_CAPTURE` 的 param2（状态频率）；
-/// - ArduPilot 及未知固件不隐藏任何字段。
-///
-/// `firmware_profile` 取任务文档的 `metadata.firmware_profile`（`"px4"`/
-/// `"ardupilot"`/空）。隐藏后前端新建的实体不会写入该字段，与 QGC 一致（QGC 只从
-/// 编辑器移除，不修改已存在的值）。
-bool mission_command_parameter_visible(
-    uint16_t command,
-    uint8_t parameter_index,
-    const std::string& firmware_profile);
 
 } // namespace mg::core::mission::cad

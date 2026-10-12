@@ -18,15 +18,12 @@ namespace {
 /// 完成短语必须整句匹配："Accelerometer calibration unsuccessful" 也含 "success"，
 /// 用子串匹配会把飞控报的失败读成成功。
 /// ArduPilot AP_AccelCal::success() 发 "Calibration successful"，
-/// AP_AccelCal::_failed() 发 "Calibration FAILED"；
-/// PX4 accelerometer_calibration.cpp 发 "[cal] calibration done: <sensor>"。
+/// AP_AccelCal::_failed() 发 "Calibration FAILED"。
 bool mentions_completion(const std::string& text) {
     return text.find("calibration successful") != std::string::npos ||
            text.find("Calibration successful") != std::string::npos ||
            text.find("calibration complete") != std::string::npos ||
-           text.find("Calibration complete") != std::string::npos ||
-           text.find("calibration done") != std::string::npos ||
-           text.find("Calibration done") != std::string::npos;
+           text.find("Calibration complete") != std::string::npos;
 }
 
 /// 失败要在完成之前判定："unsuccessful" 本身含 "successful"。

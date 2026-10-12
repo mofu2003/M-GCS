@@ -46,25 +46,6 @@ MGCORE_API char* mg_calibration_get_retry_info(mg_core_t* core);
 MGCORE_API char* mg_calibration_accel_confirm(mg_core_t* core, int position);
 MGCORE_API char* mg_calibration_start_airspeed(mg_core_t* core);
 
-// PX4 专有配置（内部能力，没有独立 UI 计划；定位见 docs/features/px4-parity.md S5）：
-// 以下 7 个导出只对 PX4（autopilot_type==12）有效，其余固件一律返回 NOT_SUPPORTED。
-// 它们按语义分组读写飞控参数；通用参数页（mg_params_* / mg_config_* 配合 `px4`
-// 描述符 profile）已覆盖同一批参数，这里保留导出是给原生工具与测试一个分组视图。
-//   - 执行器：PWM_MAIN_FUNC1..16。get 返回 {"firmware","param_prefix","channel_count","main_functions"[16]}，
-//     缺失通道按 PX4 默认 0 = Disabled 报告；set 接受 {"main_functions":[...]}。
-//   - 模式槽：COM_FLTMODE1..6，**只读**。写模式槽必须与 RC 模式通道（RC_MAP_FLTMODE）
-//     保持一致，误写会让飞控失去可用模式；需要修改时由用户在参数页显式操作。
-//   - 安全：按飞控实际参数缓存报告 CBRK_*（字段名就是参数名，不伪造固定字段）。
-//     set 接受 {"circuit_breakers":{"CBRK_IO_SAFETY":0}}；非 CBRK_ 名返回
-//     INVALID_PARAM，飞控没有的参数返回 NOT_FOUND，不再静默当成写成功。
-//   - 调参：MC_ROLL_P/MC_ROLLRATE_P/MC_PITCH_P/MC_PITCHRATE_P/MC_YAW_P/MC_YAWRATE_P。
-MGCORE_API char* mg_px4_actuator_get_config(mg_core_t* core);
-MGCORE_API char* mg_px4_actuator_set_config(mg_core_t* core, const char* json_config);
-MGCORE_API char* mg_px4_flight_mode_get_config(mg_core_t* core);
-MGCORE_API char* mg_px4_safety_get(mg_core_t* core);
-MGCORE_API char* mg_px4_safety_set(mg_core_t* core, const char* json_config);
-MGCORE_API char* mg_px4_tuning_get(mg_core_t* core);
-MGCORE_API char* mg_px4_tuning_set(mg_core_t* core, const char* json_config);
 
 #ifdef __cplusplus
 }

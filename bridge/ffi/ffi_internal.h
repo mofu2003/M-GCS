@@ -198,9 +198,6 @@ inline void write_heartbeat_freshness(mg::core::telemetry::JsonBuilder& jb,
     jb.field("heartbeat_age_ms",
              known_age ? static_cast<int64_t>(age) : static_cast<int64_t>(-1));
 }
-inline mg::core::geofence::GeofenceManager& get_active_geofence(mg_core_t* core) {
-    return get_active_vehicle(core)->geofence();
-}
 inline mg::core::settings::MavlinkLogWriter& get_active_mavlink_log(mg_core_t* core) {
     return get_active_vehicle(core)->mavlink_log();
 }
@@ -237,17 +234,9 @@ inline mg::core::mission::MissionPlan ffi_prepare_mission_upload(mg_core_t* core
 // Shared parameter helpers for ffi_*.cc
 // ================================================================
 
-/// Check if active vehicle is PX4 (returns false for ArduPilot or no vehicle).
-inline bool ffi_is_px4(mg_core_t* core) {
-    auto mav = shared_active_mavlink(core);
-    if (!mav) return false;
-    auto hb = mav->latest_heartbeat();
-    return hb.has_value() && hb->autopilot_type == 12;
-}
-
 /// ArduPilot 归一化机型（copter/plane/vtol/rover/sub/tracker）。非 ArduPilot
 /// 固件、未连接或机型无法归一化时返回空串。任务命令能力门禁按这个结果判断
-/// 飞控是否真的存储某个任务字段，因此 PX4 保持空串。
+/// 飞控是否真的存储某个任务字段。
 inline std::string ffi_ardupilot_vehicle_class(mg_core_t* core) {
     auto mav = shared_active_mavlink(core);
     if (!mav) return "";
@@ -266,58 +255,9 @@ inline std::string ffi_ardupilot_vehicle_class(mg_core_t* core) {
     return "";
 }
 
-/// 参数描述库 profile：ArduPilot 用归一化机型，PX4 用 `px4`
-/// （`PX4ParameterMetaData.json`，见 `docs/adr/0007-px4-parameter-metadata.md`），
-/// 其余为空。
+/// 参数描述库 profile：ArduPilot 用归一化机型名，其余为空。
 inline std::string ffi_param_profile(mg_core_t* core) {
-    auto mav = shared_active_mavlink(core);
-    if (!mav) return "";
-    auto hb = mav->latest_heartbeat();
-    if (hb.has_value() && hb->autopilot_type == 12) return "px4";
     return ffi_ardupilot_vehicle_class(core);
-}
-
-/// Translate a canonical (new) parameter name to the name expected by the
-/// detected firmware version. Unknown versions and non-ArduPilot firmware
-/// pass through unchanged.
-inline std::string ffi_param_vehicle_name(mg_core_t* core,
-                                          const std::string& param_name) {
-    auto mav = shared_active_mavlink(core);
-    if (!mav) return param_name;
-    const auto hb = mav->latest_heartbeat();
-    const auto version = mav->latest_firmware_version();
-    if (!hb.has_value() || !version.has_value()) return param_name;
-
-    mg::core::firmware::FirmwareAdapter adapter;
-    adapter.detect(hb->autopilot_type, hb->vehicle_type);
-    auto plugin = mg::core::firmware::create_firmware_plugin(adapter.firmware_kind());
-    if (!plugin || !plugin->has_param_remapping()) return param_name;
-    return plugin->remap_param_name(
-        adapter.vehicle_kind(),
-        version->firmware_major,
-        version->firmware_minor,
-        param_name);
-}
-
-/// Translate a parameter name reported by the detected firmware back to the
-/// newest canonical name used by the local descriptor database.
-inline std::string ffi_param_canonical_name(mg_core_t* core,
-                                            const std::string& param_name) {
-    auto mav = shared_active_mavlink(core);
-    if (!mav) return param_name;
-    const auto hb = mav->latest_heartbeat();
-    const auto version = mav->latest_firmware_version();
-    if (!hb.has_value() || !version.has_value()) return param_name;
-
-    mg::core::firmware::FirmwareAdapter adapter;
-    adapter.detect(hb->autopilot_type, hb->vehicle_type);
-    auto plugin = mg::core::firmware::create_firmware_plugin(adapter.firmware_kind());
-    if (!plugin || !plugin->has_param_remapping()) return param_name;
-    return plugin->canonical_param_name(
-        adapter.vehicle_kind(),
-        version->firmware_major,
-        version->firmware_minor,
-        param_name);
 }
 
 /// Get a parameter value by name (returns 0 if not found or no connection).

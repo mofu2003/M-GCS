@@ -9,7 +9,7 @@ struct mg_core_t;
 
 namespace mg::bridge::ffi {
 
-/// ArduPilot 的 mission 列表把 Home 放在第 0 项；PX4 不使用这个约定。
+/// ArduPilot 的 mission 列表把 Home 放在第 0 项。
 bool mission_uses_home_item(mg_core_t* core);
 
 mg::core::mission::MissionPlan present_mission_plan(

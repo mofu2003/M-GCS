@@ -316,7 +316,7 @@ MGCORE_API char* mg_config_get_metadata_coverage(mg_core_t* core) {
     mg::core::config::ParamCoverage coverage;
     coverage.total = static_cast<int>(names.size());
     for (const auto& name : names) {
-        const auto canonical = ffi_param_canonical_name(core, name);
+        const auto canonical = name;
         if (db.get(profile, canonical).found) {
             coverage.described++;
         } else {

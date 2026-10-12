@@ -323,26 +323,6 @@ uint16_t mission_vehicle_class_bit(const std::string& vehicle_class) {
     return 0;
 }
 
-namespace {
-
-// QGC PX4 固件覆盖的 `paramRemove` 列表
-// （`src/FirmwarePlugin/PX4/PX4-MavCmdInfoCommon.json`，QGC `bf0096d97`）。
-// 只影响前端是否显示该字段，不改变已存储的值（与 QGC 一致）。
-bool px4_hides_parameter(uint16_t command, uint8_t parameter_index) {
-    switch (command) {
-        case 16:   // MAV_CMD_NAV_WAYPOINT：PX4 不用接受半径/通过半径
-            return parameter_index == 2 || parameter_index == 3;
-        case 21:   // MAV_CMD_NAV_LAND：PX4 不用中止高度
-            return parameter_index == 1;
-        case 2500: // MAV_CMD_VIDEO_START_CAPTURE：PX4 不用状态频率
-            return parameter_index == 2;
-        default:
-            return false;
-    }
-}
-
-} // namespace
-
 std::string mission_vehicle_class_label(const std::string& vehicle_class) {
     switch (mission_vehicle_class_bit(vehicle_class)) {
         case mission_vehicle::kCopter: return "copter";
@@ -388,7 +368,7 @@ bool mission_command_parameter_applies(
             if (parameter.index != parameter_index) continue;
             if (parameter.vehicles == 0) return true;
             const uint16_t bit = mission_vehicle_class_bit(vehicle_class);
-            // 机型未知（PX4、未识别固件）时不判断该字段是否被存储。
+            // 机型未知（未识别固件）时不判断该字段是否被存储。
             if (bit == 0) return true;
             return (parameter.vehicles & bit) != 0;
         }
@@ -396,16 +376,6 @@ bool mission_command_parameter_applies(
         return true;
     }
     // 命令不在目录里：没有数据就不判。
-    return true;
-}
-
-bool mission_command_parameter_visible(
-    uint16_t command,
-    uint8_t parameter_index,
-    const std::string& firmware_profile) {
-    if (firmware_profile == "px4") {
-        return !px4_hides_parameter(command, parameter_index);
-    }
     return true;
 }
 

@@ -2,10 +2,9 @@
 """S6 守卫：通用代码里不得出现固件专属参数名字面量。
 
 `docs/constraints/safety.md` 的 S6 要求模式号、参数名、命令编码、校准流程
-只能由 ArduPilot / PX4 插件提供。参数名的事实来源是
-`core/src/config/ParameterDescriptors.json`（ArduPilot）与
-`core/src/config/PX4ParameterMetaData.json`（PX4）；前端或桥接层直接写这些名字，
-换固件或升级参数表后就会出现「页面按旧名字读写、飞控里根本没有该参数」。
+只能由 ArduPilot 插件提供。参数名的事实来源是
+`core/src/config/ParameterDescriptors.json`；前端或桥接层直接写这些名字，
+升级参数表后就会出现「页面按旧名字读写、飞控里根本没有该参数」。
 
 扫描范围覆盖三处：
   - flutter_shell/lib（Dart 单引号字符串，含 ${...}/$ident 插值）
@@ -55,7 +54,6 @@ SCAN_DIRS: list[tuple[Path, tuple[str, ...]]] = [
 
 DESCRIPTOR_FILES = [
     ROOT / "core" / "src" / "config" / "ParameterDescriptors.json",
-    ROOT / "core" / "src" / "config" / "PX4ParameterMetaData.json",
 ]
 
 # 只认「含下划线的整名」：`GPS`、`AUTO`、`RTL` 这类既是参数名又是模式名或

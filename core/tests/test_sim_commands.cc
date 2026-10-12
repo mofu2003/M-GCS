@@ -104,84 +104,6 @@ static void test_takeoff() {
     CHECK(ap_relative_alt, "ArduPilot TAKEOFF keeps param7 as the requested relative altitude");
 }
 
-// PX4 引导动作与 QGC 语义对齐：
-//   - 起飞 param7 由相对高度换算为 AMSL，缺位置时本地拒绝；
-//   - 暂停发 DO_REPOSITION + CHANGE_MODE（QGC PX4FirmwarePlugin::pauseVehicle）。
-static void test_px4_guided_command_semantics() {
-    fprintf(stderr, "\n[Group] PX4 GUIDED COMMAND SEMANTICS\n");
-    // 起飞：10 m 相对 + 50 m MSL = 60 m AMSL。
-    {
-        MockFlightController::Config cfg;
-        cfg.firmware = MockFlightController::PX4;
-        cfg.vehicle  = MockFlightController::Copter;
-        TestEnv env(cfg);
-        CHECK(env.wait_connected(), "px4 takeoff: connected after heartbeat");
-        env.mock->received_cmds.clear();
-
-        env.start_pump();
-        char* result = mg_command_takeoff(env.core, 10.0f);
-        env.stop_pump();
-        CHECK(is_success(result), "px4 takeoff success:true");
-        if (result) mg_free_string(result);
-
-        bool amsl = false;
-        for (const auto& cmd : env.mock->received_cmds) {
-            if (cmd.command != MAV_CMD_NAV_TAKEOFF) continue;
-            const int32_t diff = cmd.z - 60;
-            if ((diff < 0 ? -diff : diff) <= 1) amsl = true;
-        }
-        CHECK(amsl, "px4 TAKEOFF param7 is AMSL (10 m rel + 50 m MSL = 60 m)");
-    }
-    // 没有有效位置时必须在本地拒绝，不能发一条假的 AMSL 高度。
-    {
-        MockFlightController::Config cfg;
-        cfg.firmware = MockFlightController::PX4;
-        cfg.vehicle  = MockFlightController::Copter;
-        TestEnv env(cfg);
-        CHECK(env.wait_connected(), "px4 takeoff without a fix: connected after heartbeat");
-        env.mock->telem.lat_deg7 = 0;
-        env.mock->telem.lon_deg7 = 0;
-        env.tick(300);  // 让全零位置进入遥测缓存
-        env.mock->received_cmds.clear();
-
-        env.start_pump();
-        char* result = mg_command_takeoff(env.core, 10.0f);
-        env.stop_pump();
-        CHECK(is_failure(result), "px4 takeoff without a position is rejected locally");
-        if (result) mg_free_string(result);
-
-        bool takeoff_sent = false;
-        for (const auto& cmd : env.mock->received_cmds) {
-            if (cmd.command == MAV_CMD_NAV_TAKEOFF) takeoff_sent = true;
-        }
-        CHECK(!takeoff_sent, "rejected px4 takeoff never reaches the flight controller");
-    }
-    // 暂停：DO_REPOSITION + MAV_DO_REPOSITION_FLAGS_CHANGE_MODE。
-    {
-        MockFlightController::Config cfg;
-        cfg.firmware = MockFlightController::PX4;
-        cfg.vehicle  = MockFlightController::Copter;
-        TestEnv env(cfg);
-        CHECK(env.wait_connected(), "px4 pause: connected after heartbeat");
-        env.mock->received_cmds.clear();
-
-        env.start_pump();
-        char* result = mg_command_guided_pause(env.core);
-        env.stop_pump();
-        CHECK(is_success(result), "px4 pause success:true");
-        if (result) mg_free_string(result);
-
-        bool reposition = false;
-        for (const auto& cmd : env.mock->received_cmds) {
-            if (cmd.command == MAV_CMD_DO_REPOSITION &&
-                cmd.p1 == -1.0f &&
-                cmd.p2 == static_cast<float>(MAV_DO_REPOSITION_FLAGS_CHANGE_MODE)) {
-                reposition = true;
-            }
-        }
-        CHECK(reposition, "px4 pause uses DO_REPOSITION with CHANGE_MODE flags");
-    }
-}
 
 static void test_rtl() {
     fprintf(stderr, "\n[Group] RTL command\n");
@@ -766,7 +688,6 @@ int main() {
     fprintf(stderr, "=== Command Simulation Tests ===\n");
     test_arm();
     test_takeoff();
-    test_px4_guided_command_semantics();
     test_rtl();
     test_mode_change();
     test_safety_command_encoding();

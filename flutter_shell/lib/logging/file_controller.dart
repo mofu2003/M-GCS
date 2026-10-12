@@ -44,7 +44,7 @@ class FileController extends ChangeNotifier {
        _downloadDirectoryProvider =
            downloadDirectoryProvider ?? defaultDownloadDirectory;
 
-  /// MAVLink FTP 的起始目录。ArduPilot/PX4 都有 `@SYS`，比空路径更安全：
+  /// MAVLink FTP 的起始目录。`@SYS` 比空路径更安全：
   /// FFI 明确拒绝空路径。
   static const String defaultPath = '@SYS';
 

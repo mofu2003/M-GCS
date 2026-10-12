@@ -5,7 +5,6 @@
  * 舵机/电机通道配置：功能映射、限位参数、电机测试。
  *
  * AP uses SERVO{n}_FUNCTION/MIN/MAX/TRIM for channel mapping.
- * PX4 uses ACTUATOR{n}_FUNCTION (will be added when PX4 actuator config is needed).
  *
  * AP SERVO_FUNCTION values (from AP_Motors):
  *   0=Disabled, 33=Throttle, 74=Motor1, 75=Motor2, ...

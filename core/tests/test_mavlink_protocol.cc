@@ -3,7 +3,7 @@
  *
  * Tests MavlinkAdapter encode/decode. Pattern inspired by QGC MockLink + MP.
  *
- * Covers: Heartbeat (AP+PX4), Param protocol, Command ACK, GPS, Attitude,
+ * Covers: Heartbeat, Param protocol, Command ACK, GPS, Attitude,
  *   RC, Servo, Pressure, Battery, Vibration, Statustext, GlobalPos, HomePos,
  *   Multi-message interleave, Heartbeat watchdog, Send path.
  */
@@ -70,23 +70,6 @@ static void test_heartbeat_ardupilot_fw() {
     CHECK(!last.armed, "AP FW not armed");
     CHECK(last.custom_mode == 17, "AP FW custom_mode=17");
     CHECK(strlen(last.flight_mode) > 0, "AP FW flight_mode not empty");
-}
-
-static void test_heartbeat_px4_copter() {
-    fprintf(stderr, "\n[Group] Heartbeat - PX4 Copter Armed\n");
-    TestFixture f;
-    bool received = false;
-    mg::core::mavlink::HeartbeatInfo last;
-    f.adapter.on_heartbeat([&](const mg::core::mavlink::HeartbeatInfo& hb) { received = true; last = hb; });
-    mavlink_message_t msg;
-    mavlink_msg_heartbeat_pack(1, 1, &msg, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_PX4,
-        MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 50593792, MAV_STATE_ACTIVE);
-    f.inject(msg);
-    CHECK(received, "PX4 heartbeat received");
-    CHECK(last.autopilot_type == 12, "PX4 autopilot=12");
-    CHECK(last.vehicle_type == 2, "PX4 type=2 (quadrotor)");
-    CHECK(last.armed, "PX4 armed");
-    CHECK(strlen(last.flight_mode) > 0, "PX4 flight_mode decoded");
 }
 
 static void test_param_value_decode() {
@@ -1353,7 +1336,6 @@ int main() {
     fprintf(stderr, "(Inspired by QGC MockLink + MP MAVLinkInterface)\n\n");
 
     test_heartbeat_ardupilot_fw();
-    test_heartbeat_px4_copter();
     test_param_value_decode();
     test_param_name_encoding();
     test_param_error_rejects_pending_write();

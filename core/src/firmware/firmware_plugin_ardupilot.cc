@@ -168,8 +168,6 @@ float ArduPilotPlugin::minimum_takeoff_altitude(VehicleKind vehicle) const {
 
 
 
-// ParamRemapping功能已删除（PX4专属），ArduPilot不需要参数名重映射
-
 } // namespace mg::core::firmware
 
 // ================================================================

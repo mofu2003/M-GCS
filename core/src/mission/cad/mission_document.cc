@@ -1098,8 +1098,7 @@ bool import_mission_plan_into_document(
         // MAV_FRAME_MISSION 的 x/y 是 param5/param6，不是经纬度；只有命令
         // 语义承载位置且坐标帧为全球帧时才还原成文档位置。
         if (is_global_coordinate_frame(normalized_frame) &&
-            mission_command_uses_location(
-                item.command, document.metadata.firmware_profile)) {
+            mission_command_uses_location(item.command)) {
             entity.latitude = static_cast<double>(item.x) / 1e7;
             entity.longitude = static_cast<double>(item.y) / 1e7;
         }

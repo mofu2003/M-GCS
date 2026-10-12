@@ -158,7 +158,6 @@ set(MGCORE_SOURCES
     core/src/telemetry/adsb_tracker.cc
     # Geofence
     # Terrain
-    core/src/terrain/terrain_store.cc
     # Video
     core/src/video/video_decoder.cc
     # Vehicle (multi-vehicle)
@@ -398,7 +397,6 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_sim_mission_document.cc
         core/tests/test_sim_commands.cc
         core/tests/test_sim_calibration.cc
-        core/tests/test_terrain.cc
         core/tests/test_state_machines.cc
         core/tests/test_transport_links.cc
         core/tests/test_new_modules.cc
