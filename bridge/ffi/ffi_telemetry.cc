@@ -2,13 +2,12 @@
 /**
  * ffi_telemetry.cc - Telemetry history and log persistence FFI
  *
- * 遥测环形缓冲区、飞行日志记录、参数文件 I/O、数据新鲜度查询。
+ * 遥测环形缓冲区、飞行日志记录、数据新鲜度查询。
  */
 #include "ffi_internal.h"
 #include "core/telemetry/json_serializers.h"
 #include "core/telemetry/telemetry_ring_buffer.h"
 #include "core/settings/flight_log_writer.h"
-#include "core/config/param_file_io.h"
 
 #include <algorithm>
 #include <chrono>

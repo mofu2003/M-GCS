@@ -145,8 +145,6 @@ set(MGCORE_SOURCES
     core/src/flight/flight_mode_manager.cc
     # Configuration management
     core/src/config/param_descriptors.cc
-    core/src/config/param_file_io.cc
-    core/src/config/parameter_change_set.cc
     # Settings
     core/src/settings/flight_log_writer.cc
     core/src/log/flight_log_replayer.cc
@@ -353,7 +351,6 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_in_memory.cc
         core/tests/test_telemetry_cache.cc
         core/tests/test_multi_vehicle.cc
-        core/tests/test_param_file_io.cc
         core/tests/test_param_descriptors.cc
         core/tests/test_sensor_decode_offline.cc
         core/tests/test_firmware_adapter.cc

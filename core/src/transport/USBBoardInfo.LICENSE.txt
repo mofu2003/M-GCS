@@ -1,0 +1,57 @@
+USBBoardInfo.json — 第三方数据许可与出处
+========================================
+
+本文件记录同目录下 USBBoardInfo.json 的版权归属与再分发条件。
+决策记录见 docs/adr/0002-upstream-reference-and-license.md。
+
+出处
+----
+
+  * 上游来源：QGroundControl
+    src/Comms/Serial/USBBoardInfo.json
+    https://github.com/mavlink/qgroundcontrol
+    commit bf0096d97（该文件本身最后一次改动为 9e1b837）
+  * 用途：按 USB vendorID / productID 识别飞控板卡与厂商，
+    供 core 的串口枚举与连接面板给出可读的板卡名。
+  * 本副本 SHA-256：76ac778d39922ed2cde429b6861af919b02037766714e1dcea7e9871b813f579
+
+修改说明（Apache-2.0 §4(b) 要求对修改作出显著告知）
+---------------------------------------------------
+
+**本文件是基于上游数据的衍生作品，不是逐字副本。** 具体差异：
+
+  * boardInfo：75 条。与上游共 52 条；本地新增 23 条（mRo / Holybro / CUAV /
+    ZeroOne 等较新的 H7 板卡）；上游有而本仓未收录 17 条。
+    另有 2 条 VID/PID 相同但板卡名不同（属上游改名）。
+  * boardDescriptionFallback：51 条，与上游 53 条中的 51 条逐条相同，无本地新增。
+  * boardManufacturerFallback：随上游结构保留。
+
+维护方式：新增板卡直接在本文件追加条目；上游更新时不自动同步，
+按需手动核对（`docs/constraints/upstream.md` 的 P6 要求记录来源）。
+
+许可
+----
+
+QGroundControl 按 Apache-2.0 / GPLv3 双许可分发。**本仓库取 Apache-2.0 分支**：
+GPLv3 分支的代码与数据不进入 M-GCS（MIT 项目，与 GPLv3 不兼容）。
+Apache-2.0 要求保留版权与许可声明、并声明所做的修改（见上节）。
+
+子目录许可原文见上游仓库根 `LICENSE-APACHE`；以下为完整声明。
+
+--------------------------------------------------------------------------------
+Apache License, Version 2.0
+
+Copyright (c) 2013-2026 QGroundControl contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+--------------------------------------------------------------------------------

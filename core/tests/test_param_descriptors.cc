@@ -144,8 +144,12 @@ static void test_chinese_translation_overlay() {
     const auto copter_accel = db.get("copter", "ATC_ACC_P_MAX");
     CHECK(copter_accel.display_name.find("姿态控制") != std::string::npos &&
           copter_accel.display_name.find("加速度") != std::string::npos, "Copter fallback Chinese display");
-    CHECK(copter_accel.description.find("ArduPilot 官方英文说明") != std::string::npos &&
-          copter_accel.description.find("Maximum acceleration in pitch axis") != std::string::npos, "Copter fallback preserves official description");
+    // ArduPilot 的 @Description 是 GPLv3 文本，不得回填（ADR-0002）。这里断言
+    // 描述是我们自己的中文模板，且不含上游英文原文。
+    CHECK(contains_localized_text(copter_accel.description),
+          "Copter fallback description is our own Chinese template");
+    CHECK(copter_accel.description.find("Maximum acceleration in pitch axis") == std::string::npos,
+          "Copter fallback description carries no ArduPilot English prose");
     CHECK(db.enum_label("copter", "ATC_ACC_P_MAX", 0) == "禁用 (Disabled)", "Copter fallback common option label");
 
     const auto plane_tecs = db.get("plane", "TECS_SPDWEIGHT");

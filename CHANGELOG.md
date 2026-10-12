@@ -46,6 +46,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ffi_api_environment.h`.
 - **Stale documents**: `docs/archive/`, transient phase reports, and the PX4 parity document
   are deleted; ADR-0007/0008 renumbered so `0007` = send mutex, `0008` = video decode.
+- **ArduPilot parameter prose (licence)**: `ParameterDescriptors.json` carried 11,655
+  `@Description` and `@DisplayName` strings copied verbatim from ArduPilot, which is GPLv3 —
+  incompatible with this project's MIT licence. They are gone; the file now keeps only
+  structural facts (type / range / unit / default / increment / enum values) plus our own
+  `groups` and `roles` sections, and records the reason in a `metadata_note` field. The
+  loader no longer appends the upstream English text to descriptions. Chinese names and
+  explanations come from `ParameterTranslations.zh-CN.json`, which is our own wording
+  (spot-checked: condensed from the facts, not a sentence-by-sentence translation) —
+  95% of the 17k parameters now show a Chinese name.
+  See `docs/adr/0002-upstream-reference-and-license.md` and KD-56.
+- **`ParamFileIO` / `ParameterChangeSetPlanner`**: `param_file_io.{cc,h}`,
+  `parameter_change_set.{cc,h}` and their test — 391 lines whose only caller was their own
+  test after the `mg_param_file_*` exports were retired. Test suite count 35 → 34.
+- **`USBBoardInfo.json` licence gap**: the file is derived from QGC's same-named file
+  (52 of 75 boardInfo entries upstream, boardDescriptionFallback identical). Apache-2.0
+  attribution and a §4(b) modification notice now ship in `USBBoardInfo.LICENSE.txt`.
 
 ### Added
 
@@ -54,6 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pages, the 42 test suites and the tooling.
 - `bridge/ffi/API_CATALOG.md` now lists **public types** (`mg_core_t`, `mg_error_t`) alongside
   functions — previously a typedef could be deleted without leaving a trace anywhere.
+- `core/src/transport/USBBoardInfo.LICENSE.txt`: Apache-2.0 attribution for the QGC-derived
+  board database, including the modification notice the licence requires.
 
 ### Changed
 

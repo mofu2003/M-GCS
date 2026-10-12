@@ -10,23 +10,12 @@
 #include "ffi_internal.h"
 #include "ffi_response.h"
 #include "core/telemetry/param_json_serializers.h"
-#include "core/config/parameter_change_set.h"
 
 #include <unordered_set>
 
 #define CJSON_NESTING_LIMIT 10
 #include "cJSON.h"
 #include "core/util/json.h"
-
-namespace {
-
-using mg::core::config::ParamEntry;
-using mg::core::config::ParameterChange;
-using mg::core::config::ParameterChangeDisposition;
-using mg::core::config::ParameterChangeSet;
-using mg::core::config::ParameterChangeSetPlanner;
-
-} // namespace
 
 MGCORE_API char* mg_params_request_all(mg_core_t* core) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
