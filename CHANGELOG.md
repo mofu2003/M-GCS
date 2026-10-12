@@ -24,10 +24,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exports (`mg_geofence_check`/`get_config`, `mg_fence_enable`) are removed. Fence and Rally
   continue to flow through the mission document (`mg_mission_doc_*`, `mg_fence_download`,
   `mg_rally_download`).
-- **Dead FFI surface**: 18 exports deleted and registered in `RETIRED_SYMBOLS`; public
-  exports drop from 280 to 262.
+- **Dead FFI surface**: exports with no frontend binding, no internal caller and no test
+  reference are gone — per-message telemetry getters, the old mission entry points
+  (`mg_mission_upload`/`get_plan`/`get_progress`), flight-mode helpers, parameter group and
+  batch APIs, connection helpers, SITL, firmware-flash stubs, event/session logging, sensor
+  decoding, parameter file transforms, and the seven `mg_px4_*`. **Public exports drop from
+  280 to 154** (130 still bound by Flutter). Every removed symbol is registered in
+  `RETIRED_SYMBOLS`; re-introducing one fails the gate.
+- **FFI event push removed**: `mg_set_event_callback`, `mg_event_callback_t`,
+  `mg_event_type_t`, the `EventDispatcher` and its forwarding lambdas are gone — the frontend
+  never registered a callback (KD-27 polls instead), so the chain was pure overhead. Core's own
+  event system (`Vehicle::EventCallback`, `fire_event`) stays: calibration history flushing and
+  connection-state changes still use it.
+- **Orphan implementations**: helpers that only served the deleted exports
+  (`export_connected_plan_json`, `config_read_group_json`, `parse_change_set`,
+  `cal_result_json`/`cal_history_json`/`cal_retry_json`, `get_active_ring_buffer`,
+  `ffi_set_param`/`ffi_fmt_param`, the serial parameter tables, `mission_progress_json`,
+  `command_outcome_name`, `MissionCurrentInfo`) and three whole files
+  (`mission_json_parser.h`, `sensor_decode_json_serializers.h`, `config_descriptors.h`)
+  are removed, together with `SitlLauncher`, `ADSBTracker` and the empty
+  `ffi_api_environment.h`.
 - **Stale documents**: `docs/archive/`, transient phase reports, and the PX4 parity document
   are deleted; ADR-0007/0008 renumbered so `0007` = send mutex, `0008` = video decode.
+
+### Added
+
+- `docs/CODEBASE-INVENTORY.md`: a full inventory of the 154 public exports (grouped by header,
+  with the feature each one serves and its binding status), the 15 core modules, the frontend
+  pages, the 42 test suites and the tooling.
+- `bridge/ffi/API_CATALOG.md` now lists **public types** (`mg_core_t`, `mg_error_t`) alongside
+  functions — previously a typedef could be deleted without leaving a trace anywhere.
+
+### Changed
+
+- **`ffi-contract.md` F2 rewritten**: the old text said "独立能力不得因未被 Flutter 调用而删除",
+  which contradicted this release's whole approach. F2 now states the four ways an export can
+  have a consumer, requires deleting any export with none, names "we might need it later" as an
+  invalid excuse, and keeps the ABI/registry/CHANGELOG obligations for deletions.
 
 ### Fixed
 
