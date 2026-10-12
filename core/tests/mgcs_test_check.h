@@ -18,6 +18,12 @@
 
 #include <cmath>
 #include <cstdio>
+#include <string>
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace mgcs_test {
 
@@ -35,6 +41,24 @@ inline int& failed() {
 
 /// ctest 退出码：只要有一条断言失败就是 1。
 inline int exit_code() { return failed() > 0 ? 1 : 0; }
+
+/// 本进程 id（跨平台）。
+inline unsigned long process_id() {
+#if defined(_WIN32)
+    return static_cast<unsigned long>(::_getpid());
+#else
+    return static_cast<unsigned long>(::getpid());
+#endif
+}
+
+/// 每进程唯一的临时文件名，形如 `mgcs-<pid>-<name>`。
+///
+/// 测试若用固定的临时文件名，**并发跑同一个测试二进制的两个进程会互相覆盖**：
+/// 表现为「单独跑全绿、只有并发时随机红」（实测并发 4 份时 3~4 个实例失败）。
+/// 用例本来就在开头 remove() 旧文件，所以 pid 复用也不会残留脏数据。
+inline std::string unique_temp_name(const char* name) {
+    return std::string("mgcs-") + std::to_string(process_id()) + "-" + name;
+}
 
 } // namespace mgcs_test
 

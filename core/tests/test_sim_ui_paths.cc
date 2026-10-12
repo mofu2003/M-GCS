@@ -21,6 +21,11 @@
 #include <filesystem>
 #include <string>
 #include <thread>
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 #include "mgcs_test_check.h"
 
 // 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
@@ -51,6 +56,27 @@ struct TestEnv : MockVehicleTestEnv {
 
 bool json_has(const char* json, const char* needle) {
     return json != nullptr && std::strstr(json, needle) != nullptr;
+}
+
+/// 本进程 id（跨平台）。
+unsigned long test_process_id() {
+#if defined(_WIN32)
+    return static_cast<unsigned long>(::_getpid());
+#else
+    return static_cast<unsigned long>(::getpid());
+#endif
+}
+
+/// 每进程唯一的临时文件路径。
+///
+/// 固定文件名（mgcs_log_download_test.bin 等）会让并发跑同一个测试二进制的两个
+/// 进程写同一份文件：日志下载/tlog/文件传输用例互相覆盖，门禁里表现为"单独跑
+/// 全绿、只有并发时红"（实测并发 4 份时出现过 1 个实例的 "downloaded file lands
+/// on disk" 失败）。文件名带 pid 后各进程各写各的；各用例本来就在开头 remove()
+/// 旧文件，pid 复用也不会残留脏数据。
+std::filesystem::path unique_temp_path(const char* name) {
+    return std::filesystem::temp_directory_path() /
+           ("mgcs-" + std::to_string(test_process_id()) + "-" + name);
 }
 
 struct EventProbe {
@@ -299,7 +325,7 @@ void test_log_download_reports_saved_bytes() {
     env.tick(50);
 
     const auto path =
-        std::filesystem::temp_directory_path() / "mgcs_log_download_test.bin";
+        unique_temp_path("mgcs_log_download_test.bin");
     std::error_code ec;
     std::filesystem::remove(path, ec);
 
@@ -341,7 +367,7 @@ void test_log_download_accepts_in_order_and_resent_holes() {
     env.tick(50);
 
     const auto path =
-        std::filesystem::temp_directory_path() / "mgcs_log_inorder_test.bin";
+        unique_temp_path("mgcs_log_inorder_test.bin");
     std::error_code ec;
     std::filesystem::remove(path, ec);
 
@@ -389,7 +415,7 @@ void test_log_download_rejects_wrapping_offset() {
     env.tick(50);
 
     const auto path =
-        std::filesystem::temp_directory_path() / "mgcs_log_wrap_test.bin";
+        unique_temp_path("mgcs_log_wrap_test.bin");
     std::error_code ec;
     std::filesystem::remove(path, ec);
 
@@ -424,7 +450,7 @@ void test_log_download_write_failure_is_visible() {
 
     // 父目录不存在 → fopen 必然失败（普通用户与 root 都一样）。
     const auto dir =
-        std::filesystem::temp_directory_path() / "mgcs_missing_dir_for_test";
+        unique_temp_path("mgcs_missing_dir_for_test");
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
     const auto path = dir / "log.bin";
@@ -457,7 +483,7 @@ void test_log_download_status_has_no_side_effect() {
     env.tick(50);
 
     const auto path =
-        std::filesystem::temp_directory_path() / "mgcs_log_status_test.bin";
+        unique_temp_path("mgcs_log_status_test.bin");
     std::error_code ec;
     std::filesystem::remove(path, ec);
 
@@ -497,7 +523,7 @@ void test_log_download_cancel_sends_request_end() {
     env.tick(50);
 
     const auto path =
-        std::filesystem::temp_directory_path() / "mgcs_log_cancel_test.bin";
+        unique_temp_path("mgcs_log_cancel_test.bin");
     std::error_code ec;
     std::filesystem::remove(path, ec);
 
@@ -530,7 +556,7 @@ void test_log_download_truncation_is_reported() {
     env.tick(50);
 
     const auto path =
-        std::filesystem::temp_directory_path() / "mgcs_log_truncated_test.bin";
+        unique_temp_path("mgcs_log_truncated_test.bin");
     std::error_code ec;
     std::filesystem::remove(path, ec);
 
@@ -564,7 +590,7 @@ void test_log_download_unknown_size_is_unverified() {
 
     // 不发送 LOG_ENTRY：飞控没有声明大小，下载只能靠空帧判定结束。
     const auto path =
-        std::filesystem::temp_directory_path() / "mgcs_log_unknown_size_test.bin";
+        unique_temp_path("mgcs_log_unknown_size_test.bin");
     std::error_code ec;
     std::filesystem::remove(path, ec);
 
@@ -608,7 +634,7 @@ void test_log_erase_gating() {
     env.mock->send_log_entry(22, 1700000000u, 100u);
     env.tick(50);
     const auto path =
-        std::filesystem::temp_directory_path() / "mgcs_log_erase_gate_test.bin";
+        unique_temp_path("mgcs_log_erase_gate_test.bin");
     std::error_code ec;
     std::filesystem::remove(path, ec);
     char* start = mg_onboard_log_download(env.core, 22, path.string().c_str());
@@ -725,7 +751,7 @@ void test_fs_transfer_async_ffi() {
         "@SYS", {"S208.42 1", "Fuarts.txt\t41", "Dlogs", "Fparams.txt\t42"});
 
     const auto output =
-        std::filesystem::temp_directory_path() / "mgcs_ffi_fs_async.txt";
+        unique_temp_path("mgcs_ffi_fs_async.txt");
     std::error_code ignored;
     std::filesystem::remove(output, ignored);
 
@@ -794,7 +820,7 @@ void test_fs_transfer_async_ffi() {
     cancel_env.connect();
     cancel_env.mock->set_ftp_file("@SYS/big.txt", std::string(4096, 'x'));
     const auto cancel_out =
-        std::filesystem::temp_directory_path() / "mgcs_ffi_fs_cancel.txt";
+        unique_temp_path("mgcs_ffi_fs_cancel.txt");
     std::filesystem::remove(cancel_out, ignored);
     char* c_start = mg_fs_download_file(cancel_env.core, "@SYS/big.txt",
                                         cancel_out.string().c_str());

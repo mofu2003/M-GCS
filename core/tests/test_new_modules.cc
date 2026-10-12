@@ -16,6 +16,11 @@
 #include <string>
 #include <thread>
 #include <vector>
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 #include "ardupilotmega/mavlink.h"
 #include "core/ftp/mavlink_ftp.h"
 #include "core/log/flight_log_replayer.h"
@@ -246,8 +251,24 @@ std::vector<uint8_t> read_binary_file(const std::filesystem::path& path) {
     return std::vector<uint8_t>(std::istreambuf_iterator<char>(input), {});
 }
 
+/// 本进程 id（跨平台）。
+unsigned long test_process_id() {
+#if defined(_WIN32)
+    return static_cast<unsigned long>(::_getpid());
+#else
+    return static_cast<unsigned long>(::getpid());
+#endif
+}
+
+/// FTP 用例的临时文件路径：**每进程唯一**。
+///
+/// 固定文件名会让并发跑同一个测试二进制的两个进程写同一份文件：download/upload/
+/// retry 用例互相覆盖，门禁里就表现为"单独跑全绿、只有并发时随机红"（实测并发
+/// 4 份时 4/4 实例失败）。文件名带上 pid 之后各进程各写各的；测试本来就在开头
+/// remove() 掉旧文件，所以 pid 被复用也不会残留脏数据。
 std::filesystem::path ftp_test_path(const char* name) {
-    return std::filesystem::temp_directory_path() / name;
+    return std::filesystem::temp_directory_path() /
+           ("mgcs-" + std::to_string(test_process_id()) + "-" + name);
 }
 
 } // namespace

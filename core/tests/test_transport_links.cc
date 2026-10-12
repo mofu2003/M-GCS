@@ -13,6 +13,7 @@
 #include "core/transport/in_memory_link.h"
 #include "core/mavlink/mavlink_adapter.h"
 #include "core/platform/platform_socket.h"
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -380,13 +381,126 @@ static void test_connection_manager_adapter_lease_survives_reset() {
     CHECK(lease.get() == raw_mav, "the old lease still owns the old adapter");
 }
 
+/// 把源码里的注释与字符串字面量替换成空格（保留换行，位置不变）。
+///
+/// 守卫要在源码上做花括号配对，先屏蔽注释/字符串就不会把说明文字里的 `{`、`}`、
+/// 引号当成代码。返回的字符串与原串**等长**，所以下标可以直接混用。
+static std::string mask_comments_and_literals(const std::string& text) {
+    std::string out = text;
+    for (size_t i = 0; i < out.size(); ++i) {
+        if (out[i] == '/' && i + 1 < out.size() && out[i + 1] == '/') {
+            while (i < out.size() && out[i] != '\n') out[i++] = ' ';
+            continue;
+        }
+        if (out[i] == '/' && i + 1 < out.size() && out[i + 1] == '*') {
+            out[i++] = ' ';
+            out[i++] = ' ';
+            while (i + 1 < out.size() && !(out[i] == '*' && out[i + 1] == '/')) {
+                if (out[i] != '\n') out[i] = ' ';
+                ++i;
+            }
+            if (i + 1 < out.size()) {
+                out[i] = ' ';
+                out[i + 1] = ' ';
+                ++i;
+            }
+            continue;
+        }
+        if (out[i] == '"' || out[i] == '\'') {
+            const char quote = out[i];
+            out[i] = ' ';
+            ++i;
+            while (i < out.size() && out[i] != quote) {
+                if (out[i] == '\\' && i + 1 < out.size()) {
+                    out[i] = ' ';
+                    out[i + 1] = ' ';
+                    i += 2;
+                    continue;
+                }
+                if (out[i] != '\n') out[i] = ' ';
+                ++i;
+            }
+            if (i < out.size()) out[i] = ' ';
+        }
+    }
+    return out;
+}
+
+/// `masked[open]` 是 `{`，返回配对 `}` 的下标；找不到返回 npos。
+static size_t matching_brace(const std::string& masked, size_t open) {
+    if (open >= masked.size() || masked[open] != '{') return std::string::npos;
+    int depth = 0;
+    for (size_t i = open; i < masked.size(); ++i) {
+        if (masked[i] == '{') ++depth;
+        else if (masked[i] == '}') {
+            --depth;
+            if (depth == 0) return i;
+        }
+    }
+    return std::string::npos;
+}
+
+/// 返回包含 `index` 的最内层 `{` 的下标（用于求 RAII 锁所在的作用域）。
+static size_t enclosing_open_brace(const std::string& masked, size_t index) {
+    int depth = 0;
+    for (size_t i = index; i > 0; --i) {
+        const char c = masked[i - 1];
+        if (c == '}') {
+            ++depth;
+        } else if (c == '{') {
+            if (depth == 0) return i - 1;
+            --depth;
+        }
+    }
+    return std::string::npos;
+}
+
+/// 在 `masked[from, to)` 里找回调调用，返回它的起下标（找不到返回 npos）。
+///
+/// "回调"按命名习惯识别：标识符含 `callback`，或以 `cb`/`cb_`/`_cb` 结尾。
+/// 只看代码（注释与字符串已屏蔽），且只认后面跟 `(` 的标识符，所以
+/// `callback = link->receive_cb_;` 这种**拷贝**不会被当成调用。
+static size_t find_callback_invocation(const std::string& masked,
+                                       size_t from, size_t to) {
+    for (size_t i = from; i < to && i < masked.size(); ++i) {
+        const char c = masked[i];
+        if (!(std::isalpha(static_cast<unsigned char>(c)) || c == '_')) continue;
+        size_t end = i;
+        while (end < masked.size() &&
+               (std::isalnum(static_cast<unsigned char>(masked[end])) || masked[end] == '_')) {
+            ++end;
+        }
+        const std::string name = masked.substr(i, end - i);
+        size_t next = end;
+        while (next < masked.size() && (masked[next] == ' ' || masked[next] == '\t')) ++next;
+        const bool is_call = next < masked.size() && masked[next] == '(';
+        const bool looks_like_callback =
+            name.find("callback") != std::string::npos ||
+            (name.size() >= 2 && name.compare(name.size() - 2, 2, "cb") == 0) ||
+            (name.size() >= 3 && name.compare(name.size() - 3, 3, "cb_") == 0) ||
+            (name.size() >= 3 && name.compare(name.size() - 3, 3, "_cb") == 0);
+        if (is_call && looks_like_callback) return i;
+        i = end - 1;
+    }
+    return std::string::npos;
+}
+
 /// 并发缺陷 2：`AndroidUsbSerialLink::on_java_new_data` 不得在持有
 /// g_registry_mutex 期间调用接收回调（AGENTS.md：core 持锁路径不得调用外部回调；
 /// 且该锁同时保护注册表，回调里若触发 on_java_disconnected 会自死锁）。
 ///
 /// 该文件整体在 `#ifdef __ANDROID__` 内，本机（桌面/CI）既不能编译也不能运行，
-/// 所以按 test_bridge_architecture_guards.cc 的既有手段做源码级守卫：
-/// 锁内只允许"查表 + 拷贝回调"，回调调用必须在锁作用域之外。
+/// 所以按 test_bridge_architecture_guards.cc 的既有手段做源码级守卫。
+///
+/// 判据**不依赖任何注释措辞**：先屏蔽注释与字符串，再按花括号配对求出
+/// `g_registry_mutex` 那次加锁的**词法作用域**（RAII 锁在作用域结束时析构；
+/// 若实现改成显式 lock()/unlock()，则按两者之间求作用域），然后断言：
+///   1) 作用域内没有任何回调调用；
+///   2) 回调调用出现在作用域结束之后；
+///   3) 作用域内确实只做了"查表 + 拷贝"。
+/// 改注释、加日志、调整语句顺序都不会让它变红；只有把回调挪回锁内（真正的缺陷）
+/// 才会。旧判据依赖 `// g_registry_mutex released here` 这个标记，改一下注释措辞
+/// 就会误报红——这正是本用例要修掉的问题。
 static void test_android_new_data_calls_callback_outside_registry_lock() {
     fprintf(stderr, "\n[Group] Android JNI callback lock discipline\n");
 
@@ -404,46 +518,80 @@ static void test_android_new_data_calls_callback_outside_registry_lock() {
     const std::string text = buffer.str();
     CHECK(!text.empty(), "android link source was read");
     if (text.empty()) return;
+    const std::string masked = mask_comments_and_literals(text);
 
     const std::string function = "void AndroidUsbSerialLink::on_java_new_data(";
-    const std::string lock_statement =
-        "std::lock_guard<std::mutex> registry_lock(g_registry_mutex);";
-    const std::string lock_end_marker = "// g_registry_mutex released here";
-    const std::string invocation = "if (callback) callback(data, size);";
-    const std::string copy_statement = "callback = link->receive_cb_;";
+    const std::string lock_identifier = "g_registry_mutex";
 
-    const auto function_pos = text.find(function);
+    const auto function_pos = masked.find(function);
     CHECK(function_pos != std::string::npos,
           "on_java_new_data is defined in the android link");
     if (function_pos == std::string::npos) return;
-    const auto body_end = text.find("\n}\n", function_pos);
-    CHECK(body_end != std::string::npos, "the callback body has a detectable end");
-    if (body_end == std::string::npos) return;
+    const auto body_open = masked.find('{', function_pos);
+    CHECK(body_open != std::string::npos && body_open > function_pos,
+          "the function body has an opening brace");
+    if (body_open == std::string::npos) return;
+    const auto body_close = matching_brace(masked, body_open);
+    CHECK(body_close != std::string::npos,
+          "the function body braces are balanced");
+    if (body_close == std::string::npos) return;
 
-    const auto lock_pos = text.find(lock_statement, function_pos);
-    const auto end_pos = text.find(lock_end_marker, function_pos);
-    const auto call_pos = text.find(invocation, function_pos);
-    CHECK(lock_pos != std::string::npos && lock_pos < body_end,
-          "the registry lock protects the lookup");
-    CHECK(end_pos != std::string::npos && end_pos < body_end,
-          "the registry lock scope has an explicit end marker");
-    CHECK(call_pos != std::string::npos && call_pos < body_end,
-          "the receive callback is invoked in the same function");
-    if (lock_pos == std::string::npos || end_pos == std::string::npos ||
-        call_pos == std::string::npos) {
-        return;
+    // 找到注册表锁：优先 RAII 声明，其次显式 lock()/unlock()。
+    const auto lock_pos = masked.find(lock_identifier, body_open);
+    CHECK(lock_pos != std::string::npos && lock_pos < body_close,
+          "the function takes the registry lock");
+    if (lock_pos == std::string::npos || lock_pos >= body_close) return;
+
+    // 语句范围：从上一个分隔符到下一个 ';'。
+    const auto statement_start = masked.find_last_of(";{}", lock_pos);
+    const auto statement_end = masked.find(';', lock_pos);
+    CHECK(statement_end != std::string::npos && statement_end < body_close,
+          "the registry lock statement is terminated inside the function");
+    if (statement_end == std::string::npos || statement_end >= body_close) return;
+    const std::string lock_statement = masked.substr(
+        statement_start == std::string::npos ? body_open : statement_start,
+        statement_end - (statement_start == std::string::npos ? body_open : statement_start));
+
+    const bool explicit_lock = lock_statement.find(".lock()") != std::string::npos;
+    size_t scope_begin = std::string::npos;
+    size_t scope_end_inclusive = std::string::npos;
+    if (explicit_lock) {
+        const auto unlock_pos = masked.find(lock_identifier + ".unlock()", statement_end);
+        CHECK(unlock_pos != std::string::npos && unlock_pos < body_close,
+              "an explicit unlock() matches the explicit lock()");
+        if (unlock_pos == std::string::npos || unlock_pos >= body_close) return;
+        scope_begin = statement_end;
+        scope_end_inclusive = unlock_pos;
+    } else {
+        const auto block_open = enclosing_open_brace(masked, lock_pos);
+        CHECK(block_open != std::string::npos && block_open < lock_pos,
+              "the RAII lock lives inside a brace scope");
+        if (block_open == std::string::npos || block_open >= lock_pos) return;
+        const auto block_close = matching_brace(masked, block_open);
+        CHECK(block_close != std::string::npos && block_close < body_close,
+              "the RAII lock scope closes before the function ends");
+        if (block_close == std::string::npos || block_close >= body_close) return;
+        scope_begin = block_open + 1;
+        scope_end_inclusive = block_close;
     }
 
-    CHECK(lock_pos < end_pos, "the lock is taken before its scope ends");
-    CHECK(end_pos < call_pos,
-          "the receive callback runs after the registry lock is released");
-
-    // 锁作用域内只做查表与拷贝：不得出现任何回调调用。
-    const std::string locked_scope = text.substr(lock_pos, end_pos - lock_pos);
-    CHECK(locked_scope.find("callback(") == std::string::npos,
+    const std::string locked_scope =
+        masked.substr(scope_begin, scope_end_inclusive - scope_begin);
+    CHECK(locked_scope.find(lock_identifier) != std::string::npos ||
+              explicit_lock,
+          "the guarded scope really contains the registry lock");
+    CHECK(find_callback_invocation(masked, scope_begin, scope_end_inclusive) ==
+              std::string::npos,
           "no callback invocation inside the g_registry_mutex scope");
-    CHECK(locked_scope.find(copy_statement) != std::string::npos,
+    CHECK(locked_scope.find("receive_cb_") != std::string::npos,
           "the callback is copied under the lock (lookup + copy only)");
+
+    const auto call_pos = find_callback_invocation(masked, body_open, body_close);
+    CHECK(call_pos != std::string::npos,
+          "the receive callback is invoked in the same function");
+    if (call_pos == std::string::npos) return;
+    CHECK(call_pos > scope_end_inclusive,
+          "the receive callback runs after the registry lock is released");
 }
 
 int main() {

@@ -124,7 +124,22 @@ public:
         event_cb_ = std::move(cb);
     }
 
-    mg::core::transport::ConnectionManager& conn() { return *primary_connection(); }
+    /// Active connection. Never null.
+    ///
+    /// disconnect() swaps every route out of `connections_` while the Vehicle can
+    /// still be reachable through the registry (and the fallback vehicle is
+    /// always reachable); the primary connection is then null and the old
+    /// `return *primary_connection()` dereferenced it — EXC_BAD_ACCESS at
+    /// ConnectionManager::state_ (offset 0x74), reproducible with
+    /// `mg_connection_disconnect()` followed by `mg_connection_get_state()` on a
+    /// core that has no active vehicle. When no route is attached this returns
+    /// `detached_conn_`: a never-wired manager that reports the disconnected
+    /// baseline (state Disconnected, no link, no adapter, no session), so readers
+    /// stay safe without a lifetime check.
+    mg::core::transport::ConnectionManager& conn() {
+        if (const auto connection = primary_connection()) return *connection;
+        return detached_conn_;
+    }
     mg::core::vehicle::VehicleLinkManager& link_manager() { return link_manager_; }
     mg::core::mavlink::MavlinkAdapter* mavlink() const {
         const auto connection = primary_connection();
@@ -227,6 +242,10 @@ private:
     mutable mg::core::platform::Mutex connections_mtx_;
     std::map<int, std::shared_ptr<mg::core::transport::ConnectionManager>>
         connections_;
+    /// Placeholder returned by conn() when no route is attached. Permanently
+    /// unwired, so its accessors report the disconnected baseline; it exists so
+    /// conn() can stay total (see conn()) without sharing state across vehicles.
+    mg::core::transport::ConnectionManager detached_conn_;
     int primary_route_id_ = -1;
     mutable mg::core::platform::Mutex signing_policy_mtx_;
     std::optional<mg::core::mavlink::SigningCandidate> signing_policy_;

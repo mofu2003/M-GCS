@@ -411,8 +411,8 @@ static void test_ffi_contract() {
     CHECK(result && strstr(result, "\"success\":true"), "FFI import accepts an empty document");
     if (result) mg_free_string(result);
 
-    const auto file_path =
-        std::filesystem::temp_directory_path() / "mgcs_mission_document_test.json";
+    const auto file_path = std::filesystem::temp_directory_path() /
+                            mgcs_test::unique_temp_name("mission_document_test.json");
     result = mg_mission_doc_create(core, R"({"metadata":{"name":"Saved Mission"}})");
     if (result) mg_free_string(result);
     result = mg_mission_doc_save(core, file_path.string().c_str());

@@ -10,6 +10,11 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 #include "mgcs_test_check.h"
 
 // 断言计数由共享头 mgcs_test_check.h 累加；这里沿用本文件原有的计数器名字，
@@ -109,6 +114,17 @@ static void test_verify_ignores_fields_the_vehicle_cannot_store() {
     if (result) mg_free_string(result);
 }
 
+/// 本进程 id：并发跑同一个测试二进制时，两个进程必须各用各的临时路径，否则
+/// S7 用例会互相覆盖（实测并发 4 份时 3/4 实例失败，失败断言正是
+/// "S7: the source file is byte-identical…" 一族）。
+unsigned long test_process_id() {
+#if defined(_WIN32)
+    return static_cast<unsigned long>(::_getpid());
+#else
+    return static_cast<unsigned long>(::getpid());
+#endif
+}
+
 /// 读取文件全部字节；用于"原文件逐字节不变"的断言（S7）。
 static std::string read_file_bytes(const std::filesystem::path& path) {
     std::ifstream input(path, std::ios::binary);
@@ -124,8 +140,10 @@ static void test_mission_file_is_never_rewritten() {
     MockVehicleTestEnv env;
     for (int i = 0; i < 15; ++i) env.tick(100);
 
-    const auto dir =
-        std::filesystem::temp_directory_path() / "M-GCS-test" / "s7-mission-file";
+    // 路径带 pid：并发实例不再共享同一个"用户文件"，S7 的"逐字节不变"语义不变。
+    const auto dir = std::filesystem::temp_directory_path() /
+                     ("M-GCS-test-" + std::to_string(test_process_id())) /
+                     "s7-mission-file";
     std::error_code ignored;
     std::filesystem::remove_all(dir, ignored);
     std::filesystem::create_directories(dir);

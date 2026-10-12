@@ -391,15 +391,18 @@ struct CommandEnv {
         }
     }
 
-    bool wait_connected(int timeout_ms = 5000) {
-        const auto start = std::chrono::steady_clock::now();
-        while (std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::steady_clock::now() - start).count() < timeout_ms) {
-            tick();
+    /// 建立连接。用"推进 mock 时钟"而不是墙钟超时来判定：每 tick 推进 20 ms
+    /// 模拟时间、心跳每 1000 ms 发一次，所以 60 tick 内必到；给 200 tick 的余量。
+    /// 旧版用 5 s 墙钟上限，机器被 39 个可运行线程（10 核）压住时本线程会被饿死
+    /// 到超过 5 s，于是把"连接握手"误判成失败（实测 101 PASSED, 3 FAILED）。
+    /// 这里不再有墙钟 deadline：负载只会让它变慢，不会让它失败。
+    bool wait_connected(int max_ticks = 200) {
+        for (int i = 0; i < max_ticks; ++i) {
             if (vehicle->conn().is_connected()) return true;
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            tick();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        return false;
+        return vehicle->conn().is_connected();
     }
 
     void start_pump() {
@@ -454,6 +457,7 @@ static void test_session_adapter_access_survives_concurrent_disconnect() {
     env.wire_fresh();
 
     std::atomic<bool> stop{false};
+    std::atomic<bool> reader_live{false};
     std::atomic<long> observations{0};
     std::thread reader([&] {
         while (!stop.load(std::memory_order_relaxed)) {
@@ -461,9 +465,26 @@ static void test_session_adapter_access_survives_concurrent_disconnect() {
             if (view.mavlink) {
                 (void)view.mavlink->latest_heartbeat();
                 observations.fetch_add(1, std::memory_order_relaxed);
+                reader_live.store(true, std::memory_order_relaxed);
             }
         }
     });
+
+    // 先确认读取线程真的跑起来（env.wire_fresh() 已经在启动前接好线，所以它第一次
+    // 迭代就该看到活适配器），再开始写方循环。
+    //
+    // 这一步把"读线程还没被调度"从偶发失败（旧版断言 observations > 0，重负载下
+    // 会以 114/1 的形式随机报错）变成一条有上限、信息明确的检查：它测的是"线程是否
+    // 起得来"，而不是"调度延迟恰好小于写方循环耗时"。读取方仍然贯穿整个 150 轮
+    // wire/reset，并发语义的检验力不变（TSan/ASan 的判别靠真实交错，不靠计数器）。
+    const auto reader_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!reader_live.load(std::memory_order_relaxed) &&
+           std::chrono::steady_clock::now() < reader_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(reader_live.load(std::memory_order_relaxed),
+          "the reader thread observed a live adapter before the writer loop");
 
     // mavlink_ptr 每轮都在锁内被写回、被移出并析构。
     for (int i = 0; i < 150; ++i) {
@@ -558,22 +579,23 @@ static void test_completed_command_is_reclaimable_without_poll() {
     const bool connected = env.wait_connected();
     CHECK(connected, "mock vehicle connects for the unpolled test");
     if (!connected) return;
-    env.start_pump();
 
     const uint64_t ticket = ticket_of(mg_command_submit_for_vehicle(
         env.core, env.vehicle_id, R"({"command":"rtl"})"));
     CHECK(ticket > 0, "async submission returns a ticket");
 
+    // 不用后台泵线程：由本线程确定性地把命令送给 mock、把 ACK 收回。命令本身仍在
+    // worker 线程上执行，"结果何时就绪"不再取决于第二个线程能否被及时调度。
+    // 同样不用墙钟 deadline：按 tick 计数推进，负载只会让它变慢，不会让它失败。
     bool ready = false;
     bool found = false;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
-    while (std::chrono::steady_clock::now() < deadline) {
+    for (int i = 0; i < 1000 && !ready; ++i) {
         ready = command_future_ready(env.core, ticket, found);
         if (ready) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        env.tick();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     CHECK(ready, "the command completed while its client never polled");
-    env.stop_pump();
 
     CHECK(env.core->command_jobs.size() == 1,
           "a completed result is kept for a client that may still poll");
@@ -585,6 +607,51 @@ static void test_completed_command_is_reclaimable_without_poll() {
     CHECK(is_failure(polled),
           "a reclaimed ticket reports not found instead of pinning the queue");
     mg_free_string(polled);
+}
+
+/// t14 A 组回归：断链之后 Vehicle::conn() 不得返回空引用解引用。
+///
+/// 旧代码 `Vehicle::conn()` == `*primary_connection()`；`Vehicle::disconnect()`
+/// 会把 `connections_` 整个 swap 走，而 fallback vehicle 永远可以被
+/// `resolve_vehicle()` 选中。于是这条**纯公开 FFI 调用序列**在第二步之后就在
+/// `ConnectionManager::state_`（偏移 0x74）上空指针解引用崩溃（实测
+/// EXC_BAD_ACCESS, address=0x74，mg_connection_get_state + 96）。
+///
+/// 修复后 conn() 在没有路由时返回一个永不接线的 ConnectionManager，语义就是
+/// "这辆车没有连接"：connected:false / state:"disconnected" / 无心跳、无链路、
+/// 无适配器。本用例同时覆盖同族的其它读接口（它们都走 Vehicle::conn()）。
+static void test_connection_state_after_disconnect_without_active_vehicle() {
+    fprintf(stderr, "\n[Group] disconnect without an active vehicle\n");
+    mg_core_t* core = mg_create();
+    CHECK(mg_vehicle_get_active(core) == -1,
+          "no active vehicle before the disconnect (fallback stays reachable)");
+
+    char* disconnected = mg_connection_disconnect(core);
+    CHECK(is_success(disconnected), "disconnecting the fallback vehicle succeeds");
+    mg_free_string(disconnected);
+
+    // 断链后 fallback vehicle 仍会被 resolve_vehicle() 解析到：这里必须返回
+    // 断开基线，而不是解引用空指针。
+    char* state = mg_connection_get_state(core);
+    CHECK(is_success(state), "connection state is readable after the disconnect");
+    CHECK(contains(state, "\"connected\":false"), "state reports connected:false");
+    CHECK(contains(state, "\"state\":\"disconnected\""),
+          "state reports the disconnected state string");
+    CHECK(contains(state, "\"heartbeat_alive\":false"), "state reports no live heartbeat");
+    CHECK(contains(state, "\"heartbeat_age_ms\":0"), "state reports no heartbeat age");
+    mg_free_string(state);
+
+    // 同族读接口同样取道 Vehicle::conn()，都必须安全且返回断开语义。
+    char* diagnostics = mg_connection_get_diagnostics(core);
+    CHECK(is_success(diagnostics), "connection diagnostics survive the disconnect");
+    mg_free_string(diagnostics);
+
+    char* health = mg_health_get_all(core);
+    CHECK(health != nullptr && contains(health, "\"connected\":false"),
+          "health reports disconnected instead of crashing");
+    mg_free_string(health);
+
+    mg_destroy(core);
 }
 
 int main() {
@@ -605,6 +672,7 @@ int main() {
     test_command_ack_wait_survives_concurrent_disconnect();
     test_command_queue_reclaims_never_polled_slots();
     test_completed_command_is_reclaimable_without_poll();
+    test_connection_state_after_disconnect_without_active_vehicle();
 
     fprintf(stderr, "\n========================================\n");
     fprintf(stderr, "  Results: %d PASSED, %d FAILED\n", g_pass, g_fail);

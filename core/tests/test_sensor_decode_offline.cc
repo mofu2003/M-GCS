@@ -249,8 +249,9 @@ int main() {
     // 换成 cJSON 后这两种输入都必须完整读出。
     fprintf(stderr, "[Group] Nested and escaped device table entries\n");
     {
-        const auto fixture = std::filesystem::temp_directory_path() /
-                             "mgcs_sensor_id_decoder_nested_fixture.json";
+        const auto fixture =
+            std::filesystem::temp_directory_path() /
+            mgcs_test::unique_temp_name("sensor_id_decoder_nested_fixture.json");
         {
             std::ofstream out(fixture, std::ios::binary | std::ios::trunc);
             out << R"({

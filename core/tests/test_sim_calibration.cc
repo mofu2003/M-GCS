@@ -556,6 +556,9 @@ static void test_history_is_flushed_to_disk_outside_the_lock() {
     TestEnv env;
     for (int i = 0; i < 15; i++) env.tick(100);
 
+    // 路径必须与核心在 MGCORE_TEST_BUILD 下使用的 history_storage_path() 一致
+    // （core/src/calibration/calibration_service.cc 的测试构建分支），测试读的是
+    // 核心实际写入的那份文件；此处不可改成每进程唯一路径，否则两者分叉、用例必红。
     const auto path = std::filesystem::temp_directory_path() /
                       "M-GCS-test" / "calibration-history.v1";
     std::error_code ignored;

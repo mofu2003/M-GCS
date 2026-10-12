@@ -28,18 +28,14 @@
 #include <string>
 #include <thread>
 
-static int g_pass = 0;
-static int g_fail = 0;
+// 断言宏取自共享头（唯一的 CHECK 实现：core/tests/mgcs_test_check.h），
+// 本文件不再自行定义。它在 tests/manual/ 下，用相对路径包含；CMake 里这个目标
+// 没有把 core/tests 加进包含目录（那是构建脚本的事，不在本文件范围内）。
+#include "../../core/tests/mgcs_test_check.h"
 
-#define CHECK(condition, message) do { \
-    if (condition) { \
-        ++g_pass; \
-        fprintf(stderr, "  [PASS] %s\n", message); \
-    } else { \
-        ++g_fail; \
-        fprintf(stderr, "  [FAIL] %s\n", message); \
-    } \
-} while (0)
+// 沿用本文件原有的计数器名字：EVIDENCE 行与汇总行都读它们。
+static int& g_pass = mgcs_test::passed();
+static int& g_fail = mgcs_test::failed();
 
 #define EVIDENCE(key, value) \
     fprintf(stdout, "[EVIDENCE] %s=%s\n", (key), (value))
