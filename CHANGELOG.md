@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- 下一轮开发的变更记录从这里开始；发布时整体迁入带版本号的段落。 -->
 
+## [0.2.2] - 2026-10-12
+
+### Fixed
+
+- **Concurrent test file collision**: test_new_modules.cc now generates per-process unique names
+  for tlog temporary files (`mgcs-<pid>-test_replay.tlog`), eliminating file overwrites when
+  running tests in parallel (ctest -j4). Similarly, calibration_service.cc's test-build history
+  path (`M-GCS-test-<pid>/`) now avoids collision with concurrent CalibrationService instances.
+  (`core/tests/test_new_modules.cc`, `core/src/calibration/calibration_service.cc`,
+  `core/tests/test_sim_calibration.cc`)
+- **Null pointer dereference on disconnected vehicle** (from DeepSeek's t14 work, verified this
+  release): `Vehicle::conn()` now returns a fallback `detached_conn_` manager when all routes are
+  disconnected, instead of dereferencing a null pointer. The fallback reports the disconnected
+  baseline (state Disconnected, no link, no adapter), so readers stay safe without lifetime checks.
+  Crash scenario was `mg_connection_disconnect()` followed by `mg_connection_get_state()` on a core
+  with no active vehicle, which triggered EXC_BAD_ACCESS @ ConnectionManager::state_ (offset 0x74).
+  (`core/include/core/vehicle/vehicle.h`, `core/tests/test_ffi_comprehensive.cc`)
+
+### Verified
+
+- Concurrent stability: ctest -j4 × 3 runs = 39/39 ✓
+- Full backend gate: 39/39 tests + FFI contract + scripts ✓
+- Crash regression test: vehicle disconnect path now safe ✓
+
 ## [0.2.1] - 2026-10-11
 
 ### Added
