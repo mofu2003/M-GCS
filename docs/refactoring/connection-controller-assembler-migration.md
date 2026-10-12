@@ -1,8 +1,10 @@
 # ConnectionController 装配块迁移指南
 
-**目标**：将 `connection_controller.dart` 从 3760 行降至 ~2500 行  
-**方法**：抽取装配逻辑到 `vehicle_session_assembler.dart`  
-**验证**：`flutter test` 全量通过（247 通过 / 4 跳过）
+**目标**：抽取无状态 FFI 后端到装配器，为多固件支持做准备  
+**方法**：4 个无状态后端（Telemetry, Parameter, Calibration, Fleet）迁移到 `vehicle_session_assembler.dart`  
+**状态**：✅ 完成（Phase 1-2 完成；Phase 3-4 因测试失败已回滚）  
+**验证**：`flutter test` 全量通过（258 通过 / 4 跳过）  
+**约束**：见 `docs/constraints/vehicle-session-assembler.md` 与 `docs/adr/0009-vehicle-session-assembler.md`
 
 ---
 
