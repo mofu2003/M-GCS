@@ -141,11 +141,6 @@ struct TelemetryCache {
     // 快照访问器（线程安全，返回拷贝）
     // ================================================================
 
-    struct SensorHealth {
-        bool gyro_healthy; bool accel_healthy; bool mag_healthy; bool baro_healthy;
-        uint32_t present; uint32_t enabled; uint32_t healthy;
-    };
-
     HeartbeatGroup         snapshot_heartbeat()   { mg::core::platform::LockGuard lk(mtx); return heartbeat; }
     RcChannelsGroup        snapshot_rc()          { mg::core::platform::LockGuard lk(mtx); return rc_channels; }
     ServoOutputGroup       snapshot_servo()       { mg::core::platform::LockGuard lk(mtx); return servo_output; }
@@ -155,39 +150,18 @@ struct TelemetryCache {
     SysStatusGroup         snapshot_sys_status()  { mg::core::platform::LockGuard lk(mtx); return sys_status; }
     BatteryGroup           snapshot_battery()     { mg::core::platform::LockGuard lk(mtx); return battery; }
     VfrHudGroup            snapshot_vfr_hud()     { mg::core::platform::LockGuard lk(mtx); return vfr_hud; }
-    ImuGroup               snapshot_imu()         { mg::core::platform::LockGuard lk(mtx); return imu; }
-    PressureGroup          snapshot_pressure()    { mg::core::platform::LockGuard lk(mtx); return pressure; }
     HomePositionGroup      snapshot_home()        { mg::core::platform::LockGuard lk(mtx); return home_position; }
     FirmwareVersionGroup   snapshot_firmware()    { mg::core::platform::LockGuard lk(mtx); return firmware_version; }
-    HighresImuGroup        snapshot_highres_imu() { mg::core::platform::LockGuard lk(mtx); return highres_imu; }
     ExtendedSysStateGroup  snapshot_ext_sys()     { mg::core::platform::LockGuard lk(mtx); return extended_sys_state; }
     StatustextGroup        snapshot_statustext()  { mg::core::platform::LockGuard lk(mtx); return statustext; }
     std::string            snapshot_vehicle_name(){ mg::core::platform::LockGuard lk(mtx); return vehicle_name; }
     std::string            snapshot_board_name()  { mg::core::platform::LockGuard lk(mtx); return board_name; }
     std::string            snapshot_product_name(){ mg::core::platform::LockGuard lk(mtx); return product_name; }
     std::string            snapshot_usb_board_name(){ mg::core::platform::LockGuard lk(mtx); return usb_board_name; }
-    PrearmCheckGroup       snapshot_prearm()      { mg::core::platform::LockGuard lk(mtx); return prearm_check; }
-    VibrationGroup         snapshot_vibration()   { mg::core::platform::LockGuard lk(mtx); return vibration; }
-    EscStatusGroup         snapshot_esc()         { mg::core::platform::LockGuard lk(mtx); return esc_status; }
-    WindEstimateGroup      snapshot_wind()        { mg::core::platform::LockGuard lk(mtx); return wind_estimate; }
 
     void set_usb_board_name(const std::string& name) {
         mg::core::platform::LockGuard lk(mtx);
         usb_board_name = name;
-    }
-
-    SensorHealth snapshot_sensor_health() {
-        mg::core::platform::LockGuard lk(mtx);
-        const auto& ss = sys_status.data;
-        return {
-            (ss.onboard_control_sensors_health & 1) != 0,
-            (ss.onboard_control_sensors_health & 2) != 0,
-            (ss.onboard_control_sensors_health & 4) != 0,
-            (ss.onboard_control_sensors_health & 8) != 0,
-            ss.onboard_control_sensors_present,
-            ss.onboard_control_sensors_enabled,
-            ss.onboard_control_sensors_health
-        };
     }
 
     // ================================================================

@@ -37,13 +37,6 @@ std::vector<std::string> split_parameter_name(const std::string& value) {
     }
     return result;
 }
-
-std::string replace_newlines_with_spaces(const std::string& text) {
-    std::string result = text;
-    std::replace(result.begin(), result.end(), '\n', ' ');
-    return result;
-}
-
 std::string translate_parameter_token(
     const std::string& token,
     const std::map<std::string, std::string>& terms) {
