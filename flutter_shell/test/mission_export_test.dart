@@ -79,7 +79,7 @@ void main() {
     await tester.tap(find.text('打开导出'));
     await _pumpFrames(tester);
 
-    await _tapExport(tester);
+    await _tapExport(tester, done: () => result != null);
     await _pumpFrames(tester);
 
     expect(result, isNotNull);
@@ -124,7 +124,7 @@ void main() {
       endsWith('.plan'),
     );
 
-    await _tapExport(tester);
+    await _tapExport(tester, done: () => result != null);
     await _pumpFrames(tester);
 
     expect(result, isNotNull);
@@ -149,7 +149,7 @@ void main() {
     );
     await tester.tap(find.text('打开导出'));
     await _pumpFrames(tester);
-    await _tapExport(tester);
+    await _tapExport(tester, done: () => result != null);
     await _pumpFrames(tester);
 
     expect(result!.warnings, ['复杂项已降级为航点']);
@@ -191,9 +191,20 @@ Directory _tempDirectory() {
 }
 
 /// 点击「导出」并在真实事件循环里等待文件写入完成。
-Future<void> _tapExport(WidgetTester tester) => tester.runAsync(() async {
+/// 点「导出」并等到落盘完成（[done] 由调用方的 `onResult` 置位）。
+///
+/// 导出走的是真实文件 I/O，只在 `runAsync` 的真实时间里推进。原先写死等 200 ms，
+/// 在负载下（例如 preflight 一边编译一边跑测试）不够用，`result` 仍为 null 就断言
+/// 失败。改为轮询到条件成立，最长 5 s。
+Future<void> _tapExport(
+  WidgetTester tester, {
+  required bool Function() done,
+}) => tester.runAsync(() async {
   await tester.tap(find.text('导出'));
-  await Future<void>.delayed(const Duration(milliseconds: 200));
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  while (!done() && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
 });
 
 /// 逐帧推进动画，避开文本光标与分段控件指示器的持续 ticker（不能用 pumpAndSettle）。

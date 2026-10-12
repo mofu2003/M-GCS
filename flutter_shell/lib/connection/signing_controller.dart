@@ -167,19 +167,6 @@ class SigningController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> saveSigningKeyPreference({
-    required String keyHex,
-    bool signOutgoing = true,
-    int lastTimestampTicks = 0,
-  }) {
-    return upsertSigningKey(
-      name: _activeSigningKeyName ?? '默认密钥',
-      keyHex: keyHex,
-      signOutgoing: signOutgoing,
-      lastTimestampTicks: lastTimestampTicks,
-    );
-  }
-
   Future<void> _clearNativeSigning() async {
     if (sessionId() == null || !_ready()) return;
     final response = _requireNative().clearSigningKey(sessionId()!);

@@ -87,8 +87,6 @@ final class FlightCommandFfiBackend {
   Future<Map<String, Object?>> setMode(int baseMode, int customMode) =>
       _dispatch('set_mode', {'base_mode': baseMode, 'custom_mode': customMode});
 
-  Future<Map<String, Object?>> missionStart() => _dispatch('mission_start');
-
   Future<Map<String, Object?>> guidedPause() => _dispatch('guided_pause');
 
   /// `altitudeChangeMeters` 为正表示上升（QGC 同）。

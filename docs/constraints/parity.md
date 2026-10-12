@@ -134,8 +134,8 @@
 
 - **QGC**：**没有**「点在围栏内」这类本地常驻判断。全仓无 `containsCoordinate`/`isInside`；围栏只经 `GeoFenceController`（增删多边形/圆形，`MissionManager/GeoFenceController.cc`）与 mission 协议下发/回读（`sendToVehicle`/`loadFromVehicle`）。
 - **MP**：**有** `PolygonTools.isInside`（`ExtLibs/ArduPilot/PolygonTools.cs:112`，射线法），但只被**可选插件**使用——`Plugins/example3-fencedist.cs`（FenceDist，实时算飞机离围栏的距离）与 `ExtLibs/ArduPilot/CurrentState.cs:1678`（判定飞机相对 inclusion/exclusion 围栏的内外，用于距离提示）。它不是核心 API。
-- **M-GCS**：`GeofenceManager` 有完整几何算法（`is_inside_fence`/`distance_to_fence`/`calculate_area`/`calculate_perimeter`，对齐 MP 的 `PolygonTools`），且有测试（`test_sim_geofence.cc`）；但编辑方法（`add_point` 等）生产零调用——围栏编辑已与 QGC/MP 一致改走任务文档路径，导致 `points_` 恒空、`mg_geofence_check` 的 `is_inside_fence` 永远返回 `false`。
-- **结论**：M-GCS 的"本地围栏内判断"作为**常驻 FFI 导出**，上游两者都不提供——MP 只把它当可选插件的距离计算。现状是"有实现、缺接线"的**待深度开发项**（拟参照 MP FenceDist 做围栏距离/侵入提示），已登记 KD-48，不按死代码删除。
+- **M-GCS**：**不提供**。曾经有一份 `GeofenceManager` 的完整几何算法（`is_inside_fence`/`distance_to_fence`/`calculate_area`/`calculate_perimeter`，对齐 MP 的 `PolygonTools`）并导出了 `mg_geofence_check`，但编辑方法生产零调用——围栏编辑早已与 QGC/MP 一致改走任务文档路径，`points_` 恒空、`is_inside_fence` 永远返回 `inside_fence:false`。2026-10 按「无使用方即删除」把该模块与导出一并移除（见 `known-deviations.md` 的 KD-48）。
+- **结论**：与 QGC 一致（都不提供本地常驻判断）；MP 的对应能力也只是可选插件。M-GCS 将来若要做围栏距离/侵入提示，属于**新功能**（参照 MP FenceDist 重新设计并接线），不是恢复旧代码。
 
 ## 已记录的决定
 

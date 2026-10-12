@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -353,20 +352,6 @@ final class MissionDocumentController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<MissionVerificationResult> verify({
-    double toleranceMeters = 1.0,
-  }) async {
-    MissionVerificationResult? result;
-    await _run('正在核对飞控任务…', rethrowErrors: true, () async {
-      _requireVehicleReconciled();
-      result = await backend.verifyMissionDocument(
-        toleranceMeters: toleranceMeters,
-      );
-      verification = result;
-    });
-    return result!;
-  }
-
   /// 下发围栏：上传 → 等待 → 回读 → 核对。围栏是独立 mission type，不随任务上传。
   Future<MissionVerificationResult?> uploadFence({
     double toleranceMeters = 1.0,
@@ -486,18 +471,6 @@ final class MissionDocumentController extends ChangeNotifier {
         await backend.clearRally();
         status = '已请求清除飞控 Rally 点';
       });
-
-  Future<void> importJson(String json) => _run('正在导入任务…', () async {
-    document = await backend.importMissionDocument(json);
-    validation = null;
-    compileResult = null;
-    estimate = null;
-    verification = null;
-    selectedEntityIndex = null;
-    dirty = true;
-  });
-
-  Future<String> exportJson() => backend.exportMissionDocument();
 
   /// 按交换格式导出任务（`waypoints` / `plan`）；不改动文档，不标记 dirty。
   Future<MissionInterchangeExport> exportInterchange(String format) =>
@@ -662,10 +635,6 @@ final class MissionDocumentController extends ChangeNotifier {
     }
     return error.toString();
   }
-
-  String exportDebugJson() => const JsonEncoder.withIndent(
-    '  ',
-  ).convert(document?.toJson() ?? const <String, Object?>{});
 }
 
 final class _MissionTransferCancelled implements Exception {

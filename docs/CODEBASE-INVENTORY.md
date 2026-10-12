@@ -10,7 +10,7 @@
 | 层 | 内容 | 规模 |
 |---|---|---|
 | 前端 | Flutter/Dart，`flutter_shell/lib` | 30 个页面/面板 + 9 控制器 + 17 后端 + 20 组件 |
-| 桥接 | C ABI，`bridge/ffi` | 11 个公开头，**154** 个导出（130 已绑定）+ 2 个公开类型 |
+| 桥接 | C ABI，`bridge/ffi` | 11 个公开头，**154** 个导出（126 已绑定）+ 2 个公开类型 |
 | 核心 | C++17，`core/` | 15 个模块 |
 | 第三方 | `third_party/` | MAVLink 生成头、cJSON（禁止修改） |
 | 测试 | 42 个套件 | 33 core + 6 顶层 + 4 硬件/手工 |
@@ -143,13 +143,14 @@
 
 `mg_firmware_get_type`（固件类型 + capability 位 + 最小起飞高度）、`mg_vehicle_get_firmware`、`mg_vehicle_request_firmware_version`。
 
-### 1.11 未绑定导出（24 个）的定位
+### 1.11 未绑定导出（28 个）的定位
 
 | 类别 | 数量 | 说明 |
 |---|---|---|
 | 命令族 | 15 | `mg_command_*`，由 submit/poll worker 内部调用 |
 | ABI 基础设施 | 4 | 错误码读写与字符串化 |
 | 打包校验必需 | 3 | 诊断与仪表盘聚合，`tools/ffi_bundle_symbols.dart` 要求可解析 |
+| 任务文档 JSON / 围栏·Rally 编译 | 4 | `mg_mission_doc_export`·`import`·`compile_fence`·`compile_rally`：前端曾有 Dart 包装但零调用（导入导出走文件与交换格式，围栏/Rally 下发内部自行编译），2026-10 删掉包装后由原生测试覆盖 |
 | 其它 | 2 | `mg_vehicle_open`（连接实现路径）、`mg_mission_doc_import_format`（导入规范入口） |
 
 ---

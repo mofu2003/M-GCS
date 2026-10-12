@@ -396,8 +396,6 @@ final class VideoStatus {
   final bool playing;
   final List<VideoStreamInfo> streams;
 
-  int get streamCount => streams.length;
-
   factory VideoStatus.fromJson(JsonMap json) => VideoStatus(
     available: json['available'] == true,
     playing: json['playing'] == true,

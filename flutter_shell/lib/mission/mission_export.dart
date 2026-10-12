@@ -47,7 +47,7 @@ const List<MissionExportFormat> missionExportFormats = [
     id: 'plan',
     label: 'QGC .plan',
     extension: '.plan',
-    description: 'QGroundControl JSON，保留测绘等复杂项的设计意图。',
+    description: 'QGroundControl JSON，保留复杂项（如 QGC 的 Survey）的设计意图。',
   ),
 ];
 

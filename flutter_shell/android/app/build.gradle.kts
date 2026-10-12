@@ -71,7 +71,6 @@ val syncMgcoreAssets by tasks.registering(Copy::class) {
     from(repoRoot.resolve("core/src/sensor/SensorDeviceInfo.json"))
     from(repoRoot.resolve("core/src/config/ParameterDescriptors.json"))
     from(repoRoot.resolve("core/src/config/ParameterTranslations.zh-CN.json"))
-    from(repoRoot.resolve("core/src/config/PX4ParameterMetaData.json"))
     into(File(mgcoreAssetsDir, "mgcore"))
 }
 

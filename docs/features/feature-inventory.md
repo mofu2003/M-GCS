@@ -108,7 +108,7 @@
 
 ## 3. 未实现 / 未接入前端
 
-### 3.1 FFI 导出但未绑定前端（24 个，全部有正当定位）
+### 3.1 FFI 导出但未绑定前端（28 个，全部有正当定位）
 
 见 §4「未绑定导出明细」。这里不重复列举；**当前没有「能力已实现却不接 UI」的悬空项**——
 前两轮清理已把所有「无前端绑定、无内部调用方、无未来用途」的导出一律删除。
@@ -123,7 +123,7 @@
 
 ## 4. 未接入前端的 FFI 导出明细
 
-当前公开导出 **154** 个、前端已绑定 **130** 个，未绑定 **24** 个。逐符号定位见 `bridge/ffi/API_CATALOG.md`（含「公开类型」段）。这 24 个全部有正当用途，**没有待处置债务**。
+当前公开导出 **154** 个、前端已绑定 **126** 个，未绑定 **28** 个。逐符号定位见 `bridge/ffi/API_CATALOG.md`（含「公开类型」段）。这 28 个全部有正当用途，**没有待处置债务**。
 
 处置方式（沿用 KD-45）：
 
@@ -180,7 +180,7 @@ get_heartbeat_age}}`）、`mg_serial_get_configs`、`mg_discover_devices`、SITL
 `post_event`、连接时的事件转发 lambda。前端从未注册回调（KD-27 采用轮询），
 这条链已在空转。
 
-### 4.2 未绑定导出的定位（24 个）
+### 4.2 未绑定导出的定位（28 个）
 
 **a. 命令族（15 个）——由 submit/poll worker 内部调用**
 `mg_command_arm`/`disarm`/`takeoff`/`land`/`rtl`/`set_mode`/`set_home`/`set_global_origin`/
@@ -198,7 +198,16 @@ get_heartbeat_age}}`）、`mg_serial_get_configs`、`mg_discover_devices`、SITL
 `mg_telemetry_get_dashboard_snapshot`。`tools/ffi_bundle_symbols.dart` 要求它们在产物里可解析，
 用来验证打包后的动态库确实导出了完整 ABI。
 
-**d. 其它（2 个）**
+**d. 任务文档的 JSON 与围栏/Rally 编译（4 个）**
+`mg_mission_doc_export`、`mg_mission_doc_import`、`mg_mission_doc_compile_fence`、
+`mg_mission_doc_compile_rally`。
+前端曾有对应的 Dart 包装（`MissionDocumentController.exportJson`/`importJson`、
+`MissionDocumentBackend.compileFencePlan`/`compileRallyPlan`），但那些方法全仓零调用——
+任务导入导出实际走文件路径（`save`/`load`）与交换格式（`exportInterchange`，`waypoints`/`plan`），
+围栏/Rally 下发走 `uploadFence`/`uploadRally`（内部自行编译）。2026-10 删掉这层无人使用的
+Dart 包装后，四个导出保留在 ABI 中，由 `core/tests/test_mission_document.cc` 覆盖。
+
+**e. 其它（2 个）**
 - `mg_vehicle_open`：`mg_connection_open` 的内部实现路径，并供硬件诊断工具直接开单机会话。
 - `mg_mission_doc_import_format`：任务文件导入的规范入口，前端目前只绑定了导出侧
   （`mg_mission_doc_export_format`）；导入在硬件工具与原生测试中使用。

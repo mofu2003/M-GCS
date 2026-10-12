@@ -32,15 +32,12 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     _missionDocUpload = _lookupUpload('mg_mission_doc_upload');
     _missionDocVerify = _lookupVerify('mg_mission_doc_verify');
     _missionCommandCatalog = _lookup1('mg_mission_get_command_catalog');
-    _missionDocExport = _lookup1('mg_mission_doc_export');
     _missionDocExportFormat = _lookup2('mg_mission_doc_export_format');
-    _missionDocImport = _lookup2('mg_mission_doc_import');
     _missionDocSave = _lookup2('mg_mission_doc_save');
     _missionDocLoad = _lookup2('mg_mission_doc_load');
     _missionDocImportFromVehicle = _lookup1(
       'mg_mission_doc_import_from_vehicle',
     );
-    _missionDocCompileFence = _lookup1('mg_mission_doc_compile_fence');
     _missionDocUploadFence = _lookupUpload('mg_mission_doc_upload_fence');
     _missionDocClearFence = _lookup1('mg_mission_doc_clear_fence');
     _missionDocImportFenceFromVehicle = _lookup1(
@@ -48,7 +45,6 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     );
     _missionDocVerifyFence = _lookupVerify('mg_mission_doc_verify_fence');
     _fenceDownload = _lookup1('mg_fence_download');
-    _missionDocCompileRally = _lookup1('mg_mission_doc_compile_rally');
     _missionDocUploadRally = _lookupUpload('mg_mission_doc_upload_rally');
     _missionDocClearRally = _lookup1('mg_mission_doc_clear_rally');
     _missionDocImportRallyFromVehicle = _lookup1(
@@ -89,17 +85,13 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   late final Pointer<Utf8> Function(Pointer<Void>, int) _missionDocUpload;
   late final Pointer<Utf8> Function(Pointer<Void>, double) _missionDocVerify;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionCommandCatalog;
-  late final Pointer<Utf8> Function(Pointer<Void>) _missionDocExport;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _missionDocExportFormat;
-  late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
-  _missionDocImport;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _missionDocSave;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
   _missionDocLoad;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDocImportFromVehicle;
-  late final Pointer<Utf8> Function(Pointer<Void>) _missionDocCompileFence;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _missionDocUploadFence;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDocClearFence;
   late final Pointer<Utf8> Function(Pointer<Void>)
@@ -107,7 +99,6 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   late final Pointer<Utf8> Function(Pointer<Void>, double)
   _missionDocVerifyFence;
   late final Pointer<Utf8> Function(Pointer<Void>) _fenceDownload;
-  late final Pointer<Utf8> Function(Pointer<Void>) _missionDocCompileRally;
   late final Pointer<Utf8> Function(Pointer<Void>, int) _missionDocUploadRally;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDocClearRally;
   late final Pointer<Utf8> Function(Pointer<Void>)
@@ -279,13 +270,6 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   }
 
   @override
-  Future<JsonMap> compileFencePlan() async {
-    final response = _readJson(_missionDocCompileFence(_core)) as JsonMap;
-    _requireSuccess(response);
-    return response;
-  }
-
-  @override
   Future<JsonMap> uploadFence(int expectedRevision) async {
     final response =
         _readJson(_missionDocUploadFence(_core, expectedRevision)) as JsonMap;
@@ -336,13 +320,6 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   }
 
   @override
-  Future<JsonMap> compileRallyPlan() async {
-    final response = _readJson(_missionDocCompileRally(_core)) as JsonMap;
-    _requireSuccess(response);
-    return response;
-  }
-
-  @override
   Future<JsonMap> uploadRally(int expectedRevision) async {
     final response =
         _readJson(_missionDocUploadRally(_core, expectedRevision)) as JsonMap;
@@ -375,22 +352,6 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   @override
   Future<void> clearRally() async =>
       _requireSuccess(_readJson(_missionDocClearRally(_core)) as JsonMap);
-
-  @override
-  Future<MissionDocument> importMissionDocument(String json) async {
-    final nativeJson = json.toNativeUtf8();
-    try {
-      return _documentFromEnvelope(
-        _readJson(_missionDocImport(_core, nativeJson)),
-      );
-    } finally {
-      malloc.free(nativeJson);
-    }
-  }
-
-  @override
-  Future<String> exportMissionDocument() async =>
-      _readString(_missionDocExport(_core));
 
   @override
   Future<MissionInterchangeExport> exportMissionInterchange(
@@ -433,15 +394,6 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     if (pointer == nullptr) throw StateError('后端返回空结果');
     try {
       return jsonDecode(pointer.toDartString());
-    } finally {
-      _freeString(pointer);
-    }
-  }
-
-  String _readString(Pointer<Utf8> pointer) {
-    if (pointer == nullptr) throw StateError('后端返回空结果');
-    try {
-      return pointer.toDartString();
     } finally {
       _freeString(pointer);
     }

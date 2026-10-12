@@ -1,6 +1,5 @@
 typedef JsonMap = Map<String, Object?>;
 
-const int kMavCmdNavTakeoff = 22;
 const int kMavCmdNavVtolTakeoff = 84;
 const int kMavCmdNavVtolLand = 85;
 
@@ -14,7 +13,7 @@ const int kMissionFrameRelativeAlt = 3;
 /// 对应区域的地形数据才能按地形跟随执行。
 const int kMissionFrameTerrainAlt = 10;
 
-/// 高度基准的展示标签，供任务编辑与测绘页共用。
+/// 高度基准的展示标签，供任务编辑与任务设置共用。
 String missionFrameLabel(int frame) => switch (frame) {
   kMissionFrameTerrainAlt => '地形跟随 (AGL)',
   _ => '相对高度 (Home)',
@@ -292,7 +291,6 @@ final class MissionEntity {
   /// `AMSLAltAboveTerrain`），按原样透传，编辑后导出不丢用户数据。
   final JsonMap extensions;
 
-  bool get isTakeoff => command == kMavCmdNavTakeoff;
   bool get isVtolTakeoff => command == kMavCmdNavVtolTakeoff;
   bool get isVtolLand => command == kMavCmdNavVtolLand;
 

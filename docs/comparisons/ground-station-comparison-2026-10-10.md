@@ -154,7 +154,7 @@ MP README 详细列出固件站点、更新 CDN、参数/日志元数据、地�
 
 | 领域 | 代码已有的迹象 | 仍需证明的部分 |
 | --- | --- | --- |
-| Firmware flash | `mg_firmware_flash`、状态 API、FirmwareFlasher 类型 | core 实现当前直接返回 unsupported；没有文件选择、固件来源/签名校验、板型约束、进度/取消和真实刷写验收 |
+| Firmware flash | 无（导出与存根已于 2026-10 删除） | 整条能力缺失：没有文件选择、固件来源/签名校验、板型约束、进度/取消和真实刷写验收。重做前需独立 ADR |
 | Camera/Gimbal/Video | camera/gimbal/video FFI；macOS 开发构建已端到端跑通本地解码 + 录制 + 截图（LGPL FFmpeg，含容量上限清理） | 仍在 macOS 之外的一端复现；硬解、跨平台编解码、多画面、断流重连、真实相机/云台硬件自动发现与设备回读、发布包内打包 FFmpeg（R6） |
 | DataFlash/log download | MAVLink FTP、log list/download/record API | 完整可见的用户流程、磁盘/空间/续传、巨大日志、文件校验、解析/图表和错误恢复 |
 | Map providers/offline | 多个 tile URL enum 和 path provider | 自定义 URL/WMS/WMTS、令牌安全、缓存上限、离线包、版权 attribution、不同坐标体系一致性 |

@@ -2,7 +2,7 @@ import 'package:mgcs_frontend/mission/mission_document_backend.dart';
 import 'package:mgcs_frontend/mission/mission_document_models.dart';
 
 /// `MissionDocumentBackend` 的内存替身：不接触 `dart:ffi`，按脚本驱动
-/// 任务文档的增删改、传输与校验状态机。任务控制器与测绘控制器测试共用。
+/// 任务文档的增删改、传输与校验状态机，供任务控制器测试使用。
 final class FakeMissionBackend implements MissionDocumentBackend {
   MissionDocument _document = const MissionDocument(
     metadata: MissionDocumentMetadata(id: 'fake-mission'),
@@ -69,9 +69,6 @@ final class FakeMissionBackend implements MissionDocumentBackend {
     totalDistanceMeters: 100,
   );
 
-  @override
-  Future<String> exportMissionDocument() async => '{"schema_version":1}';
-
   String interchangeText = 'QGC WPL 110\n0\t1\t0\t16\t0\t0\t0\t0\t0\t0\t0\t1\n';
   List<String> interchangeWarnings = const [];
   String? lastInterchangeFormat;
@@ -108,12 +105,6 @@ final class FakeMissionBackend implements MissionDocumentBackend {
 
   @override
   Future<MissionDocument> getMissionDocument() async => _document;
-
-  @override
-  Future<MissionDocument> importMissionDocument(String json) async {
-    _document = const MissionDocument();
-    return _document;
-  }
 
   @override
   Future<MissionDocument> importMissionDocumentFromVehicle() async => _document;
@@ -179,12 +170,6 @@ final class FakeMissionBackend implements MissionDocumentBackend {
   }
 
   @override
-  Future<JsonMap> compileFencePlan() async => const {
-    'success': true,
-    'item_count': 0,
-  };
-
-  @override
   Future<JsonMap> uploadFence(int expectedRevision) async => {
     'success': true,
     'revision': expectedRevision,
@@ -212,12 +197,6 @@ final class FakeMissionBackend implements MissionDocumentBackend {
   Future<void> clearFence() async {
     fenceClears++;
   }
-
-  @override
-  Future<JsonMap> compileRallyPlan() async => const {
-    'success': true,
-    'item_count': 0,
-  };
 
   @override
   Future<JsonMap> uploadRally(int expectedRevision) async => {
@@ -306,7 +285,7 @@ final class FakeMissionBackend implements MissionDocumentBackend {
         );
       case 'replace':
         // native 的 replace 是「整份文档原子替换」；这里保留实体并推进 revision，
-        // 让测绘这类「追加航点后整体替换」的调用方拿到新的文档版本。
+        // 让「追加航点后整体替换」这类调用方拿到新的文档版本。
         _document = MissionDocument.fromJson(
           command['document'] as JsonMap,
         ).copyWith(revision: _document.revision + 1);

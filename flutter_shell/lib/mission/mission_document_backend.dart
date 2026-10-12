@@ -43,8 +43,6 @@ abstract interface class MissionDocumentBackend {
 
   /// 围栏是独立的 MAVLink mission type，不随任务上传。下面这组接口与任务
   /// 上传/读取/核对对称，差别只是走 fence mission type。
-  Future<JsonMap> compileFencePlan();
-
   Future<JsonMap> uploadFence(int expectedRevision);
 
   Future<void> startFenceDownload();
@@ -58,8 +56,6 @@ abstract interface class MissionDocumentBackend {
   Future<void> clearFence();
 
   /// Rally 同样是独立 mission type（MAV_MISSION_TYPE_RALLY）。
-  Future<JsonMap> compileRallyPlan();
-
   Future<JsonMap> uploadRally(int expectedRevision);
 
   Future<void> startRallyDownload();
@@ -71,10 +67,6 @@ abstract interface class MissionDocumentBackend {
   Future<MissionTransferProgress> getRallyTransferProgress();
 
   Future<void> clearRally();
-
-  Future<MissionDocument> importMissionDocument(String json);
-
-  Future<String> exportMissionDocument();
 
   /// 按交换格式导出任务：`waypoints`（QGC WPL 110 文本）或 `plan`（QGC JSON）。
   Future<MissionInterchangeExport> exportMissionInterchange(String format);

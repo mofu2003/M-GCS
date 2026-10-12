@@ -49,8 +49,6 @@ class FleetController extends ChangeNotifier {
       if (_selectedVehicleIds.contains(vehicle.id)) vehicle,
   ];
 
-  bool isVehicleSelected(int id) => _selectedVehicleIds.contains(id);
-
   void refresh() {
     _requireAlive();
     var next = _backend.snapshot();
