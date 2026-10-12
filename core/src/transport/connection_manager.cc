@@ -302,19 +302,6 @@ bool ConnectionManager::connect(LinkType type, const std::string& endpoint, uint
             desc.type = "serial";
             desc.endpoint = endpoint;
             desc.baud_rate = baud;
-            SerialPortInfo discovered;
-            discovered.port_name = endpoint;
-#ifndef __ANDROID__
-            SerialPortDiscovery discovery;
-            const auto ports = discovery.enumerate_ports();
-            for (const auto& candidate : ports) {
-                if (candidate.port_name == endpoint) {
-                    discovered = candidate;
-                    break;
-                }
-            }
-#endif
-            port = discovered;
 #ifdef __ANDROID__
             link = std::make_unique<AndroidUsbSerialLink>(desc);
 #else

@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../connection/native_core.dart';
 import 'payload_backend.dart';
 
 /// `mg_camera_*` / `mg_gimbal_*` / `mg_video_*` 的 FFI 实现。
@@ -309,15 +309,9 @@ final class PayloadFfiBackend implements PayloadBackend {
     _frameCapacity = 0;
   }
 
-  Map<String, Object?> _read(Pointer<Utf8> pointer) {
-    if (pointer == nullptr) throw StateError('后端返回空结果');
-    final Object? raw;
-    try {
-      raw = jsonDecode(pointer.toDartString());
-    } finally {
-      _freeString(pointer);
-    }
-    if (raw is! Map) throw const FormatException('相机/云台响应格式无效');
-    return Map<String, Object?>.from(raw);
-  }
+  Map<String, Object?> _read(Pointer<Utf8> pointer) => readJsonMap(
+    pointer,
+    freeString: _freeString,
+    invalidResponseMessage: '相机/云台响应格式无效',
+  );
 }

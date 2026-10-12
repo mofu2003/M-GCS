@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 // 串口发现与识别模块，枚举系统串口并识别飞控设备
 
@@ -64,6 +64,13 @@ public:
     /// 刷新端口列表（重新枚举）
     void refresh();
 
+    /// 判定一个端口对应的板卡类别与名称。
+    /// 依次尝试：VID/PID 精确匹配 → 端口描述正则兜底 → 制造商正则兜底。
+    /// 用于给「用户手工输入、或来自历史记录」的端口分类，这类端口不在
+    /// enumerate_ports() 的结果里，拿不到已填好的 board_class/board_name。
+    /// 返回 false 表示三者都没匹配上（board_class/board_name 不被修改）。
+    bool get_board_info(const SerialPortInfo& port, std::string& board_class, std::string& board_name);
+
 private:
     std::vector<SerialPortInfo> cached_ports_;  // 缓存的端口列表
     bool needs_refresh_ = true;
@@ -79,15 +86,11 @@ private:
 
     // JSON 数据加载
     bool load_json_data();
-    bool load_json_file(const std::string& path);
 
     // 板卡检测逻辑
-    bool get_board_info(const SerialPortInfo& port, std::string& board_class, std::string& board_name);
     bool is_bootloader(const SerialPortInfo& port);
     bool is_system_port(const SerialPortInfo& port);
 
-    // 辅助函数
-    std::string board_class_to_string(const std::string& board_class);
 };
 
 } // namespace mg::core::transport

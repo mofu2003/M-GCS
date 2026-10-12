@@ -1,7 +1,8 @@
-import 'dart:convert';
 import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
+
+import 'native_core.dart';
 
 /// 校准 FFI 适配层。
 ///
@@ -55,14 +56,9 @@ final class CalibrationFfiBackend {
   Map<String, Object?> confirmAccelerometerPosition(int position) =>
       _read(_accelConfirm(_core, position));
 
-  Map<String, Object?> _read(Pointer<Utf8> pointer) {
-    if (pointer == nullptr) throw StateError('后端返回空结果');
-    try {
-      final raw = jsonDecode(pointer.toDartString());
-      if (raw is! Map) throw const FormatException('校准响应格式无效');
-      return Map<String, Object?>.from(raw);
-    } finally {
-      _freeString(pointer);
-    }
-  }
+  Map<String, Object?> _read(Pointer<Utf8> pointer) => readJsonMap(
+    pointer,
+    freeString: _freeString,
+    invalidResponseMessage: '校准响应格式无效',
+  );
 }

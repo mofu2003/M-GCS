@@ -57,11 +57,34 @@ public:
     ConnectionManager& operator=(const ConnectionManager&) = delete;
 
     // Access the active MAVLink adapter. May be null before a link is wired.
-    mg::core::mavlink::MavlinkAdapter* get_mavlink() { return mavlink_ptr.get(); }
-    const mg::core::mavlink::MavlinkAdapter* get_mavlink() const { return mavlink_ptr.get(); }
+    //
+    // Borrowed pointer: the caller gets no lifetime. Use shared_mavlink() for
+    // every path that blocks on the adapter — a COMMAND_ACK wait can last 5 s,
+    // and reset() is free to destroy the adapter meanwhile. The read is taken
+    // under link_mtx_ so it cannot race with reset()'s move-out (the returned
+    // pointer may still die right after the call returns).
+    mg::core::mavlink::MavlinkAdapter* get_mavlink() {
+        mg::core::platform::LockGuard lk(link_mtx_);
+        return mavlink_ptr.get();
+    }
+    const mg::core::mavlink::MavlinkAdapter* get_mavlink() const {
+        mg::core::platform::LockGuard lk(link_mtx_);
+        return mavlink_ptr.get();
+    }
+    /// Owning handle on the active adapter. Holding it keeps the adapter alive
+    /// for as long as the copy lives, so a concurrent reset() cannot free it
+    /// under a caller blocked waiting for an ACK. Never a borrowed pointer.
     std::shared_ptr<mg::core::mavlink::MavlinkAdapter> shared_mavlink() const;
     // Access the active transport link. May be null before connection.
-    mg::core::transport::ILink* get_link() { return link_ptr.get(); }
+    // Borrowed pointer with a guarded read (see get_mavlink() above).
+    mg::core::transport::ILink* get_link() {
+        mg::core::platform::LockGuard lk(link_mtx_);
+        return link_ptr.get();
+    }
+    const mg::core::transport::ILink* get_link() const {
+        mg::core::platform::LockGuard lk(link_mtx_);
+        return link_ptr.get();
+    }
 
     /// Connect through a serial port and start heartbeat supervision.
     bool connect(const std::string& port, uint32_t baud);
@@ -106,9 +129,6 @@ public:
 
     /// Human-readable state name.
     static const char* state_string(ConnectionState s);
-
-    /// Current serial port information.
-    const SerialPortInfo& port_info() const { return port; }
 
     /// Set the state transition callback used by the FFI event layer.
     void set_state_callback(ConnectionStateChangedCallback cb);
@@ -158,7 +178,6 @@ private:
     std::shared_ptr<mg::core::mavlink::MavlinkAdapter> mavlink_ptr;
     std::shared_ptr<LinkSession>      shared_session_;
     int                               shared_route_id_ = -1;
-    SerialPortInfo                    port;
 
     // Wire transport callbacks into the protocol layer.
     void wire_callbacks();

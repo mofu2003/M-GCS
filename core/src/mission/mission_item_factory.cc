@@ -45,8 +45,8 @@ MissionItem MissionItemFactory::create_speed_change(float speed_ms) {
     MissionItem item{};
     item.frame = static_cast<uint8_t>(CoordFrame::GlobalRelAlt);
     item.command = static_cast<uint16_t>(NavCommand::DoSetSpeed);
-    item.param1 = speed_ms;   // Speed in m/s
-    item.param2 = 0.0f;       // 0 = airspeed, 1 = groundspeed
+    item.param1 = 0.0f;       // Speed type: 0 = airspeed, 1 = groundspeed
+    item.param2 = speed_ms;   // Speed in m/s (MAV_CMD_DO_CHANGE_SPEED param2)
     item.autocontinue = 1;
     return item;
 }

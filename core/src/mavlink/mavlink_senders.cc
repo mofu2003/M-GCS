@@ -32,30 +32,15 @@ static uint8_t resolve_mode_base_flag(uint8_t base_mode) {
 // 发送地面站心跳包
 bool MavlinkAdapter::send_heartbeat() {
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     mavlink_msg_heartbeat_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID,
         0, 0, 0);
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_msg();
-}
-
-// 请求数据流（旧方式，已被 MAV_CMD_SET_MESSAGE_INTERVAL 替代）
-bool MavlinkAdapter::request_data_stream(uint8_t target_system,
-                                          uint8_t target_component,
-                                          uint8_t stream_id,
-                                          uint16_t rate_hz) {
-    mg::core::platform::UniqueLock lk(impl_->mtx);
-    mavlink_msg_request_data_stream_pack(
-        255, 0, &impl_->msg,
-        target_system, target_component,
-        stream_id, rate_hz, 1);
-    // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
-    // 也避免传输层回调重入 adapter 时死锁）。
-    lk.unlock();
-    return impl_->send_msg();
+    return impl_->send_message(msg);
 }
 
 // ================================================================
@@ -66,8 +51,9 @@ bool MavlinkAdapter::request_data_stream(uint8_t target_system,
 bool MavlinkAdapter::request_autopilot_version(uint8_t target_system,
                                                 uint8_t target_component) {
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     mavlink_msg_command_long_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         target_system, target_component,
         MAV_CMD_REQUEST_MESSAGE,
         0, static_cast<float>(MAVLINK_MSG_ID_AUTOPILOT_VERSION),
@@ -75,7 +61,7 @@ bool MavlinkAdapter::request_autopilot_version(uint8_t target_system,
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_msg();
+    return impl_->send_message(msg);
 }
 
 // 请求 home 点：MAV_CMD_GET_HOME_POSITION，飞控会回一条 HOME_POSITION。
@@ -83,45 +69,33 @@ bool MavlinkAdapter::request_autopilot_version(uint8_t target_system,
 bool MavlinkAdapter::request_home_position(uint8_t target_system,
                                             uint8_t target_component) {
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     mavlink_msg_command_long_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         target_system, target_component,
         MAV_CMD_GET_HOME_POSITION,
         0, 0, 0, 0, 0, 0, 0, 0);
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_msg();
+    return impl_->send_message(msg);
 }
 
 // 请求完整参数列表（带超时重试状态初始化）
 bool MavlinkAdapter::request_param_list(uint8_t target_system,
                                          uint8_t target_component) {
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     impl_->pc.param_map.clear();
     impl_->pc.expected_param_count = 0;
     impl_->pc.start_download(target_system, target_component);
     mavlink_msg_param_request_list_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         target_system, target_component);
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_msg();
-}
-
-bool MavlinkAdapter::request_param_read_by_name(uint8_t target_system,
-                                                 uint8_t target_component,
-                                                 const char* param_id) {
-    if (!param_id || param_id[0] == '\0') return false;
-    mg::core::platform::UniqueLock lk(impl_->mtx);
-    mavlink_msg_param_request_read_pack(
-        255, 0, &impl_->msg,
-        target_system, target_component, param_id, -1);
-    // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
-    // 也避免传输层回调重入 adapter 时死锁）。
-    lk.unlock();
-    return impl_->send_msg();
+    return impl_->send_message(msg);
 }
 
 // 发送参数设置命令（委托给 Status 版本）
@@ -155,17 +129,6 @@ bool MavlinkAdapter::send_command_long(uint8_t target_system, uint8_t target_com
                                  p1, p2, p3, p4, p5, p6, p7));
 }
 
-// 解锁/锁定电机
-bool MavlinkAdapter::arm_disarm(uint8_t target_system, uint8_t target_component,
-                                 bool arm, bool force) {
-    float force_param = force ? 21196.0f : 0.0f;
-    return send_command_long(target_system, target_component,
-                             MAV_CMD_COMPONENT_ARM_DISARM, 0,
-                             arm ? 1.0f : 0.0f,
-                             force_param,
-                             0, 0, 0, 0, 0);
-}
-
 // 设置飞行模式
 bool MavlinkAdapter::set_mode(uint8_t target_system, uint8_t target_component,
                                uint8_t base_mode, uint32_t custom_mode) {
@@ -176,68 +139,9 @@ bool MavlinkAdapter::set_mode(uint8_t target_system, uint8_t target_component,
                              0, 0, 0, 0, 0);
 }
 
-// 返航命令
-bool MavlinkAdapter::cmd_return_to_launch(uint8_t target_system, uint8_t target_component) {
-    return send_command_long(target_system, target_component,
-                             MAV_CMD_NAV_RETURN_TO_LAUNCH, 0,
-                             0, 0, 0, 0, 0, 0, 0);
-}
-
-// 起飞命令
-bool MavlinkAdapter::cmd_takeoff(uint8_t target_system, uint8_t target_component,
-                                  float altitude_m) {
-    return send_command_long(target_system, target_component,
-                             MAV_CMD_NAV_TAKEOFF, 0,
-                             0, 0, 0, 0,
-                             0, 0,
-                             altitude_m);
-}
-
-// 降落命令
-bool MavlinkAdapter::cmd_land(uint8_t target_system, uint8_t target_component) {
-    return send_command_long(target_system, target_component,
-                             MAV_CMD_NAV_LAND, 0,
-                             0, 0, 0, 0, 0, 0, 0);
-}
-
 // ================================================================
 // GUIDED 模式指令
 // ================================================================
-
-// GUIDED: 飞往指定经纬度高度位置（使用 COMMAND_INT 保证精度）
-bool MavlinkAdapter::cmd_guided_point(uint8_t target_system, uint8_t target_component,
-                                      double lat_deg, double lon_deg, float alt_m,
-                                      float yaw_deg, float speed_ms) {
-    // MAV_CMD_DO_REPOSITION (192)
-    // param1: ground speed (< 0 for default)
-    // param2: bitmask (bit 1 = GUIDED mode)
-    // param3: loiter radius (0 for copter)
-    // param4: yaw heading (NaN = current)
-    // param5: latitude (degE7)
-    // param6: longitude (degE7)
-    // param7: altitude (meters MSL)
-    float p1 = speed_ms > 0 ? speed_ms : -1.0f;
-    float p2 = 1.0f;  // MAV_DO_REPOSITION_FLAGS_MODE_GUIDED
-    float p4 = (yaw_deg >= 0) ? yaw_deg : NAN;
-    int32_t lat_e7 = static_cast<int32_t>(lat_deg * 1e7);
-    int32_t lon_e7 = static_cast<int32_t>(lon_deg * 1e7);
-
-    // Use COMMAND_INT for lat/lon precision (requires int32 fields)
-    mg::core::platform::UniqueLock lk(impl_->mtx);
-    mavlink_msg_command_int_pack(
-        255, 0, &impl_->msg,
-        target_system, target_component,
-        MAV_FRAME_GLOBAL,  // AMSL altitude, matching QGC APM guided goto
-        MAV_CMD_DO_REPOSITION,
-        0,          // current (0=not current)
-        1,          // autocontinue
-        p1, p2, 0, p4,
-        lat_e7, lon_e7, alt_m);
-    // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
-    // 也避免传输层回调重入 adapter 时死锁）。
-    lk.unlock();
-    return impl_->send_msg();
-}
 
 // GUIDED: 以指定速度矢量飞行（SET_POSITION_TARGET_GLOBAL_INT）
 bool MavlinkAdapter::cmd_guided_velocity(uint8_t target_system, uint8_t target_component,
@@ -252,8 +156,9 @@ bool MavlinkAdapter::cmd_guided_velocity(uint8_t target_system, uint8_t target_c
 
     // Use global position (0,0,0) since we only care about velocity
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     mavlink_msg_set_position_target_global_int_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         0,          // time_boot_ms (ignored)
         target_system, target_component,
         MAV_FRAME_GLOBAL,
@@ -265,7 +170,7 @@ bool MavlinkAdapter::cmd_guided_velocity(uint8_t target_system, uint8_t target_c
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_msg();
+    return impl_->send_message(msg);
 }
 
 // GUIDED: 暂停（发送零速度）
@@ -282,8 +187,9 @@ bool MavlinkAdapter::cmd_change_altitude(uint8_t target_system, uint8_t target_c
                                           float altitude_change_m) {
     const uint16_t type_mask = 0xFFF8;  // 只使用 position x/y/z
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     mavlink_msg_set_position_target_local_ned_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         0,                      // time_boot_ms (ignored)
         target_system, target_component,
         MAV_FRAME_LOCAL_OFFSET_NED,
@@ -295,7 +201,7 @@ bool MavlinkAdapter::cmd_change_altitude(uint8_t target_system, uint8_t target_c
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_msg();
+    return impl_->send_message(msg);
 }
 
 
@@ -377,29 +283,31 @@ bool MavlinkAdapter::mission_type_cancel(MissionTransferState& state,
 // 清除飞控上所有任务
 bool MavlinkAdapter::mission_clear(uint8_t target_system, uint8_t target_component) {
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     impl_->mission.plan.clear();
     ++impl_->mission.plan_revision;
     impl_->mission.progress = mg::core::mission::MissionTransferProgress{};
     
     mavlink_msg_mission_clear_all_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         target_system, target_component, MAV_MISSION_TYPE_MISSION);
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_msg();
+    return impl_->send_message(msg);
 }
 
 // 设置当前航点
 bool MavlinkAdapter::mission_set_current(uint8_t target_system, uint8_t target_component,
                                           uint16_t seq) {
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     mavlink_msg_mission_set_current_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         target_system, target_component, seq);
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O）。
     lk.unlock();
-    const bool ok = impl_->send_msg();
+    const bool ok = impl_->send_message(msg);
     if (ok) {
         lk.lock();  // 回写任务进度需要重新加锁
         if (impl_->mission.plan.current_index != seq) {
@@ -689,16 +597,17 @@ int MavlinkAdapter::fence_transfer_retry_count() const {
 // 请求日志条目列表
 bool MavlinkAdapter::log_request_list(uint8_t target_system, uint8_t target_component) {
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     impl_->log_state.entries.clear();
     impl_->log_state.list_num_logs = 0;
 
     mavlink_msg_log_request_list_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         target_system, target_component, 0, 0xFFFF);
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_msg();
+    return impl_->send_message(msg);
 }
 
 std::vector<MavlinkAdapter::LogEntry> MavlinkAdapter::log_get_entries() const {
@@ -722,17 +631,18 @@ Status MavlinkAdapter::set_param_status(uint8_t target_system, uint8_t target_co
                                         const char* param_id, float param_value, uint8_t param_type) {
     if (!param_id) return Status::error(ErrorCode::InvalidParam, "null param_id");
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     if (!impl_->has_send_callback()) { return Status::error(ErrorCode::NotConnected, "no send callback registered"); }
     const uint64_t history_id = impl_->pc.record_write_request(
         param_id, param_value, param_type,
         target_system, target_component);
     mavlink_msg_param_set_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         target_system, target_component,
         param_id, param_value, param_type);
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O）。
     lk.unlock();
-    if (!impl_->send_msg()) {
+    if (!impl_->send_message(msg)) {
         // 失败回执要改参数写入状态，必须重新加锁；history_id 保证只终结这一笔请求。
         lk.lock();
         impl_->pc.complete_write(
@@ -752,74 +662,20 @@ Status MavlinkAdapter::send_command_long_status(uint8_t target_system, uint8_t t
                                                 float p1, float p2, float p3, float p4,
                                                 float p5, float p6, float p7) {
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     if (!impl_->has_send_callback()) { return Status::error(ErrorCode::NotConnected, "no send callback registered"); }
     mavlink_msg_command_long_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         target_system, target_component,
         command, confirmation,
         p1, p2, p3, p4, p5, p6, p7);
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    if (!impl_->send_msg()) {
+    if (!impl_->send_message(msg)) {
         char buf[80];
         snprintf(buf, sizeof(buf), "send_msg failed for COMMAND_LONG cmd=%u", command);
         return Status::error(ErrorCode::SendFailed, buf);
-    }
-    return Status::ok();
-}
-
-Status MavlinkAdapter::arm_disarm_status(uint8_t target_system, uint8_t target_component,
-                                         bool arm, bool force) {
-    float force_param = force ? 21196.0f : 0.0f;
-    auto result = send_command_long_status(target_system, target_component,
-                                           MAV_CMD_COMPONENT_ARM_DISARM, 0,
-                                           arm ? 1.0f : 0.0f,
-                                           force_param,
-                                           0, 0, 0, 0, 0);
-    if (!result) {
-        return Status::error(result.code(),
-                             arm ? "arm command send failed" : "disarm command send failed");
-    }
-    return Status::ok();
-}
-
-Status MavlinkAdapter::set_mode_status(uint8_t target_system, uint8_t target_component,
-                                       uint8_t base_mode, uint32_t custom_mode) {
-    auto result = send_command_long_status(target_system, target_component,
-                                           MAV_CMD_DO_SET_MODE, 0,
-                                           static_cast<float>(resolve_mode_base_flag(base_mode)),
-                                           static_cast<float>(custom_mode),
-                                           0, 0, 0, 0, 0);
-    if (!result) {
-        return Status::error(result.code(), "set_mode command send failed");
-    }
-    return Status::ok();
-}
-
-Status MavlinkAdapter::cmd_guided_point_status(uint8_t target_system, uint8_t target_component,
-                                               double lat_deg, double lon_deg, float alt_m,
-                                               float yaw_deg, float speed_ms) {
-    float p1 = speed_ms > 0 ? speed_ms : -1.0f;
-    float p2 = 1.0f;  // MAV_DO_REPOSITION_FLAGS_MODE_GUIDED
-    float p4 = (yaw_deg >= 0) ? yaw_deg : NAN;
-    int32_t lat_e7 = static_cast<int32_t>(lat_deg * 1e7);
-    int32_t lon_e7 = static_cast<int32_t>(lon_deg * 1e7);
-
-    mg::core::platform::UniqueLock lk(impl_->mtx);
-    mavlink_msg_command_int_pack(
-        255, 0, &impl_->msg,
-        target_system, target_component,
-        MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
-        MAV_CMD_DO_REPOSITION,
-        0, 1,
-        p1, p2, 0, p4,
-        lat_e7, lon_e7, alt_m);
-    // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
-    // 也避免传输层回调重入 adapter 时死锁）。
-    lk.unlock();
-    if (!impl_->send_msg()) {
-        return Status::error(ErrorCode::SendFailed, "send_msg failed for DO_REPOSITION");
     }
     return Status::ok();
 }
@@ -838,42 +694,18 @@ bool MavlinkAdapter::mission_start(uint8_t target_system, uint8_t target_compone
 // ================================================================
 // 日志下载（LOG_REQUEST_DATA 协议）
 // ================================================================
-// 请求日志数据块
-bool MavlinkAdapter::log_request_data(uint8_t target_system, uint8_t target_component,
-                                       uint32_t id, uint32_t ofs, uint32_t count) {
-    mg::core::platform::UniqueLock lk(impl_->mtx);
-    mavlink_msg_log_request_data_pack(
-        255, 0, &impl_->msg,
-        target_system, target_component,
-        id, ofs, count);
-    // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
-    // 也避免传输层回调重入 adapter 时死锁）。
-    lk.unlock();
-    return impl_->send_msg();
-}
-
-// 结束日志下载
-bool MavlinkAdapter::log_request_end(uint8_t target_system, uint8_t target_component) {
-    mg::core::platform::UniqueLock lk(impl_->mtx);
-    mavlink_msg_log_request_end_pack(
-        255, 0, &impl_->msg,
-        target_system, target_component);
-    // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
-    // 也避免传输层回调重入 adapter 时死锁）。
-    lk.unlock();
-    return impl_->send_msg();
-}
 
 // 擦除所有日志
 bool MavlinkAdapter::log_erase(uint8_t target_system, uint8_t target_component) {
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     mavlink_msg_log_erase_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         target_system, target_component);
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_msg();
+    return impl_->send_message(msg);
 }
 
 // ================================================================
@@ -957,7 +789,7 @@ bool MavlinkAdapter::cmd_gimbal_recenter(uint8_t target_sys, uint8_t target_comp
 bool MavlinkAdapter::gimbal_request_info(uint8_t target_sys, uint8_t target_comp) {
     return send_command_long(target_sys, target_comp,
         MAV_CMD_REQUEST_MESSAGE, 0,
-        541.0f,  // MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION
+        static_cast<float>(MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION),
         0, 0, 0, 0, 0, 0);
 }
 
@@ -980,7 +812,7 @@ bool MavlinkAdapter::cmd_gimbal_configure(uint8_t target_sys, uint8_t target_com
 bool MavlinkAdapter::video_request_stream_info(uint8_t target_sys, uint8_t target_comp) {
     return send_command_long(target_sys, target_comp,
         MAV_CMD_REQUEST_MESSAGE, 0,
-        269.0f,  // MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION
+        static_cast<float>(MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION),
         0, 0, 0, 0, 0, 0);
 }
 
@@ -998,6 +830,7 @@ bool MavlinkAdapter::video_request_stream_info(uint8_t target_sys, uint8_t targe
 bool MavlinkAdapter::log_download_start(uint8_t target_system, uint8_t target_component,
                                          uint16_t log_id, const std::string& filepath) {
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     
     // 查找日志条目以获取大小
     uint32_t log_size = 0;
@@ -1029,12 +862,12 @@ bool MavlinkAdapter::log_download_start(uint8_t target_system, uint8_t target_co
     
     // 请求第一个数据块
     mavlink_msg_log_request_data_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         target_system, target_component,
         log_id, 0, 90);  // 90 bytes per LOG_DATA message
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O）。
     lk.unlock();
-    const bool sent = impl_->send_msg();
+    const bool sent = impl_->send_message(msg);
     if (!sent) {
         lk.lock();  // 回滚下载状态需要重新加锁
         impl_->log_state.downloading = false;
@@ -1046,6 +879,7 @@ bool MavlinkAdapter::log_download_start(uint8_t target_system, uint8_t target_co
 // 取消日志下载
 bool MavlinkAdapter::log_download_cancel() {
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     if (!impl_->log_state.downloading) return false;
     
     impl_->log_state.downloading = false;
@@ -1054,19 +888,12 @@ bool MavlinkAdapter::log_download_cancel() {
     
     // 发送 LOG_REQUEST_END 停止下载
     mavlink_msg_log_request_end_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         impl_->log_state.download_target_sys, impl_->log_state.download_target_comp);
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_msg();
-}
-
-// 获取日志下载进度
-float MavlinkAdapter::log_download_progress() const {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    if (!impl_->log_state.downloading || impl_->log_state.download_size == 0) return 0.0f;
-    return static_cast<float>(impl_->log_state.download_ofs) / impl_->log_state.download_size;
+    return impl_->send_message(msg);
 }
 
 // 检查日志下载是否活跃
@@ -1108,8 +935,9 @@ bool MavlinkAdapter::cmd_orbit(uint8_t target_sys, uint8_t target_comp,
     const int32_t lat_e7 = static_cast<int32_t>(lat * 1e7);
     const int32_t lon_e7 = static_cast<int32_t>(lon * 1e7);
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     mavlink_msg_command_int_pack(
-        255, 0, &impl_->msg,
+        255, 0, &msg,
         target_sys, target_comp,
         MAV_FRAME_GLOBAL,
         MAV_CMD_DO_ORBIT,
@@ -1122,7 +950,7 @@ bool MavlinkAdapter::cmd_orbit(uint8_t target_sys, uint8_t target_comp,
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_msg();
+    return impl_->send_message(msg);
 }
 
 // 设置感兴趣区域
@@ -1150,13 +978,6 @@ bool MavlinkAdapter::cmd_roi_stop(uint8_t target_sys, uint8_t target_comp) {
     return send_command_long(target_sys, target_comp,
         MAV_CMD_DO_SET_ROI, 0,
         0, 0, 0, 0, 0, 0, 0);
-}
-
-// 收放起落架
-bool MavlinkAdapter::cmd_landing_gear(uint8_t target_sys, uint8_t target_comp, bool deploy) {
-    return send_command_long(target_sys, target_comp,
-        MAV_CMD_AIRFRAME_CONFIGURATION, 0,
-        deploy ? 1.0f : 0.0f, 0, 0, 0, 0, 0, 0);
 }
 
 // 控制云台

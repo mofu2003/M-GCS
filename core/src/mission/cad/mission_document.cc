@@ -1043,16 +1043,13 @@ bool load_mission_document(
     return deserialize_mission_document(buffer.str(), document, error);
 }
 
-const char* mission_entity_type_name(const std::string& type) {
-    return type.c_str();
-}
-
 bool is_parameterized_survey_type(const std::string& type) {
     return type == "survey_grid" || type == "corridor";
 }
 
 const char* mission_entity_type_for_command(uint16_t command) {
     switch (command) {
+        case static_cast<uint16_t>(NavCommand::NavWaypoint):         return "waypoint";
         case static_cast<uint16_t>(NavCommand::NavTakeoff):          return "takeoff";
         case static_cast<uint16_t>(NavCommand::NavVtolTakeoff):      return "vtol_takeoff";
         case static_cast<uint16_t>(NavCommand::NavLand):             return "land";

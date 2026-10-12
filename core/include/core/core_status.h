@@ -82,7 +82,6 @@ public:
     /// 显式访问器
     ErrorCode code() const { return code_; }
     const char* message() const { return msg_; }
-    bool ok_status() const { return code_ == ErrorCode::Ok; }
 
 private:
     ErrorCode code_;

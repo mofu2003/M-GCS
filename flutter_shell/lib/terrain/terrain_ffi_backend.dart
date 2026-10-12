@@ -3,6 +3,7 @@ import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 
+import '../connection/native_core.dart';
 import 'terrain_backend.dart';
 import 'terrain_models.dart';
 
@@ -95,15 +96,9 @@ final class TerrainFfiBackend implements TerrainBackend {
   @override
   Map<String, Object?> cacheClear() => _read(_cacheClear(_core));
 
-  Map<String, Object?> _read(Pointer<Utf8> pointer) {
-    if (pointer == nullptr) throw StateError('后端返回空结果');
-    final Object? raw;
-    try {
-      raw = jsonDecode(pointer.toDartString());
-    } finally {
-      _freeString(pointer);
-    }
-    if (raw is! Map) throw const FormatException('地形响应格式无效');
-    return Map<String, Object?>.from(raw);
-  }
+  Map<String, Object?> _read(Pointer<Utf8> pointer) => readJsonMap(
+    pointer,
+    freeString: _freeString,
+    invalidResponseMessage: '地形响应格式无效',
+  );
 }

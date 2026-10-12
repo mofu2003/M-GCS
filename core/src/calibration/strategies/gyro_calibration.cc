@@ -1,4 +1,4 @@
-﻿/**
+/**
  * gyro_calibration.cc - Gyroscope calibration implementation
  * 陀螺仪校准实现 — 发送指令、等待 ACK、验证偏移量
  *
@@ -11,6 +11,34 @@
 #include <algorithm>
 
 namespace mg::core::calibration {
+
+namespace {
+
+/// 完成短语必须整句匹配，不能用 "success"/"complete"/"done" 子串：
+/// "Gyro calibration unsuccessful" 也含 "success"，子串匹配会把飞控报的失败
+/// 读成成功（同目录 compass_calibration.cc 按整句 "Calibration successful" 判定）。
+bool mentions_completion(const std::string& text) {
+    return text.find("calibration successful") != std::string::npos ||
+           text.find("Calibration successful") != std::string::npos ||
+           text.find("calibration complete") != std::string::npos ||
+           text.find("Calibration complete") != std::string::npos ||
+           // PX4 gyro_calibration.cpp 完成后发 "[cal] calibration done: gyro"。
+           text.find("calibration done") != std::string::npos ||
+           text.find("Calibration done") != std::string::npos;
+}
+
+/// 失败要在完成之前判定："unsuccessful" 本身含 "successful"。
+bool mentions_failure(const std::string& text) {
+    return text.find("failed") != std::string::npos ||
+           text.find("Failed") != std::string::npos ||
+           text.find("FAILED") != std::string::npos ||
+           text.find("unsuccessful") != std::string::npos ||
+           text.find("Unsuccessful") != std::string::npos ||
+           text.find("incomplete") != std::string::npos ||
+           text.find("Incomplete") != std::string::npos;
+}
+
+} // namespace
 
 uint16_t GyroCalibration::mav_command() const {
     return 241;  // MAV_CMD_PREFLIGHT_CALIBRATION
@@ -45,21 +73,17 @@ StatusParseResult GyroCalibration::parse_statustext(
         text.find("gyro") != std::string::npos) {
         result.is_calibration_text = true;
 
-        if (text.find("calibration successful") != std::string::npos ||
-            text.find("Calibration successful") != std::string::npos ||
-            text.find("success") != std::string::npos) {
+        if (mentions_failure(text)) {
+            result.new_stage = CalibrationStage::Failed;
+            result.stage_changed = true;
+            result.user_message = "Gyroscope calibration failed";
+        } else if (mentions_completion(text)) {
             result.new_stage = CalibrationStage::Success;
             result.progress = 100;
             result.current_step = 1;
             result.total_steps = 1;
             result.stage_changed = true;
             result.user_message = "Gyroscope calibration successful";
-        } else if (text.find("failed") != std::string::npos ||
-                   text.find("Failed") != std::string::npos ||
-                   text.find("FAILED") != std::string::npos) {
-            result.new_stage = CalibrationStage::Failed;
-            result.stage_changed = true;
-            result.user_message = "Gyroscope calibration failed";
         } else if (text.find("calibrating") != std::string::npos ||
                    text.find("Calibrating") != std::string::npos ||
                    text.find("place") != std::string::npos ||
@@ -97,7 +121,12 @@ CalibrationStage GyroCalibration::interpret_ack(
     // 3 = UNSUPPORTED, 4 = FAILED, 5 = IN_PROGRESS
     switch (result) {
         case 0:  // MAV_RESULT_ACCEPTED
-            return CalibrationStage::Success;
+            // ACK 只确认飞控受理了启动命令，不是校准结果（与同目录
+            // radio_calibration.cc:84-88、compass_calibration.cc:187-190 同一语义）。
+            // 结果来自 STATUSTEXT；ArduPilot 的陀螺校准是同步完成的，服务层对
+            // "受理即完成"的固件另有补偿，见 calibration_service.cc
+            // 的 process_command_ack。
+            return CalibrationStage::Calibrating;
         case 5:  // MAV_RESULT_IN_PROGRESS
             if (current_stage != CalibrationStage::Calibrating)
                 return CalibrationStage::Calibrating;

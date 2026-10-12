@@ -124,11 +124,6 @@ bool FlightModeManager::is_armed() const {
     return armed_;
 }
 
-bool FlightModeManager::is_in_flight() const {
-    mg::core::platform::LockGuard lk(mtx_);
-    return in_flight_;
-}
-
 // ================================================================
 // Mode switching
 // ================================================================

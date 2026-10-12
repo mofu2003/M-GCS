@@ -62,10 +62,4 @@ std::vector<DiscoveredDevice> LinkFactory::discover(LinkType type) {
     return devices;
 }
 
-std::string LinkFactory::parse_scheme(const std::string& uri) {
-    auto pos = uri.find("://");
-    if (pos == std::string::npos) return "serial";
-    return uri.substr(0, pos);
-}
-
 } // namespace mg::core::transport

@@ -36,7 +36,21 @@ void MavlinkAdapter::Impl::handle_log_data(const mavlink_message_t& m)
     if (ld.id != log_state.download_id)
         return;
 
-    const uint32_t end = ld.ofs + ld.count;
+    // ld.ofs 是飞控给的 uint32：先提升到 64 位再相加。直接写 `ld.ofs + ld.count`
+    // 会在 ofs 接近 UINT32_MAX 时回绕成小值，使下面按 end 做的 resize 失效，而
+    // 循环里的越界保护又只在 download_size > 0 时生效——download_size == 0
+    // （LOG_ENTRY 里没有这个 id 的大小）时就会以回绕后的巨大下标写到 vector 之外。
+    const uint64_t end64 = static_cast<uint64_t>(ld.ofs) + ld.count;
+    // 只接受我们实际请求过的范围：download_ofs 是已请求的前沿，飞控不会提前发送
+    // 更靠后的数据，补包也只从更小的缺口重发。越界的 ofs 属于协议异常，丢弃并等
+    // 失速重发（见 process_timeouts 的补包），绝不按它扩容或写入。
+    if (static_cast<uint64_t>(ld.ofs) > log_state.download_ofs) {
+        MGC_LOG_WARN("[MavlinkAdapter] LOG_DATA ofs %u beyond requested %u, dropped",
+                     static_cast<unsigned>(ld.ofs),
+                     static_cast<unsigned>(log_state.download_ofs));
+        return;
+    }
+    const uint32_t end = static_cast<uint32_t>(end64);
     // 日志列表提供了已知大小时，忽略飞控偶发发送到文件尾之外的字节，
     // 避免额外字节被计入完成条件或写入本地文件。
     const uint32_t write_end = log_state.download_size > 0 ? std::min(end, log_state.download_size) : end;
@@ -46,9 +60,14 @@ void MavlinkAdapter::Impl::handle_log_data(const mavlink_message_t& m)
     if (write_end > log_state.download_received.size()) {
         log_state.download_received.resize(write_end, 0);
     }
+    // 写入上界对两个条件同时生效：不越过本次已 resize 到的 write_end，也不越过
+    // 已知文件尾。旧写法只在 download_size > 0 时判断，未知大小时没有上界。
+    const uint32_t write_limit = log_state.download_size > 0
+        ? std::min(write_end, log_state.download_size)
+        : write_end;
     for (uint32_t i = 0; i < ld.count; ++i) {
-        const auto index = ld.ofs + i;
-        if (log_state.download_size > 0 && index >= log_state.download_size) {
+        const uint32_t index = ld.ofs + i;
+        if (index >= write_limit || index >= log_state.download_data.size()) {
             break;
         }
         log_state.download_data[index] = ld.data[i];
@@ -62,7 +81,6 @@ void MavlinkAdapter::Impl::handle_log_data(const mavlink_message_t& m)
     if (log_state.download_size == 0 && ld.count < 90) {
         log_state.download_size = end;
     }
-
     const bool all_bytes =
         log_state.download_size > 0 &&
         log_state.download_received_bytes >= log_state.download_size;

@@ -4,37 +4,49 @@
  *
  * Source: ArduPilot/Rover/mode.h (enum class Mode)
  *
- * 注意：case 的数值必须是 Rover 的**枚举值**，不是模式列表的下标。
- * 本表曾因按下标编号而整体错位，并且混入了 Rover 根本不存在的 Autotune /
- * PosHold / Brake；错位后 LAND 位置上的 9 在 Rover 里其实是 CIRCLE。
+ * 本文件是 Rover 模式的唯一事实来源：名称与可选列表都从下表派生。
+ * custom_mode 是上游枚举值，不是下标——本表曾按下标编号而整体错位，并在
+ * LAND 的位置混入 Rover 根本不存在的 Autotune/PosHold/Brake（9 其实是 Circle）。
  * Rover 未使用 2、13、14、17 及以后。
  *
- * To add a new mode: add one case below. No other files need to change.
+ * To add a new mode: add one row below. No other files need to change.
  */
 
 #pragma once
+#include "core/firmware/modes/ardu_mode_table.h"
+#include <cstddef>
 #include <cstdint>
 
 namespace mg::core::firmware::modes {
 
+inline const ArduModeEntry* ardupilot_rover_mode_table(size_t& count) {
+    static const ArduModeEntry kTable[] = {
+        { 0, "Manual",       true  },
+        { 1, "Acro",         true  },
+        { 3, "Steering",     true  },
+        { 4, "Hold",         true  },
+        { 5, "Loiter",       true  },
+        { 6, "Follow",       true  },
+        { 7, "Simple",       true  },
+        { 8, "Dock",         true  },
+        { 9, "Circle",       true  },
+        {10, "Auto",         true  },
+        {11, "RTL",          true  },
+        {12, "SmartRTL",     true  },
+        {15, "Guided",       true  },
+        {16, "Initialising", false },
+    };
+    count = sizeof(kTable) / sizeof(kTable[0]);
+    return kTable;
+}
+
 inline const char* ardupilot_rover_mode_name(uint32_t mode) {
-    switch (mode) {
-        case 0:  return "Manual";
-        case 1:  return "Acro";
-        case 3:  return "Steering";
-        case 4:  return "Hold";
-        case 5:  return "Loiter";
-        case 6:  return "Follow";
-        case 7:  return "Simple";
-        case 8:  return "Dock";
-        case 9:  return "Circle";
-        case 10: return "Auto";
-        case 11: return "RTL";
-        case 12: return "SmartRTL";
-        case 15: return "Guided";
-        case 16: return "Initialising";
-        default: return nullptr;
+    size_t count = 0;
+    const ArduModeEntry* table = ardupilot_rover_mode_table(count);
+    for (size_t i = 0; i < count; ++i) {
+        if (table[i].custom_mode == mode) return table[i].name;
     }
+    return nullptr;
 }
 
 } // namespace mg::core::firmware::modes

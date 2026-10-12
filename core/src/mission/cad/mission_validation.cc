@@ -734,6 +734,17 @@ MissionValidationReport validate_document(const MissionDocument& document) {
             }
         }
 
+        // RTL 的高度与坐标语义和普通航点不同，单独说明：
+        //   * 高度：mission_compile.cc:188-190 无条件把 entity.altitude_m 写进
+        //     任务项（非有限值才回落默认高度），所以有限但非法的高度（负数）会
+        //     原样下发，必须在这里拦下；
+        //   * 坐标：AP_Mission::stored_in_location() 不含
+        //     MAV_CMD_NAV_RETURN_TO_LAUNCH(20)，飞控不用它、回读时也不还原
+        //     （mission_document.cc 从飞控下载的 RTL 坐标就是 NaN），所以
+        //     "没给坐标"是合法状态，只有给了却越界才报错。
+        const bool is_return_to_launch =
+            entity.command == static_cast<uint16_t>(NavCommand::NavReturnToLaunch);
+
         if (position_command(entity.command)) {
             if (!finite(entity.latitude) ||
                 entity.latitude < kMinLatitude ||
@@ -757,13 +768,37 @@ MissionValidationReport validate_document(const MissionDocument& document) {
                     entity.id,
                     "lon");
             }
+        } else if (is_return_to_launch) {
+            if (finite(entity.latitude) &&
+                (entity.latitude < kMinLatitude ||
+                 entity.latitude > kMaxLatitude)) {
+                add_diagnostic(
+                    report,
+                    DiagnosticSeverity::Error,
+                    "entity.latitude",
+                    "Mission latitude is out of range",
+                    entity.id,
+                    "lat");
+            }
+            if (finite(entity.longitude) &&
+                (entity.longitude < kMinLongitude ||
+                 entity.longitude > kMaxLongitude)) {
+                add_diagnostic(
+                    report,
+                    DiagnosticSeverity::Error,
+                    "entity.longitude",
+                    "Mission longitude is out of range",
+                    entity.id,
+                    "lon");
+            }
         }
 
         const float altitude = std::isfinite(entity.altitude_m)
             ? entity.altitude_m
             : document.defaults.altitude_m;
         if (position_command(entity.command) ||
-            entity.command == static_cast<uint16_t>(NavCommand::NavTakeoff)) {
+            entity.command == static_cast<uint16_t>(NavCommand::NavTakeoff) ||
+            is_return_to_launch) {
             if (!(altitude >= 0.0f)) {
                 add_diagnostic(
                     report,
@@ -806,12 +841,18 @@ MissionValidationReport validate_document(const MissionDocument& document) {
         if (entity.command == static_cast<uint16_t>(NavCommand::NavLoiterUnlim) ||
             entity.command == static_cast<uint16_t>(NavCommand::NavLoiterTurns) ||
             entity.command == static_cast<uint16_t>(NavCommand::NavLoiterTime)) {
-            if (!(entity.params[2] > 0.0f)) {
+            // 半径的合法区间由命令目录的 parameter(3, "radius", ...) 描述符给出
+            // （对齐 QGC MavCmdInfoCommon.json 的 userMin -100 / userMax 100），
+            // 命令目录检查在下面统一执行。这里只补一条目录无法表达的约束：
+            // 半径必须是有限值——NaN 会原样写进任务项传给飞控。
+            // 注意 NAV_LOITER_UNLIM 不在命令目录里，会在上面被
+            // entity.command_unsupported 拦下并 continue，到不了这里。
+            if (!std::isfinite(entity.params[2])) {
                 add_diagnostic(
                     report,
                     DiagnosticSeverity::Error,
                     "entity.loiter_radius",
-                    "Loiter radius must be positive",
+                    "Loiter radius must be a finite number",
                     entity.id,
                     "params[2]");
             }

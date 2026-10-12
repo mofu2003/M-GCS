@@ -161,11 +161,14 @@ MGCORE_API char* mg_rc_set_failsafe(mg_core_t* core, int mode, int threshold) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     bool px4 = ffi_is_px4(core);
 
+    // 写入失败必须如实返回（S1：拒绝/失败要传播，不得吞掉）。逐项求值，
+    // 不用 && 短路，否则前一项失败会跳过后续写入并留下半写状态。
+    bool all_ok = true;
     if (px4) {
-        ffi_set_param(core, "COM_RC_FAIL_MODE", (float)mode);
+        all_ok = ffi_set_param(core, "COM_RC_FAIL_MODE", (float)mode) && all_ok;
     } else {
-        ffi_set_param(core, "FS_THR_ENABLE", (float)mode);
-        ffi_set_param(core, "FS_THR_VALUE", (float)threshold);
+        all_ok = ffi_set_param(core, "FS_THR_ENABLE", (float)mode) && all_ok;
+        all_ok = ffi_set_param(core, "FS_THR_VALUE", (float)threshold) && all_ok;
     }
-    return ok();
+    return all_ok ? ok() : fail(MG_ERROR_SEND_FAILED, "RC failsafe parameter write failed");
 }

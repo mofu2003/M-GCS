@@ -315,11 +315,13 @@ CalibrationQuality CalibrationValidator::assess_compass(float ox, float oy, floa
 }
 
 CalibrationQuality CalibrationValidator::assess_baro(float ground_pressure) const {
-    // Ground pressure should be in a reasonable atmospheric range
+    // ground_pressure 是 ArduPilot BAROn_GND_PRESS，单位 Pascal（约 101325）。
+    // 阈值（baro_*）以 hPa 刻度定义，所以先换算再比对。
     // Standard sea level: 1013.25 hPa
     // Typical range: 950-1050 hPa depending on altitude and weather
     // Deviation from nominal indicates calibration quality
-    float deviation = std::abs(ground_pressure - 1013.25f);
+    const float ground_pressure_hpa = ground_pressure / 100.0f;
+    float deviation = std::abs(ground_pressure_hpa - 1013.25f);
     if (deviation < thresholds_.baro_excellent) return CalibrationQuality::Excellent;
     if (deviation < thresholds_.baro_good)      return CalibrationQuality::Good;
     if (deviation < thresholds_.baro_marginal)  return CalibrationQuality::Marginal;

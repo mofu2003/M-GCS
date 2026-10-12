@@ -65,9 +65,13 @@ MGCORE_API char* mg_vehicle_get_session_status(mg_core_t* core, int vehicle_id) 
     mg::core::telemetry::JsonBuilder data;
     data.begin_object();
     data.field("session_id", vehicle_id);
-    data.field("connected", vehicle->conn().is_connected());
+    const bool connected = vehicle->conn().is_connected();
+    const uint64_t hb_age_ms = vehicle->conn().heartbeat_age_ms();
+    data.field("connected", connected);
     data.field("heartbeat_alive", vehicle->conn().heartbeat_alive(3000));
-    data.field("heartbeat_fresh", vehicle->conn().heartbeat_alive(3000));
+    // S5：armed/mode 只在 heartbeat_fresh 为 true 时代表当前状态。与
+    // ffi_telemetry_summary.cc 保持一致：connected 且心跳年龄在阈值内。
+    data.field("heartbeat_fresh", connected && hb_age_ms <= 3000);
     data.field("gps_fresh", gps_fresh);
     data.field("gps_fix_type", gps_fresh ? static_cast<int>(gps.fix_type) : -1);
     data.field("gps_satellites", gps_fresh ? satellite_count : -1);

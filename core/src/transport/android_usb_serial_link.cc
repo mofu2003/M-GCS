@@ -63,13 +63,6 @@ jstring to_jstring(JNIEnv* env, const std::string& value) {
     return env ? env->NewStringUTF(value.c_str()) : nullptr;
 }
 
-void java_void_with_string(JNIEnv* env, jmethodID method, const std::string& value) {
-    if (!env || !method || !g_manager_class) return;
-    jstring text = to_jstring(env, value);
-    env->CallStaticVoidMethod(g_manager_class, method, text);
-    if (text) env->DeleteLocalRef(text);
-}
-
 void clear_exception(JNIEnv* env, const char* context) {
     if (!env || !env->ExceptionCheck()) return;
     env->ExceptionDescribe();
@@ -251,15 +244,19 @@ void AndroidUsbSerialLink::set_receive_callback(ReceiveCallback cb) {
 
 void AndroidUsbSerialLink::on_java_new_data(uint64_t token, const uint8_t* data, size_t size) {
     if (!data || size == 0) return;
-    std::lock_guard<std::mutex> registry_lock(g_registry_mutex);
-    const auto found = g_registry.find(token);
-    if (found == g_registry.end() || !found->second) return;
-    auto* link = found->second;
+    // 注册表锁内只做查表与回调拷贝：回调属于外部代码（ConnectionManager 的接收
+    // 路径），持锁调用违反 AGENTS.md 的"不在 core 持锁路径中调用外部回调"；而且
+    // g_registry_mutex 同时保护注册表，回调里若触发 on_java_disconnected /
+    // unregister_link 就会自死锁。
     ReceiveCallback callback;
     {
+        std::lock_guard<std::mutex> registry_lock(g_registry_mutex);
+        const auto found = g_registry.find(token);
+        if (found == g_registry.end() || !found->second) return;
+        auto* link = found->second;
         mg::core::platform::LockGuard lock(link->cb_mtx_);
         callback = link->receive_cb_;
-    }
+    }  // g_registry_mutex released here: only lookup and copy happened under it
     if (callback) callback(data, size);
 }
 

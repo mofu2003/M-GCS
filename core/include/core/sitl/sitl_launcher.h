@@ -88,7 +88,9 @@ private:
     void* process_handle_ = nullptr;  // HANDLE (avoid windows.h in header)
 #endif
 
-    void set_status(SitlStatus s, const std::string& msg);
+    /// 持锁时只更新状态与日志，不触发回调；回调由调用方在解锁后执行，
+    /// 避免在持锁路径调用外部回调（A3）。
+    void set_status_locked(SitlStatus s, const std::string& msg);
 };
 
 } // namespace mg::core::sitl

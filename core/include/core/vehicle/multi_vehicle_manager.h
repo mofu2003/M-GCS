@@ -92,8 +92,6 @@ public:
     std::shared_ptr<Vehicle> get_vehicle_shared(int vehicle_id) const;
     // 按系统 ID 获取
     Vehicle* get_vehicle_by_system_id(uint8_t system_id) const;
-    // 获取所有飞行器列表
-    std::vector<Vehicle*> get_all_vehicles() const;
     // Lifetime-safe registry snapshot for FFI readers racing watchdog removal.
     std::vector<std::shared_ptr<Vehicle>> get_all_vehicles_shared() const;
     // 获取飞行器数量

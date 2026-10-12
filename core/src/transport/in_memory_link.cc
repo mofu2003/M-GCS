@@ -52,7 +52,6 @@ void InMemoryLink::inject_incoming(const uint8_t* data, size_t size) {
     ReceiveCallback cb;
     {
         mg::core::platform::LockGuard lk(mtx_);  // 加锁保护共享状态
-        total_received_ += size;
         cb = receive_cb_;
     }
     if (cb) {
@@ -72,12 +71,6 @@ std::vector<uint8_t> InMemoryLink::take_outgoing() {
 size_t InMemoryLink::total_sent() const {
     mg::core::platform::LockGuard lk(mtx_);  // 加锁保护共享状态
     return total_sent_;
-}
-
-// 获取累计接收字节数
-size_t InMemoryLink::total_received() const {
-    mg::core::platform::LockGuard lk(mtx_);  // 加锁保护共享状态
-    return total_received_;
 }
 
 } // namespace mg::core::transport

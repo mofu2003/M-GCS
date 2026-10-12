@@ -30,7 +30,6 @@ public:
                  const uint8_t* data,
                  size_t size) override;
 
-    void set_remote_address(const std::string& host, uint16_t port);
     std::string host() const;
     uint16_t port() const;
 

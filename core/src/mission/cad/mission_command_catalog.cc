@@ -175,7 +175,10 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     loiter_turns.parameters = {
         parameter(1, "turns", "盘旋圈数", "", MissionParameterType::Float, 3.0, 1.0, 0.0, true, false, true),
         parameter(2, "heading_required", "要求机头朝向", "", MissionParameterType::Boolean, 0.0, 0.0, 1.0, true, true),
-        parameter(3, "radius", "盘旋半径", "m", MissionParameterType::Float, 50.0, 0.01, 0.0, true, false, true),
+        // 半径取值范围对齐 QGC MavCmdInfoCommon.json：default 50、userMin -100、
+        // userMax 100。MAVLink 定义正值=顺时针、负值=逆时针，所以没有"必须 > 0"
+        // 这条约束；0 也合法（前飞载具按飞控默认处理）。
+        parameter(3, "radius", "盘旋半径", "m", MissionParameterType::Float, 50.0, -100.0, 100.0, true, true, true),
         parameter(4, "xtrack", "横向偏差", "m"),
     };
     catalog.push_back(std::move(loiter_turns));
@@ -193,7 +196,7 @@ std::vector<MissionCommandDescriptor> build_catalog() {
     loiter_time.parameters = {
         parameter(1, "time", "盘旋时间", "s", MissionParameterType::Float, 10.0, 0.0, 0.0, true, false, true),
         parameter(2, "heading_required", "要求机头朝向", "", MissionParameterType::Boolean, 0.0, 0.0, 1.0, true, true),
-        parameter(3, "radius", "盘旋半径", "m", MissionParameterType::Float, 50.0, 0.01, 0.0, true, false, true),
+        parameter(3, "radius", "盘旋半径", "m", MissionParameterType::Float, 50.0, -100.0, 100.0, true, true, true),
         parameter(4, "xtrack", "横向偏差", "m"),
     };
     catalog.push_back(std::move(loiter_time));

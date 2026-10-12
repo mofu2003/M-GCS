@@ -194,6 +194,10 @@ MGCORE_API char* mg_params_refresh(mg_core_t* core, const char* json_names) {
     mg::core::telemetry::JsonBuilder output;
     output.begin_object();
     output.field("success", failed == 0);
+    if (failed != 0) {
+        write_error(output, MG_ERROR_SEND_FAILED,
+                    std::to_string(failed) + " parameter refresh requests were not sent");
+    }
     output.field("requested", requested);
     output.field("resolved", static_cast<int>(resolved.size()));
     output.field("sent", sent);
@@ -422,7 +426,13 @@ MGCORE_API char* mg_params_commit_change_set(mg_core_t* core, const char* json_p
     }
     succeeded.end_array();
     failed.end_array();
-    output.field("success", static_cast<int>(prepared.changes.size()) == resolved);
+    const bool all_applied = static_cast<int>(prepared.changes.size()) == resolved;
+    output.field("success", all_applied);
+    if (!all_applied) {
+        write_error(output, MG_ERROR_REJECTED,
+                    std::to_string(static_cast<int>(prepared.changes.size()) - resolved) +
+                        " parameter changes did not apply");
+    }
     output.field("written", written);
     output.field("unchanged", prepared.unchanged_count);
     output.field("unknown", prepared.unknown_count);

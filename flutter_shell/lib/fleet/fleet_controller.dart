@@ -43,7 +43,6 @@ class FleetController extends ChangeNotifier {
   int get focusRevision => _focusRevision;
   bool get targetOperationActive =>
       _targetOperations > 0 || _batchOperations > 0;
-  bool get batchOperationActive => _batchOperations > 0;
 
   List<FleetVehicleSummary> get selectedVehicles => [
     for (final vehicle in _snapshot.vehicles)

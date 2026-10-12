@@ -27,8 +27,6 @@ public:
     // 发现指定类型的可用设备列表
     static std::vector<DiscoveredDevice> discover(LinkType type);
 
-    // 从 URI 字符串解析协议方案（如 serial、tcp、udp）
-    static std::string parse_scheme(const std::string& uri);
 };
 
 } // namespace mg::core::transport

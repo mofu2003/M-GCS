@@ -1,4 +1,4 @@
-﻿/**
+/**
  * param_remapping.cc - Parameter name version remapping implementation
  * 参数重映射实现 — 根据固件版本翻译参数名
  *
@@ -191,46 +191,74 @@ void ParamRemapping::load_ardupilot_copter_tables() {
 
     // EKF
     add(4, 7, "EK3_FLOW_MAX",    "EK3_MAX_FLOW");
-
-    add(4, 7, "PILOT_SPD_DN",    "PILOT_SPEED_DN");
 }
 
 void ParamRemapping::load_ardupilot_plane_tables() {
-    // ArduPilot Plane 4.7 renames (subset of most common)
-    // WPNAV -> WP (shared with Copter)
+    // ArduPilot Plane 4.5：ARSPD_FBW_* / RTL_ALTITUDE 改名
+    // （QGC ArduPlaneFirmwarePlugin.cc 的 remapV4_5 段，本仓库此前整段缺失）。
+    add(4, 5, "AIRSPEED_MIN",  "ARSPD_FBW_MIN");
+    add(4, 5, "AIRSPEED_MAX",  "ARSPD_FBW_MAX");
+    add(4, 5, "RTL_ALTITUDE",  "ALT_HOLD_RTL");
+
+    // ArduPilot Plane 4.7：WPNAV_* -> WP_*（AC_WPNav 与 Copter 共用同一批参数）
     add(4, 7, "WP_ACC",          "WPNAV_ACCEL");
     add(4, 7, "WP_RADIUS_M",     "WPNAV_RADIUS");
     add(4, 7, "WP_SPD",          "WPNAV_SPEED");
 
-    // RTL
-    add(4, 7, "RTL_ALT_M",       "RTL_ALT");
-    add(4, 7, "RTL_SPEED_MS",    "RTL_SPEED");
+    // QuadPlane 的 4.7 改名（QGC remapV4_7 里 Plane 特有的 Q_* 段）
+    add(4, 7, "Q_A_ANGLE_MAX",     "Q_ANGLE_MAX");
+    add(4, 7, "Q_A_ACC_R_MAX",     "Q_A_ACCEL_R_MAX");
+    add(4, 7, "Q_A_ACC_P_MAX",     "Q_A_ACCEL_P_MAX");
+    add(4, 7, "Q_A_ACC_Y_MAX",     "Q_A_ACCEL_Y_MAX");
+    add(4, 7, "Q_A_RATE_WPY_MAX",  "Q_A_SLEW_YAW");
+    add(4, 7, "Q_LOIT_SPEED_MS",   "Q_LOIT_SPEED");
+    add(4, 7, "Q_LOIT_ACC_MAX_M",  "Q_LOIT_ACC_MAX");
+    add(4, 7, "Q_LOIT_BRK_ACC_M",  "Q_LOIT_BRK_ACCEL");
+    add(4, 7, "Q_LOIT_BRK_JRK_M",  "Q_LOIT_BRK_JERK");
+    add(4, 7, "Q_PILOT_SPD_UP",    "Q_PILOT_SPEED_UP");
+    add(4, 7, "Q_PILOT_SPD_DN",    "Q_PILOT_SPEED_DN");
+    add(4, 7, "Q_PILOT_TKO_ALT_M", "Q_PILOT_TKOFF_ALT");
+    // 位置控制器：Q_P_VELXY_* -> Q_P_NE_VEL_*
+    add(4, 7, "Q_P_NE_VEL_P",      "Q_P_VELXY_P");
+    add(4, 7, "Q_P_NE_VEL_I",      "Q_P_VELXY_I");
+    add(4, 7, "Q_P_NE_VEL_D",      "Q_P_VELXY_D");
+    add(4, 7, "Q_P_NE_VEL_IMAX",   "Q_P_VELXY_IMAX");
+    add(4, 7, "Q_P_NE_VEL_FLTE",   "Q_P_VELXY_FLTE");
+    add(4, 7, "Q_P_NE_VEL_FLTD",   "Q_P_VELXY_FLTD");
+    add(4, 7, "Q_P_NE_VEL_FF",     "Q_P_VELXY_FF");
+    // 位置控制器：Q_P_VELZ_* -> Q_P_D_VEL_*
+    add(4, 7, "Q_P_D_VEL_P",       "Q_P_VELZ_P");
+    add(4, 7, "Q_P_D_VEL_I",       "Q_P_VELZ_I");
+    add(4, 7, "Q_P_D_VEL_D",       "Q_P_VELZ_D");
+    add(4, 7, "Q_P_D_VEL_IMAX",    "Q_P_VELZ_IMAX");
+    add(4, 7, "Q_P_D_VEL_FLTE",    "Q_P_VELZ_FLTE");
+    add(4, 7, "Q_P_D_VEL_FF",      "Q_P_VELZ_FF");
+    // 位置控制器：Q_P_ACCZ_* -> Q_P_D_ACC_*
+    add(4, 7, "Q_P_D_ACC_P",       "Q_P_ACCZ_P");
+    add(4, 7, "Q_P_D_ACC_I",       "Q_P_ACCZ_I");
+    add(4, 7, "Q_P_D_ACC_D",       "Q_P_ACCZ_D");
+    add(4, 7, "Q_P_D_ACC_IMAX",    "Q_P_ACCZ_IMAX");
+    add(4, 7, "Q_P_D_ACC_FLTD",    "Q_P_ACCZ_FLTD");
+    add(4, 7, "Q_P_D_ACC_FLTE",    "Q_P_ACCZ_FLTE");
+    add(4, 7, "Q_P_D_ACC_FLTT",    "Q_P_ACCZ_FLTT");
+    add(4, 7, "Q_P_D_ACC_FF",      "Q_P_ACCZ_FF");
+    add(4, 7, "Q_P_D_ACC_SMAX",    "Q_P_ACCZ_SMAX");
+    add(4, 7, "Q_WP_ACC",          "Q_WP_ACCEL");
+    add(4, 7, "Q_WP_ACC_CNR",      "Q_WP_ACCEL_C");
+    add(4, 7, "Q_WP_ACC_Z",        "Q_WP_ACCEL_Z");
+    add(4, 7, "Q_WP_RADIUS_M",     "Q_WP_RADIUS");
+    add(4, 7, "Q_WP_SPD",          "Q_WP_SPEED");
+    add(4, 7, "Q_WP_SPD_DN",       "Q_WP_SPEED_DN");
+    add(4, 7, "Q_WP_SPD_UP",       "Q_WP_SPEED_UP");
 
-    // TECS (Total Energy Control System) — Plane specific
-    add(4, 7, "TECS_CLMB_MAX_M",  "TECS_CLMB_MAX");
-    add(4, 7, "TECS_SINK_MAX_M",  "TECS_SINK_MAX");
-    add(4, 7, "TECS_SPDWEIGHT",   "TECS_SPDWEIGHT");
-    add(4, 7, "TECS_HGT_OMEGA",   "TECS_HGT_OMEGA");
-    add(4, 7, "TECS_SPD_OMEGA",   "TECS_SPD_OMEGA");
-
-    // ARSPD
-    add(4, 7, "ARSPD_FBW_MIN_M",  "ARSPD_FBW_MIN");
-    add(4, 7, "ARSPD_FBW_MAX_M",  "ARSPD_FBW_MAX");
-
-    add(4, 7, "Q_PILOT_SPD_DN",  "Q_PILOT_SPEED_DN");
+    add(4, 7, "EK3_FLOW_MAX",  "EK3_MAX_FLOW");
     add(4, 7, "ARMING_SKIPCHK",  "ARMING_CHECK");
 }
 
 void ParamRemapping::load_ardupilot_rover_tables() {
-    // ArduPilot Rover 4.7 renames
-    add(4, 7, "WP_ACC",          "WPNAV_ACCEL");
-    add(4, 7, "WP_RADIUS_M",     "WPNAV_RADIUS");
-    add(4, 7, "WP_SPD",          "WPNAV_SPEED");
-
-    // Rover speed parameters
-    add(4, 7, "CRUISE_SPEED_M",  "CRUISE_SPEED");
-    add(4, 7, "CRUISE_THROTTLE", "CRUISE_THROTTLE");
-    add(4, 7, "ARMING_SKIPCHK",  "ARMING_CHECK");
+    // 与 QGC ArduRoverFirmwarePlugin.cc 的 remapV4_7 一致：Rover 只改名了这两条。
+    add(4, 7, "EK3_FLOW_MAX",   "EK3_MAX_FLOW");
+    add(4, 7, "ARMING_SKIPCHK", "ARMING_CHECK");
 }
 
 } // namespace mg::core::firmware

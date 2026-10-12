@@ -37,7 +37,7 @@ MGCORE_API char* mg_event_log_start(mg_core_t* core) {
     if (get_active_flight_log(core).start()) {
         return ok();
     }
-    return fail(MG_ERROR_CALIBRATION, "already active");
+    return fail(MG_ERROR_INVALID_STATE, "event log is already active");
 }
 
 MGCORE_API char* mg_event_log_stop(mg_core_t* core) {

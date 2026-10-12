@@ -48,15 +48,11 @@ public:
     /// 获取通过 send() 发送的总字节数
     size_t total_sent() const;
 
-    /// 获取通过 inject_incoming() 注入的总字节数
-    size_t total_received() const;
-
 private:
     bool opened_ = false;
     ReceiveCallback receive_cb_;
     std::vector<uint8_t> outgoing_buf_;  // 发送缓冲区
     size_t total_sent_ = 0;              // 累计发送字节数
-    size_t total_received_ = 0;          // 累计接收字节数
     mutable mg::core::platform::Mutex mtx_;  // 加锁保护所有共享状态
 };
 

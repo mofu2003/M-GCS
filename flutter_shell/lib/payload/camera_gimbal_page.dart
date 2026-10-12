@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:macos_ui/macos_ui.dart';
 
+import '../logging/onboard_log_page.dart' show formatByteSize;
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import '../widgets/adaptive_popup_button.dart';
@@ -568,7 +569,7 @@ class _CameraGimbalPageState extends State<CameraGimbalPage> {
           '本地录制',
           recording
               ? '录制中 · ${_formatDuration(status?.durationUs ?? 0)} · '
-                    '${_formatBytes(status?.bytes ?? 0)}'
+                    '${formatByteSize(status?.bytes ?? 0)}'
               : '未录制',
         ),
         if (recording && (status?.path.isNotEmpty ?? false))
@@ -707,19 +708,6 @@ class _CameraGimbalPageState extends State<CameraGimbalPage> {
     return hours > 0
         ? '$hours:${two(minutes)}:${two(seconds)}'
         : '${two(minutes)}:${two(seconds)}';
-  }
-
-  /// 人类可读的文件大小（KB/MB/GB，保留一位小数）。
-  static String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    const units = ['KB', 'MB', 'GB', 'TB'];
-    var value = bytes / 1024;
-    var unit = 0;
-    while (value >= 1024 && unit < units.length - 1) {
-      value /= 1024;
-      unit++;
-    }
-    return '${value.toStringAsFixed(1)} ${units[unit]}';
   }
 
   Widget _readout(BuildContext context, String label, String value) => Padding(

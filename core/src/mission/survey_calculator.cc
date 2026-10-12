@@ -143,8 +143,12 @@ SurveyResult SurveyCalculator::generate_grid(const SurveyConfig& config) {
 }
 
 SurveyResult SurveyCalculator::generate_cross_grid(const SurveyConfig& config) {
+    // 两条 pass 都不加 RTL，最后统一补一个，避免 pass1 尾部和合并后再各加一个。
+    SurveyConfig first_config = config;
+    first_config.return_to_start = false;
+
     // Generate first pass
-    SurveyResult pass1 = generate_grid(config);
+    SurveyResult pass1 = generate_grid(first_config);
     if (!pass1.valid) return pass1;
 
     // Generate second pass rotated 90 degrees
@@ -162,7 +166,10 @@ SurveyResult SurveyCalculator::generate_cross_grid(const SurveyConfig& config) {
     for (size_t i = 0; i < pass2.items.size(); i++) {
         auto item = pass2.items[i];
         // Skip camera trigger and speed change commands (they're already in pass1)
-        if (item.command == 206 || item.command == 178) continue;
+        if (item.command == static_cast<uint16_t>(NavCommand::DoSetCamTrigDist) ||
+            item.command == static_cast<uint16_t>(NavCommand::DoSetSpeed)) {
+            continue;
+        }
         item.seq = static_cast<uint16_t>(combined.items.size());
         combined.items.push_back(item);
     }

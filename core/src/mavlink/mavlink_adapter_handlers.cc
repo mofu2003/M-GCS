@@ -40,6 +40,47 @@ const char* param_error_text(uint8_t error) {
 
 } // namespace
 
+namespace {
+
+// 按键更新或插入一条缓存：设备状态以最新一帧为准，历史帧不保留（用最新的为准，
+// 避免按消息频率无限增长）。
+template <typename T, typename Match>
+void upsert_by(std::vector<T>& items, Match&& match, T value) {
+    for (auto& item : items) {
+        if (match(item)) {
+            item = std::move(value);
+            return;
+        }
+    }
+    items.push_back(std::move(value));
+}
+
+template <typename T, typename Match>
+T* find_by(std::vector<T>& items, Match&& match) {
+    for (auto& item : items) {
+        if (match(item)) return &item;
+    }
+    return nullptr;
+}
+
+template <typename T>
+bool same_component(const T& item, uint8_t sysid, uint8_t compid) {
+    return item.system_id == sysid && item.component_id == compid;
+}
+
+/// 把定长 char 字段拷进更宽的目标缓冲：按源长度截断并补 NUL。
+/// 方言里的定长 char 数组多数不保证 NUL 结尾（如 ADSB callsign 是 "8+null" 的
+/// char[9]），直接 memcpy(sizeof(dst)) 会越界读到相邻字段。
+void copy_str(char* dst, size_t dst_size, const void* src, size_t src_size) {
+    const char* text = static_cast<const char*>(src);
+    const size_t n = strnlen(text, src_size);
+    const size_t copy = n < dst_size - 1 ? n : dst_size - 1;
+    memcpy(dst, text, copy);
+    dst[copy] = '\0';
+}
+
+} // namespace
+
 void MavlinkAdapter::Impl::handle_heartbeat(const mavlink_message_t& m)
 {
     mavlink_heartbeat_t hb;
@@ -484,8 +525,12 @@ void MavlinkAdapter::Impl::handle_highres_imu(const mavlink_message_t& m)
     info.xmag = hi.xmag;
     info.ymag = hi.ymag;
     info.zmag = hi.zmag;
-    info.abs_pressure = hi.abs_pressure / 100.0f;   // Pa -> hPa
-    info.diff_pressure = hi.diff_pressure / 100.0f; // Pa -> hPa
+    // 方言里 HIGHRES_IMU 的 abs_pressure/diff_pressure 已经是 hPa
+    // （mavlink_msg_highres_imu.h: "float abs_pressure; /*< [hPa] ...*/"），
+    // 不能再除 100，否则对外读数恒小 100 倍。对照同文件 handle_scaled_pressure()
+    // 对同为 hPa 的 SCALED_PRESSURE.press_abs 就是直接赋值。
+    info.abs_pressure = hi.abs_pressure;
+    info.diff_pressure = hi.diff_pressure;
     info.pressure_alt = hi.pressure_alt;
     info.temperature = hi.temperature;
     info.fields_updated = hi.fields_updated;
@@ -582,7 +627,12 @@ void MavlinkAdapter::Impl::handle_adsb_vehicle(const mavlink_message_t& m)
     info.heading = av.heading;
     info.hor_velocity = av.hor_velocity;
     info.ver_velocity = av.ver_velocity;
-    memcpy(info.callsign, av.callsign, sizeof(info.callsign));
+    // 方言里 callsign 是 char[9]（"8+null"），本结构体是 char[10]：直接
+    // memcpy(sizeof(info.callsign)) 会多读 1 字节——那正是紧跟其后的
+    // emitter_type（callsign@27、长度 9，故第 10 字节 = emitter_type@36）——
+    // 且不保证 NUL 结尾。统一走 copy_str()，与相机/GIMBAL 路径一致。
+    copy_str(info.callsign, sizeof(info.callsign), av.callsign,
+             sizeof(av.callsign));
     info.emitter_type = av.emitter_type;
     info.tslc = av.tslc;
     info.flags = av.flags;
@@ -624,47 +674,8 @@ void MavlinkAdapter::Impl::handle_video_stream_information(const mavlink_message
         deferred_cbs.push_back([cb = tel.video_stream_cb, info]() { cb(info); });
 }
 
-namespace {
-
-// 按键更新或插入一条缓存：设备状态以最新一帧为准，历史帧不保留（用最新的为准，
-// 避免按消息频率无限增长）。
-template <typename T, typename Match>
-void upsert_by(std::vector<T>& items, Match&& match, T value) {
-    for (auto& item : items) {
-        if (match(item)) {
-            item = std::move(value);
-            return;
-        }
-    }
-    items.push_back(std::move(value));
-}
-
-template <typename T, typename Match>
-T* find_by(std::vector<T>& items, Match&& match) {
-    for (auto& item : items) {
-        if (match(item)) return &item;
-    }
-    return nullptr;
-}
-
-template <typename T>
-bool same_component(const T& item, uint8_t sysid, uint8_t compid) {
-    return item.system_id == sysid && item.component_id == compid;
-}
-
-void copy_str(char* dst, size_t dst_size, const void* src, size_t src_size) {
-    const char* text = static_cast<const char*>(src);
-    const size_t n = strnlen(text, src_size);
-    const size_t copy = n < dst_size - 1 ? n : dst_size - 1;
-    memcpy(dst, text, copy);
-    dst[copy] = '\0';
-}
-
-} // namespace
-
 void MavlinkAdapter::Impl::handle_camera_information(const mavlink_message_t& m)
-{
-    mavlink_camera_information_t ci;
+{    mavlink_camera_information_t ci;
     mavlink_msg_camera_information_decode(&m, &ci);
     CameraInformationInfo info{};
     info.system_id = m.sysid;

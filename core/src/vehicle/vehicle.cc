@@ -87,7 +87,6 @@ Vehicle::Vehicle(int vehicle_id)
 
 Vehicle::~Vehicle() {
     // 销毁前先让外部回调停止继续访问当前对象。
-    if (alive_flag_) *alive_flag_ = false;
     disconnect();
     MGC_LOG_INFO("[Vehicle %d] Destroyed", id_);
 }

@@ -29,6 +29,33 @@
 
 namespace mg::core::calibration {
 
+namespace {
+
+/// 这条 PREFLIGHT_CALIBRATION 的 COMMAND_ACK 返回时，校准是否已经真的做完了？
+///
+/// MAVLink 语义上 ACCEPTED 只表示"命令被受理"，策略层据此统一返回"校准中"
+/// （gyro/baro/accel 与 radio/compass 一致）。但 ArduPilot 有几条预检校准是
+/// 同步完成的：handler 在校准结束后才回 ACCEPTED，而且不另发结果 STATUSTEXT，
+/// ACCEPTED 就是唯一信号：
+///   * 陀螺：`AP_InertialSensor::calibrate_gyros()` → `_init_gyro()` 同步跑完，
+///     全程只有 DEV_PRINTF，没有任何 "Gyro calibration ..." STATUSTEXT；
+///   * 简易/板级加速度计：`AP_InertialSensor::simple_accel_cal()` /
+///     `calibrate_trim()` 同样同步返回，文本只有 "Trim OK: ..." 之类。
+/// 六面加速度计（Full）不在此列：由 STATUSTEXT / ACCELCAL_VEHICLE_POS 握手驱动。
+/// 气压计也不在此列：`_handle_command_preflight_calibration_baro()` 在返回
+/// ACCEPTED 之前就发了 "Barometer calibration complete"。
+///
+/// 补偿只把 ACCEPTED 当成"命令已完成"的信号，真伪仍由 handle_success 的参数
+/// 回读判定（读不回来就落 Failed）。
+bool ack_reports_synchronous_completion(CalibrationType type,
+                                        AccelCalMode accel_mode) {
+    if (type == CalibrationType::Gyroscope) return true;
+    return type == CalibrationType::Accelerometer &&
+           (accel_mode == AccelCalMode::Simple || accel_mode == AccelCalMode::Trim);
+}
+
+} // namespace
+
 CalibrationService::CalibrationService() {
     strategies_[0] = std::make_unique<GyroCalibration>();
     strategies_[1] = std::make_unique<AccelCalibration>();
@@ -298,6 +325,13 @@ void CalibrationService::process_command_ack(uint16_t command, uint8_t result,
     if (status_.current_type == CalibrationType::Accelerometer &&
         accel_mode_ == AccelCalMode::Full && result == 0) {
         new_stage = CalibrationStage::Calibrating;
+    } else if (result == 0 &&
+               ack_reports_synchronous_completion(status_.current_type,
+                                                  accel_mode_)) {
+        // 同步完成的固件（ArduPilot 的陀螺/简易/板级加速度计）没有后续
+        // STATUSTEXT，ACCEPTED 就是"命令已完成"的信号；真伪交给
+        // handle_success 的参数回读。
+        new_stage = CalibrationStage::Success;
     }
 
     MGC_LOG_DEBUG("[CalService] ACK: cmd=%u result=%u progress=%u -> stage=%d",
@@ -714,14 +748,6 @@ void CalibrationService::save_to_history() {
         // 只打脏标记；真正的写盘在 fire_event_safe 的锁外路径完成。
         persist_dirty_ = true;
     }
-}
-
-void CalibrationService::update_status_from_result() {
-    // NOTE: caller must hold mtx_
-    status_.stage = current_result_.stage;
-    status_.progress = current_result_.progress;
-    status_.current_step = current_result_.current_step;
-    status_.total_steps = current_result_.total_steps;
 }
 
 ICalibrationStrategy* CalibrationService::get_strategy(CalibrationType type) {

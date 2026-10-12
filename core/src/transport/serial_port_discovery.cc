@@ -17,6 +17,7 @@
 #include <fstream>
 #include "core/log/logging.h"
 #include "core/platform/platform_filesystem.h"
+#include "core/util/json.h"
 #include <sstream>
 #include <filesystem>
 
@@ -242,57 +243,31 @@ void SerialPortDiscovery::refresh() {
 // ================================================================
 
 // Minimal JSON parser for USBBoardInfo.json
-// No external JSON library dependency — simple string scanning.
+// USBBoardInfo.json 用 cJSON 解析（third_party/cjson，项目已有依赖）。
 //
-// Helper: iterate JSON objects in an array and call a visitor lambda.
-// Used to parse boardInfo, boardDescriptionFallback, boardManufacturerFallback.
+// 历史上这里是一段手写的括号扫描器，有两个真实缺陷：
+//   1. 用 `find(']')` 找数组结尾，遇到正则字符串里的 ']' 就提前收尾：
+//      `"^fmuv[2345]$"` 会让 boardDescriptionFallback 只读到 35/51 条，
+//      静默丢弃 16 条板卡描述（ARK/PX4 TROPIC/mRoControlZeroF7 等）。
+//   2. 用"找下一个引号字符串"的方式读 androidOnly，而它在 JSON 里是 bool，
+//      于是 android_only 恒为 false——那条标注 "too dangerous for non-android"
+//      的宽泛 fallback 本应在桌面端被排除。
+// 改用 cJSON 后两者都消失：转义与嵌套由解析器处理，类型由 cJSON_Is* 判断，
+// 首字节的 UTF-8 BOM 由 cJSON_Parse 自行跳过。
 
-using JsonVisitor = std::function<void(size_t obj_start, size_t obj_end)>;
-
-static int json_find_int(const std::string& s, const std::string& key, size_t start, size_t end) {
-    size_t p = s.find(key, start);
-    if (p == std::string::npos || p >= end) return 0;
-    p = s.find(':', p + key.size());
-    if (p == std::string::npos || p >= end) return 0;
-    p++;
-    while (p < end && s[p] == ' ') p++;
-    bool neg = (p < end && s[p] == '-');
-    if (neg) p++;
-    int val = 0;
-    while (p < end && s[p] >= '0' && s[p] <= '9') { val = val * 10 + (s[p] - '0'); p++; }
-    return neg ? -val : val;
+static int json_int_or_zero(cJSON* object, const char* key) {
+    cJSON* item = cJSON_GetObjectItemCaseSensitive(object, key);
+    return cJSON_IsNumber(item) ? static_cast<int>(item->valuedouble) : 0;
 }
 
-static std::string json_find_str(const std::string& s, const std::string& key, size_t start, size_t end) {
-    size_t p = s.find(key, start);
-    if (p == std::string::npos || p >= end) return "";
-    p = s.find(':', p + key.size());
-    if (p == std::string::npos || p >= end) return "";
-    p = s.find('"', p);
-    if (p == std::string::npos || p >= end) return "";
-    p++;
-    size_t q = s.find('"', p);
-    if (q == std::string::npos || q >= end) return "";
-    return s.substr(p, q - p);
+static std::string json_str_or_empty(cJSON* object, const char* key) {
+    cJSON* item = cJSON_GetObjectItemCaseSensitive(object, key);
+    return cJSON_IsString(item) && item->valuestring != nullptr
+        ? std::string(item->valuestring) : std::string();
 }
 
-static void json_for_each_object(const std::string& s, const std::string& array_key, JsonVisitor visitor) {
-    size_t key_pos = s.find(array_key);
-    if (key_pos == std::string::npos) return;
-    size_t arr_start = s.find('[', key_pos);
-    if (arr_start == std::string::npos) return;
-    size_t arr_end = s.find(']', arr_start);
-    if (arr_end == std::string::npos) return;
-
-    size_t pos = arr_start;
-    while (pos < arr_end) {
-        size_t obj_start = s.find('{', pos);
-        if (obj_start == std::string::npos || obj_start >= arr_end) break;
-        size_t obj_end = s.find('}', obj_start);
-        if (obj_end == std::string::npos) break;
-        visitor(obj_start, obj_end);
-        pos = obj_end + 1;
-    }
+static bool json_bool_or_false(cJSON* object, const char* key) {
+    return cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(object, key));
 }
 
 static bool load_board_info_from_json(const std::string& path,
@@ -308,46 +283,51 @@ static bool load_board_info_from_json(const std::string& path,
     std::string content((std::istreambuf_iterator<char>(file)),
                          std::istreambuf_iterator<char>());
 
-    // Parse boardInfo array
-    json_for_each_object(content, "\"boardInfo\"", [&](size_t s, size_t e) {
+    cJSON* root = mg::core::json::parse(content.c_str());
+    if (root == nullptr) {
+        MGC_LOG_ERROR("[Discovery] %s is not valid JSON", path.c_str());
+        return false;
+    }
+
+    // boardInfo：VID/PID 同时为 0 的条目不参与匹配（保持历史行为）。
+    cJSON* board_list = cJSON_GetObjectItemCaseSensitive(root, "boardInfo");
+    cJSON* entry = nullptr;
+    cJSON_ArrayForEach(entry, board_list) {
+        if (!cJSON_IsObject(entry)) continue;
         BoardInfo info;
-        info.vendor_id   = static_cast<uint16_t>(json_find_int(content, "\"vendorID\"", s, e));
-        info.product_id  = static_cast<uint16_t>(json_find_int(content, "\"productID\"", s, e));
-        info.board_class = json_find_str(content, "\"boardClass\"", s, e);
-        info.name        = json_find_str(content, "\"name\"", s, e);
+        info.vendor_id   = static_cast<uint16_t>(json_int_or_zero(entry, "vendorID"));
+        info.product_id  = static_cast<uint16_t>(json_int_or_zero(entry, "productID"));
+        info.board_class = json_str_or_empty(entry, "boardClass");
+        info.name        = json_str_or_empty(entry, "name");
         if (info.vendor_id != 0 || info.product_id != 0) {
-            boards.push_back(info);
+            boards.push_back(std::move(info));
         }
-    });
+    }
 
-    // Parse boardDescriptionFallback array
-    json_for_each_object(content, "\"boardDescriptionFallback\"", [&](size_t s, size_t e) {
-        BoardRegExpFallback fb;
-        std::string pattern = json_find_str(content, "\"regExp\"", s, e);
-        fb.board_class = json_find_str(content, "\"boardClass\"", s, e);
-        std::string android_only = json_find_str(content, "\"androidOnly\"", s, e);
-        fb.android_only = (android_only == "true");
-        if (!pattern.empty()) {
+    // 两张按名字匹配的兜底表：结构相同，只有 boardDescriptionFallback 带
+    // androidOnly 标记。正则编译失败的条目跳过（保持历史行为）。
+    const auto load_fallbacks = [&](const char* array_key, bool read_android_only,
+                                    std::vector<BoardRegExpFallback>& out) {
+        cJSON* list = cJSON_GetObjectItemCaseSensitive(root, array_key);
+        cJSON* item = nullptr;
+        cJSON_ArrayForEach(item, list) {
+            if (!cJSON_IsObject(item)) continue;
+            const std::string pattern = json_str_or_empty(item, "regExp");
+            if (pattern.empty()) continue;
+            BoardRegExpFallback fb;
+            fb.board_class  = json_str_or_empty(item, "boardClass");
+            fb.android_only = read_android_only && json_bool_or_false(item, "androidOnly");
             try {
                 fb.reg_exp = std::regex(pattern, std::regex::icase);
-                desc_fallbacks.push_back(fb);
-            } catch (const std::regex_error&) {}
+                out.push_back(std::move(fb));
+            } catch (const std::regex_error&) {
+            }
         }
-    });
+    };
+    load_fallbacks("boardDescriptionFallback", true, desc_fallbacks);
+    load_fallbacks("boardManufacturerFallback", false, mfg_fallbacks);
 
-    // Parse boardManufacturerFallback array
-    json_for_each_object(content, "\"boardManufacturerFallback\"", [&](size_t s, size_t e) {
-        BoardRegExpFallback fb;
-        std::string pattern = json_find_str(content, "\"regExp\"", s, e);
-        fb.board_class = json_find_str(content, "\"boardClass\"", s, e);
-        if (!pattern.empty()) {
-            try {
-                fb.reg_exp = std::regex(pattern, std::regex::icase);
-                mfg_fallbacks.push_back(fb);
-            } catch (const std::regex_error&) {}
-        }
-    });
-
+    cJSON_Delete(root);
     return !boards.empty();
 }
 
@@ -386,16 +366,6 @@ bool SerialPortDiscovery::load_json_data() {
 
     MGC_LOG_ERROR("[Discovery] Failed to load USBBoardInfo.json");
     return false;
-}
-
-bool SerialPortDiscovery::load_json_file(const std::string& path) {
-    json_loaded_ = false;
-    board_info_list_.clear();
-    board_description_fallback_list_.clear();
-    board_manufacturer_fallback_list_.clear();
-    return load_board_info_from_json(path, board_info_list_,
-                                     board_description_fallback_list_,
-                                     board_manufacturer_fallback_list_);
 }
 
 // ================================================================
@@ -457,10 +427,6 @@ bool SerialPortDiscovery::is_system_port(const SerialPortInfo& port) {
     if (desc.find("Internal") != std::string::npos) return true;
     if (desc.find("Virtual") != std::string::npos) return true;
     return false;
-}
-
-std::string SerialPortDiscovery::board_class_to_string(const std::string& board_class) {
-    return board_class;  // Already a string
 }
 
 // ================================================================

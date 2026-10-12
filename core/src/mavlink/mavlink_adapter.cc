@@ -86,9 +86,6 @@ bool MavlinkAdapter::feed_raw(const uint8_t* data, size_t size) {
     // Dispatch outside the RX lock because handlers may call external callbacks.
     const bool compatibility_bypass_disabled =
         impl_->signing_enabled.load(std::memory_order_acquire);
-    if (!compatibility_bypass_disabled) {
-        impl_->feed_mag_progress_compat(data, size);
-    }
     std::vector<mavlink_message_t> frames;
     {
         mg::core::platform::LockGuard lk(impl_->receive_mtx);
@@ -416,16 +413,20 @@ bool MavlinkAdapter::send_setup_signing(uint8_t target_system,
         return false;
     }
     mg::core::platform::UniqueLock lk(impl_->mtx);
+    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
     const uint64_t timestamp = initial_timestamp == 0
         ? signing_now_ticks()
         : initial_timestamp;
     mavlink_msg_setup_signing_pack(
-        255, 0, &impl_->msg, target_system, target_component,
+        255, 0, &msg, target_system, target_component,
         key, timestamp);
     // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
     // 也避免传输层回调重入 adapter 时死锁）。
     lk.unlock();
-    return impl_->send_message_with_mode(impl_->msg, false);
+    // 必须传局部缓冲：send_message_with_mode() 只持有 send_mtx 就读取该消息的
+    // msgid/len/sysid 等字段重新 finalize，而 impl_->msg 会被持 mtx 的其它发送
+    // 入口（mission 上传/命令队列）并发改写，共享它就会发出撕裂帧。
+    return impl_->send_message_with_mode(msg, false);
 }
 
 // ================================================================
@@ -710,11 +711,6 @@ std::vector<ParamInfo> MavlinkAdapter::all_params() const {
         result.push_back(val);
     }
     return result;
-}
-
-std::optional<CommandAckInfo> MavlinkAdapter::latest_command_ack() const {
-    mg::core::platform::LockGuard lk(impl_->mtx);
-    return impl_->tel.command_ack;
 }
 
 uint16_t MavlinkAdapter::param_count() const {

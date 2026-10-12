@@ -60,9 +60,6 @@ public:
     /// Get the latest value for a series
     float get_latest(const std::string& name) const;
 
-    /// Get the min/max values for a series
-    void get_range(const std::string& name, float& min_val, float& max_val) const;
-
     /// Get all registered series names
     std::vector<std::string> get_series_names() const;
 
@@ -74,9 +71,6 @@ public:
 
     /// Clear all data
     void clear();
-
-    /// Clear a specific series
-    void clear_series(const std::string& name);
 
     /// Get total data points across all series
     size_t total_points() const;

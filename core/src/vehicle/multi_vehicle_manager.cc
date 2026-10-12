@@ -939,13 +939,6 @@ Vehicle* MultiVehicleManager::get_vehicle_by_system_id(uint8_t system_id) const 
     return nullptr;
 }
 
-std::vector<Vehicle*> MultiVehicleManager::get_all_vehicles() const {
-    mg::core::platform::LockGuard lk(mtx_);
-    std::vector<Vehicle*> result;
-    for (auto& v : vehicles_) result.push_back(v.get());
-    return result;
-}
-
 std::vector<std::shared_ptr<Vehicle>> MultiVehicleManager::get_all_vehicles_shared() const {
     mg::core::platform::LockGuard lk(mtx_);
     return vehicles_;

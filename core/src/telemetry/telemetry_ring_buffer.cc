@@ -3,10 +3,9 @@
  * 遥测环形缓冲区 — 固定容量时序数据存储
  */
 #include "core/telemetry/telemetry_ring_buffer.h"
+#include "core/telemetry/json_builder.h"
 #include <algorithm>
 #include <cmath>
-#include <sstream>
-#include <iomanip>
 
 namespace mg::core::telemetry {
 
@@ -105,31 +104,6 @@ float TelemetryRingBuffer::get_latest(const std::string& name) const {
     return series->points[idx].value;
 }
 
-void TelemetryRingBuffer::get_range(const std::string& name, float& min_val, float& max_val) const {
-    mg::core::platform::LockGuard lk(mtx_);
-
-    auto* series = find_series(name);
-    if (!series || series->count == 0) {
-        min_val = 0;
-        max_val = 0;
-        return;
-    }
-
-    min_val = std::numeric_limits<float>::max();
-    max_val = std::numeric_limits<float>::lowest();
-
-    size_t n = series->count;
-    size_t start = (series->count < series->max_size) ? 0 :
-                   series->head;
-
-    for (size_t i = 0; i < n; i++) {
-        size_t idx = (start + i) % series->max_size;
-        float v = series->points[idx].value;
-        if (v < min_val) min_val = v;
-        if (v > max_val) max_val = v;
-    }
-}
-
 std::vector<std::string> TelemetryRingBuffer::get_series_names() const {
     mg::core::platform::LockGuard lk(mtx_);
     std::vector<std::string> names;
@@ -142,15 +116,18 @@ std::vector<std::string> TelemetryRingBuffer::get_series_names() const {
 std::string TelemetryRingBuffer::to_json(const std::string& name) const {
     auto points = get_series(name);
 
-    std::ostringstream oss;
-    oss << "[";
-    for (size_t i = 0; i < points.size(); i++) {
-        if (i > 0) oss << ",";
-        oss << "{\"t\":" << points[i].timestamp_ms
-            << ",\"v\":" << points[i].value << "}";
+    JsonBuilder jb;
+    jb.begin_array();
+    for (const auto& point : points) {
+        JsonBuilder item;
+        item.begin_object();
+        item.field("t", static_cast<long long>(point.timestamp_ms));
+        item.field("v", point.value);
+        item.end_object();
+        jb.append_json(item.str());
     }
-    oss << "]";
-    return oss.str();
+    jb.end_array();
+    return jb.str();
 }
 
 std::string TelemetryRingBuffer::stats_json(const std::string& name) const {
@@ -158,7 +135,17 @@ std::string TelemetryRingBuffer::stats_json(const std::string& name) const {
 
     auto* series = find_series(name);
     if (!series || series->count == 0) {
-        return R"({"name":"","unit":"","count":0,"min":0,"max":0,"avg":0,"latest":0})";
+        JsonBuilder jb;
+        jb.begin_object();
+        jb.field("name", "");
+        jb.field("unit", "");
+        jb.field("count", 0);
+        jb.field("min", 0.0);
+        jb.field("max", 0.0);
+        jb.field("avg", 0.0);
+        jb.field("latest", 0.0);
+        jb.end_object();
+        return jb.str();
     }
 
     float min_val = std::numeric_limits<float>::max();
@@ -183,17 +170,19 @@ std::string TelemetryRingBuffer::stats_json(const std::string& name) const {
         last_idx = (series->head - 1 + series->max_size) % series->max_size;
     }
 
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(4);
-    oss << R"({"name":")" << series->name
-        << R"(","unit":")" << series->unit
-        << R"(","count":)" << series->count
-        << R"(,"min":)" << min_val
-        << R"(,"max":)" << max_val
-        << R"(,"avg":)" << (sum / n)
-        << R"(,"latest":)" << series->points[last_idx].value
-        << "}";
-    return oss.str();
+    // name/unit 来自前端（mg_telemetry_register_series），必须经 JsonBuilder 的
+    // esc() 转义后再进 JSON，否则引号/反斜杠/控制字符会破坏响应结构。
+    JsonBuilder jb;
+    jb.begin_object();
+    jb.field("name", series->name);
+    jb.field("unit", series->unit);
+    jb.field("count", static_cast<long long>(series->count));
+    jb.field("min", min_val);
+    jb.field("max", max_val);
+    jb.field("avg", sum / n);
+    jb.field("latest", series->points[last_idx].value);
+    jb.end_object();
+    return jb.str();
 }
 
 void TelemetryRingBuffer::clear() {
@@ -201,15 +190,6 @@ void TelemetryRingBuffer::clear() {
     for (auto& s : series_) {
         s.head = 0;
         s.count = 0;
-    }
-}
-
-void TelemetryRingBuffer::clear_series(const std::string& name) {
-    mg::core::platform::LockGuard lk(mtx_);
-    auto* series = find_series(name);
-    if (series) {
-        series->head = 0;
-        series->count = 0;
     }
 }
 

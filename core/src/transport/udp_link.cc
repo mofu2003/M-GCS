@@ -387,20 +387,6 @@ bool UdpLink::send_to(const LinkPeer& peer,
 }
 
 // ================================================================
-// Set remote address
-// ================================================================
-
-void UdpLink::set_remote_address(const std::string& host, uint16_t port) {
-    const auto state = state_snapshot();
-    if (!state) return;
-    mg::core::platform::LockGuard lk(state->remote_mtx);
-    state->remote_addr.sin_family = AF_INET;
-    state->remote_addr.sin_port = htons(port);
-    inet_pton(AF_INET, host.c_str(), &state->remote_addr.sin_addr);
-    state->has_remote.store(true);
-}
-
-// ================================================================
 // Read thread
 // ================================================================
 

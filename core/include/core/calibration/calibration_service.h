@@ -103,7 +103,6 @@ public:
     /// 采样停滞多久判定为超时，默认 30 秒。
     /// 等待用户操作的阶段（WaitingForStart / WaitingOrientation）不计入停滞。
     void set_stall_timeout_ms(uint64_t ms) { stall_timeout_ms_ = ms; }
-    uint64_t stall_timeout_ms() const { return stall_timeout_ms_; }
 
     /// 取消请求已受理、但取消命令无法送达飞控时的收尾（例如链路写失败）。
     /// 直接落到 Cancelled 并保留原因；仅在取消中生效，返回是否生效。
@@ -112,7 +111,6 @@ public:
     /// 发出取消命令后等飞控确认的上限，默认 10 秒。
     /// 超时后不再等待，直接把状态收尾为 Cancelled（取消是操作者意图，不记为失败）。
     void set_cancel_timeout_ms(uint64_t ms) { cancel_timeout_ms_ = ms; }
-    uint64_t cancel_timeout_ms() const { return cancel_timeout_ms_; }
 
     /// 处理飞控发来的 STATUSTEXT。
     void process_statustext(const std::string& text, uint8_t severity);
@@ -207,7 +205,6 @@ private:
     void handle_failure(const std::string& reason);
     void attempt_retry();
     void save_to_history();
-    void update_status_from_result();
     ICalibrationStrategy* get_strategy(CalibrationType type);
     uint64_t now_ms() const;
     uint64_t wall_clock_now_ms() const;

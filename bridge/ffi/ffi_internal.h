@@ -83,14 +83,6 @@ inline char* fail(mg_error_t error, const char* reason) {
     return to_cstr(jb.str());
 }
 
-inline void platform_sleep_ms(int ms) {
-#ifdef _WIN32
-    Sleep(ms);
-#else
-    usleep(ms * 1000);
-#endif
-}
-
 // Guard macros: all check the active vehicle or fallback vehicle connection
 #define CHECK_CORE(core) do { if (!(core)) return fail(MG_ERROR_NULL_CORE, "null core"); } while(0)
 #define CHECK_MAVLINK(core) do { if (!get_active_mavlink(core)) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle connected"); } while(0)
@@ -106,32 +98,17 @@ inline void platform_sleep_ms(int ms) {
 /// Returns `ok()` only on MAV_RESULT_ACCEPTED; rejections and timeouts return a
 /// response that must be forwarded to the caller as-is. Defined in
 /// ffi_flight_commands.cc.
+///
+/// `mav` is the borrowed pointer the command entry points already resolved. The
+/// implementation upgrades it into an owning lease for the whole wait (see
+/// ffi_flight_commands.cc), so a concurrent disconnect cannot free the adapter
+/// under the caller; a pointer that can no longer be leased is never used.
 char* ffi_cmd_result_queued(mg_core_t* core,
                             mg::core::mavlink::MavlinkAdapter* mav,
                             uint16_t cmd_id, uint8_t sys, uint8_t comp,
                             float p1, float p2, float p3, float p4,
                             float p5, float p6, float p7,
                             int max_wait_ms = 5000);
-
-// Forward declarations for calibration FFI (defined in ffi_calibration.cc)
-extern "C" void mg_calibration_process_statustext(mg_core_t* core, const char* text, uint8_t severity);
-extern "C" void mg_calibration_process_command_ack(mg_core_t* core, uint16_t command, uint8_t result, uint8_t progress);
-
-inline mg::core::mavlink::MavlinkAdapter* get_current_mavlink(mg_core_t* core);
-
-// Helper to get target system/component ID from core
-inline uint8_t target_sys(mg_core_t* core) {
-    auto* mav = get_current_mavlink(core);
-    if (!mav) return 1;
-    auto hb = mav->latest_heartbeat();
-    return hb.has_value() ? hb->system_id : 1;
-}
-inline uint8_t target_comp(mg_core_t* core) {
-    auto* mav = get_current_mavlink(core);
-    if (!mav) return 0;
-    auto hb = mav->latest_heartbeat();
-    return hb.has_value() ? hb->component_id : 0;
-}
 
 // ================================================================
 // Active vehicle core helpers
@@ -145,11 +122,6 @@ inline mg::core::vehicle::Vehicle* get_active_vehicle(mg_core_t* core) {
     return mg::bridge::ffi::require_vehicle(core);
 }
 
-// Get mavlink adapter for current vehicle (or fallback if no active vehicle selected)
-inline mg::core::mavlink::MavlinkAdapter* get_current_mavlink(mg_core_t* core) {
-    return mg::bridge::ffi::resolve_vehicle_session(core).mavlink;
-}
-
 // ================================================================
 // Active vehicle helpers — used by ALL ffi_*.cc files
 // ================================================================
@@ -157,6 +129,21 @@ inline mg::core::mavlink::MavlinkAdapter* get_current_mavlink(mg_core_t* core) {
 // Get mavlink for current vehicle (or fallback)
 inline mg::core::mavlink::MavlinkAdapter* get_active_mavlink(mg_core_t* core) {
     return mg::bridge::ffi::resolve_vehicle_session(core).mavlink;
+}
+
+/// 命令任务槽位回收（定义在 ffi_flight_commands.cc）。清掉 future 已就绪、
+/// 但客户端从未 poll 的条目（ticket 从小到大），直到队列剩余不超过 keep_at_most，
+/// 返回回收条数。提交路径在"队列已满"之前先调用它，保证槽位可回收。
+size_t ffi_command_jobs_collect(mg_core_t* core, size_t keep_at_most);
+
+/// Owning adapter accessor for paths that block on the adapter (COMMAND_ACK
+/// waits, heartbeat polling). The lease keeps the adapter alive for as long as
+/// it is held, so a concurrent disconnect cannot free it under the caller;
+/// `get_active_mavlink()` returns the same object as a borrowed pointer and is
+/// only safe for immediate, non-blocking use.
+inline std::shared_ptr<mg::core::mavlink::MavlinkAdapter>
+shared_active_mavlink(mg_core_t* core) {
+    return mg::bridge::ffi::resolve_vehicle_session(core).mavlink_lease;
 }
 
 // Get connection manager for current vehicle (or fallback)

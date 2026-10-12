@@ -1,4 +1,4 @@
-﻿#define MGCORE_EXPORTS
+#define MGCORE_EXPORTS
 /**
  * ffi_telemetry.cc - Telemetry history and log persistence FFI
  *
@@ -270,12 +270,17 @@ MGCORE_API char* mg_session_log_status(mg_core_t* core) {
 
 MGCORE_API char* mg_param_file_export(mg_core_t* core, const char* json) {
     CHECK_CORE(core);
-    if (!json || json[0] == '\0') return to_cstr("");
+    // 成功路径返回的是 .param 文件正文（CSV 文本），不是 JSON 信封；但失败路径
+    // 必须是合法 JSON（F4）：空串会被调用方当成"导出成功但没有参数"，也让
+    // "返回值一定是 JSON" 的契约失效。失败一律回统一的 error 对象。
+    if (!json || json[0] == '\0') {
+        return fail(MG_ERROR_INVALID_PARAM, "empty parameter list");
+    }
 
     cJSON* root = mg::core::json::parse(json);
     if (!root || !cJSON_IsArray(root)) {
         if (root) cJSON_Delete(root);
-        return to_cstr("");
+        return fail(MG_ERROR_INVALID_PARAM, "parameter list must be a JSON array");
     }
 
     std::vector<mg::core::config::ParamEntry> params;
@@ -303,6 +308,10 @@ MGCORE_API char* mg_param_file_import(mg_core_t* core, const char* content) {
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", !params.empty());
+    if (params.empty()) {
+        write_error(jb, MG_ERROR_INVALID_PARAM,
+                    "no parameters were parsed from the .param content");
+    }
     jb.field("count", static_cast<int>(params.size()));
     mg::core::telemetry::JsonBuilder items;
     items.begin_array();
@@ -323,12 +332,15 @@ MGCORE_API char* mg_param_file_import(mg_core_t* core, const char* content) {
 
 MGCORE_API char* mg_param_file_export_csv(mg_core_t* core, const char* json) {
     CHECK_CORE(core);
-    if (!json || json[0] == '\0') return to_cstr("");
+    // 与 mg_param_file_export 相同：成功返回 CSV 正文，失败返回 F4 error 对象。
+    if (!json || json[0] == '\0') {
+        return fail(MG_ERROR_INVALID_PARAM, "empty parameter list");
+    }
 
     cJSON* root = mg::core::json::parse(json);
     if (!root || !cJSON_IsArray(root)) {
         if (root) cJSON_Delete(root);
-        return to_cstr("");
+        return fail(MG_ERROR_INVALID_PARAM, "parameter list must be a JSON array");
     }
 
     std::vector<mg::core::config::ParamEntry> params;
@@ -355,8 +367,25 @@ MGCORE_API char* mg_param_file_import_csv(mg_core_t* core, const char* content) 
 
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
-    jb.field("success", true);
+    jb.field("success", !params.empty());
+    if (params.empty()) {
+        write_error(jb, MG_ERROR_INVALID_PARAM,
+                    "no parameters were parsed from the CSV content");
+    }
     jb.field("count", static_cast<int>(params.size()));
+    mg::core::telemetry::JsonBuilder items;
+    items.begin_array();
+    for (const auto& param : params) {
+        mg::core::telemetry::JsonBuilder item;
+        item.begin_object();
+        item.field("name", param.name);
+        item.field("value", param.value);
+        item.field("type", static_cast<int>(param.type));
+        item.end_object();
+        items.append_json(item.str());
+    }
+    items.end_array();
+    jb.raw_field("items", items.str());
     jb.end_object();
     return to_cstr(jb.str());
 }

@@ -169,7 +169,10 @@ inline std::string rc_channels_json(
         bool valid) {
     JsonBuilder jb;
     jb.begin_object();
-    jb.field("chancount", (int)rc.chancount);
+    // 键名统一为 channel_count：与 mg_rc_get_channels 的空缓存兜底、契约测试
+    // 以及 mg_vehicle_get_rc_channels 一致。此前成功路径写 chancount，导致同一
+    // 函数在「无缓存」与「有数据」两种情况下键名不同。
+    jb.field("channel_count", (int)rc.chancount);
     jb.field("rssi",      (int)rc.rssi);
     jb.field("valid",     valid);
     JsonBuilder arr;

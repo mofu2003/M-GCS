@@ -1,65 +1,13 @@
 /**
- * mavlink_adapter_dispatch.cc - Raw-frame compatibility and dispatch
+ * mavlink_adapter_dispatch.cc - Timeout checks and message dispatch
  *
- * Definitions are out of line. Dispatch, locking, timeout checks,
+ * Definitions are out of line. Locking, timeout checks,
  * and callback execution semantics are unchanged.
  */
 
 #include "mavlink_adapter_internal.h"
 
 namespace mg::core::mavlink {
-
-void MavlinkAdapter::Impl::feed_mag_progress_compat(const uint8_t* data, size_t size)
-{
-    for (size_t i = 0; i < size; ++i) {
-        const uint8_t byte = data[i];
-        if (mag_progress_frame_len == 0) {
-            if (byte != MAVLINK_STX)
-                continue;
-            mag_progress_frame[mag_progress_frame_len++] = byte;
-            continue;
-        }
-        if (mag_progress_frame_len >= mag_progress_frame.size()) {
-            mag_progress_frame_len = 0;
-            mag_progress_frame_expected = 0;
-            continue;
-        }
-        mag_progress_frame[mag_progress_frame_len++] = byte;
-        if (mag_progress_frame_len == 3) {
-            const uint8_t payload_len = mag_progress_frame[1];
-            const uint8_t incompat_flags = mag_progress_frame[2];
-            mag_progress_frame_expected = 10u + payload_len + 2u + ((incompat_flags & 0x01u) ? 13u : 0u);
-        }
-        if (mag_progress_frame_expected == 0 || mag_progress_frame_len < mag_progress_frame_expected)
-            continue;
-
-        const uint32_t msgid = static_cast<uint32_t>(mag_progress_frame[7]) |
-                               (static_cast<uint32_t>(mag_progress_frame[8]) << 8) |
-                               (static_cast<uint32_t>(mag_progress_frame[9]) << 16);
-        if (msgid == MAVLINK_MSG_ID_MAG_CAL_PROGRESS) {
-            const uint8_t payload_len = mag_progress_frame[1];
-            const uint16_t crc_offset = static_cast<uint16_t>(10u + payload_len);
-            uint16_t checksum = crc_calculate(&mag_progress_frame[1], static_cast<uint16_t>(9u + payload_len));
-            crc_accumulate(MAVLINK_MSG_ID_MAG_CAL_PROGRESS_CRC, &checksum);
-            const uint16_t received = static_cast<uint16_t>(mag_progress_frame[crc_offset]) |
-                                      (static_cast<uint16_t>(mag_progress_frame[crc_offset + 1]) << 8);
-            if (checksum == received && payload_len >= MAVLINK_MSG_ID_MAG_CAL_PROGRESS_MIN_LEN) {
-                mavlink_message_t message{};
-                message.len = payload_len;
-                message.incompat_flags = mag_progress_frame[2];
-                message.compat_flags = mag_progress_frame[3];
-                message.seq = mag_progress_frame[4];
-                message.sysid = mag_progress_frame[5];
-                message.compid = mag_progress_frame[6];
-                message.msgid = msgid;
-                memcpy(_MAV_PAYLOAD_NON_CONST(&message), &mag_progress_frame[10], payload_len);
-                process(message);
-            }
-        }
-        mag_progress_frame_len = 0;
-        mag_progress_frame_expected = 0;
-    }
-}
 
 void MavlinkAdapter::Impl::process_timeouts()
 {

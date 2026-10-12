@@ -6,7 +6,7 @@
  *
  * mg_calibration_start, mg_calibration_cancel, mg_calibration_get_status,
  * mg_calibration_get_history, mg_calibration_get_retry_info,
- * mg_calibration_process_statustext, mg_calibration_process_command_ack
+ * mg_calibration_accel_confirm, mg_calibration_start_airspeed
  *
  * 取消是异步的：mg_calibration_cancel 只负责把取消命令下发并把状态置为
  * cancelling，等飞控 COMMAND_ACK（或超时/链路断开）才落到 cancelled。
@@ -178,14 +178,4 @@ MGCORE_API char* mg_calibration_start_airspeed(mg_core_t* core) {
         active_target_sys(core), active_target_comp(core),
         241, 0, 0, 0, 0, 0, 0, 2, 0);
     return sent ? ok() : fail(MG_ERROR_SEND_FAILED, "failed to start airspeed calibration");
-}
-
-void mg_calibration_process_statustext(mg_core_t* core, const char* text, uint8_t severity) {
-    if (!core || !text) return;
-    get_active_calibration(core).process_statustext(std::string(text), severity);
-}
-
-void mg_calibration_process_command_ack(mg_core_t* core, uint16_t command, uint8_t result, uint8_t progress) {
-    if (!core) return;
-    get_active_calibration(core).process_command_ack(command, result, progress);
 }

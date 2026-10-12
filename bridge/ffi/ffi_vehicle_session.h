@@ -13,6 +13,11 @@ namespace mg::bridge::ffi {
 struct VehicleSessionView {
     mg::core::vehicle::Vehicle* vehicle = nullptr;
     mg::core::mavlink::MavlinkAdapter* mavlink = nullptr;
+    /// Owning lease behind `mavlink`. Holding the view keeps the adapter alive,
+    /// so a caller that blocks on it (COMMAND_ACK waits last up to 5 s) is not
+    /// exposed to a concurrent ConnectionManager::reset(). `mavlink` itself is
+    /// only safe for immediate use inside the statement that reads it.
+    std::shared_ptr<mg::core::mavlink::MavlinkAdapter> mavlink_lease;
     uint8_t target_sys = 1;
     uint8_t target_comp = 0;
     bool connected = false;

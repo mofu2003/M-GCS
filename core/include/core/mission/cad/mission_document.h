@@ -281,8 +281,6 @@ bool load_mission_document(
     MissionDocument& document,
     std::string& error);
 
-const char* mission_entity_type_name(const std::string& type);
-
 /// 把文档围栏编译成 MAVLink fence mission type（`MAV_MISSION_TYPE_FENCE`）的任务项。
 ///
 /// 编码与 QGC `GeoFenceManager` 一致，顺序为多边形 → 圆形 → breach-return：

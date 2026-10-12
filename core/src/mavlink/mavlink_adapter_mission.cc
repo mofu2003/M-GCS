@@ -10,6 +10,31 @@
 
 namespace mg::core::mavlink {
 
+namespace {
+
+/// MISSION_CURRENT / MISSION_ITEM_REACHED 不是任务传输报文，而是飞控主动上报的
+/// 任务执行进度。它们同样必须确认来源是本机，否则一链路多机时别的飞机能把本机
+/// 的进度改写掉：
+///   1. 本机已经和某台飞控建立过任务事务 → 用事务目标（与其余 5 个 handler 同一
+///      套 transfer_matches_target 规则）；
+///   2. 还没有任何事务（target_sys == 0，例如刚连上就观察在飞的任务）→ 回退到
+///      本机已识别的心跳身份；
+///   3. 两者都不知道 → 不接受，与 handle_mission_ack 的 target_sys == 0 同一语义。
+bool execution_source_matches(const MissionTransferState& state,
+                              const std::optional<HeartbeatInfo>& heartbeat,
+                              uint8_t sysid, uint8_t compid) {
+    if (state.target_sys != 0) {
+        return transfer_matches_target(state, sysid, compid);
+    }
+    if (heartbeat.has_value() && heartbeat->system_id != 0) {
+        return heartbeat->system_id == sysid &&
+               heartbeat->component_id == compid;
+    }
+    return false;
+}
+
+} // namespace
+
 MissionTransferState& MavlinkAdapter::Impl::select_transfer(uint8_t mission_type)
 {
     return mg::core::mavlink::select_transfer(mission, rally, fence, mission_type);
@@ -308,6 +333,8 @@ void MavlinkAdapter::Impl::handle_mission_current(const mavlink_message_t& m)
 {
     mavlink_mission_current_t mc;
     mavlink_msg_mission_current_decode(&m, &mc);
+    // 非本机来源的进度帧一律忽略（多机共用一条链路时别的飞机会改写本机进度）。
+    if (!execution_source_matches(mission, tel.heartbeat, m.sysid, m.compid)) return;
     mission.plan.current_index = mc.seq;
 }
 
@@ -315,6 +342,8 @@ void MavlinkAdapter::Impl::handle_mission_item_reached(const mavlink_message_t& 
 {
     mavlink_mission_item_reached_t mr;
     mavlink_msg_mission_item_reached_decode(&m, &mr);
+    // 同上：到达事件也只认本机。
+    if (!execution_source_matches(mission, tel.heartbeat, m.sysid, m.compid)) return;
     // 记录任务执行进度：同一个 seq 可能被重发，用 flags 去重避免计数偏大。
     auto& execution = mission;
     if (mr.seq >= execution.reached_flags.size()) {

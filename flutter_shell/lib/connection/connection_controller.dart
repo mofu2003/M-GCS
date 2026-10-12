@@ -1532,7 +1532,7 @@ final class ConnectionController extends ChangeNotifier {
     } finally {
       serialHardwareMappingLoading = false;
       _notifyParameterChanges();
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -1709,7 +1709,7 @@ final class ConnectionController extends ChangeNotifier {
       }
       completion.complete();
       _notifyParameterChanges();
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
     return !_parameterWriteErrors.containsKey(name);
   }

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * accel_calibration.cc - Accelerometer calibration implementation
  * 加速度计校准实现 — 6面姿态识别与 STATUSTEXT 解析
  *
@@ -12,6 +12,35 @@
 #include <algorithm>
 
 namespace mg::core::calibration {
+
+namespace {
+
+/// 完成短语必须整句匹配："Accelerometer calibration unsuccessful" 也含 "success"，
+/// 用子串匹配会把飞控报的失败读成成功。
+/// ArduPilot AP_AccelCal::success() 发 "Calibration successful"，
+/// AP_AccelCal::_failed() 发 "Calibration FAILED"；
+/// PX4 accelerometer_calibration.cpp 发 "[cal] calibration done: <sensor>"。
+bool mentions_completion(const std::string& text) {
+    return text.find("calibration successful") != std::string::npos ||
+           text.find("Calibration successful") != std::string::npos ||
+           text.find("calibration complete") != std::string::npos ||
+           text.find("Calibration complete") != std::string::npos ||
+           text.find("calibration done") != std::string::npos ||
+           text.find("Calibration done") != std::string::npos;
+}
+
+/// 失败要在完成之前判定："unsuccessful" 本身含 "successful"。
+bool mentions_failure(const std::string& text) {
+    return text.find("failed") != std::string::npos ||
+           text.find("Failed") != std::string::npos ||
+           text.find("FAILED") != std::string::npos ||
+           text.find("unsuccessful") != std::string::npos ||
+           text.find("Unsuccessful") != std::string::npos ||
+           text.find("incomplete") != std::string::npos ||
+           text.find("Incomplete") != std::string::npos;
+}
+
+} // namespace
 
 uint16_t AccelCalibration::mav_command() const {
     return 241;  // MAV_CMD_PREFLIGHT_CALIBRATION
@@ -55,25 +84,20 @@ StatusParseResult AccelCalibration::parse_statustext(
     if (!result.is_calibration_text) return result;
 
     // Detect success/failure
-    if (text.find("calibration successful") != std::string::npos ||
-        text.find("Calibration successful") != std::string::npos ||
-        text.find("success") != std::string::npos ||
-        text.find("Success") != std::string::npos) {
+    if (mentions_failure(text)) {
+        result.new_stage = CalibrationStage::Failed;
+        result.stage_changed = true;
+        result.user_message = "Accelerometer calibration failed";
+        return result;
+    }
+
+    if (mentions_completion(text)) {
         result.new_stage = CalibrationStage::Success;
         result.progress = 100;
         result.current_step = 6;
         result.total_steps = 6;
         result.stage_changed = true;
         result.user_message = "Accelerometer calibration successful";
-        return result;
-    }
-
-    if (text.find("failed") != std::string::npos ||
-        text.find("Failed") != std::string::npos ||
-        text.find("FAILED") != std::string::npos) {
-        result.new_stage = CalibrationStage::Failed;
-        result.stage_changed = true;
-        result.user_message = "Accelerometer calibration failed";
         return result;
     }
 
@@ -105,7 +129,14 @@ CalibrationStage AccelCalibration::interpret_ack(
     CalibrationStage current_stage) const {
     switch (result) {
         case 0:  // MAV_RESULT_ACCEPTED
-            return CalibrationStage::Success;
+            // ACK 只确认飞控受理了启动命令，不是校准结果（与同目录
+            // radio_calibration.cc:84-88、compass_calibration.cc:187-190 同一语义）。
+            // 六面校准的结果来自 STATUSTEXT / ACCELCAL_VEHICLE_POS 握手；ArduPilot
+            // 的 simple/level 校准是同步完成的，服务层对此另有补偿，见
+            // calibration_service.cc 的 process_command_ack。
+            return current_stage == CalibrationStage::WaitingOrientation
+                ? current_stage
+                : CalibrationStage::Calibrating;
         case 5:  // MAV_RESULT_IN_PROGRESS
             if (current_stage != CalibrationStage::Calibrating &&
                 current_stage != CalibrationStage::WaitingOrientation)

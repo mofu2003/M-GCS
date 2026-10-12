@@ -203,6 +203,10 @@ MGCORE_API char* mg_config_write_params(mg_core_t* core, const char* json) {
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
     jb.field("success", failed_count == 0);
+    if (failed_count != 0) {
+        write_error(jb, MG_ERROR_REJECTED,
+                    std::to_string(failed_count) + " parameter writes failed");
+    }
     jb.field("written", written);
     jb.field("failed", failed_count);
     jb.raw_field("errors", errors.str());

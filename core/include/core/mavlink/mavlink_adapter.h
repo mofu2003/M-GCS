@@ -637,9 +637,6 @@ public:
 
     // 发送 GCS 心跳包
     bool send_heartbeat();
-    // 请求数据流（旧方式）
-    bool request_data_stream(uint8_t target_system, uint8_t target_component,
-                             uint8_t stream_id, uint16_t rate_hz);
     // 请求飞控版本信息
     bool request_autopilot_version(uint8_t target_system, uint8_t target_component);
     /// 请求飞控上报 home 点（MAV_CMD_GET_HOME_POSITION）。
@@ -649,9 +646,6 @@ public:
     bool request_home_position(uint8_t target_system, uint8_t target_component);
     // 请求完整参数列表
     bool request_param_list(uint8_t target_system, uint8_t target_component);
-    // 按名称请求单个参数
-    bool request_param_read_by_name(uint8_t target_system, uint8_t target_component,
-                                    const char* param_id);
 
     /// 向飞控发送 PARAM_SET 以修改参数值
     /// Returns true if the message was sent successfully.
@@ -678,33 +672,14 @@ public:
                            float p1, float p2, float p3, float p4,
                            float p5, float p6, float p7);
 
-    /// 解锁/锁定电机，force=true 跳过安全检查
-    bool arm_disarm(uint8_t target_system, uint8_t target_component, bool arm, bool force = false);
-
     /// 通过 MAV_CMD_DO_SET_MODE 设置飞行模式
     bool set_mode(uint8_t target_system, uint8_t target_component, uint8_t base_mode, uint32_t custom_mode);
-
-    /// 返航
-    bool cmd_return_to_launch(uint8_t target_system, uint8_t target_component);
-
-    /// 起飞到指定高度（米，相对地面）
-    bool cmd_takeoff(uint8_t target_system, uint8_t target_component, float altitude_m);
-
-    /// 在当前位置降落
-    bool cmd_land(uint8_t target_system, uint8_t target_component);
 
     /// 紧急停机 — 立即切断电机
 
     // ================================================================
     // GUIDED 模式指令
     // ================================================================
-
-    /// GUIDED: 飞往指定位置（经纬度+高度），使用 MAV_CMD_DO_REPOSITION
-    /// lat_deg, lon_deg: 目标位置（度）。alt_m: 目标高度（MSL 米）。
-    /// yaw_deg: 期望航向（-1 表示保持当前航向）
-    bool cmd_guided_point(uint8_t target_system, uint8_t target_component,
-                          double lat_deg, double lon_deg, float alt_m,
-                          float yaw_deg = -1.0f, float speed_ms = 0.0f);
 
     /// GUIDED: 以指定速度矢量飞行（NED 坐标系: +x=北, +y=东, +z=下）
     bool cmd_guided_velocity(uint8_t target_system, uint8_t target_component,
@@ -739,9 +714,6 @@ public:
     bool cmd_change_heading(uint8_t target_sys, uint8_t target_comp,
                             float heading_deg, float yaw_rate_dps,
                             int8_t direction, bool relative);
-
-    /// 收放起落架
-    bool cmd_landing_gear(uint8_t target_sys, uint8_t target_comp, bool deploy);
 
 
     // ================================================================
@@ -876,9 +848,6 @@ public:
     /// 取消正在进行的日志下载
     bool log_download_cancel();
 
-    /// 获取日志下载进度（0.0-1.0）
-    float log_download_progress() const;
-
     /// 检查日志下载是否正在进行
     bool log_download_active() const;
 
@@ -899,13 +868,6 @@ public:
     LogDownloadStatus log_download_status();
     /// 开始执行任务（MAV_CMD_MISSION_START）
     bool mission_start(uint8_t target_system, uint8_t target_component);
-
-    /// 请求日志数据下载
-    bool log_request_data(uint8_t target_system, uint8_t target_component,
-                          uint32_t id, uint32_t ofs, uint32_t count);
-
-    /// 结束日志下载会话
-    bool log_request_end(uint8_t target_system, uint8_t target_component);
 
     /// 擦除飞控上所有日志
     bool log_erase(uint8_t target_system, uint8_t target_component);
@@ -1002,7 +964,6 @@ public:
     std::optional<SysStatusInfo>        latest_sys_status() const;
     std::optional<GpsInfo>              latest_gps() const;
 
-    std::optional<CommandAckInfo> latest_command_ack() const;
     std::optional<RcChannelsInfo>  latest_rc_channels() const;
     std::optional<StatustextInfo>     latest_statustext_info() const;
     std::optional<GlobalPositionInfo>  latest_global_position() const;
@@ -1115,17 +1076,6 @@ public:
                                               uint16_t command, uint8_t confirmation,
                                               float p1, float p2, float p3, float p4,
                                               float p5, float p6, float p7);
-
-    /// 解锁/锁定（带错误上下文）
-    mg::core::Status arm_disarm_status(uint8_t target_system, uint8_t target_component, bool arm, bool force = false);
-
-    /// 设置飞行模式（带错误上下文）
-    mg::core::Status set_mode_status(uint8_t target_system, uint8_t target_component, uint8_t base_mode, uint32_t custom_mode);
-
-    /// GUIDED 飞往指定位置（带错误上下文）
-    mg::core::Status cmd_guided_point_status(uint8_t target_system, uint8_t target_component,
-                                             double lat_deg, double lon_deg, float alt_m,
-                                             float yaw_deg = -1.0f, float speed_ms = 0.0f);
 
 
 

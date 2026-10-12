@@ -55,16 +55,35 @@ static char* ack_rejection_json(const mg::core::mavlink::CommandAckInfo& ack) {
     return to_cstr(jb.str());
 }
 
+/// 把命令入口传进来的借用指针升级成会话租约。
+///
+/// 调用方（全部命令入口）拿到的是 `get_active_mavlink()` 的借用裸指针，最长要
+/// 阻塞 5 秒等 ACK；这期间另一线程的断链（ConnectionManager::reset()）可以在锁内
+/// 把适配器 move 走并在锁外析构它，裸指针立刻悬垂。
+///
+/// 只有当会话当前持有的适配器与调用方传进来的**是同一个对象**时才用它：此时
+/// shared_ptr 保证整个等待期间对象存活。指针不同（例如两次解析之间断链又重连，
+/// 或调用方传的是陈旧指针）时绝不使用该裸指针，直接按断开处理 —— 宁可让这笔命令
+/// 以 NOT_CONNECTED 失败，也不能在已释放的对象上发送/等待。
+std::shared_ptr<mg::core::mavlink::MavlinkAdapter> lease_for_wait(
+        mg_core_t* core, mg::core::mavlink::MavlinkAdapter* mav) {
+    if (!mav) return nullptr;
+    auto lease = shared_active_mavlink(core);
+    if (!lease || lease.get() != mav) return nullptr;
+    return lease;
+}
+
 /// 命令队列辅助函数：发送命令并阻塞等待 ACK
-/// 使用 send_command_queued() + wait_for_command()，支持超时重发
+/// 使用 send_command_queued() + wait_for_command()，支持超时重发。
 char* ffi_cmd_result_queued(mg_core_t* core, mg::core::mavlink::MavlinkAdapter* mav,
                             uint16_t cmd_id, uint8_t sys, uint8_t comp,
                             float p1, float p2, float p3, float p4,
                             float p5, float p6, float p7, int max_wait_ms) {
-    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    auto ticket = mav->send_command_queued(sys, comp, cmd_id,
+    const auto lease = lease_for_wait(core, mav);
+    if (!lease) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    auto ticket = lease->send_command_queued(sys, comp, cmd_id,
         p1, p2, p3, p4, p5, p6, p7);
-    auto ack = mav->wait_for_command(ticket, max_wait_ms);
+    auto ack = lease->wait_for_command(ticket, max_wait_ms);
     if (ack.has_value()) {
         if (ack->result_text.find("timeout") != std::string::npos) {
             return fail(MG_ERROR_TIMEOUT, ack->result_text.c_str());
@@ -75,7 +94,7 @@ char* ffi_cmd_result_queued(mg_core_t* core, mg::core::mavlink::MavlinkAdapter* 
         }
         return ack_rejection_json(ack.value());
     }
-    mav->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
+    lease->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
     return fail(MG_ERROR_TIMEOUT, "command ack timeout");
 }
 
@@ -85,10 +104,11 @@ static char* cmd_int_result_queued(
         uint16_t cmd_id, uint8_t sys, uint8_t comp, uint8_t frame,
         float p1, float p2, float p3, float p4,
         int32_t x, int32_t y, float z, int max_wait_ms = 5000) {
-    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    auto ticket = mav->send_command_int_queued(
+    const auto lease = lease_for_wait(core, mav);
+    if (!lease) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    auto ticket = lease->send_command_int_queued(
         sys, comp, cmd_id, frame, p1, p2, p3, p4, x, y, z);
-    auto ack = mav->wait_for_command(ticket, max_wait_ms);
+    auto ack = lease->wait_for_command(ticket, max_wait_ms);
     if (ack.has_value()) {
         if (ack->result_text.find("timeout") != std::string::npos) {
             return fail(MG_ERROR_TIMEOUT, ack->result_text.c_str());
@@ -99,7 +119,7 @@ static char* cmd_int_result_queued(
         }
         return ack_rejection_json(ack.value());
     }
-    mav->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
+    lease->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
     return fail(MG_ERROR_TIMEOUT, "command ack timeout");
 }
 
@@ -394,11 +414,14 @@ bool response_succeeded(const char* result) {
 
 bool wait_for_vehicle_state(mg_core_t* core, std::optional<uint32_t> mode,
                             std::optional<bool> armed, int timeout_ms = 3500) {
+    // Lease taken once, before the loop: the heartbeat is read every 25 ms for up
+    // to 3.5 s, and a concurrent disconnect must not free the adapter meanwhile.
+    const auto mav = shared_active_mavlink(core);
+    if (!mav) return false;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     do {
-        const auto session = mg::bridge::ffi::resolve_vehicle_session(core);
-        if (!session.connected || !session.mavlink) return false;
-        const auto hb = session.mavlink->latest_heartbeat();
+        if (!mg::bridge::ffi::resolve_vehicle_session(core).connected) return false;
+        const auto hb = mav->latest_heartbeat();
         if (hb && (!mode || hb->custom_mode == *mode) && (!armed || hb->armed == *armed)) return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
     } while (std::chrono::steady_clock::now() < deadline);
@@ -490,7 +513,43 @@ char* invalid_args(const char* message) {
     return fail(MG_ERROR_INVALID_PARAM, message);
 }
 
+/// 命令任务队列上限（槽位 = 未 poll 的任务条目）。
+constexpr size_t kMaxCommandJobs = 32;
+
+/// 回收已就绪但客户端从未 poll 的任务槽位，最旧的 ticket 先丢。
+///
+/// 只能回收 future 已就绪的条目：erase 一个仍在运行的 std::async future 会在
+/// 析构时阻塞等待任务结束，等于在持锁路径里等命令跑完。每笔飞行命令的等待都
+/// 有界（COMMAND_ACK 最长 5 s），所以占着槽位的任务最终都会变成可回收状态。
+///
+/// 旧实现只在客户端 poll 且 future ready 时 erase：32 条永不 poll 的提交会把
+/// 队列永久占满（>= 32 直接返回 BUSY），此后所有飞行命令恒失败且没有自愈路径。
+/// 代价是客户端隔了很久才 poll 一条已被回收的 ticket 会拿到 not found —— 相比
+/// "整条命令通道永久卡死"这是可接受的取舍（QGC MavCommandQueue 同样有过期丢弃）。
+size_t collect_finished_jobs_locked(mg_core_t* core, size_t keep_at_most) {
+    size_t reclaimed = 0;
+    auto it = core->command_jobs.begin();
+    while (it != core->command_jobs.end() &&
+           core->command_jobs.size() > keep_at_most) {
+        if (it->second.result.valid() &&
+            it->second.result.wait_for(std::chrono::milliseconds(0)) ==
+                std::future_status::ready) {
+            it = core->command_jobs.erase(it);
+            ++reclaimed;
+        } else {
+            ++it;
+        }
+    }
+    return reclaimed;
+}
+
 } // namespace
+
+size_t ffi_command_jobs_collect(mg_core_t* core, size_t keep_at_most) {
+    if (!core) return 0;
+    mg::core::platform::LockGuard lk(core->command_jobs_mtx);
+    return collect_finished_jobs_locked(core, keep_at_most);
+}
 
 MGCORE_API char* mg_command_execute_for_vehicle(mg_core_t* core,
                                                 int vehicle_id,
@@ -644,7 +703,11 @@ MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
     {
         mg::core::platform::LockGuard lk(core->command_jobs_mtx);
         if (core->command_jobs_stopping) return fail(MG_ERROR_INVALID_STATE, "core is stopping");
-        if (core->command_jobs.size() >= 32) return fail(MG_ERROR_BUSY, "command job queue full");
+        // 槽位自愈：先回收"已完成但从未被 poll"的任务，再判断队列是否真的满了。
+        // 没有这一步时，32 条永不 poll 的提交会把队列永久占满。
+        collect_finished_jobs_locked(core, kMaxCommandJobs - 1);
+        if (core->command_jobs.size() >= kMaxCommandJobs)
+            return fail(MG_ERROR_BUSY, "command job queue full");
         for (auto& [id, job] : core->command_jobs) {
             (void)id;
             if (job.vehicle_id == vehicle_id && job.command_key == command_key &&
@@ -657,6 +720,11 @@ MGCORE_API char* mg_command_submit_for_vehicle(mg_core_t* core, int vehicle_id,
         try {
             core->command_jobs.emplace(ticket, mg_core_t::CommandJob{vehicle_id, command_key,
                 std::async(std::launch::async, [core, vehicle, connection, adapter, json]() {
+                    // 提交时解析出的适配器租约在整个 worker 生命周期内保持有效
+                    // （RAII）；worker 内真正等待 ACK 的路径再由 lease_for_wait()
+                    // 把借用指针升级成同一会话的租约。两层都不会让 reset() 在等待
+                    // 期间析构适配器。
+                    (void)adapter;
                     try {
                         mg::bridge::ffi::VehicleTargetScope scope(core, vehicle.get(), connection);
                         char* raw = mg_command_execute_for_vehicle(core, vehicle->vehicle_id(), json.c_str());

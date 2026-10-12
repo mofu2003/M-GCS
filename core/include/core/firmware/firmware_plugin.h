@@ -122,11 +122,6 @@ public:
     /// Get the capability flags for this firmware + vehicle combination.
     virtual uint32_t capabilities(VehicleKind vehicle) const = 0;
 
-    /// Check if a specific capability is supported.
-    bool has_capability(VehicleKind vehicle, FirmwareCapability cap) const {
-        return (capabilities(vehicle) & static_cast<uint32_t>(cap)) != 0;
-    }
-
     // ================================================================
     // GUIDED Mode Parameters
     // ================================================================

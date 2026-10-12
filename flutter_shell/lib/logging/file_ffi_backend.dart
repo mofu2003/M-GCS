@@ -1,8 +1,8 @@
-import 'dart:convert';
 import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 
+import '../connection/native_core.dart';
 import 'file_backend.dart';
 
 /// `mg_fs_*` 的 FFI 实现。
@@ -105,15 +105,9 @@ final class FileFfiBackend implements FileBackend {
   @override
   Map<String, Object?> cancel() => _read(_cancel(_core));
 
-  Map<String, Object?> _read(Pointer<Utf8> pointer) {
-    if (pointer == nullptr) throw StateError('后端返回空结果');
-    final Object? raw;
-    try {
-      raw = jsonDecode(pointer.toDartString());
-    } finally {
-      _freeString(pointer);
-    }
-    if (raw is! Map) throw const FormatException('文件传输响应格式无效');
-    return Map<String, Object?>.from(raw);
-  }
+  Map<String, Object?> _read(Pointer<Utf8> pointer) => readJsonMap(
+    pointer,
+    freeString: _freeString,
+    invalidResponseMessage: '文件传输响应格式无效',
+  );
 }

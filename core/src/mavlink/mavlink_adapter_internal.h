@@ -130,14 +130,6 @@ struct MavlinkAdapter::Impl {
     // 这类无法显式改写调用点的发送回调。
     inline static thread_local Impl* tls_dispatching_impl = nullptr;
     std::chrono::steady_clock::time_point last_timeout_check_;  // 超时检查节流
-    std::array<uint8_t, MAVLINK_MAX_PACKET_LEN> mag_progress_frame{};
-    size_t mag_progress_frame_len = 0;
-    size_t mag_progress_frame_expected = 0;
-
-    // The common dialect does not list ArduPilot message 191 in its CRC
-    // table. Keep a tiny compatibility parser so a valid MAG_CAL_PROGRESS
-    // frame still reaches the normal message dispatch path.
-    void feed_mag_progress_compat(const uint8_t* data, size_t size);
 
     mutable mg::core::platform::Mutex mtx;  // 加锁保护所有可变状态
     mutable mg::core::platform::Mutex send_mtx;

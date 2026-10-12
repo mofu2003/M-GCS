@@ -26,110 +26,129 @@ SitlLauncher::SitlLauncher() = default;
 SitlLauncher::~SitlLauncher() { stop(); }
 
 bool SitlLauncher::start(const SitlConfig& config) {
-    mg::core::platform::LockGuard lk(mtx_);
-    if (status_ == SitlStatus::Running) return false;
+    SitlStatusCallback cb;
+    SitlStatus final_status = SitlStatus::Stopped;
+    std::string final_msg;
+    bool started = false;
+    {
+        mg::core::platform::LockGuard lk(mtx_);
+        if (status_ == SitlStatus::Running) return false;
 
-    config_ = config;
-    set_status(SitlStatus::Starting, "launching SITL...");
+        config_ = config;
+        set_status_locked(SitlStatus::Starting, "launching SITL...");
 
-    // Build SITL command arguments
-    std::string vehicle;
-    switch (config.vehicle) {
-        case SitlVehicle::Copter:   vehicle = "ArduCopter"; break;
-        case SitlVehicle::Plane:    vehicle = "ArduPlane";  break;
-        case SitlVehicle::Rover:    vehicle = "APMrover2";  break;
-        case SitlVehicle::Sub:      vehicle = "ArduSub";    break;
-        case SitlVehicle::Tracker:  vehicle = "AntennaTracker"; break;
-    }
+        // Build SITL command arguments
+        std::string vehicle;
+        switch (config.vehicle) {
+            case SitlVehicle::Copter:   vehicle = "ArduCopter"; break;
+            case SitlVehicle::Plane:    vehicle = "ArduPlane";  break;
+            case SitlVehicle::Rover:    vehicle = "APMrover2";  break;
+            case SitlVehicle::Sub:      vehicle = "ArduSub";    break;
+            case SitlVehicle::Tracker:  vehicle = "AntennaTracker"; break;
+        }
 
-    std::string out_arg = "udp:127.0.0.1:" + std::to_string(config.udp_port);
+        std::string out_arg = "udp:127.0.0.1:" + std::to_string(config.udp_port);
 
-    MGC_LOG_INFO("[SITL] Vehicle: %s, UDP: %s", vehicle.c_str(), out_arg.c_str());
+        MGC_LOG_INFO("[SITL] Vehicle: %s, UDP: %s", vehicle.c_str(), out_arg.c_str());
 
 #ifdef _WIN32
-    // Windows: use CreateProcess with proper argument splitting
-    // Build command line for python + sim_vehicle.py
-    std::string py_script = "sim_vehicle.py";
-    std::string py_args = "-v " + vehicle + " --no-mavproxy --out " + out_arg;
-    if (!config.home.empty()) {
-        py_args += " --home " + config.home;
-    }
-    if (config.speedup != 1.0) {
-        py_args += " --speedup " + std::to_string(config.speedup);
-    }
+        // Windows: use CreateProcess with proper argument splitting
+        // Build command line for python + sim_vehicle.py
+        std::string py_script = "sim_vehicle.py";
+        std::string py_args = "-v " + vehicle + " --no-mavproxy --out " + out_arg;
+        if (!config.home.empty()) {
+            py_args += " --home " + config.home;
+        }
+        if (config.speedup != 1.0) {
+            py_args += " --speedup " + std::to_string(config.speedup);
+        }
 
-    std::string full_cmd = "python " + py_script + " " + py_args;
-    MGC_LOG_INFO("[SITL] Command: %s", full_cmd.c_str());
+        std::string full_cmd = "python " + py_script + " " + py_args;
+        MGC_LOG_INFO("[SITL] Command: %s", full_cmd.c_str());
 
-    STARTUPINFOA si = {};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi = {};
+        STARTUPINFOA si = {};
+        si.cb = sizeof(si);
+        PROCESS_INFORMATION pi = {};
 
-    char cmd_buf[2048];
-    strncpy(cmd_buf, full_cmd.c_str(), sizeof(cmd_buf) - 1);
-    cmd_buf[sizeof(cmd_buf) - 1] = '\0';
+        char cmd_buf[2048];
+        strncpy(cmd_buf, full_cmd.c_str(), sizeof(cmd_buf) - 1);
+        cmd_buf[sizeof(cmd_buf) - 1] = '\0';
 
-    if (CreateProcessA(nullptr, cmd_buf, nullptr, nullptr, FALSE,
-                       CREATE_NEW_CONSOLE, nullptr, nullptr, &si, &pi)) {
-        CloseHandle(pi.hThread);
-        process_handle_ = pi.hProcess;  // Retain handle for proper cleanup
-        pid_ = static_cast<int>(pi.dwProcessId);
-    } else {
-        pid_ = -1;
-    }
+        if (CreateProcessA(nullptr, cmd_buf, nullptr, nullptr, FALSE,
+                           CREATE_NEW_CONSOLE, nullptr, nullptr, &si, &pi)) {
+            CloseHandle(pi.hThread);
+            process_handle_ = pi.hProcess;  // Retain handle for proper cleanup
+            pid_ = static_cast<int>(pi.dwProcessId);
+        } else {
+            pid_ = -1;
+        }
 #else
-    // POSIX: use fork + execvp with proper argv splitting
-    std::vector<std::string> args = {"sim_vehicle.py", "-v", vehicle, "--no-mavproxy",
-                                      "--out", out_arg};
-    if (!config.home.empty()) {
-        args.push_back("--home");
-        args.push_back(config.home);
-    }
-    if (config.speedup != 1.0) {
-        args.push_back("--speedup");
-        args.push_back(std::to_string(config.speedup));
-    }
+        // POSIX: use fork + execvp with proper argv splitting
+        std::vector<std::string> args = {"sim_vehicle.py", "-v", vehicle, "--no-mavproxy",
+                                          "--out", out_arg};
+        if (!config.home.empty()) {
+            args.push_back("--home");
+            args.push_back(config.home);
+        }
+        if (config.speedup != 1.0) {
+            args.push_back("--speedup");
+            args.push_back(std::to_string(config.speedup));
+        }
 
-    std::vector<char*> argv;
-    for (auto& a : args) argv.push_back(const_cast<char*>(a.c_str()));
-    argv.push_back(nullptr);
+        std::vector<char*> argv;
+        for (auto& a : args) argv.push_back(const_cast<char*>(a.c_str()));
+        argv.push_back(nullptr);
 
-    pid_ = fork();
-    if (pid_ == 0) {
-        execvp("sim_vehicle.py", argv.data());
-        _exit(1);
-    }
+        pid_ = fork();
+        if (pid_ == 0) {
+            execvp("sim_vehicle.py", argv.data());
+            _exit(1);
+        }
 #endif
 
-    if (pid_ > 0) {
-        set_status(SitlStatus::Running, "SITL started (PID=" + std::to_string(pid_) + ")");
-        return true;
+        if (pid_ > 0) {
+            final_msg = "SITL started (PID=" + std::to_string(pid_) + ")";
+            set_status_locked(SitlStatus::Running, final_msg);
+            final_status = SitlStatus::Running;
+            started = true;
+        } else {
+            final_msg = "failed to start SITL process";
+            set_status_locked(SitlStatus::Error, final_msg);
+            final_status = SitlStatus::Error;
+        }
+        cb = status_cb_;
     }
-
-    set_status(SitlStatus::Error, "failed to start SITL process");
-    return false;
+    // A3：回调在解锁后执行，避免外部回调重入 status() 造成死锁。
+    if (cb) cb(final_status, final_msg);
+    return started;
 }
 
 void SitlLauncher::stop() {
-    mg::core::platform::LockGuard lk(mtx_);
-    if (pid_ <= 0) return;
+    SitlStatusCallback cb;
+    {
+        mg::core::platform::LockGuard lk(mtx_);
+        if (pid_ <= 0) return;
 
-    MGC_LOG_INFO("[SITL] Stopping PID=%d", pid_);
+        MGC_LOG_INFO("[SITL] Stopping PID=%d", pid_);
 
 #ifdef _WIN32
-    if (process_handle_) {
-        TerminateProcess(static_cast<HANDLE>(process_handle_), 0);
-        CloseHandle(static_cast<HANDLE>(process_handle_));
-        process_handle_ = nullptr;
-    }
+        if (process_handle_) {
+            TerminateProcess(static_cast<HANDLE>(process_handle_), 0);
+            CloseHandle(static_cast<HANDLE>(process_handle_));
+            process_handle_ = nullptr;
+        }
 #else
-    kill(pid_, SIGTERM);
-    int status = 0;
-    waitpid(pid_, &status, 0);  // Reap child to avoid zombie
+        kill(pid_, SIGTERM);
+        int status = 0;
+        waitpid(pid_, &status, 0);  // Reap child to avoid zombie
 #endif
 
-    pid_ = 0;
-    set_status(SitlStatus::Stopped, "SITL stopped");
+        pid_ = 0;
+        set_status_locked(SitlStatus::Stopped, "SITL stopped");
+        cb = status_cb_;
+    }
+    // A3：回调在解锁后执行。
+    if (cb) cb(SitlStatus::Stopped, "SITL stopped");
 }
 
 SitlStatus SitlLauncher::status() const {
@@ -166,10 +185,11 @@ bool SitlLauncher::is_available() {
 #endif
 }
 
-void SitlLauncher::set_status(SitlStatus s, const std::string& msg) {
+void SitlLauncher::set_status_locked(SitlStatus s, const std::string& msg) {
     status_ = s;
     MGC_LOG_INFO("[SITL] %s", msg.c_str());
-    if (status_cb_) status_cb_(s, msg);
+    // 不在此处调用 status_cb_：本函数在持锁路径内被调用（A3）。
+    // 回调由 start()/stop() 在解锁后统一触发。
 }
 
 } // namespace mg::core::sitl

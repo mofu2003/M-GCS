@@ -87,17 +87,24 @@ MGCORE_API char* mg_px4_actuator_set_config(mg_core_t* core, const char* json_co
     cJSON* funcs = cJSON_GetObjectItemCaseSensitive(root, "main_functions");
     if (!funcs || !cJSON_IsArray(funcs)) { cJSON_Delete(root); return fail(MG_ERROR_INVALID_PARAM, "main_functions array required"); }
     int written = 0;
+    int requested = 0;
     int size = cJSON_GetArraySize(funcs);
     for (int i = 0; i < size && i < kPx4MainFunctionCount; i++) {
         cJSON* item = cJSON_GetArrayItem(funcs, i);
         if (!item || !cJSON_IsNumber(item)) continue;
+        ++requested;
         auto name = ffi_fmt_param("PWM_MAIN_FUNC%d", i + 1);
         if (ffi_set_param(core, name.c_str(), static_cast<float>(item->valueint))) written++;
     }
     cJSON_Delete(root);
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
-    jb.field("success", true);
+    const bool all_written = written == requested;
+    jb.field("success", all_written);
+    if (!all_written) {
+        write_error(jb, MG_ERROR_SEND_FAILED,
+                    std::to_string(requested - written) + " actuator writes failed");
+    }
     jb.field("written", written);
     jb.end_object();
     return to_cstr(jb.str());
@@ -212,9 +219,11 @@ MGCORE_API char* mg_px4_tuning_set(mg_core_t* core, const char* json_config) {
     cJSON* root = mg::core::json::parse(json_config);
     if (!root) return fail(MG_ERROR_INVALID_PARAM, "invalid JSON");
     int written = 0;
+    int requested = 0;
     auto try_set = [&](const char* json_key, const char* param_name) {
         cJSON* v = cJSON_GetObjectItemCaseSensitive(root, json_key);
         if (v && cJSON_IsNumber(v)) {
+            ++requested;
             if (ffi_set_param(core, param_name, (float)v->valuedouble)) written++;
         }
     };
@@ -227,7 +236,12 @@ MGCORE_API char* mg_px4_tuning_set(mg_core_t* core, const char* json_config) {
     cJSON_Delete(root);
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();
-    jb.field("success", true);
+    const bool all_written = written == requested;
+    jb.field("success", all_written);
+    if (!all_written) {
+        write_error(jb, MG_ERROR_SEND_FAILED,
+                    std::to_string(requested - written) + " tuning writes failed");
+    }
     jb.field("written", written);
     jb.end_object();
     return to_cstr(jb.str());

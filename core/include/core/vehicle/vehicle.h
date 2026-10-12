@@ -117,7 +117,6 @@ public:
     VehicleState state() const { return state_.load(); }
     const VehicleInfo& info() const { return info_; }
     uint32_t flight_time_s() const { return flight_time_s_.load(); }
-    std::shared_ptr<std::atomic<bool>> alive_flag() { return alive_flag_; }
 
     using EventCallback = std::function<void(int, const std::string&)>;
     void set_event_callback(EventCallback cb) {
@@ -246,7 +245,6 @@ private:
     mg::core::settings::FlightLoggingService flight_log_;
     mg::core::telemetry::FlightMessageLog message_log_;
     mg::core::sensor::SensorIdDecoder sensor_decoder_;
-    std::shared_ptr<std::atomic<bool>> alive_flag_{std::make_shared<std::atomic<bool>>(true)};
     mg::core::telemetry::TelemetryRingBuffer ring_buffer_;
     /// 每个 IMU 实例一份独立缓冲，互不共用容量。
     std::array<mg::core::telemetry::WaveformBuffer, kMaxImuInstances> waveforms_;

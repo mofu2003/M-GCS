@@ -84,9 +84,6 @@ public:
     /// Check if vehicle is armed
     bool is_armed() const;
 
-    /// Check if vehicle is in flight
-    bool is_in_flight() const;
-
     // ================================================================
     // Mode switching
     // ================================================================

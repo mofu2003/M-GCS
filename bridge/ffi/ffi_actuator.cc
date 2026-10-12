@@ -100,9 +100,11 @@ MGCORE_API char* mg_actuator_set_limits(mg_core_t* core, int channel, int min_pw
         return fail(MG_ERROR_INVALID_PARAM, "channel must be 1-16");
 
     bool all_ok = true;
-    all_ok = all_ok && ffi_set_param(core, ffi_fmt_param(servo_min_param_fmt, channel).c_str(), (float)min_pwm);
-    all_ok = all_ok && ffi_set_param(core, ffi_fmt_param(servo_max_param_fmt, channel).c_str(), (float)max_pwm);
-    all_ok = all_ok && ffi_set_param(core, ffi_fmt_param(servo_trim_param_fmt, channel).c_str(), (float)trim_pwm);
+    // 逐项求值、不用 && 短路：某一项写失败也要尝试其余项，避免留下半写状态
+    // （min 写失败导致 max/trim 完全没写，却只报一次失败）。
+    all_ok = ffi_set_param(core, ffi_fmt_param(servo_min_param_fmt, channel).c_str(), (float)min_pwm) && all_ok;
+    all_ok = ffi_set_param(core, ffi_fmt_param(servo_max_param_fmt, channel).c_str(), (float)max_pwm) && all_ok;
+    all_ok = ffi_set_param(core, ffi_fmt_param(servo_trim_param_fmt, channel).c_str(), (float)trim_pwm) && all_ok;
     return all_ok ? ok() : fail(MG_ERROR_SEND_FAILED, "set limits failed");
 }
 

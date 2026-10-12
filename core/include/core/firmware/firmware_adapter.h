@@ -37,6 +37,7 @@ enum class VehicleKind : uint8_t {
     Quadrotor     = 2,   // MAV_TYPE_QUADROTOR
     Coaxial       = 3,   // MAV_TYPE_COAXIAL
     Helicopter    = 4,   // MAV_TYPE_HELICOPTER
+    Tracker       = 5,   // MAV_TYPE_ANTENNA_TRACKER
     GroundRover   = 10,  // MAV_TYPE_GROUND_ROVER
     SurfaceBoat   = 11,  // MAV_TYPE_SURFACE_BOAT
     Submarine     = 12,  // MAV_TYPE_SUBMARINE

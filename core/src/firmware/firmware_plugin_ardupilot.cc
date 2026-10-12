@@ -48,6 +48,8 @@ static ApVehicle classify_ap_vehicle(VehicleKind v) {
             return ApVehicle::Rover;
         case VehicleKind::Submarine:
             return ApVehicle::Sub;
+        case VehicleKind::Tracker:
+            return ApVehicle::Tracker;
         default:
             // VTOL types (19-24) use Plane firmware
             if (static_cast<uint8_t>(v) >= 19 && static_cast<uint8_t>(v) <= 24) {
@@ -58,124 +60,17 @@ static ApVehicle classify_ap_vehicle(VehicleKind v) {
 }
 
 // ================================================================
-// Mode table for a vehicle sub-family
+// 模式表：直接复用 modes/ 头文件的单一事实来源。
+// 这里不再内嵌第二张表——历史上内嵌表与头文件各存一份，且内嵌表落后于上游
+// 枚举，导致 available_modes/encode 用错值（选 "Drift" 实际发 custom_mode=9=Land）。
 // ================================================================
-struct ModeTableRow {
-    uint32_t custom_mode;
-    const char* name;
-    bool can_be_set;
-};
-
-// Copter modes (complete from ardu_copter_modes.h)
-static const ModeTableRow kCopterModes[] = {
-    { 0, "Stabilize",   true  },
-    { 1, "Acro",        true  },
-    { 2, "AltHold",     true  },
-    { 3, "Auto",        true  },
-    { 4, "Guided",      true  },
-    { 5, "Loiter",      true  },
-    { 6, "RTL",         true  },
-    { 7, "Circle",      true  },
-    { 8, "Land",        true  },
-    { 9, "Drift",       true  },
-    {11, "Sport",       true  },
-    {13, "Flip",        true  },
-    {14, "Autotune",    true  },
-    {15, "PosHold",     true  },
-    {16, "Brake",       true  },
-    {17, "Throw",       true  },
-    {18, "AvoidADSB",   true  },
-    {19, "GuidedNoGPS", true  },
-    {20, "SmartRTL",    true  },
-    {21, "FlowHold",    true  },
-    {22, "Follow",      true  },
-    {23, "Zigzag",      true  },
-    {24, "SystemID",    false },
-    {25, "Autorotate",  false },
-    {26, "AutoRTL",     true  },
-    {27, "Turtle",      true  },
-};
-
-// Plane modes (complete from ardu_plane_modes.h)
-static const ModeTableRow kPlaneModes[] = {
-    { 0, "Manual",       true  },
-    { 1, "Circle",       true  },
-    { 2, "Stabilize",    true  },
-    { 3, "Training",     true  },
-    { 4, "Acro",         true  },
-    { 5, "FBWA",         true  },
-    { 6, "FBWB",         true  },
-    { 7, "Cruise",       true  },
-    { 8, "Autotune",     true  },
-    {10, "Auto",         true  },
-    {11, "RTL",          true  },
-    {12, "Loiter",       true  },
-    {13, "Takeoff",      true  },
-    {14, "AvoidADSB",    true  },
-    {15, "Guided",       true  },
-    {17, "QStabilize",   true  },
-    {18, "QHover",       true  },
-    {19, "QLoiter",      true  },
-    {20, "QLand",        true  },
-    {21, "QRTL",         true  },
-    {22, "QAutotune",    true  },
-    {23, "QAcro",        true  },
-    {24, "Thermal",      false },
-    {25, "Loiter2QLand", true  },
-    {26, "Autoland",     true  },
-};
-
-// Rover modes (complete from ardu_rover_modes.h)
-static const ModeTableRow kRoverModes[] = {
-    { 0, "Manual",       true  },
-    { 1, "Acro",         true  },
-    { 2, "Steering",     true  },
-    { 3, "Hold",         true  },
-    { 4, "Loiter",       true  },
-    { 5, "Follow",       true  },
-    { 6, "Simple",       true  },
-    { 7, "Dock",         true  },
-    {10, "Auto",         true  },
-    {11, "RTL",          true  },
-    {12, "SmartRTL",     true  },
-    {13, "Guided",       true  },
-    {15, "Initialising", false },
-    {16, "Autotune",     true  },
-    {17, "PosHold",      true  },
-    {18, "Brake",        true  },
-};
-
-// Sub modes (complete from ardu_sub_modes.h)
-static const ModeTableRow kSubModes[] = {
-    { 0, "Stabilize",    true  },
-    { 1, "Acro",         true  },
-    { 2, "AltHold",      true  },
-    { 3, "Auto",         true  },
-    { 4, "Guided",       true  },
-    { 7, "Circle",       true  },
-    { 9, "Surface",      true  },
-    {16, "MotorDetect",  false },
-    {19, "Manual",       true  },
-};
-
-// Tracker modes (complete from ardu_tracker_modes.h)
-static const ModeTableRow kTrackerModes[] = {
-    { 0, "Manual",     true  },
-    { 1, "Stop",       true  },
-    { 2, "Scan",       true  },
-    { 3, "ServoTest",  false },
-    { 4, "Auto",       true  },
-    {10, "Guided",     true  },
-};
-
-// Get the mode table for a vehicle sub-family
-static const ModeTableRow* get_mode_table(ApVehicle av, size_t& count) {
+static const ArduModeEntry* get_mode_table(ApVehicle av, size_t& count) {
     switch (av) {
-        case ApVehicle::Copter:  count = sizeof(kCopterModes) / sizeof(kCopterModes[0]); return kCopterModes;
-        case ApVehicle::Plane:   count = sizeof(kPlaneModes) / sizeof(kPlaneModes[0]);   return kPlaneModes;
-        case ApVehicle::Rover:   count = sizeof(kRoverModes) / sizeof(kRoverModes[0]);   return kRoverModes;
-        case ApVehicle::Sub:     count = sizeof(kSubModes) / sizeof(kSubModes[0]);       return kSubModes;
-        case ApVehicle::Tracker: count = sizeof(kTrackerModes) / sizeof(kTrackerModes[0]); return kTrackerModes;
+        case ApVehicle::Copter:  return arducopter_mode_table(count);
+        case ApVehicle::Plane:   return arduplane_mode_table(count);
+        case ApVehicle::Rover:   return ardupilot_rover_mode_table(count);
+        case ApVehicle::Sub:     return ardupilot_sub_mode_table(count);
+        case ApVehicle::Tracker: return ardupilot_tracker_mode_table(count);
         default:                 count = 0; return nullptr;
     }
 }
@@ -201,7 +96,7 @@ std::string ArduPilotPlugin::decode_flight_mode(VehicleKind vehicle, uint32_t cu
 int ArduPilotPlugin::encode_flight_mode(VehicleKind vehicle, const std::string& mode_name) const {
     ApVehicle av = classify_ap_vehicle(vehicle);
     size_t count = 0;
-    const ModeTableRow* table = get_mode_table(av, count);
+    const ArduModeEntry* table = get_mode_table(av, count);
     if (!table) return -1;
     for (size_t i = 0; i < count; i++) {
         if (mode_name == table[i].name) {
@@ -214,7 +109,7 @@ int ArduPilotPlugin::encode_flight_mode(VehicleKind vehicle, const std::string& 
 std::vector<FlightModeEntry> ArduPilotPlugin::available_modes(VehicleKind vehicle) const {
     ApVehicle av = classify_ap_vehicle(vehicle);
     size_t count = 0;
-    const ModeTableRow* table = get_mode_table(av, count);
+    const ArduModeEntry* table = get_mode_table(av, count);
     std::vector<FlightModeEntry> result;
     if (table) {
         result.reserve(count);

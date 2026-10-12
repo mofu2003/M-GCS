@@ -347,10 +347,16 @@ String _formatStamp(DateTime stamp) {
       '${two(stamp.hour)}:${two(stamp.minute)}:${two(stamp.second)}';
 }
 
-/// 把字节数格式化成 KB/MB，供列表与下载卡片共用。
+/// 把字节数格式化成 B/KB/MB/GB/TB，全应用共用（日志列表、下载卡片、相机存储）。
+///
+/// 合并前 logging 与 camera 各有一份实现且行为已分叉（前者无 TB、>=100 取 0 位
+/// 小数；后者有 TB、恒 1 位）。统一口径：
+/// * `>= 100` 取 0 位小数，否则 1 位——列表行更紧凑，避免同一列宽度抖动；
+/// * 单位一直到 TB——相机外置存储到 TB 级，统一后不能退化成 "2048 GB"。
+/// 这是 UI 口径决定，已在交付说明里标注待用户确认。
 String formatByteSize(int bytes) {
   if (bytes < 1024) return '$bytes B';
-  const units = ['KB', 'MB', 'GB'];
+  const units = ['KB', 'MB', 'GB', 'TB'];
   var value = bytes / 1024;
   var unit = 0;
   while (value >= 1024 && unit < units.length - 1) {

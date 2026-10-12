@@ -1,8 +1,8 @@
-import 'dart:convert';
 import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 
+import '../connection/native_core.dart';
 import 'log_backend.dart';
 
 /// `mg_onboard_log_*` 的 FFI 实现。
@@ -75,15 +75,9 @@ final class LogFfiBackend implements LogBackend {
   @override
   Map<String, Object?> eraseAll() => _read(_erase(_core));
 
-  Map<String, Object?> _read(Pointer<Utf8> pointer) {
-    if (pointer == nullptr) throw StateError('后端返回空结果');
-    final Object? raw;
-    try {
-      raw = jsonDecode(pointer.toDartString());
-    } finally {
-      _freeString(pointer);
-    }
-    if (raw is! Map) throw const FormatException('日志响应格式无效');
-    return Map<String, Object?>.from(raw);
-  }
+  Map<String, Object?> _read(Pointer<Utf8> pointer) => readJsonMap(
+    pointer,
+    freeString: _freeString,
+    invalidResponseMessage: '日志响应格式无效',
+  );
 }

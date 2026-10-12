@@ -328,3 +328,28 @@ class NativeCore {
     throw StateError('找不到 $expected');
   }
 }
+
+/// 把后端返回的 JSON `char*` 解析成 `Map` 并释放原生字符串。
+///
+/// 7 个 domain backend（calibration / telemetry / payload / terrain / tlog /
+/// file / log）曾各自复制一份 `_read`。三处语义必须完全一致：空指针怎么报错、
+/// 原生字符串什么时候释放（F3：任何路径都要释放）、非对象响应怎么报错。
+/// 重复实现迟早分叉，这里收成一份共享原语（A5 的共享层）。
+///
+/// [freeString] 由调用方注入：各 backend 自己绑定 `mg_free_string`，测试还需要
+/// 假钩子来断言释放时机。[invalidResponseMessage] 保留各域自己的错误文案。
+Map<String, Object?> readJsonMap(
+  Pointer<Utf8> pointer, {
+  required void Function(Pointer<Utf8>) freeString,
+  required String invalidResponseMessage,
+}) {
+  if (pointer == nullptr) throw StateError('后端返回空结果');
+  final Object? raw;
+  try {
+    raw = jsonDecode(pointer.toDartString());
+  } finally {
+    freeString(pointer);
+  }
+  if (raw is! Map) throw FormatException(invalidResponseMessage);
+  return Map<String, Object?>.from(raw);
+}

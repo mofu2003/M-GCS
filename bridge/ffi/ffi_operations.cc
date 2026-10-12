@@ -316,6 +316,11 @@ MGCORE_API char* mg_operations_cancel(mg_core_t* core, const char* operation_id)
     jb.field("operation_id", id);
     jb.field("canceled", canceled);
     jb.field("reason", reason);
+    if (!known) {
+        // F4：success:false 必须带统一 error 对象。reason 保留（界面直接显示原文），
+        // error 供调用方按错误码分支。
+        write_error(jb, MG_ERROR_INVALID_PARAM, reason);
+    }
     jb.end_object();
     return to_cstr(jb.str());
 }

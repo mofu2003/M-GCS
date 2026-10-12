@@ -162,7 +162,11 @@ public:
 private:
     SendFn send_fn_;
     MessageSendFn message_send_fn_;
-    FtpState state_ = FtpState::Idle;
+    // 传输状态由工作线程写、被 FFI/UI 线程经 is_busy()/cancel() 读写，用原子
+    // 消除数据竞争（TSan 曾在 download_file 的 finish_failure 处报 race）。
+    // 与 cancelled_/cancel_requested_/worker_active_ 同一模式：这是单值状态标志，
+    // 不属于 mtx_ 保护的请求/响应协议不变量。
+    std::atomic<FtpState> state_{FtpState::Idle};
     int timeout_ms_ = 3000;
     int max_retries_ = 3;
     uint16_t seq_number_ = 0;

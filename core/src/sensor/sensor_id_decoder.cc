@@ -18,73 +18,70 @@
  */
 
 #include "core/sensor/sensor_id_decoder.h"
-#include <fstream>
-#include <sstream>
+#include "core/util/json.h"
+
 #include <cstdlib>
+#include <fstream>
+#include <map>
+#include <memory>
+#include <sstream>
+#include <string>
 
 namespace mg::core::sensor {
 
-static std::string read_file(const std::string& path) {
+namespace {
+
+std::string read_file(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f.is_open()) return "";
     std::ostringstream ss; ss << f.rdbuf(); return ss.str();
-}
-
-static std::string find_str(const std::string& json, const std::string& key) {
-    std::string search = "\"" + key + "\"";
-    size_t pos = json.find(search);
-    if (pos == std::string::npos) return "";
-    pos = json.find(':', pos + search.size());
-    if (pos == std::string::npos) return "";
-    pos++;
-    while (pos < json.size() && json[pos] == ' ') pos++;
-    if (pos >= json.size()) return "";
-    if (json[pos] == '"') {
-        pos++;
-        size_t end = json.find('"', pos);
-        if (end == std::string::npos) return "";
-        return json.substr(pos, end - pos);
-    }
-    size_t end = pos;
-    while (end < json.size() && json[end] != ',' && json[end] != '}' &&
-           json[end] != ' ' && json[end] != '\n' && json[end] != '\r') end++;
-    return json.substr(pos, end - pos);
 }
 
 struct DevEntry {
     std::string name, sensor_type, family;
 };
 
-static void parse_section(const std::string& json, const std::string& section,
-                           std::map<int, DevEntry>& out) {
-    size_t sec_pos = json.find("\"" + section + "\"");
-    if (sec_pos == std::string::npos) return;
-    size_t obj_start = json.find('{', sec_pos);
-    if (obj_start == std::string::npos) return;
-    size_t pos = obj_start + 1;
-    int depth = 1;
-    while (pos < json.size() && depth > 0) {
-        if (json[pos] == '{') depth++;
-        else if (json[pos] == '}') { depth--; if (depth == 0) break; }
-        else if (json[pos] == '"') {
-            size_t kstart = pos + 1, kend = json.find('"', kstart);
-            if (kend == std::string::npos) break;
-            int key_int = (int)strtol(json.substr(kstart, kend - kstart).c_str(), nullptr, 0);
-            size_t inner_start = json.find('{', kend);
-            if (inner_start == std::string::npos) { pos = kend + 1; continue; }
-            size_t inner_end = json.find('}', inner_start);
-            if (inner_end == std::string::npos) break;
-            std::string inner = json.substr(inner_start, inner_end - inner_start + 1);
-            DevEntry e;
-            e.name = find_str(inner, "name");
-            e.sensor_type = find_str(inner, "sensor");
-            e.family = find_str(inner, "family");
-            if (!e.name.empty()) out[key_int] = e;
-            pos = inner_end + 1; continue;
-        }
-        pos++;
-    }
+/// cJSON 解析产物的所有权：由本包装负责释放。
+struct CJsonDeleter {
+    void operator()(cJSON* node) const { if (node) cJSON_Delete(node); }
+};
+using CJsonPtr = std::unique_ptr<cJSON, CJsonDeleter>;
+
+std::string string_field(const cJSON* object, const char* key) {
+    const cJSON* item = cJSON_GetObjectItemCaseSensitive(object, key);
+    if (!cJSON_IsString(item) || item->valuestring == nullptr) return "";
+    return item->valuestring;
 }
+
+/// 读取一个 `<section>` 对象段落：`{ "<devtype>": { name, sensor, family }, ... }`。
+/// 键沿用旧扫描器的 strtol(base 0) 解析；无名条目不入表（与旧行为一致）。
+/// 返回该段落是否至少写入了一条（旧扫描器用 `tmp.empty()` 判断是否回退到旧键名）。
+bool read_section(const cJSON* root, const char* section, std::map<int, DevEntry>& out) {
+    const cJSON* node = cJSON_GetObjectItemCaseSensitive(root, section);
+    if (!cJSON_IsObject(node)) return false;
+
+    const size_t before = out.size();
+    const cJSON* entry = nullptr;
+    cJSON_ArrayForEach(entry, node) {
+        if (entry->string == nullptr) continue;
+        DevEntry e;
+        e.name = string_field(entry, "name");
+        e.sensor_type = string_field(entry, "sensor");
+        e.family = string_field(entry, "family");
+        if (e.name.empty()) continue;
+        out[static_cast<int>(strtol(entry->string, nullptr, 0))] = e;
+    }
+    return out.size() > before;
+}
+
+/// 段落键名兼容：先试 primary，空则回退 legacy。
+void read_section_compat(const cJSON* root, const char* primary, const char* legacy,
+                         std::map<int, DevEntry>& out) {
+    if (read_section(root, primary, out)) return;
+    read_section(root, legacy, out);
+}
+
+}  // namespace
 
 SensorIdDecoder::SensorIdDecoder(const std::string& json_path) {
     if (!json_path.empty()) loaded_ = load_json(json_path);
@@ -93,49 +90,48 @@ SensorIdDecoder::SensorIdDecoder(const std::string& json_path) {
 SensorIdDecoder::~SensorIdDecoder() = default;
 
 bool SensorIdDecoder::load_json(const std::string& path) {
-    std::string json = read_file(path);
+    const std::string json = read_file(path);
     if (json.empty()) return false;
+
+    CJsonPtr root(mg::core::json::parse(json.c_str()));
+    if (!root || !cJSON_IsObject(root.get())) return false;
 
     // ArduPilot tables (backward-compatible: try old key names first)
     std::map<int, DevEntry> tmp;
-    
-    parse_section(json, "imu_devtypes", tmp);
-    if (tmp.empty()) parse_section(json, "ardupilot_imu_devtypes", tmp);
+
+    read_section_compat(root.get(), "imu_devtypes", "ardupilot_imu_devtypes", tmp);
     for (auto& [k, v] : tmp) ardu_ins_devtypes_[k] = {v.name, v.sensor_type, v.family};
     tmp.clear();
 
-    parse_section(json, "compass_devtypes", tmp);
-    if (tmp.empty()) parse_section(json, "ardupilot_compass_devtypes", tmp);
+    read_section_compat(root.get(), "compass_devtypes", "ardupilot_compass_devtypes", tmp);
     for (auto& [k, v] : tmp) ardu_compass_devtypes_[k] = {v.name, v.sensor_type, v.family};
     tmp.clear();
 
-    parse_section(json, "baro_devtypes", tmp);
-    if (tmp.empty()) parse_section(json, "ardupilot_baro_devtypes", tmp);
+    read_section_compat(root.get(), "baro_devtypes", "ardupilot_baro_devtypes", tmp);
     for (auto& [k, v] : tmp) ardu_baro_devtypes_[k] = {v.name, v.sensor_type, v.family};
     tmp.clear();
 
     // ArduPilot airspeed (ParamEntry style)
     {
         std::map<int, DevEntry> aspd_tmp;
-        parse_section(json, "airspeed_devtypes", aspd_tmp);
-        if (aspd_tmp.empty()) parse_section(json, "ardupilot_airspeed_devtypes", aspd_tmp);
+        read_section_compat(root.get(), "airspeed_devtypes", "ardupilot_airspeed_devtypes", aspd_tmp);
         for (auto& [k, v] : aspd_tmp) ardu_airspeed_types_[k] = {v.name, v.family};
     }
 
     // PX4 tables
-    parse_section(json, "px4_imu_devtypes", tmp);
+    read_section(root.get(), "px4_imu_devtypes", tmp);
     for (auto& [k, v] : tmp) px4_imu_devtypes_[k] = {v.name, v.sensor_type, v.family};
     tmp.clear();
 
-    parse_section(json, "px4_mag_devtypes", tmp);
+    read_section(root.get(), "px4_mag_devtypes", tmp);
     for (auto& [k, v] : tmp) px4_mag_devtypes_[k] = {v.name, v.sensor_type, v.family};
     tmp.clear();
 
-    parse_section(json, "px4_baro_devtypes", tmp);
+    read_section(root.get(), "px4_baro_devtypes", tmp);
     for (auto& [k, v] : tmp) px4_baro_devtypes_[k] = {v.name, v.sensor_type, v.family};
     tmp.clear();
 
-    parse_section(json, "px4_differential_pressure_devtypes", tmp);
+    read_section(root.get(), "px4_differential_pressure_devtypes", tmp);
     for (auto& [k, v] : tmp) px4_dp_devtypes_[k] = {v.name, v.sensor_type, v.family};
 
     loaded_ = true;

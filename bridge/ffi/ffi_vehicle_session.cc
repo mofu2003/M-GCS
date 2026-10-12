@@ -46,8 +46,11 @@ VehicleSessionView resolve_vehicle_session(mg_core_t* core) {
 
     const auto connection = t_target_core == core && t_connection
         ? t_connection : view.vehicle->command_connection();
-    // The calling worker holds both the connection and adapter lifetime.
-    view.mavlink = connection ? connection->get_mavlink() : nullptr;
+    // shared_mavlink() hands out an owning lease (never a borrowed pointer), so
+    // the view can keep the adapter alive while the caller blocks on it; a
+    // concurrent reset() may detach it but must not free it under the caller.
+    view.mavlink_lease = connection ? connection->shared_mavlink() : nullptr;
+    view.mavlink = view.mavlink_lease.get();
     view.connected = connection && connection->is_connected();
 
     if (view.mavlink) {
