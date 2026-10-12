@@ -43,8 +43,9 @@
 ### 1.4 遥测与仪表（`widgets/mg_telemetry_dashboard.dart`、`widgets/mg_top_status_bar.dart`）
 
 - 姿态、GPS、电池、高度、地速、航向等实时量与顶栏状态。
-- RC 通道、健康位、振动、IMU、气压、距离传感器、风速估计、ESC 状态、ADS-B、预解锁定检查等（`mg_vehicle_get_*`、`mg_health_get_all`）。
+- RC 通道、健康位、振动、IMU、气压、风速估计、ESC 状态、预解锁定检查等（`mg_vehicle_get_*`、`mg_health_get_all`）。
 - 实时波形（`components/realtime_waveform.dart` + `mg_waveform_*`）。
+- **未接线（诚实标注）**：ADS-B 与距离传感器。MAVLink 层已实现 `ADSB_VEHICLE` 处理（`on_adsb_vehicle` 回调 + `ADSBTracker` 类，见 `core/src/telemetry/adsb_tracker.cc`），但 `mg_vehicle_get_adsb_traffic`/`mg_vehicle_get_distance_sensors` 仍是返回空数组的存根，未把回调接到 tracker。接线完成前不计入"已交付"。
 
 ### 1.5 地图（`flutter_shell/lib/map/amap_map_view.dart`）
 

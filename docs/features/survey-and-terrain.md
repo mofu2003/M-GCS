@@ -27,7 +27,7 @@
 | 层 | 位置 | 状态 |
 |---|---|---|
 | 测绘计算 | `core/include/core/mission/survey_calculator.h`、`core/src/mission/survey_calculator.cc` | 已实现：`CameraSpec`、`SurveyConfig`、`CorridorConfig`、`SurveyResult`，以及 `generate_grid`/`generate_cross_grid`/`generate_corridor_scan`、GSD/重叠/触发距离计算 |
-| 测绘 FFI | `bridge/ffi/ffi_api_mission.h:100-101`、`bridge/ffi/ffi_survey_commands.cc` | 已导出：`mg_survey_generate`、`mg_survey_generate_corridor`；JSON 配置进，JSON 结果出（`valid`/`waypoint_count`/`flight_line_count`/`total_distance_m`/`estimated_time_s`/`area_m2`/`photo_count`/`waypoints`） |
+| 测绘 FFI | `bridge/ffi/ffi_api_mission.h:85-86`、`bridge/ffi/ffi_survey_commands.cc` | 已导出：`mg_survey_generate`、`mg_survey_generate_corridor`；JSON 配置进，JSON 结果出（`valid`/`waypoint_count`/`flight_line_count`/`total_distance_m`/`estimated_time_s`/`area_m2`/`photo_count`/`waypoints`） |
 | 地形存储 | `core/include/core/terrain/terrain_store.h`、`core/src/terrain/terrain_store.cc` | **S1 已实现**：`TerrainCache`（内存、0.01° 网格键、批量淘汰）+ `TerrainStore`（`store`/`store_batch`/`lookup`/`sample_line`/`clear`/`hit_rate`）。**core 不内置 HTTP 客户端**：高程由前端 provider 拉取后写入缓存 |
 | 地形 FFI | `bridge/ffi/ffi_api_environment.h:10-17`、`bridge/ffi/ffi_terrain_commands.cc` | 已导出：`mg_terrain_query`、`mg_terrain_query_line`、`mg_terrain_cache_update`、`mg_terrain_cache_clear`；缓存挂在 `mg_core_t` 上，跨调用共享 |
 | 导出 | `bridge/ffi/ffi_api_mission.h:92`、`bridge/ffi/ffi_mission_interchange.cc` | 已有：`mg_mission_doc_export_format`（`waypoints`/`plan`/`qgc_plan`），S3a 已接前端「导出文件」弹层 |
@@ -88,7 +88,7 @@
   - 设计取舍：**core 不内置 HTTPS 客户端**——macOS/Linux/Windows/Android 的 TLS 方案各异，塞进 core 会新增平台依赖（`architecture.md` A6）。因此「网络在 Flutter 层、缓存与采样在 core」，provider 可替换。
   - 未做：磁盘瓦片持久化（D3）、4×4 `TERRAIN_DATA` 回发（D4）、页面入口（D7）。
 - **S2 测绘生成进 UI（已完成）**：配置工作区新增「测绘规划」页（设置菜单入口），三模式（矩形网格 / 交叉网格 / 走廊扫描）配置区域与航线、相机与重叠参数，调用 `mg_survey_generate` / `mg_survey_generate_corridor`，展示航点数/航线数/航程/预计用时/覆盖面积/拍照数预览，并把结果并入任务文档。
-  - 交付物：`flutter_shell/lib/survey/{survey_models,survey_backend,survey_ffi_backend,survey_controller,survey_planning_page}.dart`；`connection_controller.dart` 暴露 `surveyController`；入口 `widgets/mg_settings_menu.dart`、`configuration/configuration_workspace.dart`。
+  - 交付物：`flutter_shell/lib/survey/survey_models.dart`、`flutter_shell/lib/survey/survey_backend.dart`、`flutter_shell/lib/survey/survey_ffi_backend.dart`、`flutter_shell/lib/survey/survey_controller.dart`、`flutter_shell/lib/survey/survey_planning_page.dart`；`connection_controller.dart` 暴露 `surveyController`；入口 `widgets/mg_settings_menu.dart`、`configuration/configuration_workspace.dart`。
   - 设计取舍：**生成「一次性航点」并入任务文档**，不做 QGC 式可编辑复杂项（D5）；**页面不持有 `dart:ffi`**，只经 `ConnectionController`（架构 A5）。`SurveyController.applyToMission` 在 `replaceDocument` 后显式复查 `mission.error` 与实体数增量，避免编辑失败被 `MissionDocumentController` 收进 `error` 后仍被当作成功。
   - 未做：地图上叠加显示航线（本页只做统计预览 + 并入任务；最终航线上传与 Home 确认仍在航线规划页）；自动上传（并入后由用户在航线规划页确认 Home 再上传）；KML/CSV 导出（D6 剩余部分，留待后续议题，S3b 未覆盖）。
 - **S3a 任务文件导出进 UI（已完成）**：任务规划面板新增「导出文件」按钮，弹层可选 `waypoints`（`.waypoints`，编译后任务项）或 QGC `.plan`（`.plan`，保留复杂项），复用已有 native `mg_mission_doc_export_format`，写盘到用户可编辑路径（默认 `getApplicationSupportDirectory()/missions/`）。

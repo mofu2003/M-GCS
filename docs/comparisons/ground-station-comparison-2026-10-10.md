@@ -29,7 +29,7 @@ M-GCS 的当前工作树不是纯 `HEAD`：它包含用户正在进行的收尾�
 | 飞行安全设计 | 安全规则最明确，覆盖 ACK、确认、过期状态、任务文件和取消；规则到实现仍有落差 | 安全 UI/固件插件/多链路成熟，但特定输入设备或旧状态路径也有例外 | 操作工具丰富且常直接面向 ArduPilot；确认、错误展示和状态建模不一致 | M-GCS 的规范质量突出；须把规范全面变成代码级门禁与端到端验证 |
 | 架构边界 | 清晰的 Flutter → FFI → core 分层，C FFI 有意稳定 | 最完整的成熟抽象：Vehicle、Fact、FirmwarePlugin、LinkManager、MissionManager、QML 元对象系统 | 功能积累深，但历史全局状态、界面、协议和固件逻辑耦合较多 | M-GCS 在小规模模块边界有优势；QGC 在边界的覆盖面、扩展经验和验证深度领先 |
 | 多机 | 有独立 Vehicle/session、共享链路和批量工作流 | 一等产品能力，车辆、链路、焦点与选择模型已有长期演进 | 可管理多连接及多种 ArduPilot 设备，但 UI/状态存在历史全局化 | M-GCS 与 QGC 架构目标接近，仍要继续验证重复 sysid、重连、断链、并行写入等边界 |
-| 工程治理 | 有清晰约束、37 个后端门禁和 Flutter 测试；本次新增 FFI 符号对齐与真实 smoke | C++20、强 lint、跨平台 CI、测试框架、sanitizer/coverage/hardening 选项 | Windows MSBuild 主路径和多平台旁支，构建/测试一致性较弱 | QGC 的自动化治理最强；M-GCS 比较容易加强但仍欠跨平台全矩阵 |
+| 工程治理 | 有清晰约束、39 个后端门禁和 Flutter 测试；本次新增 FFI 符号对齐与真实 smoke | C++20、强 lint、跨平台 CI、测试框架、sanitizer/coverage/hardening 选项 | Windows MSBuild 主路径和多平台旁支，构建/测试一致性较弱 | QGC 的自动化治理最强；M-GCS 比较容易加强但仍欠跨平台全矩阵 |
 | 平台适配 | 源码覆盖 macOS、Windows、Linux、Android；实际验证按主机分布 | 官方代码/CI 目标 Windows、macOS、Linux、Android、iOS | 主路径是 Windows 桌面；Android 可用，Linux 经 Mono 有限制，macOS/iOS 实验性 | M-GCS 的跨端目标接近 QGC，但本地通过 macOS 门禁不代表其他平台已交付 |
 
 **最准确的定位**：M-GCS 是“功能逐步补齐中的新架构地面站”，不是已经达到 QGC/MP 覆盖率的替代品。它当前最有价值的差异是把 ACK 结果、过期状态、危险动作确认、任务文档和可取消操作写成明确的安全契约；最大差距是功能闭环、跨平台实测和安全规则全覆盖。
@@ -126,7 +126,7 @@ M-GCS 有一套独立于 UI 的明确安全规则，涵盖拒绝传播、ACK 成
 | 观察点 | M-GCS | QGC | MP |
 | --- | --- | --- | --- |
 | 域模型/依赖 | 层次清楚，规模仍小；核心规则与几处依赖约束尚未完全兑现 | 抽象广、长期演进、多固件约束明确；模块和异步信号复杂度高 | 功能成熟、历史积累和全局状态较多，局部改动可能跨层 |
-| 测试 | 当前完整门禁 37 个 CTest offline/simulation 加 Flutter 测试；更多硬件/跨平台验证仍需 CI/设备 | 独立测试框架覆盖 Vehicle、Fact、Mission、Comms、Firmware、QML、Fuzz、Portable 等多个域 | 仓库有若干测试/CI，但核心 WinForms 功能的自动化覆盖密度和统一度偏低；不能把 `test` 文件夹存在等同全面验证 |
+| 测试 | 当前完整门禁 39 个 CTest offline/simulation 加 Flutter 测试；更多硬件/跨平台验证仍需 CI/设备 | 独立测试框架覆盖 Vehicle、Fact、Mission、Comms、Firmware、QML、Fuzz、Portable 等多个域 | 仓库有若干测试/CI，但核心 WinForms 功能的自动化覆盖密度和统一度偏低；不能把 `test` 文件夹存在等同全面验证 |
 | 静态检查 | clang warning、UI token、FFI 声明/绑定检查；部分禁区/架构规则仍是文本审查 | 明确的强制 lint/pre-commit、warnings-as-errors 和安全/覆盖开关 | 主要构建和编译验证集中于 Windows；当前项目文件关闭常规 analyzer 项 |
 | 可重现构建 | CMake/Flutter lockfile 清晰；Python MAVLink 生成和平台 SDK 需准备 | CMake preset + Qt/GStreamer/Android SDK 多工具链；依赖精确且重型 | Visual Studio、.NET Framework、NuGet、子模块和 Windows 工具链为主 |
 | 接口演进 | C ABI 替换前端方便，但导出 surface 已大，必须用 ABI 契约约束 | C++ QObject/Fact/QML 接口规模大，通过模块内部 contract 演进 | C# 项目内部调用直接、插件方便，但跨模块 API 边界与兼容规则分布较散 |
@@ -250,7 +250,7 @@ MP README 详细列出固件站点、更新 CDN、参数/日志元数据、地�
 - 规则与当前偏差：[safety.md](/Users/fansicheng/Projects/M-GCS/docs/constraints/safety.md:12)、[known-deviations.md](/Users/fansicheng/Projects/M-GCS/docs/constraints/known-deviations.md:12)、[parity.md](/Users/fansicheng/Projects/M-GCS/docs/constraints/parity.md:1)。
 - 多 Vehicle command submit/poll：[ffi_flight_commands.cc](/Users/fansicheng/Projects/M-GCS/bridge/ffi/ffi_flight_commands.cc) 的 `mg_command_submit_for_vehicle`/`mg_command_poll`、[flight_command_ffi_backend.dart](/Users/fansicheng/Projects/M-GCS/flutter_shell/lib/connection/flight_command_ffi_backend.dart) 的 submit/poll 绑定与 ticket 轮询。
 - Mission ACK 目标校验和失败处理：[mavlink_adapter_mission.cc](/Users/fansicheng/Projects/M-GCS/core/src/mavlink/mavlink_adapter_mission.cc:268)、[mission_transfer.h](/Users/fansicheng/Projects/M-GCS/core/src/mavlink/mission_transfer.h:66)。
-- Firmware flashing 占位：[firmware_flasher.cc](/Users/fansicheng/Projects/M-GCS/core/src/firmware/firmware_flasher.cc:52)。
+- Firmware flashing 占位：`core/src/firmware/firmware_flasher.cc` 与 `core/include/core/firmware/firmware_flasher.h` **已删除**（本轮大清洗判定为真正的死代码：零调用方、空占位、无测试，见 `docs/workflow/HANDOFF-2026-10-12.md:56`；删除尚未提交，因此 `CHANGELOG.md` 里还没有对应条目）；刷写入口现只剩 `bridge/ffi/ffi_commands.cc:165` 的 `mg_firmware_flash`，直接返回 `MG_ERROR_NOT_SUPPORTED`。
 - FFI 目录、绑定和本机库版本核对：[API_CATALOG.md](/Users/fansicheng/Projects/M-GCS/bridge/ffi/API_CATALOG.md:1)、[check_ffi_contract.py](/Users/fansicheng/Projects/M-GCS/tools/check_ffi_contract.py:1)。
 
 ### 复核发现：Mission Planner rejected MISSION_ITEM 仍更新缓存

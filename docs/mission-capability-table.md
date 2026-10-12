@@ -52,7 +52,7 @@
 
 ## 3. 命令 × 机型矩阵
 
-目录共 13 条命令（下表 16–206 这 13 行；`NAV_LOITER_UNLIM`(17) 未单列，其无限圈语义由飞控按 `NAV_LOITER_TURNS` 处理）。`●` = 该机型执行；空白 = 不执行，上传前会报
+目录共 13 条命令（下表 16–206 这 13 行；`NAV_LOITER_UNLIM`(17) 未单列，其无限圈语义由飞控按 `NAV_LOITER_TURNS` 处理）。**注意**：17 号不在目录里，而 `validate_document()` 对「目录里查不到描述符」的命令报的是 `entity.command_unsupported`（`core/src/mission/cad/mission_validation.cc:637-646`，判定经 `find_command_descriptor()`（`:36-45`）查 `mission_command_catalog()`，目录只有 `core/src/mission/cad/mission_command_catalog.cc:49-268` 列出的 13 条），因此含 17 号命令的文档**在上传前就会被 `mission_validation` 以 `entity.command_unsupported` 拒绝**，走不到 `command_vehicle_unsupported` 那一步。`●` = 该机型执行；空白 = 不执行，上传前会报
 `command_vehicle_unsupported`。
 
 | MAV_CMD | 名称 | Copter | Plane | VTOL | Rover | 参考实现 |

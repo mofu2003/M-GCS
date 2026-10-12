@@ -29,12 +29,12 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 | 云台 FFI | `bridge/ffi/ffi_api_payload.h:22-26`、`ffi_payload_commands.cc:96-129` | `mg_command_gimbal_control`/`recenter`/`request_info`/`configure` 都是发命令；**没有任何云台状态读接口** |
 | 视频 FFI | `bridge/ffi/ffi_api_payload.h:28-31`、`ffi_payload_commands.cc:131-189` | `mg_video_get_streams`（`:155`）已能从适配器读回真实流列表；`mg_video_status`（`:146`）返回**硬编码** `status:"stopped"`；`mg_video_start`（`:131`）**忽略 `uri` 并误发 `camera_start_video`**（真实缺陷，见 5 节 G1） |
 | 适配器解析 | `core/src/mavlink/mavlink_adapter_handlers.cc:591`（视频流，已存缓存）、`:622`（相机信息**只打日志**）、`:632`（拍照状态**只打日志**）、`:641`/`:646`（云台 manager info/status **只打日志**） | `VIDEO_STREAM_INFORMATION` 已进 `tel.video_streams`；相机与云台消息只落日志，没有任何状态缓存 |
-| 分发 | `core/src/mavlink/mavlink_adapter_dispatch.cc:259-273` | 已分发 261/254/269/280/281；**未分发** `GIMBAL_DEVICE_ATTITUDE_STATUS`(285)、`GIMBAL_DEVICE_INFORMATION`(283)、`CAMERA_SETTINGS`(260)、`STORAGE_INFORMATION`(262)、`VIDEO_STREAM_STATUS`(270) |
-| core 设备类 | `core/include/core/camera/camera_manager.h`、`core/src/camera/camera_manager.cc`、`core/include/core/video/video_receiver.h`、`core/src/video/video_receiver.cc` | `CameraManager`/`VideoReceiver` 存在且被 `Vehicle` 持有（`core/include/core/vehicle/vehicle.h:165-166,249-250`），但 `CameraManager::process_message` **全项目无调用点**（死代码）；`VideoReceiver::start` 的 FFmpeg 解码是注释占位（`core/src/video/video_receiver.cc:24-30`），只做元数据；**S1 已删除**（本仓库无任何调用点，见 3.1） |
-| 车辆转发 | `core/src/vehicle/vehicle.cc:958-973` | 仅把 `VIDEO_STREAM_INFORMATION` 转发进 `video().process_stream_info`；相机/云台无转发 |
+| 分发 | `core/src/mavlink/mavlink_adapter_dispatch.cc`（本行原引 `:259-273`，是 S1 改造前的旧行号，当前文件只有 263 行、已不含该范围；S1 后相机/云台/视频分发块见 `:206-242`） | 改造前：已分发 261/254/269/280/281；**未分发** `GIMBAL_DEVICE_ATTITUDE_STATUS`(285)、`GIMBAL_DEVICE_INFORMATION`(283)、`CAMERA_SETTINGS`(260)、`STORAGE_INFORMATION`(262)、`VIDEO_STREAM_STATUS`(270) |
+| core 设备类 | `core/include/core/camera/camera_manager.h`、`core/src/camera/camera_manager.cc`、`core/include/core/video/video_receiver.h`、`core/src/video/video_receiver.cc` | **S1 已删除**（本仓库无任何调用点，见 3.1）。删除前：`CameraManager`/`VideoReceiver` 存在且被 `Vehicle` 持有（`core/include/core/vehicle/vehicle.h:165-166,249-250`），但 `CameraManager::process_message` **全项目无调用点**（死代码）；`VideoReceiver::start` 的 FFmpeg 解码是注释占位（`core/src/video/video_receiver.cc:24-30`），只做元数据 |
+| 车辆转发 | `core/src/vehicle/vehicle.cc`（本行原引 `:958-973`，那是 S1 改造前的旧行号；当前文件 959 行，**该转发块已在 S1 随 `video()` 成员一并删除**，全文件已无视频转发代码） | 改造前：仅把 `VIDEO_STREAM_INFORMATION` 转发进 `video().process_stream_info`；相机/云台无转发 |
 | 前端 | `flutter_shell/lib/` | **0 绑定**：`rg` 在 `flutter_shell/lib` 找不到任何 `mg_camera_*`/`mg_gimbal_*`/`mg_video_*` 调用 |
 
-`docs/capabilities.md` 把 `ffi_api_payload.h` 标为 17 导出 / 0 接入 / 「待接入：已实现但无入口」。
+`docs/capabilities.md` 当时把 `ffi_api_payload.h` 标为 17 导出 / 0 接入 / 「待接入：已实现但无入口」。**现状已变**：S1–S4 后 `docs/capabilities.md:27` 记的是 25 导出 / 23 已接入前端 / 「部分接入」，剩余未接入的是少量内部或测试用途符号。
 
 ### 已发现的真实问题（本轮只读核对）
 

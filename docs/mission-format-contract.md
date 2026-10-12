@@ -61,16 +61,42 @@ M-GCS 原生建模、导出时重新生成的键（不参与保留）：
 - 根：`fileType`、`groundStation`、`version`、`mission`、`geoFence`、`rallyPoints`
 - `mission`：`version`、`firmwareType`、`vehicleType`、`cruiseSpeed`、
   `plannedHomePosition`、`items`
-- 任务项：`type`、`frame`、`command`、`autoContinue`、`params`、`coordinate`、`doJumpId`
+- 任务项：`type`、`frame`、`command`、`autoContinue`、`params`、`doJumpId`
+
+（三张已知键表见 `core/src/mission/cad/mission_qgc_plan.cc:75-85` 的
+`kSimpleItemKnownKeys`/`kMissionKnownKeys`/`kPlanRootKnownKeys`，导入时由
+`collect_extra_fields()`（定义 `:99`，模板签名 `:98`）按表取补集，导出时由
+`merge_object_fields()`（`:123`）回填。）
+
+**关于 `coordinate`：** 它在 `kSimpleItemKnownKeys` 里（`core/src/mission/cad/mission_qgc_plan.cc:77`），
+所以**不会**被 `collect_extra_fields()` 收进 `extensions_json` 走原文保留通道；但它是**只读键**——
+M-GCS 从它取值，从不写回它。
+
+- **导入时是 lat/lon/alt 的读取来源之一**：`:252-262` 与 `:1193-1203` 先读 `params`（`:240-251`/`:1181-1191`），
+  再被随后读到的 `coordinate` 覆盖；两者都只在「全局帧 + 该命令承载坐标」时生效
+  （`is_global_coordinate_frame` 与 `mission_command_uses_location` 双条件）。
+- **导出从不写它**：SimpleItem 导出只写 `params`（`simple_item_to_qgc_json` `:316-344`、
+  实体导出 `:937-965`），两处都没有 `AddItemToObject(..., "coordinate")`。全文对 `coordinate` 的
+  写入都是 `cJSON_AddItemToArray(coordinate, ...)`——即把值**追加进数组元素**，而不是把该键挂到
+  条目对象上；读取则一律是 `cJSON_GetArrayItem(coordinate, ...)`。二者方向相反，互不相干。
+- **因此它不在上方 :59-64 那份「导出时重新生成」的清单里**：那份清单是「会被重新生成写回的键」，
+  而 `coordinate` 属于「不被重新生成」的一侧。它与下面 :87 起那批键的差别在于路径不同、
+  结果也不同——extensions 里的键导入后被 `merge_object_fields()` **原样写回**（`:962`/`:988`/`:992`）；
+  `coordinate` 因为在已知键表里而**根本不进** extensions 通道，于是导出时无人写回它。
 
 除上述键以外的字段按原样保留：
 
 - 任务项：存进 `MissionEntity::extensions_json`，例如 `altitudeMode`、`altitude`、
   `AMSLAltAboveTerrain` 以及第三方扩展键；导出时回填到对应 SimpleItem。
 - `mission` 对象：存进 `extensions["qgc_plan.mission_fields"]`，例如 `hoverSpeed`、
-  `globalPlanAltitudeMode`。导出时回填；`hoverSpeed` 缺省才用 `defaults.speed_ms` 补齐，
-  每个键只出现一次。
-- 顶层：存进 `extensions["qgc_plan.root_fields"]`。
+  `globalPlanAltitudeMode`。**导出顺序是先无条件写默认值、再被导入原值覆盖**：导出先把
+  `cruiseSpeed` 与 `hoverSpeed` 都写成 `defaults.speed_ms`（`:836-837`），随后
+  `merge_object_fields()`（`:992`）把 `qgc_plan.mission_fields` 里的原值逐个
+  `cJSON_DeleteItemFromObjectCaseSensitive` 后写回，所以导入过的 `hoverSpeed` 会以原值
+  胜出、每个键只出现一次；**只有文档里没有该键时才留下 `defaults.speed_ms`**。
+  （不是「缺省才补齐」——默认值总是先写，只是随后被覆盖。）
+- 顶层：存进 `extensions["qgc_plan.root_fields"]`，导出时同样由 `merge_object_fields()`
+  （`:988`）覆盖写回。
 
 ComplexItem：
 
