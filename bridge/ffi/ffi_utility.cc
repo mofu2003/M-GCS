@@ -2,9 +2,9 @@
 /**
  * ffi_utility.cc - Section 8: Utility
  *
- * 工具函数：内存释放、版本号查询。
+ * 工具函数：返回字符串的内存释放。
  *
- * mg_free_string, mg_get_version
+ * mg_free_string
  */
 #include "ffi_internal.h"
 

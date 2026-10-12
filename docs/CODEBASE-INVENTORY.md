@@ -11,10 +11,10 @@
 |---|---|---|
 | 前端 | Flutter/Dart，`flutter_shell/lib` | 30 个页面/面板 + 9 控制器 + 17 后端 + 20 组件 |
 | 桥接 | C ABI，`bridge/ffi` | 11 个公开头，**154** 个导出（130 已绑定）+ 2 个公开类型 |
-| 核心 | C++17，`core/` | 13 个模块 |
+| 核心 | C++17，`core/` | 15 个模块 |
 | 第三方 | `third_party/` | MAVLink 生成头、cJSON（禁止修改） |
 | 测试 | 42 个套件 | 33 core + 6 顶层 + 4 硬件/手工 |
-| 工具 | `tools/` | 22 个脚本（6 个进 preflight 门禁） |
+| 工具 | `tools/` | 20 个脚本 + 2 份基线 JSON（6 个进 preflight 门禁） |
 
 依赖方向：`flutter_shell → bridge/ffi → core → third_party`（单向，架构 A1 由编译期强制）。
 
@@ -271,11 +271,37 @@
 | 2 | `core/sitl/`（`SitlLauncher`） | 291 行 | 类从未被实例化；`mg_core_t::sitl` 成员**从未被访问**（`mg_sitl_*` 导出已删）。`test_sitl_mission_scenario.cc` 是从外部驱动 SITL，不用这个类 |
 | 3 | `core/telemetry/adsb_tracker.{h,cc}`（`ADSBTracker`） | 193 行 | 类从未被实例化；MAVLink 层有 `on_adsb_vehicle` 回调（有测试），但没有任何代码把它接进 tracker |
 
-**处置**：三处已删除（与前三轮口径一致）。同步改动：`ffi_api.h` 去掉 include、
+**处置（第 4 轮）**：三处已删除（与前三轮口径一致）。同步改动：`ffi_api.h` 去掉 include、
 `ffi_core_context.h` 去掉 `sitl` 成员与 include、`test_bridge_architecture_guards.cc`
 的头文件名单、`CMakeLists.txt` 的两条源文件、API 能力表里 `ffi_api_environment.h` 的
 陈规定位。**注意**：这三处不产出 FFI 符号（空头 + 两个从未实例化的内部类），
 所以公开导出数量不变（仍 154）。
+
+### 6.1 第 4 轮复查（删除后的孤儿代码）
+
+前几轮删掉导出后，一批**只服务那些导出的实现**失去调用方却留了下来。本轮按
+「函数体级可达性分析 + 编译器 `-Wunused` 告警」两条路交叉确认并清除：
+
+| 位置 | 内容 |
+|---|---|
+| `ffi_commands.cc` | `export_connected_plan_json`（原 `mg_fence/rally_get_plan` 用） |
+| `ffi_config.cc` | `infer_param_type`、`other_parameter_group`、`param_desc_json`、`config_read_group_json`、`kOtherParameterGroup`（原参数分组接口用） |
+| `ffi_params.cc` | `parse_change_set`、`change_set_json`、`disposition_name`（原变更集接口用） |
+| `ffi_helpers.h` | `cal_result_json`、`cal_history_json`、`cal_retry_json` |
+| `ffi_internal.h` | `get_active_ring_buffer`、`ffi_set_param`、`ffi_fmt_param` |
+| `ffi_serial.cc` | `serial_port_name_from_param` + 3 张串口参数表（原 `mg_serial_get_configs` 用） |
+| `mission_json_serializers.h` | `mission_progress_json` |
+| `mavlink_adapter.h` | `MissionCurrentInfo` 结构、`command_outcome_name` |
+| 整文件删除 | `mission_json_parser.h`、`sensor_decode_json_serializers.h`、`config_descriptors.h` |
+
+同时补回 4 处**功能仍在、测试却没了**的覆盖缺口（详见 `CHANGELOG.md`）：
+`mg_telemetry_get_messages`（前端消息面板的唯一数据源，此前零覆盖）、
+`mg_error_string` 的 F3 所有权契约、校准 MGCAL1 落盘的 wall-clock 时间戳、
+硬件工具里退化成恒真的健康就绪门。
+
+**一处方法论提醒**：可达性分析若只匹配 `name(`，会漏掉**函数指针与模板实参**
+（如 `TelemetryGroup<..., gps_json>` 里没有括号）。本轮的 JSON 序列化器就是
+这样被误判成死代码的——务必用裸名 `name` 复核。
 
 ---
 
@@ -301,4 +327,5 @@
 | FFI 事件推送 | 删除（采用轮询，KD-27 已同步） |
 | 空壳源文件 | 删除 9 个（`ffi_actuator` / `ffi_health` / `ffi_logging` / `ffi_rc_config` / `ffi_sensor_decode` / `ffi_sitl_commands` / `ffi_vehicle_info` / `ffi_preflight_commands` / `ffi_flight_mode_state`） |
 | API 目录 | 新增「公开类型」段（此前 typedef 是盲区） |
-| 三轮累计 | 213 文件变更，+786 / −18425 行 |
+| 第 4 轮复查新增清理 | 见 §6.1 |
+| 累计 | 231 文件变更，+903 / −19040 行 |

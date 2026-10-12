@@ -316,14 +316,6 @@ struct ExtendedSysStateInfo {
     uint8_t landed_state = 0;   // MAV_LANDED_STATE
 };
 
-/// 当前任务航点序列号（msg id 42）
-struct MissionCurrentInfo {
-    uint8_t  system_id = 0;
-    uint16_t seq = 0;           // Current mission item sequence number
-    uint8_t  total = 0;         // Total mission items (ArduPilot 4.0+)
-    uint8_t  mission_mode = 0;  // Mission mode (ArduPilot 4.0+)
-};
-
 
 /// 起飞前检查状态（msg id 415）— 检查失败位掩码
 struct PrearmCheckInfo {

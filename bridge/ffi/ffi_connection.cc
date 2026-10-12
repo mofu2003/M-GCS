@@ -1,11 +1,10 @@
 ﻿#define MGCORE_EXPORTS
 /**
- * ffi_connection.cc - 生命周期、事件、连接与数据流相关 FFI
+ * ffi_connection.cc - 生命周期、连接与数据流相关 FFI
  *
- * 生命周期管理、事件回调、连接建立/断开、数据流间隔设置。
+ * 核心实例生命周期、连接建立/断开、数据流间隔设置。
  *
- * mg_create, mg_destroy, mg_set_event_callback,
- * mg_connection_list_ports, mg_stream_set_interval
+ * mg_create, mg_destroy, mg_connection_list_ports, mg_stream_set_interval
  */
 #include "ffi_internal.h"
 #include "core/platform/platform_filesystem.h"

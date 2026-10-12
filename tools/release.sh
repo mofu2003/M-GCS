@@ -66,7 +66,7 @@ NEXT_VERSION="$next_pubspec_version" perl -0pi -e \
   's/^version: \K[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+$/$ENV{NEXT_VERSION}/m' \
   "$pubspec_file"
 
-# Keep the FFI version macros (mg_get_version) in sync with the project version.
+# Keep the FFI version macros in sync with the project version.
 major="${version%%.*}"
 rest="${version#*.}"
 minor="${rest%%.*}"
