@@ -55,33 +55,6 @@ inline std::string mission_plan_json(
     jb.end_object();
     return jb.str();
 }
-
-inline std::string mission_progress_json(const mg::core::mission::MissionTransferProgress& p) {
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    const char* state_str = "idle";
-    switch (p.state) {
-        case mg::core::mission::MissionState::Idle:        state_str = "idle"; break;
-        case mg::core::mission::MissionState::Downloading: state_str = "downloading"; break;
-        case mg::core::mission::MissionState::Uploading:   state_str = "uploading"; break;
-        case mg::core::mission::MissionState::WaitingAck:  state_str = "waiting_ack"; break;
-    }
-    jb.field("state",    state_str);
-    jb.field("total",    static_cast<int>(p.total));
-    jb.field("received", static_cast<int>(p.received));
-    jb.field("sent",     static_cast<int>(p.sent));
-    jb.field("result",   static_cast<int>(p.result));
-    jb.field("error",    p.error);
-    int pct = 0;
-    if (p.total > 0) {
-        if (p.received > 0) pct = (p.received * 100) / p.total;
-        else if (p.sent > 0) pct = (p.sent * 100) / p.total;
-    }
-    jb.field("progress_pct", pct);
-    jb.end_object();
-    return jb.str();
-}
-
 } // namespace mg::bridge
 
 #endif /* MGCORE_MISSION_JSON_SERIALIZERS_H */

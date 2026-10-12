@@ -13,32 +13,6 @@
 #include <fstream>
 #include <sstream>
 #include <cctype>
-
-static const char* ap_serial_params[] = {
-    "SERIAL0_BAUD", "SERIAL1_BAUD", "SERIAL2_BAUD", "SERIAL3_BAUD",
-    "SERIAL4_BAUD", "SERIAL5_BAUD", "SERIAL6_BAUD", "SERIAL7_BAUD", NULL
-};
-static const char* ap_proto_params[] = {
-    "SERIAL0_PROTOCOL", "SERIAL1_PROTOCOL", "SERIAL2_PROTOCOL", "SERIAL3_PROTOCOL",
-    "SERIAL4_PROTOCOL", "SERIAL5_PROTOCOL", "SERIAL6_PROTOCOL", "SERIAL7_PROTOCOL", NULL
-};
-
-static const char* ap_proto_names[] = {
-    "Disabled", "MAVLink2", "Serial/MAVLink", "GPS", "FrSky D",
-    "FrSky S", "FrSky FPort", "VTX Telemetry", "FrSky FPort2", NULL
-};
-
-static std::string serial_port_name_from_param(const char* param_name) {
-    std::string name = param_name ? param_name : "";
-    const std::string baud_suffix = "_BAUD";
-    if (name.size() >= baud_suffix.size() &&
-        name.compare(name.size() - baud_suffix.size(), baud_suffix.size(), baud_suffix) == 0) {
-        name.resize(name.size() - baud_suffix.size());
-    }
-    return name;
-}
-
-
 // Read the board-specific SERIALn -> UART/USART mapping exposed by
 // ArduPilot's @SYS/uarts.txt. SERIAL numbers are logical and must not be
 // converted to UART letters by arithmetic.

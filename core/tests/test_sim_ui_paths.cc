@@ -13,9 +13,13 @@
 #include "ardupilotmega/mavlink.h"
 #include "core/transport/link_session.h"
 #include "core/event/event_codes.h"
+#include "core/util/json.h"
+#define CJSON_NESTING_LIMIT 20
+#include "cJSON.h"
 #include "core/vehicle/vehicle.h"
 
 #include <chrono>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -614,8 +618,60 @@ void test_log_erase_gating() {
     std::filesystem::remove(path, ec);
 }
 
-// 飞行日志声明会采集飞控 STATUSTEXT，但状态转发以前没接线。这条用例要求
-// 事件真的落到 mg_event_log_get_events 里。
+/// STATUSTEXT → 结构化消息历史。这是前端 `native_core.messages()` 的数据源，
+/// 也是「飞控文本能进消息面板」的唯一公开入口（旧的事件日志导出已删除）。
+void test_statustext_reaches_structured_message_history() {
+    fprintf(stderr, "\n[Group] mg_telemetry_get_messages\n");
+    TestEnv env;
+    env.connect();
+
+    // 响应形如 {"success":true,"total":N,"messages":[...]}；连接阶段可能已有消息，
+    // 所以基线只取当前 seq，再断言新增的那条。
+    uint64_t baseline = 0;
+    {
+        char* initial = mg_telemetry_get_messages(env.core, 0);
+        CHECK(initial != nullptr && json_has(initial, "\"success\":true"),
+              "message history returns a success envelope");
+        CHECK(json_has(initial, "\"messages\":["), "history carries a messages array");
+        cJSON* root = initial ? mg::core::json::parse(initial) : nullptr;
+        cJSON* total = root ? cJSON_GetObjectItemCaseSensitive(root, "total") : nullptr;
+        if (cJSON_IsNumber(total)) baseline = static_cast<uint64_t>(total->valuedouble);
+        cJSON_Delete(root);
+        if (initial) mg_free_string(initial);
+    }
+
+    env.mock->send_statustext("PreArm: Throttle too high", 4);
+    env.tick(50);
+
+    char* messages = mg_telemetry_get_messages(env.core, baseline);
+    CHECK(json_has(messages, "PreArm: Throttle too high"),
+          "STATUSTEXT text reaches the structured history");
+    CHECK(json_has(messages, "\"severity\":4"), "severity is preserved as a number");
+    CHECK(json_has(messages, "\"severity_name\":\"warning\""),
+          "severity carries a readable label for the message panel");
+    CHECK(json_has(messages, "\"timestamp_ms\""), "entries carry a timestamp");
+
+    // 同一条消息不能重复投递：用刚拿到的 seq 再查一次，应查不到它。
+    uint64_t newest = baseline;
+    {
+        cJSON* root = messages ? mg::core::json::parse(messages) : nullptr;
+        cJSON* arr = root ? cJSON_GetObjectItemCaseSensitive(root, "messages") : nullptr;
+        const int n = cJSON_IsArray(arr) ? cJSON_GetArraySize(arr) : 0;
+        for (int i = 0; i < n; i++) {
+            cJSON* item = cJSON_GetArrayItem(arr, i);
+            cJSON* seq = item ? cJSON_GetObjectItemCaseSensitive(item, "seq") : nullptr;
+            if (cJSON_IsNumber(seq)) newest = std::max(newest, static_cast<uint64_t>(seq->valuedouble));
+        }
+        cJSON_Delete(root);
+    }
+    if (messages) mg_free_string(messages);
+    CHECK(newest > baseline, "a new message advances the sequence");
+
+    char* after = mg_telemetry_get_messages(env.core, newest);
+    CHECK(after != nullptr && strstr(after, "Throttle too high") == nullptr,
+          "since_seq filters out already-delivered messages");
+    if (after) mg_free_string(after);
+}
 
 void test_mission_request_propagates_send_failure() {
     fprintf(stderr, "\n[Group] mg_mission_download\n");
@@ -1100,6 +1156,7 @@ int main() {
     test_log_download_truncation_is_reported();
     test_log_download_unknown_size_is_unverified();
     test_log_erase_gating();
+    test_statustext_reaches_structured_message_history();
     test_mission_request_propagates_send_failure();
     test_serial_get_uart_names();
     test_fs_transfer_async_ffi();

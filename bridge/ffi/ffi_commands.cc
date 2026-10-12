@@ -31,16 +31,6 @@ static char* send_active_request(mg_core_t* core, const char* error_reason, Send
         ? ok()
         : fail(MG_ERROR_SEND_FAILED, error_reason);
 }
-
-template <typename Getter>
-static char* export_connected_plan_json(mg_core_t* core, Getter&& getter) {
-    CHECK_CORE(core);
-    auto mav = shared_active_mavlink(core);
-    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "no active vehicle");
-    return to_cstr(mg::bridge::mission_plan_json(
-        getter(*mav), ffi_param_profile(core)));
-}
-
 // ================================================================
 // 任务相关操作：JSON 解析使用 cJSON
 // ================================================================

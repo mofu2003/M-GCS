@@ -85,6 +85,14 @@ def strip_comments_and_strings(text: str) -> str:
                 i += 1
             i += 2
             continue
+        # 数字分隔符：C++14 的 1'000'000 里那个撇号不是字符字面量的起始。
+        # 误判会让后面的逗号被吞进「字符字面量」，CHECK(a, "msg") 被切成 1 个参数，
+        # 既可能误报「没有消息」，也可能漏掉真实的假断言。
+        if ch == "'" and i > 0 and text[i - 1].isdigit() \
+                and i + 1 < n and text[i + 1].isdigit():
+            out.append(ch)
+            i += 1
+            continue
         if ch in "\"'":
             quote = ch
             i += 1
@@ -315,6 +323,9 @@ SELF_TEST_SAMPLES = {
 
 SELF_TEST_CLEAN = {
     "正常断言": "static void test_x() {\n  CHECK(value == 7, \"value\");\n}\n",
+    "数字分隔符不算字符字面量": (
+        "static void test_x() {\n  CHECK(stamp > 1'000'000LL, \"epoch ms\");\n}\n"
+    ),
     "两条断言": "static void test_x() {\n  CHECK(r != nullptr, \"non-null\");\n  CHECK(r->count == 3, \"count\");\n}\n",
 }
 

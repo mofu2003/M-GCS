@@ -202,18 +202,6 @@ enum class CommandOutcome : uint8_t {
     SendFailed,   // 链路层发送失败，命令没有离开本机
 };
 
-/// 稳定符号名，作为 FFI 响应里的 `outcome` 字段（小写 snake_case）。
-inline const char* command_outcome_name(CommandOutcome outcome) {
-    switch (outcome) {
-        case CommandOutcome::Accepted:   return "accepted";
-        case CommandOutcome::Rejected:   return "rejected";
-        case CommandOutcome::InProgress: return "in_progress";
-        case CommandOutcome::Timeout:    return "timeout";
-        case CommandOutcome::SendFailed: return "send_failed";
-    }
-    return "unknown";
-}
-
 /// 命令确认信息（msg id 77）— 命令执行结果
 struct CommandAckInfo {
     uint8_t result = 0;          // MAV_RESULT_xxx

@@ -56,65 +56,6 @@ inline std::string cal_status_json(const mg::core::calibration::CalibrationStatu
     jb.end_object();
     return jb.str();
 }
-
-inline std::string cal_result_json(const mg::core::calibration::CalibrationResult& r) {
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("type",     mg::core::calibration::CalibrationValidator::type_string(r.type));
-    jb.field("stage",    mg::core::calibration::CalibrationValidator::stage_string(r.stage));
-    jb.field("quality",  mg::core::calibration::CalibrationValidator::quality_string(r.quality));
-    jb.field("timestamp_ms", (int64_t)r.timestamp_ms);
-
-    if (r.type == mg::core::calibration::CalibrationType::Accelerometer) {
-        const char* accel_mode = r.accel_mode == mg::core::calibration::AccelCalMode::Trim
-            ? "level"
-            : r.accel_mode == mg::core::calibration::AccelCalMode::Simple
-            ? "simple"
-            : "six_face";
-        jb.field("accelerometer_mode", accel_mode);
-    }
-
-    { mg::core::telemetry::JsonBuilder sub; sub.begin_object(); sub.field("x", r.offset_x); sub.field("y", r.offset_y); sub.field("z", r.offset_z); sub.end_object(); jb.raw_field("offsets", sub.str()); }
-
-    if (r.type == mg::core::calibration::CalibrationType::Accelerometer) {
-        mg::core::telemetry::JsonBuilder sub; sub.begin_object(); sub.field("x", r.scale_x); sub.field("y", r.scale_y); sub.field("z", r.scale_z); sub.end_object(); jb.raw_field("scale", sub.str());
-    }
-
-    if (r.type == mg::core::calibration::CalibrationType::Magnetometer) {
-        jb.field("fitness", r.fitness);
-        { mg::core::telemetry::JsonBuilder sub; sub.begin_object(); sub.field("x", r.diagonal_x); sub.field("y", r.diagonal_y); sub.field("z", r.diagonal_z); sub.end_object(); jb.raw_field("diagonals", sub.str()); }
-        { mg::core::telemetry::JsonBuilder sub; sub.begin_object(); sub.field("x", r.offdiag_x); sub.field("y", r.offdiag_y); sub.field("z", r.offdiag_z); sub.end_object(); jb.raw_field("offdiagonals", sub.str()); }
-    }
-
-    { mg::core::telemetry::JsonBuilder sub; sub.begin_object(); sub.field("x", r.prev_offset_x); sub.field("y", r.prev_offset_y); sub.field("z", r.prev_offset_z); sub.end_object(); jb.raw_field("previous_offsets", sub.str()); }
-
-    jb.field("progress", (int)r.progress);
-    jb.field("current_step", (int)r.current_step);
-    jb.field("total_steps", (int)r.total_steps);
-    jb.field("failure_reason", r.failure_reason);
-    jb.end_object();
-    return jb.str();
-}
-
-inline std::string cal_history_json(const std::vector<mg::core::calibration::CalibrationResult>& results) {
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_array();
-    for (const auto& r : results) { jb.append_json(cal_result_json(r)); }
-    jb.end_array();
-    return jb.str();
-}
-
-inline std::string cal_retry_json(const mg::core::calibration::RetryInfo& retry) {
-    mg::core::telemetry::JsonBuilder jb;
-    jb.begin_object();
-    jb.field("retry_count", retry.retry_count);
-    jb.field("max_retries", retry.max_retries);
-    jb.field("backoff_ms", retry.backoff_ms);
-    jb.field("last_failure", retry.last_failure);
-    jb.end_object();
-    return jb.str();
-}
-
 } // namespace ffi_helpers
 } // namespace bridge
 } // namespace mg

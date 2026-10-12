@@ -15,6 +15,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <sstream>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -589,6 +590,24 @@ static void test_history_is_flushed_to_disk_outside_the_lock() {
           "gyro record persisted with MGCAL1 format");
     CHECK(content.find("Failed to read calibration parameters") != std::string::npos,
           "failure reason persisted verbatim");
+
+    // MGCAL1 <type> <stage> <quality> <timestamp_ms> ...：时间戳是审计要素，
+    // 必须是 wall-clock epoch 毫秒（13 位），不能退化成 steady_clock 的相对值。
+    {
+        const auto at = content.find("MGCAL1 ");
+        CHECK(at != std::string::npos, "MGCAL1 line is present");
+        std::istringstream line(content.substr(at));
+        std::string version;
+        int type = 0, stage = 0, quality = 0;
+        long long stamp = 0;
+        line >> version >> type >> stage >> quality >> stamp;
+        CHECK(stamp > 1000000000000LL,
+              "persisted calibration timestamp is wall-clock epoch milliseconds");
+        const long long now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        CHECK(stamp <= now && now - stamp < 60000,
+              "persisted timestamp is close to the current wall-clock time");
+    }
 }
 
 static void test_statustext_progress() {

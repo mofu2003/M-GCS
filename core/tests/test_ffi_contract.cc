@@ -44,6 +44,30 @@ int main() {
         mg_destroy(core);
     }
 
+    // 1c. F3 所有权：mg_error_string 必须回常量，调用方不得 mg_free_string。
+    // 一旦改成返回堆分配字符串，调用方按文档释放就会 double-free / 破坏堆。
+    fprintf(stderr, "[Group] F3 mg_error_string ownership\n");
+    {
+        // 同一入参两次调用必须返回同一地址（常量，而非每次新建）。
+        for (int code = 0; code >= -16; --code) {
+            const char* first = mg_error_string(static_cast<mg_error_t>(code));
+            const char* second = mg_error_string(static_cast<mg_error_t>(code));
+            CHECK(first != nullptr, "known error code has a description");
+            CHECK(first == second,
+                  "mg_error_string returns the same constant pointer for a known code");
+        }
+        // 未知码也必须回非空常量，而不是 nullptr。
+        const char* unknown = mg_error_string(static_cast<mg_error_t>(-999));
+        CHECK(unknown != nullptr && std::strlen(unknown) > 0,
+              "unknown error code still returns a non-empty constant");
+        CHECK(unknown == mg_error_string(static_cast<mg_error_t>(-999)),
+              "unknown error code returns a stable constant");
+        // 与响应体里的 error.name 同源：两者对同一码必须一致地非空。
+        CHECK(std::strcmp(ffi_error_name(MG_ERROR_TIMEOUT),
+                          ffi_error_name(MG_ERROR_TIMEOUT)) == 0,
+              "ffi_error_name is stable for the same code");
+    }
+
     // 2. Null safety - all functions should not crash with null core
     fprintf(stderr, "[Group] Null safety\n");
     {

@@ -103,7 +103,10 @@ static bool has_product_name(mg_core_t* core) {
 
 static bool has_health_snapshot(mg_core_t* core) {
     char* health = mg_sensors_get_health(core);
-    bool ready = health && strstr(health, "\"present\":");
+    // 无缓存时该接口回 {"present":0,"enabled":0,"health":0}——"present" 恒存在，
+    // 拿它当就绪门等于恒真。只有真收到 SYS_STATUS 才会带出 summary/groups 段。
+    bool ready = health && strstr(health, "\"summary\":") != nullptr &&
+                 strstr(health, "\"groups\":") != nullptr;
     mg_free_string(health);
     return ready;
 }

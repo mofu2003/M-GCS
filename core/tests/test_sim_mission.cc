@@ -151,13 +151,6 @@ static bool upload_waypoints(TestEnv& env,
 }
 
 /// 当前任务文档的快照 JSON（成功时含 document 与 revision）。
-static std::string mission_document_json(mg_core_t* core) {
-    char* doc = mg_mission_doc_get(core);
-    std::string out = doc ? doc : "";
-    if (doc) mg_free_string(doc);
-    return out;
-}
-
 /// 从飞控回读任务并返回文档快照 JSON（下载路径）。
 static std::string vehicle_document_json(mg_core_t* core) {
     char* imported = mg_mission_doc_import_from_vehicle(core);

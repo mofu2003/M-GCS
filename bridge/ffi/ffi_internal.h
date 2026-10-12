@@ -203,9 +203,6 @@ inline mg::core::settings::FlightLoggingService& get_active_flight_log(mg_core_t
 inline mg::core::sensor::SensorIdDecoder& get_active_sensor_decoder(mg_core_t* core) {
     return get_active_vehicle(core)->sensor_decoder();
 }
-inline mg::core::telemetry::TelemetryRingBuffer& get_active_ring_buffer(mg_core_t* core) {
-    return get_active_vehicle(core)->ring_buffer();
-}
 inline mg::core::telemetry::WaveformBuffer* get_active_waveform(mg_core_t* core,
                                                                 size_t instance) {
     auto* vehicle = get_active_vehicle(core);
@@ -264,20 +261,6 @@ inline float ffi_get_param(mg_core_t* core, const char* name) {
     return p.has_value() ? p->value : 0;
 }
 
-/// Set a parameter value by name. Returns true on success.
-inline bool ffi_set_param(mg_core_t* core, const char* name, float value) {
-    auto mav = shared_active_mavlink(core);
-    if (!mav || !name) return false;
-    return mav->set_param(active_target_sys(core), active_target_comp(core), name, value, 0);
-}
-
-/// Format a parameter name with a numeric suffix (e.g. "SERVO%d_MIN" + 1 -> "SERVO1_MIN").
-inline std::string ffi_fmt_param(const char* fmt, int num) {
-    if (!fmt) return "";
-    char buf[64];
-    snprintf(buf, sizeof(buf), fmt, num);
-    return std::string(buf);
-}
 // Global singleton for parameter descriptor database.
 // Loaded once from ParameterDescriptors.json on first access.
 inline mg::core::config::ParamDescriptors& get_desc_db() {
