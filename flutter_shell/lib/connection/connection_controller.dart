@@ -31,6 +31,7 @@ import 'flight_command_ffi_backend.dart';
 import 'native_core.dart';
 import 'signing_controller.dart';
 import 'signing_key_store.dart';
+import 'vehicle_session_assembler.dart';
 import 'waveform_controller.dart';
 
 export 'waveform_controller.dart';
@@ -494,6 +495,9 @@ final class ConnectionController extends ChangeNotifier {
   /// 初始化失败时为 null，此时仅 [initializationError] 可用。
   NativeCore? _native;
 
+  /// 装配器：管理所有后端与控制器的生命周期
+  late final VehicleSessionAssembler _assembler;
+
   MissionDocumentController? _offlineMissionPlanning;
   final Map<int, MissionDocumentController> _missionPlanningBySession = {};
 
@@ -544,14 +548,11 @@ final class ConnectionController extends ChangeNotifier {
         ),
       );
 
-  TelemetryFfiBackend get telemetryBackend => _telemetryBackend ??=
-      TelemetryFfiBackend(_requireNative().library, _requireNative().handle);
+  TelemetryFfiBackend get telemetryBackend => _assembler.telemetryBackend;
 
-  ParameterFfiBackend get parameterBackend => _parameterBackend ??=
-      ParameterFfiBackend(_requireNative().library, _requireNative().handle);
+  ParameterFfiBackend get parameterBackend => _assembler.parameterBackend;
 
-  CalibrationFfiBackend get calibrationBackend => _calibrationBackend ??=
-      CalibrationFfiBackend(_requireNative().library, _requireNative().handle);
+  CalibrationFfiBackend get calibrationBackend => _assembler.calibrationBackend;
 
   FlightCommandFfiBackend get flightCommandBackend =>
       _flightCommandBackend ??= FlightCommandFfiBackend(
@@ -1704,6 +1705,13 @@ final class ConnectionController extends ChangeNotifier {
   void _initialize() {
     try {
       _native = NativeCore.open();
+      _assembler = VehicleSessionAssembler(
+        nativeCore: _native!,
+        telemetryBackendOverride: _telemetryBackend,
+        parameterBackendOverride: _parameterBackend,
+        calibrationBackendOverride: _calibrationBackend,
+        flightCommandBackendOverride: _flightCommandBackend,
+      );
       _fleet = FleetController(
         FleetFfiBackend(_native!.library, _native!.handle),
         canChangeFocus: _canSwitchActiveVehicle,
