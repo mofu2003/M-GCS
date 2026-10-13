@@ -1,7 +1,7 @@
 # ADR-0011: 固件参数名持有机制与循环依赖处理
 
 **状态**: Accepted  
-**日期**: 2025-01-15  
+**日期**: 2026-10-13
 **作者**: Architecture Team  
 **关联**: S6 (`docs/constraints/safety.md`)、门禁 (`tools/check_firmware_literals.py`)、VTOL 识别修复
 

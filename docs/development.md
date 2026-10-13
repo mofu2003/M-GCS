@@ -56,6 +56,21 @@ Release 产物，随后 Flutter 内嵌或 preflight 的 FFI 符号核对会加�
 cd flutter_shell && flutter run -d macos
 ```
 
+### 非交互式热重载（可选）
+
+后台/无控制终端运行时，`flutter run` 不安装 raw-mode 按键处理，`r`（热重载）与 `R`（热重启）
+不可达。`tools/flutter-pty-run.py` 用 pty 让 flutter 独占控制终端，并把按键通过 UNIX 套接字送入：
+
+```bash
+python3 tools/flutter-pty-run.py --workdir flutter_shell -- flutter run -d macos --debug
+python3 tools/flutter-pty-run.py --send r    # 热重载
+python3 tools/flutter-pty-run.py --send R    # 热重启
+python3 tools/flutter-pty-run.py --send q    # 退出
+```
+
+输出同时镜像到日志文件（默认 `/tmp/mgcs-flutter-run.log`），控制套接字默认
+`/tmp/mgcs-flutter-ctl.sock`。该脚本只用于本机开发，不参与构建产物，也不属于门禁。
+
 ### 启用本地视频解码（可选）
 
 默认构建是 `MGCORE_HAS_FFMPEG=OFF`，相机与云台页会诚实显示「本平台未启用本地视频解码」，也不会画录制控件。

@@ -55,7 +55,7 @@
 
 **门禁规则**：
 - `tools/check_firmware_literals.py` 挡住新增字面量
-- 豁免范围：`core/src/firmware/` 中插件实现路径（此处参数名持有是合法的）
+- 豁免范围：`core/src/firmware/*.cc` 与 `core/src/firmware/*.h`（插件实现文件，此处持有参数名是合法的）；不豁免整个 `core/src`
 - `tools/firmware_literals_baseline.json` 记录已核实的暂缓项（当前 7 个文件 / 14 处），基线只允许缩小，新增豁免必须人工写入并附理由
 
 **S7 任务文件不静默覆盖**

@@ -1,7 +1,7 @@
 # ADR-0009: VehicleSessionAssembler 用于多固件适配
 
 **状态**: Accepted  
-**日期**: 2025-01-15  
+**日期**: 2026-10-13
 **作者**: Architecture Team
 
 ## 问题

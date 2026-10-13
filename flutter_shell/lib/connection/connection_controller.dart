@@ -330,7 +330,6 @@ final class _VehicleRuntimeSnapshot {
     required this.flightModeOptions,
     required this.flightMessages,
     required this.lastMessageSeq,
-    required this.vehicleType,
     required this.vehicleAutopilotType,
     required this.vehicleFlying,
     required this.vehicleVtolState,
@@ -399,7 +398,6 @@ final class _VehicleRuntimeSnapshot {
   final List<FlightModeOption> flightModeOptions;
   final List<FlightMessage> flightMessages;
   final int lastMessageSeq;
-  final int vehicleType;
   final int vehicleAutopilotType;
   final bool vehicleFlying;
   final int vehicleVtolState;
@@ -746,7 +744,6 @@ final class ConnectionController extends ChangeNotifier {
   /// 飞控消息（STATUSTEXT）历史，供消息框显示。只追加，断开连接时清空。
   List<FlightMessage> flightMessages = const [];
   int _lastMessageSeq = 0;
-  int vehicleType = 0;
   int vehicleAutopilotType = 0;
 
   /// EXTENDED_SYS_STATE.vtol_state (MAV_VTOL_STATE):
@@ -1940,7 +1937,6 @@ final class ConnectionController extends ChangeNotifier {
     flightModeOptions: List.of(flightModeOptions),
     flightMessages: List.of(flightMessages),
     lastMessageSeq: _lastMessageSeq,
-    vehicleType: vehicleType,
     vehicleAutopilotType: vehicleAutopilotType,
     vehicleFlying: vehicleFlying,
     vehicleVtolState: vehicleVtolState,
@@ -2017,7 +2013,6 @@ final class ConnectionController extends ChangeNotifier {
     flightModeOptions = List.of(snapshot.flightModeOptions);
     flightMessages = List.of(snapshot.flightMessages);
     _lastMessageSeq = snapshot.lastMessageSeq;
-    vehicleType = snapshot.vehicleType;
     vehicleAutopilotType = snapshot.vehicleAutopilotType;
     vehicleFlying = snapshot.vehicleFlying;
     vehicleVtolState = snapshot.vehicleVtolState;
@@ -2537,7 +2532,6 @@ final class ConnectionController extends ChangeNotifier {
       if (data['heartbeat_fresh'] != true) return false;
       vehicleArmed = data['armed'] == true;
       vehicleFlightMode = data['flight_mode'] as String? ?? '';
-      vehicleType = data['vehicle_type'] as int? ?? vehicleType;
       vehicleAutopilotType =
           data['autopilot_type'] as int? ?? vehicleAutopilotType;
       notifyListeners();
@@ -3489,7 +3483,6 @@ final class ConnectionController extends ChangeNotifier {
     final oldSensors = jsonEncode(sensorHealth);
     final oldArmed = vehicleArmed;
     final oldFlightMode = vehicleFlightMode;
-    final oldVehicleType = vehicleType;
     final oldAutopilotType = vehicleAutopilotType;
     final oldFlying = vehicleFlying;
     try {
@@ -3500,7 +3493,6 @@ final class ConnectionController extends ChangeNotifier {
             summaryEnvelope['data'] as Map<String, Object?>? ?? const {};
         vehicleArmed = summaryData['armed'] == true;
         vehicleFlightMode = summaryData['flight_mode'] as String? ?? '';
-        vehicleType = summaryData['vehicle_type'] as int? ?? 0;
         vehicleAutopilotType = summaryData['autopilot_type'] as int? ?? 0;
         _updateGuidedTargetMode();
       }
@@ -3547,7 +3539,6 @@ final class ConnectionController extends ChangeNotifier {
         oldSensors != jsonEncode(sensorHealth) ||
         oldArmed != vehicleArmed ||
         oldFlightMode != vehicleFlightMode ||
-        oldVehicleType != vehicleType ||
         oldAutopilotType != vehicleAutopilotType ||
         oldFlying != vehicleFlying ||
         oldGuidedTargetValid != guidedTargetValid;
@@ -3623,7 +3614,6 @@ final class ConnectionController extends ChangeNotifier {
     _clearTelemetryValues();
     vehicleFlightMode = '';
     vehicleArmed = false;
-    vehicleType = 0;
     vehicleAutopilotType = 0;
     flightModesAvailable = false;
     flightModeOptions = const [];

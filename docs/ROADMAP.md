@@ -171,7 +171,7 @@ M-GCS 是 ArduPilot 固件的地面站，对标 QGroundControl 与 Mission Plann
 - `docs/CODEBASE-INVENTORY.md` - 完整代码与接口盘点
 - `docs/capabilities.md` - FFI 模块交付基线
 - `docs/constraints/` - 架构、安全、UI、测试约束
-- `docs/adr/` - 架构决策记录（8 个）
+- `docs/adr/` - 架构决策记录（11 个）
 - `bridge/ffi/API_CATALOG.md` - 154 个公开导出完整签名
 - `CHANGELOG.md` - 版本更新日志
 

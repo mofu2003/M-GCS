@@ -251,6 +251,18 @@ inline std::optional<float> ffi_quadplane_enable(mg_core_t* core) {
     return static_cast<float>(param->value);
 }
 
+/// 归一化机型名（"Copter"/"FixedWing"/…）到 FFI 机型类别字符串的映射。
+/// 两个查询入口共用，避免同一张映射表出现多份拷贝。
+inline std::string ffi_vehicle_class_from_name(const std::string& family) {
+    if (family == "Copter") return "copter";
+    if (family == "FixedWing") return "plane";
+    if (family == "VTOL") return "vtol";
+    if (family == "Rover") return "rover";
+    if (family == "Submarine") return "sub";
+    if (family == "AntennaTracker") return "tracker";
+    return "";
+}
+
 /// ArduPilot 归一化机型（copter/plane/vtol/rover/sub/tracker）。非 ArduPilot
 /// 固件、未连接或机型无法归一化时返回空串。任务命令能力门禁按这个结果判断
 /// 飞控是否真的存储某个任务字段。
@@ -265,14 +277,7 @@ inline std::string ffi_ardupilot_vehicle_class(mg_core_t* core) {
 
     mg::core::firmware::FirmwareAdapter adapter;
     adapter.detect(hb->autopilot_type, hb->vehicle_type, ffi_quadplane_enable(core));
-    const auto family = adapter.normalized_vehicle_name();
-    if (family == "Copter") return "copter";
-    if (family == "FixedWing") return "plane";
-    if (family == "VTOL") return "vtol";
-    if (family == "Rover") return "rover";
-    if (family == "Submarine") return "sub";
-    if (family == "AntennaTracker") return "tracker";
-    return "";
+    return ffi_vehicle_class_from_name(adapter.normalized_vehicle_name());
 }
 
 /// 只按 MAV_TYPE 归一化的机型，不看任何参数。用于必须在连接初期就稳定、
@@ -286,14 +291,7 @@ inline std::string ffi_ardupilot_vehicle_class_from_mav_type(mg_core_t* core) {
 
     mg::core::firmware::FirmwareAdapter adapter;
     adapter.detect(hb->autopilot_type, hb->vehicle_type);
-    const auto family = adapter.normalized_vehicle_name();
-    if (family == "Copter") return "copter";
-    if (family == "FixedWing") return "plane";
-    if (family == "VTOL") return "vtol";
-    if (family == "Rover") return "rover";
-    if (family == "Submarine") return "sub";
-    if (family == "AntennaTracker") return "tracker";
-    return "";
+    return ffi_vehicle_class_from_name(adapter.normalized_vehicle_name());
 }
 
 /// 参数描述库 profile：ArduPilot 用归一化机型名，其余为空。

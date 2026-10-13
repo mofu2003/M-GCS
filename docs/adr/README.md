@@ -16,8 +16,18 @@
 | [ADR-0006](0006-tlog-recording-sink.md) | TLog 记录接收器 | 已接受 | - |
 | [ADR-0007](0007-send-mutex-and-ownership-model.md) | **发送锁与所有权模型** | 已接受 | 2026-10-12 |
 | [ADR-0008](0008-video-decode-backend.md) | 视频解码后端 | 已接受 | - |
+| [ADR-0009](0009-vehicle-session-assembler.md) | 车辆会话装配器 | 已接受 | 2026-10-13 |
+| [ADR-0010](0010-vehicle-identity-vs-capability.md) | 机型身份与能力分层 | 已接受 | 2026-10-13 |
+| [ADR-0011](0011-firmware-parameter-ownership.md) | 固件参数名持有机制 | 已接受 | 2026-10-13 |
 
 ## 最近变更
+
+### 2026-10-13
+
+- **ADR-0011**：明确固件参数名的两条正式持有渠道（角色表 + 插件方法），
+  解决「决定 profile 本身的参数」因循环依赖无法走角色表的问题（S6）
+- **ADR-0010**：机型身份与能力分层，能力按运行时求值，消除前后端重复判定
+- **ADR-0009**：引入车辆会话装配器管理无状态 FFI 后端
 
 ### 2026-10-12
 

@@ -134,6 +134,9 @@ if [[ "$changed_mode" -eq 1 ]]; then
       tools/check_firmware_literals.py|tools/firmware_literals_baseline.json)
         want_firmware_literals=1
         ;;
+      # 开发者工具：不参与构建产物，不影响前后端，无需触发任何重跑。
+      tools/flutter-pty-run.py)
+        ;;
       # 参数描述符是 S6 字面量守卫的事实来源，改了要重跑守卫。
       core/src/config/*.json)
         backend_full=1

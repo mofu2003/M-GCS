@@ -1,6 +1,6 @@
 # S6 门禁冲突问题解决总结
 
-**报告日期**: 2025-01-15  
+**报告日期**: 2026-10-13
 **状态**: ✅ 已解决  
 **相关 commit**: 7084a62  
 **关联文件**: 
@@ -185,7 +185,7 @@ $ python3 tools/check_firmware_literals.py
 | 文件 | 改动 | 行数 |
 |------|------|------|
 | `docs/constraints/safety.md` | S6 约束补充两条渠道说明 | +30 |
-| `docs/adr/0011-firmware-parameter-ownership.md` | 新增完整的决策记录 | 193 |
+| `docs/adr/0011-firmware-parameter-ownership.md` | 新增完整的决策记录 | 163 |
 | `tools/check_firmware_literals.py` | 添加插件路径豁免 | +15 |
 | **总计** | | **~240 行** |
 
