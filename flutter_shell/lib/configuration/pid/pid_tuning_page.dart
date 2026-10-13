@@ -19,6 +19,7 @@ class PidTuningPage extends StatelessWidget {
         VehicleControlProfile.copter => const ['多旋翼 PID'],
         VehicleControlProfile.fixedWing => const ['固定翼 PID'],
         VehicleControlProfile.planeVtol => const ['固定翼 PID', 'VTOL PID'],
+        VehicleControlProfile.rover => const ['PID 调参'],
         VehicleControlProfile.unknown => const ['PID 调参'],
       };
       return MacTabSurface(

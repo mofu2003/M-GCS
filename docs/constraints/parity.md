@@ -116,6 +116,14 @@
 - **M-GCS**：核心层有固件插件（与 QGC 结构相同）。RTL / 降落 / 悬停已改为按**语义角色**向插件请求（`FirmwareAdapter::resolve_mode_role`），通用代码里不再出现模式号字面量。该机型没有这个模式时**不下发**并打印警告（Rover 与 Plane 没有 Land、Sub 没有 RTL），而不是把别的机型的数值发出去。
 - **结论**：结构已对齐 QGC，S6 与 KD-18 闭环。核对过程中还发现模式表本身有错：三张表把「模式列表下标」当成 `custom_mode` 枚举值，从某一号起整体错位——Copter 的 9 写成 Drift（真值 LAND，于是降落时界面显示「Drift」），Rover 的 9 写成 Dock（真值 CIRCLE，而旧 `land()` 恰好发 9，在 Rover 上「降落」= 原地转圈），Tracker 的 1 写成 Scan（真值 STOP）。已按 `ArduCopter/mode.h`、`Rover/mode.h`、`AntennaTracker/mode.h` 的枚举值重写，并用 `test_firmware_adapter.cc` 钉住关键项。
 
+#### QuadPlane 机型能力归一化（2026-10-13）
+
+- **QGC**：按 `QGCMAVLink::vehicleClass()` 识别 VTOL，并由 `APMFirmwarePlugin::isCapable()` 给 VTOL 同时开放 `TakeoffVehicleCapability` 与 `GuidedTakeoffCapability`（`src/MAVLink/QGCMAVLink.cc:193-220`、`src/FirmwarePlugin/APM/APMFirmwarePlugin.cc:65-81`）。
+- **MP**：ArduPilot 固件族按 `MAV_TYPE` 和版本/参数信息识别；QuadPlane 的 `Q_ENABLE` 参数用于区分 Plane 配置页与 QuadPlane 配置页（`Common.cs:77-89`、`GCSViews/InitialSetup.cs:99-100`）。
+- **ArduPilot 事实**：QuadPlane 默认 `Q_MAV_TYPE=0` 时 HEARTBEAT 仍上报 `MAV_TYPE_FIXED_WING`，不能仅凭心跳类型判断是否具备 VTOL 起飞能力（`ArduPlane/quadplane.cpp:4042-4047`）。
+- **M-GCS**：后端 `FirmwareAdapter` 在已缓存 `Q_ENABLE>0` 时把固定翼心跳归一化为 `VTOL`，`mg_firmware_get_type` 统一输出 `vehicle_class` 与 capability；任务命令目录由 FFI 按当前后端机型附带 `supported`，扩展状态由后端附带 `flying`。Flutter 不再根据机型名、`vehicles` 元数据、MAV_LANDED_STATE 数值或高度阈值重复判断，只消费后端字段。新增 `test_firmware_adapter.cc` 覆盖 `MAV_TYPE_FIXED_WING + Q_ENABLE`。
+- **结论**：已对齐；后端是机型与能力的唯一判断层，前端只负责呈现和消费能力数据。
+
 ### 日志
 
 - **QGC**：机载 DataFlash 列表与下载在 `AnalyzeView/OnboardLogs/OnboardLogController.{h,cc}`，有**两种传输**——MAVLink 日志消息（`LOG_REQUEST_LIST`/`LOG_ENTRY`/`LOG_REQUEST_DATA`，`OnboardLogController.cc:204,272,526`）与 MAVLink FTP（`:55,943`），FTP 失败会回退到消息传输（`:1151-1173`）；支持多选、按日期排序、压缩、取消和擦除全部/选中（`:761`）。机上日志启动/停止与外部上传在 `Vehicle/MAVLinkLogManager.{h,cc}`，`Vehicle.cc:726-730` 把 `LOG_ENTRY` 转成信号。离线分析是独立模块 `AnalyzeView/LogViewer/`（`LogViewerController.h:44-46` 的 `openTLog`/`openBinLog`/`openULogFile`、`LogFileParser.cc`、`APMDataFlash/APMDataFlashLogParser.cc`）。`.tlog` 回放是链路 `Comms/LogReplayLink.{h,cc}`（`LogReplayLink.h:48,103,115`）。遥测 `.tlog` 由设置控制（`Comms/MAVLinkProtocol.cc:319-358`）。

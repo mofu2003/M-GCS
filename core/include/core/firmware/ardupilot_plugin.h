@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ardupilot_plugin.h - ArduPilot FirmwarePlugin implementation
  * ArduPilot 固件插件 — 覆盖所有 ArduPilot 机型的模式表和行为
  *
@@ -38,6 +38,7 @@ public:
 
     uint32_t capabilities(VehicleKind vehicle) const override;
     float minimum_takeoff_altitude(VehicleKind vehicle) const override;
+    const char* quadplane_enable_param_id() const override;
 
 
 private:

@@ -2,34 +2,15 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../connection/connection_controller.dart';
-
 /// 本机在地图上的机型剪影。
 ///
 /// 只区分两类：多旋翼（交叉机臂 + 四个桨盘）与固定翼（机身 + 后掠翼 + 尾翼）。
 /// VTOL 按固定翼画——它就是带升力桨的飞机；地面车辆等其它机型也回退到固定翼。
 enum VehicleMarkerKind { multirotor, fixedWing }
 
-/// 由控制档位（固件/机型归类）与 MAV_TYPE 决定剪影种类。
-///
-/// MAV_TYPE 取值来自官方 MAVLink 定义：2/3/13/14/15/16 是多旋翼族（含共轴、三/六/八轴），
-/// 4 直升机；其余（1 固定翼、19–25 VTOL、10/11 地面车辆）统一按固定翼画。
-VehicleMarkerKind vehicleMarkerKindFor(
-  VehicleControlProfile profile,
-  int mavType,
-) {
-  switch (mavType) {
-    case 2:
-    case 3:
-    case 4:
-    case 13:
-    case 14:
-    case 15:
-    case 16:
-      return VehicleMarkerKind.multirotor;
-  }
-  if (mavType != 0) return VehicleMarkerKind.fixedWing;
-  return profile == VehicleControlProfile.copter
+/// 后端提供归一化 vehicle_class；Flutter 只选择对应的图形。
+VehicleMarkerKind vehicleMarkerKindFor(String vehicleClass) {
+  return vehicleClass == 'multirotor'
       ? VehicleMarkerKind.multirotor
       : VehicleMarkerKind.fixedWing;
 }

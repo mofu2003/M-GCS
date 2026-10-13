@@ -871,6 +871,7 @@ final class MissionCommandDescriptor {
     required this.requiresAltitude,
     required this.parameters,
     required this.vehicles,
+    this.supported = true,
   });
 
   final int command;
@@ -886,6 +887,7 @@ final class MissionCommandDescriptor {
   final bool requiresPosition;
   final bool requiresAltitude;
   final List<MissionCommandParameter> parameters;
+  final bool supported;
 
   /// 该命令支持的机型类别（copter/plane/vtol/rover/sub/tracker）。
   /// 空列表表示后端未标注机型，前端不得据此过滤。
@@ -905,11 +907,21 @@ final class MissionCommandDescriptor {
             .whereType<JsonMap>()
             .map(MissionCommandParameter.fromJson)
             .toList(growable: false),
+        supported: json['supported'] != false,
         vehicles: (json['vehicles'] as List<Object?>? ?? const [])
             .whereType<String>()
             .toList(growable: false),
       );
 }
+
+List<MissionCommandDescriptor> visibleMissionCommands(
+  List<MissionCommandDescriptor> catalog, {
+  int? keepCommand,
+}) => catalog
+    .where(
+      (descriptor) => descriptor.supported || descriptor.command == keepCommand,
+    )
+    .toList(growable: false);
 
 JsonMap _map(Object? value) => value is Map<String, Object?> ? value : const {};
 
@@ -924,48 +936,6 @@ List<double> _doubleList(Object? value, {required List<double> fallback}) {
           ? (value[index] as num).toDouble()
           : fallback[index],
   ];
-}
-
-/// 归一化机型类别名。
-///
-/// 与后端 `mission_vehicle_class_bit` 保持一致的别名集合：把 `fixedwing`
-/// 归一成 `plane`、`multirotor` 归一成 `copter`，无法识别时返回 null。
-/// null 表示“不判断机型”，调用方不要在无法识别时过滤或拒绝。
-String? normalizeMissionVehicleClass(String? vehicleClass) {
-  final name = vehicleClass?.trim().toLowerCase();
-  if (name == null || name.isEmpty) return null;
-  return switch (name) {
-    'copter' || 'multirotor' || 'heli' || 'helicopter' => 'copter',
-    'plane' || 'fixedwing' || 'fixed_wing' || 'fixedwing_plane' => 'plane',
-    'vtol' || 'quadplane' => 'vtol',
-    'rover' || 'ground' || 'boat' => 'rover',
-    'sub' || 'submarine' => 'sub',
-    'tracker' || 'antennatracker' => 'tracker',
-    _ => null,
-  };
-}
-
-/// 按机型过滤命令目录。
-///
-/// [vehicles] 为空的命令视为“后端未标注机型”，始终保留；机型无法识别时不过滤。
-/// [keepCommands] 里的命令即使在当前机型上不受支持也保留，用于不因过滤而让一个
-/// 已存在的实体在下拉里落到别的命令上。
-List<MissionCommandDescriptor> filterCommandCatalogForVehicle(
-  List<MissionCommandDescriptor> catalog,
-  String? vehicleClass, {
-  Iterable<int> keepCommands = const [],
-}) {
-  final normalized = normalizeMissionVehicleClass(vehicleClass);
-  if (normalized == null) return catalog;
-  final keep = keepCommands.toSet();
-  return catalog
-      .where(
-        (descriptor) =>
-            keep.contains(descriptor.command) ||
-            descriptor.vehicles.isEmpty ||
-            descriptor.vehicles.contains(normalized),
-      )
-      .toList(growable: false);
 }
 
 /// 任务文件互操作导出结果（native `mg_mission_doc_export_format`）。
@@ -1004,7 +974,10 @@ final class MissionInterchangeExport {
 /// [warnings] 与导出侧同源同义（例如导入旧版 QGC `.plan` 时「围栏/Rally 段被忽略」
 /// 这类丢弃事实），必须转达给用户——静默丢数据是这份格式契约里最容易踩的坑。
 final class MissionInterchangeImport {
-  const MissionInterchangeImport({required this.document, this.warnings = const []});
+  const MissionInterchangeImport({
+    required this.document,
+    this.warnings = const [],
+  });
 
   final MissionDocument document;
   final List<String> warnings;

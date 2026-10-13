@@ -57,6 +57,17 @@ List<PidSection> pidSections(
   bool vtol,
   PidLevel level,
 ) {
+  if (profile == VehicleControlProfile.unknown) {
+    // Keep a stable disconnected skeleton without selecting a vehicle profile
+    // or registering any guessed parameter roles.
+    return level == PidLevel.basic
+        ? const [PidSection('自稳 P', []), PidSection('速率 PID', [])]
+        : const [
+            PidSection('速率滤波与前馈', []),
+            PidSection('响应限制', []),
+            PidSection('位置与速度', []),
+          ];
+  }
   // 垂起的多旋翼部分与多旋翼一一对应；角色表在 plane/vtol profile 下会把
   // `pid.*` 解析成 `Q_A_*`/`Q_P_*`，在多旋翼下解析成 `ATC_*`/`PSC_*`。
   if (vtol || profile == VehicleControlProfile.copter) {

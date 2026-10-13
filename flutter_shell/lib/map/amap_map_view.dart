@@ -91,8 +91,10 @@ _MapSource _customSource(String raw) {
   );
 }
 
-_MapSource _sourceFor(MapStyle style, {String customTileUrl = ''}) =>
-    switch (style) {
+_MapSource _sourceFor(
+  MapStyle style, {
+  String customTileUrl = '',
+}) => switch (style) {
   MapStyle.standard => const _MapSource(
     label: 'OpenStreetMap 标准地图',
     url: 'https://b.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
@@ -813,17 +815,11 @@ class _AMapMapViewState extends State<AMapMapView> {
   }
 
   VehicleMarkerKind _fleetVehicleMarkerKind(String vehicleType) {
-    final normalized = vehicleType.toLowerCase();
-    if (normalized.contains('copter') ||
-        normalized.contains('quad') ||
-        normalized.contains('hexa') ||
-        normalized.contains('octo') ||
-        normalized.contains('tri') ||
-        normalized.contains('heli') ||
-        normalized.contains('多旋翼')) {
-      return VehicleMarkerKind.multirotor;
-    }
-    return VehicleMarkerKind.fixedWing;
+    return vehicleMarkerKindFor(switch (vehicleType.toLowerCase()) {
+      'copter' || 'quadrotor' || 'multirotor' => 'multirotor',
+      'fixedwing' || 'fixed wing' || 'vtol' => 'fixed_wing',
+      _ => 'unknown',
+    });
   }
 
   List<Marker> _buildMarkers(BuildContext context, MgColors colors) {
@@ -916,8 +912,8 @@ class _AMapMapViewState extends State<AMapMapView> {
           // 按机型画机体剪影（多旋翼/固定翼/VTOL），不再用统一的纸飞机图标。
           child: VehicleMarkerIcon(
             kind: vehicleMarkerKindFor(
-              connection.controlProfile,
-              connection.vehicleType,
+              connection.firmwareInfo?['vehicle_class']?.toString() ??
+                  'unknown',
             ),
             fill: colors.accent,
             outline: colors.surface,
@@ -1856,17 +1852,18 @@ bool shouldMoveCameraToVehicle({
 
 /// QGC `GuidedActionsController.qml` 的 Takeoff / Land / RTL 显示规则。
 ///
-/// 未飞行只显示 Takeoff；飞行中且非固定翼显示 Land；飞行中显示 RTL。
+/// 未飞行只显示 Takeoff；飞行中且后端声明支持引导降落才显示 Land；飞行中显示 RTL。
 /// Takeoff 与 Land 互斥，RTL 独立。
 @visibleForTesting
 ({bool takeoff, bool land, bool rtl, bool changeAltitude})
-flightActionVisibility({required bool flying, required bool fixedWing}) => (
-  takeoff: !flying,
-  land: flying && !fixedWing,
-  rtl: flying,
-  // 改变高度只在空中才有意义，和降落/返航同时出现，排在它们下面。
-  changeAltitude: flying,
-);
+flightActionVisibility({required bool flying, required bool landCapability}) =>
+    (
+      takeoff: !flying,
+      land: flying && landCapability,
+      rtl: flying,
+      // 改变高度只在空中才有意义，和降落/返航同时出现，排在它们下面。
+      changeAltitude: flying,
+    );
 
 /// 独立的飞行动作区：尺寸明显大于地图工具按钮，避免把危险动作藏在小图标里。
 class _FlightActionButtons extends StatelessWidget {
@@ -1887,7 +1884,7 @@ class _FlightActionButtons extends StatelessWidget {
     final colors = MgColors.of(context);
     final visibility = flightActionVisibility(
       flying: controller.vehicleStateFresh && controller.vehicleFlying,
-      fixedWing: controller.vehicleType == 1,
+      landCapability: controller.canLandFromGuided,
     );
     final guidedReady =
         controller.vehicleStateFresh &&

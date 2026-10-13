@@ -130,7 +130,7 @@ class _MissionPlanningFloatingPanelState
   void _syncVehicleContext() {
     final firmware = widget.controller.firmwareInfo;
     _mission.setVehicleContext(
-      vehicleClass: firmware?['vehicle_type'] as String?,
+      vehicleClass: firmware?['mission_vehicle_class'] as String?,
       firmwareProfile: firmware?['firmware'] as String?,
     );
   }
@@ -306,10 +306,9 @@ class _MissionPlanningFloatingPanelState
 
   /// 当前飞控机型下的命令目录；保留 [entity] 自身命令，避免下拉错位。
   List<MissionCommandDescriptor> _catalogForEntity(MissionEntity? entity) =>
-      filterCommandCatalogForVehicle(
+      visibleMissionCommands(
         _mission.commandCatalog,
-        widget.controller.firmwareInfo?['vehicle_type'] as String?,
-        keepCommands: [if (entity != null) entity.command],
+        keepCommand: entity?.command,
       );
 
   String _typeForCommand(int command) {
@@ -1223,12 +1222,9 @@ Future<void> showMissionEntityDialog(
   final fullCatalog = mission.commandCatalog.isEmpty
       ? catalog
       : mission.commandCatalog;
-  // 命令目录按当前飞控机型过滤；已有实体自身的命令始终保留，避免编辑一个
-  // 当前机型不支持的项时下拉落到别的命令上。
-  final vehicleCatalog = filterCommandCatalogForVehicle(
+  final vehicleCatalog = visibleMissionCommands(
     fullCatalog,
-    controller.firmwareInfo?['vehicle_type'] as String?,
-    keepCommands: [if (entity != null) entity.command],
+    keepCommand: entity?.command,
   );
   if (vehicleCatalog.isEmpty) return;
   await _showFadeDialog<void>(
@@ -1903,8 +1899,6 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
     final stateFresh = controller.vehicleStateFresh;
     final armed = stateFresh && controller.vehicleArmed;
     final flying = stateFresh && controller.vehicleFlying;
-    // MAV_TYPE_FIXED_WING = 1：QGC 不给固定翼显示“降落”。
-    final fixedWing = controller.vehicleType == 1;
     final mode = controller.vehicleFlightMode.toUpperCase();
     final inAuto = mode.contains('AUTO');
     final inRtl = mode.contains('RTL');
@@ -1971,7 +1965,7 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
           if (!armed) '飞控未解锁',
           // QGC `GuidedActionsController.qml`：Land 只在飞行中出现，地面不给。
           if (!flying) '飞机尚未起飞',
-          if (fixedWing) '固定翼不支持原地引导降落',
+          if (!controller.canLandFromGuided) '当前飞控未声明支持引导降落',
           if (inLand) '飞机已在降落模式',
         ]),
         confirmMessage: '飞机将在当前位置直接降落。',

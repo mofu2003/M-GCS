@@ -37,6 +37,48 @@ std::vector<const char*> vehicle_names(uint16_t vehicles) {
 MGCORE_API char* mg_mission_get_command_catalog(mg_core_t* core) {
     CHECK_CORE(core);
 
+    std::string vehicle_class;
+    if (auto* cache = get_active_cache(core)) {
+        const auto heartbeat = cache->snapshot_heartbeat().data;
+        // 只按 MAV_TYPE 归一化，不读任何参数（ADR-0010 第 4 条）。
+        // 命令目录每个会话只取一次并缓存，若这里依赖 Q_ENABLE，则参数到达前
+        // 取到的目录会把错误结果锁死整个会话。MAV_TYPE 从第一条心跳起就稳定，
+        // 因此这里的结果不会再随时间变化。
+        mg::core::firmware::FirmwareAdapter adapter;
+        adapter.detect(heartbeat.autopilot_type, heartbeat.vehicle_type);
+        if (adapter.firmware_kind() ==
+            mg::core::firmware::FirmwareKind::ArduPilot) {
+            switch (adapter.vehicle_kind()) {
+                case mg::core::firmware::VehicleKind::Quadrotor:
+                case mg::core::firmware::VehicleKind::Coaxial:
+                case mg::core::firmware::VehicleKind::Helicopter:
+                case mg::core::firmware::VehicleKind::Hexarotor:
+                case mg::core::firmware::VehicleKind::Octorotor:
+                case mg::core::firmware::VehicleKind::Tricopter:
+                    vehicle_class = "copter";
+                    break;
+                case mg::core::firmware::VehicleKind::FixedWing:
+                    vehicle_class = "plane";
+                    break;
+                case mg::core::firmware::VehicleKind::VTOL:
+                    vehicle_class = "vtol";
+                    break;
+                case mg::core::firmware::VehicleKind::GroundRover:
+                case mg::core::firmware::VehicleKind::SurfaceBoat:
+                    vehicle_class = "rover";
+                    break;
+                case mg::core::firmware::VehicleKind::Submarine:
+                    vehicle_class = "sub";
+                    break;
+                case mg::core::firmware::VehicleKind::Tracker:
+                    vehicle_class = "tracker";
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
     const auto& catalog = mg::core::mission::cad::mission_command_catalog();
     mg::core::telemetry::JsonBuilder root;
     root.begin_object();
@@ -56,6 +98,9 @@ MGCORE_API char* mg_mission_get_command_catalog(mg_core_t* core) {
         item.field("description", command.description);
         item.field("requires_position", command.requires_position);
         item.field("requires_altitude", command.requires_altitude);
+        item.field("supported", mg::core::mission::cad::
+                                    mission_command_supports_vehicle(
+                                        command.command, vehicle_class));
 
         mg::core::telemetry::JsonBuilder vehicles;
         vehicles.begin_array();

@@ -1247,6 +1247,8 @@ static void test_video_stream_state() {
     auto streams = f.adapter.latest_video_streams();
     CHECK(streams.size() == 1, "VIDEO_STREAM_INFORMATION cached");
     if (!streams.empty()) {
+        CHECK(streams[0].system_id == kSys && streams[0].component_id == kComp,
+              "stream source identity cached");
         CHECK(std::string(streams[0].uri) == "rtsp://192.168.1.10:8554/main", "stream uri");
         CHECK(streams[0].width == 1280 && streams[0].height == 720, "stream resolution");
         CHECK((streams[0].flags & 0x1) != 0, "stream flags/running");
@@ -1269,6 +1271,55 @@ static void test_video_stream_state() {
     if (!statuses.empty()) {
         CHECK(statuses[0].framerate == 30, "stream status framerate");
         CHECK(statuses[0].bitrate == 4000000, "stream status bitrate");
+    }
+
+    // Mission Planner keys streams by (sysid, compid, stream_id). A second camera
+    // may legally reuse stream_id=0 and must remain a separate cached stream.
+    {
+        mavlink_video_stream_information_t vsi = {};
+        vsi.stream_id = 0;
+        vsi.type = 1;
+        vsi.flags = 0x1;
+        vsi.resolution_h = 640;
+        vsi.resolution_v = 480;
+        strncpy(vsi.name, "rear", sizeof(vsi.name) - 1);
+        strncpy(vsi.uri, "rtsp://192.168.1.11:8554/rear", sizeof(vsi.uri) - 1);
+        mavlink_message_t msg;
+        mavlink_msg_video_stream_information_encode(kSys, MAV_COMP_ID_CAMERA2, &msg, &vsi);
+        f.inject(msg);
+    }
+    streams = f.adapter.latest_video_streams();
+    CHECK(streams.size() == 2, "same stream_id from another camera is retained");
+    bool found_second_camera = false;
+    for (const auto& stream : streams) {
+        if (stream.component_id == MAV_COMP_ID_CAMERA2 &&
+            std::string(stream.uri) == "rtsp://192.168.1.11:8554/rear") {
+            found_second_camera = true;
+        }
+    }
+    CHECK(found_second_camera, "second camera stream keeps its component identity");
+
+    // MAVLink char arrays are fixed-width and may be completely full without a NUL.
+    // The adapter must still expose bounded C strings to the FFI layer.
+    {
+        mavlink_video_stream_information_t vsi = {};
+        vsi.stream_id = 1;
+        vsi.type = 1;
+        memset(vsi.name, 'N', sizeof(vsi.name));
+        memset(vsi.uri, 'U', sizeof(vsi.uri));
+        mavlink_message_t msg;
+        mavlink_msg_video_stream_information_encode(kSys, kComp, &msg, &vsi);
+        f.inject(msg);
+    }
+    streams = f.adapter.latest_video_streams();
+    const auto full_width = std::find_if(streams.begin(), streams.end(),
+        [](const auto& stream) { return stream.stream_id == 1; });
+    CHECK(full_width != streams.end(), "full-width stream is cached");
+    if (full_width != streams.end()) {
+        CHECK(full_width->name[sizeof(full_width->name) - 1] == '\0',
+              "full-width stream name is NUL terminated");
+        CHECK(full_width->uri[sizeof(full_width->uri) - 1] == '\0',
+              "full-width stream URI is NUL terminated");
     }
 }
 

@@ -312,8 +312,7 @@ class MgTopStatusData {
           controller.telemetryStale ||
           (controller.isConnected && !controller.vehicleStateFresh),
       isVtolVehicle:
-          controller.controlProfile == VehicleControlProfile.planeVtol ||
-          const {19, 20, 21, 22, 23, 24, 25}.contains(controller.vehicleType),
+          controller.firmwareInfo?['vehicle_class'] == 'vtol',
     );
   }
 

@@ -314,15 +314,23 @@ void CalibrationService::process_command_ack(uint16_t command, uint8_t result,
 
     if (!status_.active || !active_strategy_) return;
 
-    // 取消在途：只认取消命令的 ACK，收到即确认飞控已停止。
+    // 取消在途：只有 ACCEPTED 才确认飞控已停止。DENIED/FAILED/IN_PROGRESS
+    // 都不能被转换成成功，继续保持 cancelling，交给看门狗处理无确认场景。
     if (status_.stage == CalibrationStage::Cancelling) {
         if (!is_cancel_command(command)) return;
+        if (result != 0) {
+            MGC_LOG_WARN("[CalService] Flight controller did not accept cancel (cmd=%u result=%u)",
+                         static_cast<unsigned>(command), static_cast<unsigned>(result));
+            current_result_.failure_reason =
+                "Flight controller did not accept calibration cancellation (MAV_RESULT " +
+                std::to_string(static_cast<unsigned>(result)) + ")";
+            status_.user_message = current_result_.failure_reason;
+            fire_event();
+            return;
+        }
         MGC_LOG_INFO("[CalService] Cancel confirmed by flight controller (cmd=%u result=%u)",
                      static_cast<unsigned>(command), static_cast<unsigned>(result));
-        finalize_cancelled(result == 0
-            ? "Cancelled by user"
-            : "Cancelled by user (flight controller reported result " +
-                  std::to_string(static_cast<unsigned>(result)) + ")");
+        finalize_cancelled("Cancelled by user");
         return;
     }
 

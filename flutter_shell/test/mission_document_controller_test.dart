@@ -430,87 +430,73 @@ void main() {
       expect(controller.document?.entities, hasLength(1));
     },
   );
-  test('command catalog filters by connected vehicle', () {
-    const catalog = [
-      MissionCommandDescriptor(
-        command: 16,
-        name: 'NAV_WAYPOINT',
-        label: '航点',
-        entityType: 'waypoint',
-        category: 'navigation',
-        description: '',
-        requiresPosition: true,
-        requiresAltitude: true,
-        parameters: [],
-        vehicles: ['copter', 'plane', 'vtol', 'rover'],
-      ),
-      MissionCommandDescriptor(
-        command: 21,
-        name: 'NAV_LAND',
-        label: '降落',
-        entityType: 'land',
-        category: 'navigation',
-        description: '',
-        requiresPosition: true,
-        requiresAltitude: true,
-        parameters: [],
-        vehicles: ['copter', 'plane', 'vtol'],
-      ),
-      MissionCommandDescriptor(
-        command: 84,
-        name: 'NAV_VTOL_TAKEOFF',
-        label: '垂直起飞',
-        entityType: 'vtol_takeoff',
-        category: 'navigation',
-        description: '',
-        requiresPosition: true,
-        requiresAltitude: true,
-        parameters: [],
-        vehicles: ['vtol'],
-      ),
-      MissionCommandDescriptor(
-        command: 99,
-        name: 'UNANNOTATED',
-        label: '未标注机型',
-        entityType: 'command',
-        category: 'command',
-        description: '',
-        requiresPosition: false,
-        requiresAltitude: false,
-        parameters: [],
-        vehicles: [],
-      ),
-    ];
+  test(
+    'command catalog uses backend support state and preserves current command',
+    () {
+      const catalog = [
+        MissionCommandDescriptor(
+          command: 16,
+          name: 'NAV_WAYPOINT',
+          label: '航点',
+          entityType: 'waypoint',
+          category: 'navigation',
+          description: '',
+          requiresPosition: true,
+          requiresAltitude: true,
+          parameters: [],
+          supported: true,
+          vehicles: ['copter', 'plane', 'vtol', 'rover'],
+        ),
+        MissionCommandDescriptor(
+          command: 21,
+          name: 'NAV_LAND',
+          label: '降落',
+          entityType: 'land',
+          category: 'navigation',
+          description: '',
+          requiresPosition: true,
+          requiresAltitude: true,
+          parameters: [],
+          supported: false,
+          vehicles: ['copter', 'plane', 'vtol'],
+        ),
+        MissionCommandDescriptor(
+          command: 84,
+          name: 'NAV_VTOL_TAKEOFF',
+          label: '垂直起飞',
+          entityType: 'vtol_takeoff',
+          category: 'navigation',
+          description: '',
+          requiresPosition: true,
+          requiresAltitude: true,
+          parameters: [],
+          supported: true,
+          vehicles: ['vtol'],
+        ),
+        MissionCommandDescriptor(
+          command: 99,
+          name: 'UNANNOTATED',
+          label: '未标注机型',
+          entityType: 'command',
+          category: 'command',
+          description: '',
+          requiresPosition: false,
+          requiresAltitude: false,
+          parameters: [],
+          supported: true,
+          vehicles: [],
+        ),
+      ];
 
-    expect(normalizeMissionVehicleClass('FixedWing'), 'plane');
-    expect(normalizeMissionVehicleClass('Rover'), 'rover');
-    expect(normalizeMissionVehicleClass('unknown'), isNull);
-    expect(normalizeMissionVehicleClass(null), isNull);
-
-    bool has(List<MissionCommandDescriptor> list, int command) =>
-        list.any((descriptor) => descriptor.command == command);
-
-    final rover = filterCommandCatalogForVehicle(catalog, 'Rover');
-    expect(has(rover, 16), isTrue);
-    expect(has(rover, 21), isFalse);
-    expect(has(rover, 84), isFalse);
-    expect(has(rover, 99), isTrue, reason: '未标注机型的命令始终保留');
-
-    final vtol = filterCommandCatalogForVehicle(catalog, 'vtol');
-    expect(has(vtol, 84), isTrue);
-
-    final kept = filterCommandCatalogForVehicle(
-      catalog,
-      'rover',
-      keepCommands: const [21],
-    );
-    expect(has(kept, 21), isTrue);
-
-    expect(
-      filterCommandCatalogForVehicle(catalog, null).length,
-      catalog.length,
-    );
-  });
+      bool has(List<MissionCommandDescriptor> list, int command) =>
+          list.any((descriptor) => descriptor.command == command);
+      expect(has(visibleMissionCommands(catalog), 16), isTrue);
+      expect(has(visibleMissionCommands(catalog), 21), isFalse);
+      expect(has(visibleMissionCommands(catalog), 84), isTrue);
+      expect(has(visibleMissionCommands(catalog), 99), isTrue);
+      expect(has(visibleMissionCommands(catalog, keepCommand: 21), 21), isTrue);
+    },
+  );
 
   test(
     'mission document controller forwards interchange export format',

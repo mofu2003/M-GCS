@@ -384,8 +384,11 @@ struct AdsbVehicleInfo {
     uint16_t squawk = 0;
 };
 
-/// 视频流信息（msg id 269）— VIDEO_STREAM_INFORMATION
+/// 视频流信息（msg id 269）— VIDEO_STREAM_INFORMATION。
+/// 唯一键为 (system_id, component_id, stream_id)，与对应的状态消息一致。
 struct VideoStreamInfo {
+    uint8_t  system_id = 0;
+    uint8_t  component_id = 0;
     uint8_t  stream_id = 0;
     uint8_t  type = 0;            // VIDEO_STREAM_TYPE
     uint16_t width = 0;

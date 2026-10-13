@@ -47,7 +47,6 @@ final class SerialPortInfo {
   final bool likelyFlightController;
 }
 
-
 enum CalibrationType {
   gyroscope,
   accelerometer,
@@ -115,7 +114,6 @@ final class CalibrationStatus {
     },
   };
 }
-
 
 final class ParameterOption {
   const ParameterOption({required this.value, required this.label});
@@ -297,7 +295,7 @@ class FlightModeOption {
 }
 
 /// Selects the tuning UI surface for the detected ArduPilot vehicle profile.
-enum VehicleControlProfile { unknown, copter, fixedWing, planeVtol }
+enum VehicleControlProfile { unknown, copter, fixedWing, planeVtol, rover }
 
 /// Per-vehicle UI state captured while another aircraft owns the native focus.
 ///
@@ -334,7 +332,7 @@ final class _VehicleRuntimeSnapshot {
     required this.lastMessageSeq,
     required this.vehicleType,
     required this.vehicleAutopilotType,
-    required this.vehicleLandedState,
+    required this.vehicleFlying,
     required this.vehicleVtolState,
     required this.guidedTargetPosition,
     required this.guidedTargetValid,
@@ -403,7 +401,7 @@ final class _VehicleRuntimeSnapshot {
   final int lastMessageSeq;
   final int vehicleType;
   final int vehicleAutopilotType;
-  final int vehicleLandedState;
+  final bool vehicleFlying;
   final int vehicleVtolState;
   final VehicleFix? guidedTargetPosition;
   final bool guidedTargetValid;
@@ -675,7 +673,6 @@ final class ConnectionController extends ChangeNotifier {
   final List<SerialPortInfo> ports = [];
   final List<int> baudRates = const [57600, 115200, 230400, 460800, 921600];
 
-
   /// 常规遥测轮询间隔。位置/姿态/VFR_HUD 提到 20Hz，地图和仪表更顺滑。
   /// 波形仍保持独立的 10Hz 采样与轮询，不跟着一起加倍。
   static const Duration _telemetryPollInterval = Duration(milliseconds: 50);
@@ -752,10 +749,6 @@ final class ConnectionController extends ChangeNotifier {
   int vehicleType = 0;
   int vehicleAutopilotType = 0;
 
-  /// EXTENDED_SYS_STATE 的 landed_state（MAV_LANDED_STATE）：
-  /// 1=undefined、2=on_ground、3=takeoff、4=in_air、5=landing。
-  int vehicleLandedState = 0;
-
   /// EXTENDED_SYS_STATE.vtol_state (MAV_VTOL_STATE):
   /// 0=undefined, 1=transition_to_fw, 2=transition_to_mc, 3=MC, 4=FW.
   int vehicleVtolState = 0;
@@ -802,16 +795,9 @@ final class ConnectionController extends ChangeNotifier {
   double? _lastFlightLatitude;
   double? _lastFlightLongitude;
 
-  /// QGC `Vehicle::flying` 的等价判断，外加 ArduPilot VTOL 的兼容回退。
-  ///
-  /// ArduPlane 在 QuadPlane 垂直起飞阶段可能仍上报 landed_state=ON_GROUND，
-  /// 即使飞机已经离地爬升。此时仅看 landed_state 会把引导操作全部误判为
-  /// 不可用，所以再用已解锁和相对高度做保守回退。
-  bool get vehicleFlying =>
-      vehicleLandedState == 3 ||
-      vehicleLandedState == 4 ||
-      vehicleLandedState == 5 ||
-      (vehicleArmed && (relativeAltitudeMeters ?? 0).abs() > 2.0);
+  /// 后端根据 EXTENDED_SYS_STATE 与位置遥测计算的飞行状态。
+  /// Flutter 只消费该状态，不自行解释 MAV_LANDED_STATE 或高度阈值。
+  bool vehicleFlying = false;
   Map<String, Object?>? firmwareVersionInfo;
   Map<String, Object?>? sensorHealth;
 
@@ -892,25 +878,13 @@ final class ConnectionController extends ChangeNotifier {
   /// True while a fleet-scoped asynchronous operation pins the active target.
   bool get fleetOperationsActive => _fleet?.targetOperationActive ?? false;
   VehicleControlProfile get controlProfile {
-    final firmware = firmwareInfo?['firmware']?.toString().toLowerCase();
-    final vehicle = firmwareInfo?['vehicle_type']?.toString().toLowerCase();
-    if (firmware != 'ardupilot') return VehicleControlProfile.unknown;
-    if (vehicle == 'copter') return VehicleControlProfile.copter;
-    if (vehicle == 'vtol') return VehicleControlProfile.planeVtol;
-    if (vehicle == 'fixedwing' || vehicle == 'plane') {
-      double read(String role) {
-        final name = roleParam(role);
-        return name == null ? 0 : (parameters[name]?.value ?? 0);
-      }
-
-      final quadplane = read('frame.quadplane_enable');
-      final tailsitter = read('frame.tailsitter_enable');
-      final tilt = read('frame.tilt_enable');
-      return quadplane != 0 || tailsitter != 0 || tilt != 0
-          ? VehicleControlProfile.planeVtol
-          : VehicleControlProfile.fixedWing;
-    }
-    return VehicleControlProfile.unknown;
+    return switch (firmwareInfo?['control_profile']) {
+      'copter' => VehicleControlProfile.copter,
+      'fixed_wing' => VehicleControlProfile.fixedWing,
+      'vtol' => VehicleControlProfile.planeVtol,
+      'rover' => VehicleControlProfile.rover,
+      _ => VehicleControlProfile.unknown,
+    };
   }
 
   /// “设置航向”传给飞控的最大偏航速率，0 表示用飞控默认值。
@@ -932,15 +906,10 @@ final class ConnectionController extends ChangeNotifier {
   /// QGC `_guidedModeTakeoff`：多旋翼和 VTOL 支持引导起飞，固定翼需要跑道起飞，
   /// 交给任务/AUTO 流程。以固件插件给的能力位为准。
   ///
-  /// 刚连上、固件信息还没拉到时（`firmwareInfo == null`）退回按 MAV_TYPE 判断，
-  /// 避免起飞按钮在遥测到达前抖动。
+  /// 机型能力完全由后端固件插件提供；后端尚未识别时保持禁用。
   bool get supportsGuidedTakeoff {
     final capabilities = firmwareInfo?['capabilities'];
-    if (capabilities is Map) return capabilities['takeoff'] == true;
-    return const {
-      2, 3, 4, 13, 14, 15, // MAV_TYPE multirotor family
-      19, 20, 21, 22, 23, 24, // MAV_TYPE VTOL family
-    }.contains(vehicleType);
+    return capabilities is Map && capabilities['takeoff'] == true;
   }
 
   /// QGC `APMFirmwarePlugin::minimumTakeoffAltitudeMeters` 的等价实现。
@@ -957,19 +926,16 @@ final class ConnectionController extends ChangeNotifier {
       return value != null && value > 0 ? value : null;
     }
 
-    if (controlProfile == VehicleControlProfile.planeVtol) {
-      return read('takeoff.vtol_alt_m') ??
-          (read('takeoff.vtol_alt_cm_legacy') != null
-              ? read('takeoff.vtol_alt_cm_legacy')! / 100.0
-              : null) ??
-          read('takeoff.vtol_alt_fallback_m') ??
-          0;
+    final roles = firmwareInfo?['takeoff_altitude_roles'];
+    if (roles is! List) return 0;
+    for (final item in roles) {
+      final role = item?.toString();
+      if (role == null) continue;
+      final value = read(role);
+      if (value == null) continue;
+      return role.endsWith('_cm_legacy') ? value / 100.0 : value;
     }
-    return read('takeoff.alt_m') ??
-        (read('takeoff.alt_cm_legacy') != null
-            ? read('takeoff.alt_cm_legacy')! / 100.0
-            : null) ??
-        0;
+    return 0;
   }
 
   /// 固定翼盘旋半径（米），来自角色 `loiter.radius`（固件为 `WP_LOITER_RAD`）。
@@ -997,10 +963,24 @@ final class ConnectionController extends ChangeNotifier {
   ///
   /// 纯固定翼，或 VTOL 已经转到固定翼（`MAV_VTOL_STATE_FW = 4`）。多旋翼/悬停
   /// 状态下 go to location 是平移加悬停，没有盘旋圆。
-  bool get inForwardFlight =>
-      controlProfile == VehicleControlProfile.fixedWing ||
-      (controlProfile == VehicleControlProfile.planeVtol &&
-          vehicleVtolState == 4);
+  bool get inForwardFlight => firmwareInfo?['forward_flight'] == true;
+
+  bool get canLandFromGuided => _firmwareCapability('guided_land');
+
+  Set<int> get armingCheckBits {
+    final raw = firmwareInfo?['arming_check_bits'];
+    if (raw is! List) return const {};
+    return raw.whereType<num>().map((bit) => bit.toInt()).toSet();
+  }
+
+  List<Map<String, Object?>> get flightModePwmRanges {
+    final raw = firmwareInfo?['flight_mode_pwm_ranges'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map<Object?, Object?>>()
+        .map((range) => Map<String, Object?>.from(range))
+        .toList(growable: false);
+  }
 
   /// 是否支持“设置航向”（原地转向）。
   ///
@@ -1008,11 +988,7 @@ final class ConnectionController extends ChangeNotifier {
   /// `ChangeHeadingCapability`，固定翼和 VTOL 都不给，所以这里保持一致。
   bool get supportsChangeHeading {
     final capabilities = firmwareInfo?['capabilities'];
-    if (capabilities is Map) return capabilities['change_heading'] == true;
-    return const {
-      2, 3, 4, 13, 14, 15, // MAV_TYPE multirotor family
-      12, // MAV_TYPE_SUBMARINE
-    }.contains(vehicleType);
+    return capabilities is Map && capabilities['change_heading'] == true;
   }
 
   /// 飞控是否上报了 GPS 传感器。
@@ -1061,7 +1037,6 @@ final class ConnectionController extends ChangeNotifier {
   void _notifyConnectionChanges() {
     if (!_disposed) connectionChanges.value++;
   }
-
 
   void _notifyCalibrationChanges() {
     if (!_disposed) calibrationChanges.value++;
@@ -1967,7 +1942,7 @@ final class ConnectionController extends ChangeNotifier {
     lastMessageSeq: _lastMessageSeq,
     vehicleType: vehicleType,
     vehicleAutopilotType: vehicleAutopilotType,
-    vehicleLandedState: vehicleLandedState,
+    vehicleFlying: vehicleFlying,
     vehicleVtolState: vehicleVtolState,
     guidedTargetPosition: guidedTargetPosition,
     guidedTargetValid: guidedTargetValid,
@@ -2044,7 +2019,7 @@ final class ConnectionController extends ChangeNotifier {
     _lastMessageSeq = snapshot.lastMessageSeq;
     vehicleType = snapshot.vehicleType;
     vehicleAutopilotType = snapshot.vehicleAutopilotType;
-    vehicleLandedState = snapshot.vehicleLandedState;
+    vehicleFlying = snapshot.vehicleFlying;
     vehicleVtolState = snapshot.vehicleVtolState;
     guidedTargetPosition = snapshot.guidedTargetPosition;
     guidedTargetValid = snapshot.guidedTargetValid;
@@ -2420,7 +2395,7 @@ final class ConnectionController extends ChangeNotifier {
     }
 
     // ArduPilot requires GUIDED and an armed vehicle before NAV_TAKEOFF.
-    await _setFlightModeAndValidate(_guidedCustomMode, 'Guided');
+    await _setFlightModeAndValidate('Guided');
     if (!vehicleArmed) await _armVehicleAndValidate();
     _requireCommandSuccess(
       await flightCommandBackend.takeoff(takeoffAltitude),
@@ -2436,11 +2411,16 @@ final class ConnectionController extends ChangeNotifier {
     _requireCommandSuccess(await flightCommandBackend.startMission(), '启动任务');
   }
 
-  Future<void> _setFlightModeAndValidate(
-    int customMode,
-    String expectedMode,
-  ) async {
-    if (_flightModeMatches(expectedMode)) return;
+  Future<void> _setFlightModeAndValidate(String modeName) async {
+    if (_flightModeMatches(modeName)) return;
+    await refreshFlightModes();
+    final targetMode = flightModeOptions.where(
+      (mode) => mode.name == modeName && mode.settable,
+    );
+    if (targetMode.isEmpty) {
+      throw StateError('切换飞行模式失败：后端没有提供可切换的 $modeName 模式');
+    }
+    final customMode = targetMode.first.id;
 
     for (var attempt = 0; attempt < 3; attempt++) {
       _requireCommandSuccess(
@@ -2451,13 +2431,13 @@ final class ConnectionController extends ChangeNotifier {
         '切换飞行模式',
       );
       if (await _waitForVehicleState(
-        mode: expectedMode,
+        mode: modeName,
         timeout: _flightModeValidationWindow,
       )) {
         return;
       }
     }
-    throw StateError('切换飞行模式失败：飞控未进入 $expectedMode');
+    throw StateError('切换飞行模式失败：飞控未进入 $modeName');
   }
 
   /// 解锁。安全敏感动作，调用方（界面）必须先确认。
@@ -2567,13 +2547,6 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
-  /// Guided 模式的自定义模式号：固定翼/VTOL 用 15，多旋翼用 4。
-  int get _guidedCustomMode =>
-      controlProfile == VehicleControlProfile.fixedWing ||
-          controlProfile == VehicleControlProfile.planeVtol
-      ? 15
-      : 4;
-
   /// 引导菜单的“改变高度”。
   ///
   /// 与 QGC `APMFirmwarePlugin::guidedModeChangeAltitude` 一致：
@@ -2587,7 +2560,7 @@ final class ConnectionController extends ChangeNotifier {
     }
     final delta = targetAltitudeAboveHome - current;
     if (delta.abs() < 0.01) return;
-    await _setFlightModeAndValidate(_guidedCustomMode, 'Guided');
+    await _setFlightModeAndValidate('Guided');
     _requireCommandSuccess(
       await flightCommandBackend.changeAltitude(delta),
       '改变高度',
@@ -2599,17 +2572,9 @@ final class ConnectionController extends ChangeNotifier {
     // ArduPilot's guided pause is a flight-mode change, not just a zero
     // velocity target. A one-shot velocity command can expire and silently
     // let the mission continue.
-    if (vehicleType == 10 || vehicleType == 11) {
-      await _setFlightModeAndValidate(3, 'Hold');
-      return;
-    }
-    if (controlProfile == VehicleControlProfile.copter) {
-      await _setFlightModeAndValidate(17, 'Brake');
-      return;
-    }
-    if (controlProfile == VehicleControlProfile.fixedWing ||
-        controlProfile == VehicleControlProfile.planeVtol) {
-      await _setFlightModeAndValidate(12, 'Loiter');
+    final pauseMode = firmwareInfo?['pause_mode']?.toString() ?? '';
+    if (pauseMode.isNotEmpty) {
+      await _setFlightModeAndValidate(pauseMode);
       return;
     }
     _requireCommandSuccess(await flightCommandBackend.guidedPause(), '暂停');
@@ -3526,7 +3491,7 @@ final class ConnectionController extends ChangeNotifier {
     final oldFlightMode = vehicleFlightMode;
     final oldVehicleType = vehicleType;
     final oldAutopilotType = vehicleAutopilotType;
-    final oldLandedState = vehicleLandedState;
+    final oldFlying = vehicleFlying;
     try {
       // 引导操作门控要用到的实时状态（QGC 的 show* 属性）。
       final summaryEnvelope = telemetryBackend.vehicleSummary();
@@ -3544,7 +3509,7 @@ final class ConnectionController extends ChangeNotifier {
       if (extendedEnvelope['success'] == true) {
         final extendedData =
             extendedEnvelope['data'] as Map<String, Object?>? ?? const {};
-        vehicleLandedState = extendedData['landed_state'] as int? ?? 0;
+        vehicleFlying = extendedData['flying'] == true;
         vehicleVtolState = extendedData['vtol_state'] as int? ?? 0;
       }
 
@@ -3584,7 +3549,7 @@ final class ConnectionController extends ChangeNotifier {
         oldFlightMode != vehicleFlightMode ||
         oldVehicleType != vehicleType ||
         oldAutopilotType != vehicleAutopilotType ||
-        oldLandedState != vehicleLandedState ||
+        oldFlying != vehicleFlying ||
         oldGuidedTargetValid != guidedTargetValid;
   }
 
@@ -3684,7 +3649,7 @@ final class ConnectionController extends ChangeNotifier {
     vehiclePositionValid = false;
     homePosition = null;
     homePositionValid = false;
-    vehicleLandedState = 0;
+    vehicleFlying = false;
     vehicleVtolState = 0;
     _clearGuidedTarget(notify: false);
     serialHardwareMappings.clear();

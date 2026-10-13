@@ -126,6 +126,10 @@ int main() {
 
         // 8. Extended sys state
         test_ok("ext_sys", mg_vehicle_get_extended_sys_state(core), "\"landed_state\":");
+        char* ext_sys = mg_vehicle_get_extended_sys_state(core);
+        check(contains(ext_sys, "\"flying\":"),
+              "extended_sys_state exposes backend flying decision");
+        mg_free_string(ext_sys);
 
         // 9. Firmware version
         test_ok("firmware_ver", mg_vehicle_get_firmware_version(core), "\"received\":");

@@ -41,6 +41,23 @@ static void test_ardupilot_vehicle_families() {
     vtol.detect(3, 19);
     CHECK(vtol.normalized_vehicle_name() == "VTOL", "AP VTOL normalized family");
 
+    FirmwareAdapter quadplane;
+    quadplane.detect(3, 1, 1.0f);  // ArduPlane QuadPlane default HEARTBEAT type.
+    CHECK(quadplane.normalized_vehicle_name() == "VTOL",
+          "AP fixed-wing heartbeat with Q_ENABLE is normalized as VTOL");
+    CHECK(quadplane.vehicle_kind() == mg::core::firmware::VehicleKind::VTOL,
+          "QuadPlane semantic type replaces the raw fixed-wing type");
+
+    FirmwareAdapter non_ardupilot_fixed_wing;
+    non_ardupilot_fixed_wing.detect(12, 1, 1.0f);
+    CHECK(non_ardupilot_fixed_wing.normalized_vehicle_name() == "FixedWing",
+          "Q_ENABLE does not reclassify non-ArduPilot fixed-wing firmware");
+
+    FirmwareAdapter disabled_quadplane;
+    disabled_quadplane.detect(3, 1, 0.0f);
+    CHECK(disabled_quadplane.normalized_vehicle_name() == "FixedWing",
+          "Q_ENABLE zero remains a fixed-wing aircraft");
+
     FirmwareAdapter tracker;
     tracker.detect(3, 5);
     CHECK(tracker.normalized_vehicle_name() == "AntennaTracker", "AP tracker normalized family");

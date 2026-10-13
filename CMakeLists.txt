@@ -169,6 +169,7 @@ set(MGCORE_SOURCES
     bridge/ffi/ffi_operations.cc
     bridge/ffi/ffi_error.cc
     bridge/ffi/ffi_vehicle.cc
+    bridge/ffi/ffi_firmware.cc
     bridge/ffi/ffi_params.cc
     bridge/ffi/ffi_commands.cc
     bridge/ffi/ffi_flight_modes.cc

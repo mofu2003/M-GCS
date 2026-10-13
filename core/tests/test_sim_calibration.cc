@@ -182,6 +182,31 @@ static void test_cancel_waits_for_the_vehicle_ack() {
     if (done) mg_free_string(done);
 }
 
+static void test_cancel_reject_ack_does_not_report_success() {
+    fprintf(stderr, "\n[Group] Calibration cancel rejects non-accepted ACKs\n");
+    TestEnv env;
+    for (int i = 0; i < 15; ++i) env.tick(100);
+
+    char* start = mg_calibration_start(env.core, 2 /*compass*/, 0);
+    CHECK(start && strstr(start, "\"success\":true") != nullptr,
+          "compass calibration starts before rejected cancel ACK");
+    if (start) mg_free_string(start);
+
+    char* cancel = mg_calibration_cancel(env.core);
+    CHECK(cancel && strstr(cancel, "\"state\":\"cancelling\"") != nullptr,
+          "cancel enters cancelling before rejected ACK");
+    if (cancel) mg_free_string(cancel);
+
+    get_active_calibration(env.core).process_command_ack(42426 /*DO_CANCEL_MAG_CAL*/, 2 /*DENIED*/, 0);
+    char* status = mg_calibration_get_status(env.core);
+    CHECK(status && strstr(status, "\"active\":true") != nullptr &&
+              strstr(status, "\"stage\":\"cancelling\"") != nullptr,
+          "rejected cancel ACK does not finalize cancellation");
+    CHECK(status && strstr(status, "MAV_RESULT 2") != nullptr,
+          "rejected cancel ACK is surfaced in the calibration reason");
+    if (status) mg_free_string(status);
+}
+
 static void test_cancel_watchdog_finishes_when_vehicle_is_silent() {
     fprintf(stderr, "\n[Group] Calibration watchdog: cancel never confirmed\n");
 
@@ -980,6 +1005,7 @@ int main() {
     test_cal_start_compass();
     test_calibration_operation_cancel();
     test_cancel_waits_for_the_vehicle_ack();
+    test_cancel_reject_ack_does_not_report_success();
     test_cancel_watchdog_finishes_when_vehicle_is_silent();
     test_cancel_link_loss_still_lands_on_cancelled();
     test_mag_cal_report_completes_calibration();

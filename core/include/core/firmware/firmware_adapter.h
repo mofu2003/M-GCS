@@ -1,4 +1,4 @@
-﻿/**
+/**
  * firmware_adapter.h - Firmware-specific flight mode mapping
  * 固件类型检测和适配 — 自动识别固件类型，路由飞行模式解码
  *
@@ -40,8 +40,21 @@ enum class VehicleKind : uint8_t {
     Hexarotor     = 13,  // MAV_TYPE_HEXAROTOR
     Octorotor     = 14,  // MAV_TYPE_OCTOROTOR
     Tricopter     = 15,  // MAV_TYPE_TRICOPTER
-    VTOL          = 19,  // MAV_TYPE_VTOL_TAILSITTER_DUOROTOR (and all VTOL variants 19-24)
+    VTOL          = 19,  // MAV_TYPE_VTOL_TAILSITTER_DUOROTOR (见 is_vtol_mav_type)
 };
+
+/// MAVLink 的 VTOL 机型家族：从 MAV_TYPE_VTOL_TAILSITTER_DUOROTOR(19) 起连续
+/// 到 MAV_TYPE_VTOL_RESERVED5(25)。这是唯一允许写出该区间的谓词（ADR-0010）：
+/// 其余地方一律调用它，不得再各写一份区间字面量。
+///
+/// MAV_TYPE >= 26 是 GIMBAL/ADSB/PARAFOIL 等非飞行器，既不属 VTOL，也不得
+/// 回退成任何一种可飞行机型。
+inline constexpr uint8_t kMavTypeVtolFirst = 19;  // MAV_TYPE_VTOL_TAILSITTER_DUOROTOR
+inline constexpr uint8_t kMavTypeVtolLast  = 25;  // MAV_TYPE_VTOL_RESERVED5
+
+inline constexpr bool is_vtol_mav_type(uint8_t mav_type) {
+    return mav_type >= kMavTypeVtolFirst && mav_type <= kMavTypeVtolLast;
+}
 
 /// Decoded flight mode information
 struct FlightModeInfo {
@@ -65,7 +78,12 @@ public:
     /// Detect firmware and vehicle type from HEARTBEAT fields.
     /// autopilot_type = HEARTBEAT.autopilot (MAV_AUTOPILOT_xxx)
     /// vehicle_type   = HEARTBEAT.type (MAV_TYPE_xxx)
-    void detect(uint8_t autopilot_type, uint8_t vehicle_type);
+    /// Detect the firmware/vehicle family from HEARTBEAT. ArduPlane QuadPlane
+    /// normally reports MAV_TYPE_FIXED_WING; when the backend has already
+    /// received Q_ENABLE, pass it here so all consumers get the same VTOL
+    /// classification instead of re-interpreting parameters themselves.
+    void detect(uint8_t autopilot_type, uint8_t vehicle_type,
+                std::optional<float> quadplane_enable = std::nullopt);
 
     /// Get detected firmware kind
     FirmwareKind firmware_kind() const;

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * firmware_plugin_ardupilot.cc - ArduPilot FirmwarePlugin implementation
  * ArduPilot 插件实现 — 所有机型的模式表和固件行为
  *
@@ -30,7 +30,7 @@ using namespace modes;
 // Helper: determine ArduPilot vehicle sub-family from VehicleKind
 // (mirrors FirmwareAdapter::detect() logic)
 // ================================================================
-enum class ApVehicle { Copter, Plane, Rover, Sub, Tracker };
+enum class ApVehicle { Unknown, Copter, Plane, Rover, Sub, Tracker };
 
 static ApVehicle classify_ap_vehicle(VehicleKind v) {
     switch (v) {
@@ -51,11 +51,14 @@ static ApVehicle classify_ap_vehicle(VehicleKind v) {
         case VehicleKind::Tracker:
             return ApVehicle::Tracker;
         default:
-            // VTOL types (19-24) use Plane firmware
-            if (static_cast<uint8_t>(v) >= 19 && static_cast<uint8_t>(v) <= 24) {
+            // VTOL 家族（19-25）跑 Plane 固件。
+            if (is_vtol_mav_type(static_cast<uint8_t>(v))) {
                 return ApVehicle::Plane;
             }
-            return ApVehicle::Copter; // default fallback
+            // 未识别的 MAV_TYPE（含 >= 26 的 GIMBAL/ADSB/PARAFOIL）一律 Unknown：
+            // 不得回退成 Copter，否则非飞行器会继承多旋翼的飞行动作能力。
+            // QGC 同位置的做法是 vehicleClass 的 default → VehicleClassGeneric。
+            return ApVehicle::Unknown;
     }
 }
 
@@ -89,6 +92,7 @@ std::string ArduPilotPlugin::decode_flight_mode(VehicleKind vehicle, uint32_t cu
         case ApVehicle::Rover:   name = ardupilot_rover_mode_name(custom_mode); break;
         case ApVehicle::Sub:     name = ardupilot_sub_mode_name(custom_mode); break;
         case ApVehicle::Tracker: name = ardupilot_tracker_mode_name(custom_mode); break;
+        case ApVehicle::Unknown: break;  // 无模式表：落到下面的 Mode(N) 兜底
     }
     return name ? std::string(name) : "Mode(" + std::to_string(custom_mode) + ")";
 }
@@ -133,14 +137,14 @@ uint32_t ArduPilotPlugin::capabilities(VehicleKind vehicle) const {
     ApVehicle av = classify_ap_vehicle(vehicle);
     switch (av) {
         case ApVehicle::Copter:
-            caps |= CapGuidedMode | CapPause | CapTakeoff | CapSmartRTL |
+            caps |= CapGuidedMode | CapPause | CapTakeoff | CapGuidedLand | CapSmartRTL |
                     CapMotorTest | CapChangeHeading | CapOrbit;
             break;
         case ApVehicle::Plane: {
             caps |= CapGuidedMode | CapPause | CapMotorTest | CapOrbit;
-            const uint8_t mav_type = static_cast<uint8_t>(vehicle);
-            if (mav_type >= 19 && mav_type <= 24) {
-                caps |= CapTakeoff;  // VTOL takeoff
+            // 只有 VTOL 家族能引导起飞/降落；普通固定翼不能。
+            if (is_vtol_mav_type(static_cast<uint8_t>(vehicle))) {
+                caps |= CapTakeoff | CapGuidedLand;
             }
             break;
         }
@@ -164,6 +168,12 @@ float ArduPilotPlugin::minimum_takeoff_altitude(VehicleKind vehicle) const {
     // Copter default, Plane uses different logic via TAKEOFF command
     (void)vehicle;
     return 3.048f;
+}
+
+const char* ArduPilotPlugin::quadplane_enable_param_id() const {
+    // ArduPlane 的 QuadPlane 总开关。取值 >0 时该固定翼实际上具备多旋翼形态。
+    // 上游：ArduPlane/quadplane.cpp 的 Q_ENABLE；MP 的 isQuadPlane 也读它。
+    return "Q_ENABLE";
 }
 
 

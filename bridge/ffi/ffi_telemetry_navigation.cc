@@ -224,11 +224,19 @@ MGCORE_API char* mg_vehicle_get_vfr_hud(mg_core_t* core) {
 
 MGCORE_API char* mg_vehicle_get_extended_sys_state(mg_core_t* core) {
     return mg::bridge::ffi::response::object_from_cache(core,
-        R"({"vtol_state":0,"landed_state":0})",
+        R"({"vtol_state":0,"landed_state":0,"flying":false})",
         [](auto& cache, mg::core::telemetry::JsonBuilder& data) {
             auto snap = cache.snapshot_ext_sys();
             const auto& d = snap.data;
+            const auto heartbeat = cache.snapshot_heartbeat().data;
+            const auto position = cache.snapshot_global_pos().data;
+            const bool flying = d.landed_state == MAV_LANDED_STATE_IN_AIR ||
+                d.landed_state == MAV_LANDED_STATE_TAKEOFF ||
+                d.landed_state == MAV_LANDED_STATE_LANDING ||
+                (heartbeat.armed &&
+                 (position.relative_alt > 2000 || position.relative_alt < -2000));
             data.field("vtol_state",   (int)d.vtol_state);
             data.field("landed_state", (int)d.landed_state);
+            data.field("flying", flying);
         });
 }

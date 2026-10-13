@@ -639,6 +639,8 @@ void MavlinkAdapter::Impl::handle_video_stream_information(const mavlink_message
     mavlink_video_stream_information_t vsi;
     mavlink_msg_video_stream_information_decode(&m, &vsi);
     VideoStreamInfo info{};
+    info.system_id = m.sysid;
+    info.component_id = m.compid;
     info.stream_id = vsi.stream_id;
     info.type = vsi.type;
     info.width = vsi.resolution_h;
@@ -648,13 +650,16 @@ void MavlinkAdapter::Impl::handle_video_stream_information(const mavlink_message
     info.rotation = vsi.rotation;
     info.hfov = vsi.hfov;
     info.flags = vsi.flags;
-    memcpy(info.name, vsi.name, sizeof(info.name));
-    memcpy(info.uri, vsi.uri, sizeof(info.uri));
+    copy_str(info.name, sizeof(info.name), vsi.name, sizeof(vsi.name));
+    copy_str(info.uri, sizeof(info.uri), vsi.uri, sizeof(vsi.uri));
 
-    // 更新缓存：按 stream_id 查找或新建
+    // 与 Mission Planner 的 VideoStreams 键保持一致：相机组件内的 stream_id
+    // 才是唯一标识，不能把同一飞控的多台相机合并成一条流。
     bool found = false;
     for (auto& s : tel.video_streams) {
-        if (s.stream_id == info.stream_id) {
+        if (s.system_id == info.system_id &&
+            s.component_id == info.component_id &&
+            s.stream_id == info.stream_id) {
             s = info;
             found = true;
             break;

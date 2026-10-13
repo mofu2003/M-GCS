@@ -81,7 +81,18 @@ MGCORE_API char* mg_vehicle_list(mg_core_t* core) {
         obj.field("system_id", (int)info.system_id);
         obj.field("name", info.name);
         obj.field("firmware_type", info.firmware_type);
-        obj.field("vehicle_type", info.vehicle_type);
+        auto vehicle_type = info.vehicle_type;
+        const auto mav = v->shared_mavlink();
+        if (mav) {
+            const auto hb = mav->latest_heartbeat();
+            if (hb.has_value()) {
+                mg::core::firmware::FirmwareAdapter adapter;
+                adapter.detect(hb->autopilot_type, hb->vehicle_type,
+                               ffi_quadplane_enable(core));
+                vehicle_type = adapter.normalized_vehicle_name();
+            }
+        }
+        obj.field("vehicle_type", vehicle_type);
         obj.field("endpoint", info.endpoint);
         obj.field("connected", v->is_connected());
         obj.field("armed", heartbeat.armed);

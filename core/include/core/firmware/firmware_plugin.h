@@ -1,4 +1,4 @@
-﻿/**
+/**
  * firmware_plugin.h - Firmware-specific behavior strategy (QGC FirmwarePlugin pattern)
  * 固件插件接口 — 统一封装固件特有逻辑，ArduPilot 实现
  *
@@ -54,6 +54,7 @@ enum FirmwareCapability : uint32_t {
     CapCalibration      = 1 << 7,  // Supports sensor calibration via MAVLink
     CapRoi              = 1 << 8,  // Supports region-of-interest (QGC ROIModeCapability)
     CapChangeHeading    = 1 << 9,  // Supports changing heading in place (QGC ChangeHeadingCapability)
+    CapGuidedLand       = 1 << 10, // Supports landing from the guided flight view
 };
 
 /// A single available flight mode (name + number + settable flag)
@@ -119,6 +120,21 @@ public:
 
     /// Get the capability flags for this firmware + vehicle combination.
     virtual uint32_t capabilities(VehicleKind vehicle) const = 0;
+
+    /// Query the parameter that decides whether an ArduPilot fixed-wing airframe
+    /// is actually a QuadPlane (四旋翼固定翼混合机型). Returns the parameter id the
+    /// backend must look up, or nullptr when this firmware/vehicle pair has no
+    /// such notion.
+    ///
+    /// 存在的理由（ADR-0010）：ArduPilot QuadPlane 上报 MAV_TYPE_FIXED_WING，
+    /// 只靠 MAV_TYPE 无法识别。上游地面站都在 MAV_TYPE 之外另挂一个信息源
+    /// （QGC 用任务内演进的 vtolMode，MP 用直读参数缓存的 isQuadPlane）。这里
+    /// 让插件持有参数名的知识，通用代码只问「哪个参数决定它是不是 QuadPlane」，
+    /// 从而满足 S6：固件专属参数名不出现在插件之外。
+    ///
+    /// 调用方每次查询都应现算（参数缓存可能在连接初期尚未填充），不得把结果
+    /// 缓存成会话级字段——这正是 ADR-0010 的「能力按运行时求值」。
+    virtual const char* quadplane_enable_param_id() const = 0;
 
     // ================================================================
     // GUIDED Mode Parameters

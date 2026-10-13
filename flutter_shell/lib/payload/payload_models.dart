@@ -327,6 +327,8 @@ final class GimbalAttitude {
 final class VideoStreamInfo {
   const VideoStreamInfo({
     required this.streamId,
+    this.systemId = 0,
+    this.componentId = 0,
     this.type = 0,
     this.name = '',
     this.uri = '',
@@ -341,6 +343,8 @@ final class VideoStreamInfo {
   });
 
   final int streamId;
+  final int systemId;
+  final int componentId;
   final int type;
   final String name;
   final String uri;
@@ -355,6 +359,8 @@ final class VideoStreamInfo {
 
   factory VideoStreamInfo.fromJson(JsonMap json) => VideoStreamInfo(
     streamId: json['stream_id'] as int? ?? 0,
+    systemId: json['system_id'] as int? ?? 0,
+    componentId: json['component_id'] as int? ?? 0,
     type: json['type'] as int? ?? 0,
     name: json['name'] as String? ?? '',
     uri: json['uri'] as String? ?? '',

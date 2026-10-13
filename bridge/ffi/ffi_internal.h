@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ffi_internal.h - Internal shared state for FFI bridge
  *
  * FFI 内部共享状态、辅助函数和活跃飞行器路由逻辑。
@@ -227,10 +227,58 @@ inline mg::core::mission::MissionPlan ffi_prepare_mission_upload(mg_core_t* core
 // Shared parameter helpers for ffi_*.cc
 // ================================================================
 
+/// 从插件取「QuadPlane 总开关」的参数名，再读它的当前值。参数名由插件持有
+/// （S6 / ADR-0010），本层不得出现固件参数字面量。
+///
+/// 返回值语义：nullopt 表示「无法判定」——非 ArduPilot、未连接、没有心跳，
+/// 或该参数尚未进入参数缓存（连接初期 PARAM_VALUE 还没到）。调用方必须把
+/// nullopt 与 `0.0f`（明确关闭）区分对待。
+inline std::optional<float> ffi_quadplane_enable(mg_core_t* core) {
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return std::nullopt;
+    auto hb = mav->latest_heartbeat();
+    if (!hb.has_value() || hb->autopilot_type != MAV_AUTOPILOT_ARDUPILOTMEGA) return std::nullopt;
+
+    const auto plugin = mg::core::firmware::create_firmware_plugin(hb->autopilot_type == 3
+                             ? mg::core::firmware::FirmwareKind::ArduPilot
+                             : mg::core::firmware::FirmwareKind::Unknown);
+    if (!plugin) return std::nullopt;
+    const char* param_id = plugin->quadplane_enable_param_id();
+    if (!param_id) return std::nullopt;
+
+    const auto param = mav->get_param_by_name(param_id);
+    if (!param.has_value()) return std::nullopt;
+    return static_cast<float>(param->value);
+}
+
 /// ArduPilot 归一化机型（copter/plane/vtol/rover/sub/tracker）。非 ArduPilot
 /// 固件、未连接或机型无法归一化时返回空串。任务命令能力门禁按这个结果判断
 /// 飞控是否真的存储某个任务字段。
+///
+/// 注意：QuadPlane 的判定依赖参数缓存，连接初期可能尚未就绪，因此这里的结果
+/// 会随时间变化。调用方不得把它缓存成会话级字段（ADR-0010）。
 inline std::string ffi_ardupilot_vehicle_class(mg_core_t* core) {
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return "";
+    auto hb = mav->latest_heartbeat();
+    if (!hb.has_value() || hb->autopilot_type != MAV_AUTOPILOT_ARDUPILOTMEGA) return "";
+
+    mg::core::firmware::FirmwareAdapter adapter;
+    adapter.detect(hb->autopilot_type, hb->vehicle_type, ffi_quadplane_enable(core));
+    const auto family = adapter.normalized_vehicle_name();
+    if (family == "Copter") return "copter";
+    if (family == "FixedWing") return "plane";
+    if (family == "VTOL") return "vtol";
+    if (family == "Rover") return "rover";
+    if (family == "Submarine") return "sub";
+    if (family == "AntennaTracker") return "tracker";
+    return "";
+}
+
+/// 只按 MAV_TYPE 归一化的机型，不看任何参数。用于必须在连接初期就稳定、
+/// 且不得随时间变化的结果（任务命令目录的 supported 判定，ADR-0010 第 4 条）。
+/// QuadPlane 在这里表现为 "plane"；VTOL 家族的 MAV_TYPE 表现为 "vtol"。
+inline std::string ffi_ardupilot_vehicle_class_from_mav_type(mg_core_t* core) {
     auto mav = shared_active_mavlink(core);
     if (!mav) return "";
     auto hb = mav->latest_heartbeat();

@@ -390,6 +390,7 @@ static void test_ffi_contract() {
     result = mg_mission_get_command_catalog(core);
     CHECK(result && strstr(result, "\"schema_version\":1"), "FFI command catalog returns schema");
     CHECK(result && strstr(result, "\"NAV_WAYPOINT\""), "FFI command catalog includes waypoint");
+    CHECK(result && strstr(result, "\"supported\":true"), "FFI command catalog includes backend support state");
     CHECK(result && strstr(result, "\"accept_radius\""), "FFI command catalog includes parameter metadata");
     CHECK(result && strstr(result, "\"index\":3"), "FFI command catalog exposes MAVLink parameter index");
     if (result) mg_free_string(result);

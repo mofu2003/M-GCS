@@ -46,10 +46,19 @@ ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "tools" / "firmware_literals_baseline.json"
 
 # 扫描范围：前端 Dart + 后端 C++（core/src 与 bridge/ffi）
+# 注意：core/src/firmware/ 中的插件实现文件因属于 S6 的合法持有者，已单独豁免。
+# 详见 ADR-0011 固件参数名持有机制与循环依赖处理。
 SCAN_DIRS: list[tuple[Path, tuple[str, ...]]] = [
     (ROOT / "flutter_shell" / "lib", ("*.dart",)),
     (ROOT / "core" / "src", ("*.cc", "*.h")),
     (ROOT / "bridge" / "ffi", ("*.cc", "*.h")),
+]
+
+# 插件实现路径豁免：这些路径中的参数名是 S6 指定的合法持有者
+# 格式：(base_dir, subdirs_to_exempt) 或直接 path.match()
+PLUGIN_EXEMPT_PATHS = [
+    "core/src/firmware/*.cc",
+    "core/src/firmware/*.h",
 ]
 
 DESCRIPTOR_FILES = [
@@ -159,11 +168,16 @@ def scan() -> dict[str, list[str]]:
             continue
         for pattern in patterns:
             for path in sorted(scan_dir.rglob(pattern)):
+                # 检查是否在豁免路径中（插件实现）
+                rel = str(path.relative_to(ROOT))
+                is_exempt = any(Path(rel).match(exempt) for exempt in PLUGIN_EXEMPT_PATHS)
+                if is_exempt:
+                    continue
+
                 text = path.read_text(encoding="utf-8", errors="ignore")
                 templates = extract_templates(text)
                 hits = match_templates(templates, universe)
                 if hits:
-                    rel = str(path.relative_to(ROOT))
                     found[rel] = sorted(hits)
     return found
 

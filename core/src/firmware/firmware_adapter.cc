@@ -1,4 +1,4 @@
-﻿/**
+/**
  * firmware_adapter.cc - Firmware detection + flight mode routing
  * 固件适配实现 — 固件类型检测与飞行模式表路由
  *
@@ -34,7 +34,8 @@ using namespace modes;
 FirmwareAdapter::FirmwareAdapter() = default;
 FirmwareAdapter::~FirmwareAdapter() = default;
 
-void FirmwareAdapter::detect(uint8_t autopilot_type, uint8_t vehicle_type) {
+void FirmwareAdapter::detect(uint8_t autopilot_type, uint8_t vehicle_type,
+                             std::optional<float> quadplane_enable) {
     // Detect firmware kind (只有 ArduPilot)
     if (autopilot_type == 3) {  // MAV_AUTOPILOT_ARDUPILOTMEGA
         firmware_kind_ = FirmwareKind::ArduPilot;
@@ -44,6 +45,14 @@ void FirmwareAdapter::detect(uint8_t autopilot_type, uint8_t vehicle_type) {
 
     // Detect vehicle kind
     vehicle_kind_ = static_cast<VehicleKind>(vehicle_type);
+    // ArduPilot QuadPlane defaults to MAV_TYPE_FIXED_WING in HEARTBEAT. The
+    // backend is the single authority for this distinction: once Q_ENABLE is
+    // cached, promote the raw heartbeat type to the semantic VTOL kind.
+    if (firmware_kind_ == FirmwareKind::ArduPilot &&
+        vehicle_type == static_cast<uint8_t>(VehicleKind::FixedWing) &&
+        quadplane_enable.has_value() && *quadplane_enable > 0.0f) {
+        vehicle_kind_ = VehicleKind::VTOL;
+    }
 
     // For ArduPilot, determine the sub-family (Copter/Plane/Rover/Sub/Tracker)
     // Reference: QGC APMFirmwarePlugin::arduPilotFirmwareType()
@@ -73,15 +82,13 @@ void FirmwareAdapter::detect(uint8_t autopilot_type, uint8_t vehicle_type) {
             case 5:   // AntennaTracker
                 ardu_vehicle_ = ArduPilotVehicle::Tracker;
                 break;
-            case 19:  // VTOL types (19-24) use Plane firmware
-            case 20:
-            case 21:
-            case 22:
-            case 23:
-            case 24:
-                ardu_vehicle_ = ArduPilotVehicle::Plane;
-                break;
             default:
+                // VTOL 家族（19-25）跑 Plane 固件。
+                if (is_vtol_mav_type(vehicle_type)) {
+                    ardu_vehicle_ = ArduPilotVehicle::Plane;
+                }
+                // 其余值保持 Unknown：不认识的 MAV_TYPE 不声明任何机型，
+                // 由调用方放弃下发（QGC vehicleClass 的 default → Generic 同义）。
                 break;
         }
     }
@@ -116,8 +123,7 @@ std::string FirmwareAdapter::vehicle_name() const {
                 case VehicleKind::SurfaceBoat: return "Boat";
                 case VehicleKind::Submarine:   return "Submarine";
                 default:
-                    if (static_cast<uint8_t>(vehicle_kind_) >= 19 &&
-                        static_cast<uint8_t>(vehicle_kind_) <= 24) {
+                    if (is_vtol_mav_type(static_cast<uint8_t>(vehicle_kind_))) {
                         return "VTOL";
                     }
                     return "Unknown";
@@ -130,8 +136,7 @@ std::string FirmwareAdapter::normalized_vehicle_name() const {
         switch (ardu_vehicle_) {
             case ArduPilotVehicle::Copter:  return "Copter";
             case ArduPilotVehicle::Plane:
-                if (static_cast<uint8_t>(vehicle_kind_) >= 19 &&
-                    static_cast<uint8_t>(vehicle_kind_) <= 24) {
+                if (is_vtol_mav_type(static_cast<uint8_t>(vehicle_kind_))) {
                     return "VTOL";
                 }
                 return "FixedWing";
@@ -158,8 +163,7 @@ std::string FirmwareAdapter::normalized_vehicle_name() const {
         case VehicleKind::Submarine:
             return "Submarine";
         default:
-            if (static_cast<uint8_t>(vehicle_kind_) >= 19 &&
-                static_cast<uint8_t>(vehicle_kind_) <= 24) {
+            if (is_vtol_mav_type(static_cast<uint8_t>(vehicle_kind_))) {
                 return "VTOL";
             }
             return "Unknown";

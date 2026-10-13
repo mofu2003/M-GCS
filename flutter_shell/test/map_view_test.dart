@@ -80,7 +80,7 @@ void main() {
     test('shows only takeoff on the ground', () {
       final visibility = flightActionVisibility(
         flying: false,
-        fixedWing: false,
+        landCapability: true,
       );
       expect(visibility.takeoff, isTrue);
       expect(visibility.land, isFalse);
@@ -89,19 +89,28 @@ void main() {
     });
 
     test('change altitude sits with land and RTL in flight', () {
-      final visibility = flightActionVisibility(flying: true, fixedWing: false);
+      final visibility = flightActionVisibility(
+        flying: true,
+        landCapability: true,
+      );
       expect(visibility.changeAltitude, isTrue);
     });
 
     test('shows land and RTL in flight for non fixed wing', () {
-      final visibility = flightActionVisibility(flying: true, fixedWing: false);
+      final visibility = flightActionVisibility(
+        flying: true,
+        landCapability: true,
+      );
       expect(visibility.takeoff, isFalse);
       expect(visibility.land, isTrue);
       expect(visibility.rtl, isTrue);
     });
 
     test('hides land for fixed wing but keeps RTL', () {
-      final visibility = flightActionVisibility(flying: true, fixedWing: true);
+      final visibility = flightActionVisibility(
+        flying: true,
+        landCapability: false,
+      );
       expect(visibility.takeoff, isFalse);
       expect(visibility.land, isFalse);
       expect(visibility.rtl, isTrue);

@@ -69,8 +69,12 @@ class _PidParametersPageState extends State<PidParametersPage> {
   void didUpdateWidget(covariant PidParametersPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller.parameterChanges.removeListener(_syncVisibleParameters);
-      oldWidget.controller.profileChanges.removeListener(_syncVisibleParameters);
+      oldWidget.controller.parameterChanges.removeListener(
+        _syncVisibleParameters,
+      );
+      oldWidget.controller.profileChanges.removeListener(
+        _syncVisibleParameters,
+      );
       widget.controller.parameterChanges.addListener(_syncVisibleParameters);
       widget.controller.profileChanges.addListener(_syncVisibleParameters);
       _registeredNames.clear();
@@ -114,11 +118,8 @@ class _PidParametersPageState extends State<PidParametersPage> {
       builder: (context, _) {
         final controller = widget.controller;
         final profile = controller.controlProfile;
-        // 机型未识别时先按多旋翼渲染骨架，参数仍然全部可编辑，避免整页空白。
-        final resolved = profile == VehicleControlProfile.unknown
-            ? VehicleControlProfile.copter
-            : profile;
-        final sections = pidSections(resolved, widget.vtol, _level);
+        // 机型未知时不猜测参数布局；等后端能力/profile 到位后再渲染。
+        final sections = pidSections(profile, widget.vtol, _level);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

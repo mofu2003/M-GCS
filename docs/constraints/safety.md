@@ -38,7 +38,25 @@
 模式号、参数名、命令编码、校准流程只能由固件插件提供。通用代码中不得出现这些值的字面量。
 - 违反后果：更换或升级固件后行为错误。
 - 验证：静态检查通用代码路径中是否出现已知模式号和参数名字面量。
-- 参数名的落地方式：插件在 `core/src/config/ParameterDescriptors.json` 的 `roles` 段按机型 profile 提供「语义角色 → 固件参数名」，经 `mg_config_get_param_roles` 下发；前端只写语义角色（如 `pid.rate.roll.p`、`rc.map.yaw`），用 `ConnectionController.roleParam()` 解析。门禁 `tools/check_firmware_literals.py` 挡住新增字面量；`tools/firmware_literals_baseline.json` 记录已核实的暂缓项（当前 7 个文件 / 14 处，多为桥接层按语义角色取参数名的合法用途），基线只允许缩小，新增豁免必须人工写入并附理由。
+
+**参数名的持有方式**（S6 的两条正式渠道）：
+
+1. **角色表机制**（标准方式，覆盖大多数参数）
+   - 插件在 `core/src/config/ParameterDescriptors.json` 的 `roles` 段按机型 profile 提供「语义角色 → 固件参数名」映射
+   - 经 `mg_config_get_param_roles` 下发给前端
+   - 前端只使用语义角色（如 `pid.rate.roll.p`、`rc.map.yaw`），通过 `ConnectionController.roleParam()` 解析为具体参数名
+   - 避免前端代码出现参数名字面量
+
+2. **插件方法**（补充方式，用于「决定 profile 本身的参数」）
+   - 某些参数因结构性原因不适用角色表机制
+   - 例：`Q_ENABLE` 参数本身用来判断 QuadPlane vs Plane，因此无法从 profile 对应的角色表中获取（存在循环依赖，见 ADR-0011）
+   - 此类参数由插件方法直接提供（如 `IFirmwarePlugin::quadplane_enable_param_id()`）
+   - 实现位于 `core/src/firmware/` 目录
+
+**门禁规则**：
+- `tools/check_firmware_literals.py` 挡住新增字面量
+- 豁免范围：`core/src/firmware/` 中插件实现路径（此处参数名持有是合法的）
+- `tools/firmware_literals_baseline.json` 记录已核实的暂缓项（当前 7 个文件 / 14 处），基线只允许缩小，新增豁免必须人工写入并附理由
 
 **S7 任务文件不静默覆盖**
 `MissionDocument` 是唯一内部状态，上传飞控前从它编译 `MissionPlan`。不得改写用户原始文件，也不得在用户不知情时替换其内容。

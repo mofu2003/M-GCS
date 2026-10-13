@@ -14,17 +14,10 @@ import '../widgets/parameter_write_status.dart';
 
 /// 一条解锁检查项。位值与 ArduPilot 的 bitmask 定义一致。
 class _ArmingCheck {
-  const _ArmingCheck(
-    this.bit,
-    this.label, {
-    this.fixedWingOnly = false,
-    this.multirotorOnly = false,
-  });
+  const _ArmingCheck(this.bit, this.label);
 
   final int bit;
   final String label;
-  final bool fixedWingOnly;
-  final bool multirotorOnly;
 }
 
 /// 解锁检查清单。旧固件写 ARMING_CHECK（置位=执行检查），
@@ -38,7 +31,7 @@ const _armingCheckCatalog = [
   _ArmingCheck(64, '遥控通道'),
   _ArmingCheck(128, '板载电压'),
   _ArmingCheck(256, '电池电量'),
-  _ArmingCheck(512, '空速计', fixedWingOnly: true),
+  _ArmingCheck(512, '空速计'),
   _ArmingCheck(1024, '日志可用性'),
   _ArmingCheck(2048, '硬件安全开关'),
   _ArmingCheck(4096, 'GPS 配置'),
@@ -47,19 +40,14 @@ const _armingCheckCatalog = [
   _ArmingCheck(32768, '测距仪'),
   _ArmingCheck(65536, '相机'),
   _ArmingCheck(131072, 'AuxAuth'),
-  _ArmingCheck(262144, '视觉里程计', multirotorOnly: true),
+  _ArmingCheck(262144, '视觉里程计'),
   _ArmingCheck(524288, 'FFT'),
 ];
 
-List<_ArmingCheck> _armingChecksFor(VehicleControlProfile profile) {
-  final fixedWing =
-      profile == VehicleControlProfile.fixedWing ||
-      profile == VehicleControlProfile.planeVtol;
-  final multirotor = profile == VehicleControlProfile.copter;
+List<_ArmingCheck> _armingChecksFor(Set<int> applicableBits) {
   return [
     for (final check in _armingCheckCatalog)
-      if (!check.fixedWingOnly || fixedWing)
-        if (!check.multirotorOnly || multirotor) check,
+      if (applicableBits.contains(check.bit)) check,
   ];
 }
 
@@ -126,7 +114,7 @@ class _ArmingChecksPageState extends State<ArmingChecksPage> {
       final mask = parameterName == null
           ? 0
           : controller.parameters[parameterName]?.value.round() ?? 0;
-      final checks = _armingChecksFor(controller.controlProfile);
+      final checks = _armingChecksFor(controller.armingCheckBits);
       // 拿不到参数（未连接、未读完或固件没有该参数）时开关置灰，但清单照常显示。
       final writable =
           parameterName != null &&

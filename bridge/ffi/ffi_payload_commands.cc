@@ -446,13 +446,17 @@ MGCORE_API char* mg_video_status(mg_core_t* core) {
     for (const auto& s : streams) {
         mg::core::telemetry::JsonBuilder obj;
         obj.begin_object();
+        obj.field("system_id", static_cast<int>(s.system_id));
+        obj.field("component_id", static_cast<int>(s.component_id));
         obj.field("stream_id", static_cast<int>(s.stream_id));
         obj.field("type", static_cast<int>(s.type));
         obj.field("name", s.name);
         obj.field("uri", s.uri);
         obj.field("running", (s.flags & 0x01) != 0);
         for (const auto& st : statuses) {
-            if (st.stream_id == s.stream_id) {
+            if (st.system_id == s.system_id &&
+                st.component_id == s.component_id &&
+                st.stream_id == s.stream_id) {
                 obj.field("framerate", static_cast<int>(st.framerate));
                 obj.field("bitrate", static_cast<long long>(st.bitrate));
                 obj.field("resolution_h", static_cast<int>(st.resolution_h));
@@ -485,6 +489,8 @@ MGCORE_API char* mg_video_get_streams(mg_core_t* core) {
     for (const auto& s : streams) {
         mg::core::telemetry::JsonBuilder obj;
         obj.begin_object();
+        obj.field("system_id", static_cast<int>(s.system_id));
+        obj.field("component_id", static_cast<int>(s.component_id));
         obj.field("stream_id", static_cast<int>(s.stream_id));
         obj.field("type", static_cast<int>(s.type));
         obj.field("width", static_cast<int>(s.width));
