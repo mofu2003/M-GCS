@@ -1,5 +1,22 @@
 # 开发指南
 
+## 🏗️ 架构与文档导航
+
+**首次开发前必读**：如果你要修改 `flutter_shell/lib/connection/`，先读这些：
+
+| 文档 | 用途 | 时间 |
+|------|------|------|
+| `QUICK_REFERENCE.md` | 速查表，30 秒快速答案 | 5 min |
+| `docs/development/adding-features.md` | 新功能怎么加不破坏架构 | 10 min |
+| `docs/constraints/vehicle-session-assembler.md` | 架构约束（代码审查清单） | 15 min |
+| `docs/development/maintenance.md` | 长期维护计划 | 按需 |
+
+**一句话**：无状态用装配器，有状态用控制器，业务逻辑用新 Controller。
+
+更多：见下方的 [环境] 和 [测试]。
+
+---
+
 ## 环境
 
 - CMake 3.20 及以上，C++17 编译器
