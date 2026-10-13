@@ -143,7 +143,7 @@ tools/sitl-mission-scenario.sh --vehicle arduplane --model plane \
 tools/preflight.sh
 ```
 
-它依次检查补丁格式、版本一致性、FFI 目录、UI token、前端固件参数字面量（S6，`tools/check_firmware_literals.py`）、Flutter 分析与测试、后端测试，以及 macOS debug 构建。全量检查最后核对新编译库的符号和版本，并运行 Flutter 与原生后端的 FFI smoke。
+它依次检查补丁格式、文档一致性（`tools/check_doc_links.py`）、版本一致性、FFI 目录、UI token、前端固件参数字面量（S6，`tools/check_firmware_literals.py`）、Flutter 分析与测试、后端测试，以及 macOS debug 构建。全量检查最后核对新编译库的符号和版本，并运行 Flutter 与原生后端的 FFI smoke。
 
 可用选项：
 
@@ -167,7 +167,7 @@ tools/preflight.sh --no-macos-build       # 提交前：全量
 |---|---|
 | `docs/**`、`*.md` | 只跑补丁格式与版本检查（约 0.1 s） |
 | `flutter_shell/**` | token 扫描 + analyze + 全部 Flutter 测试（约 11 s），跳过后端 |
-| 单个 `core/tests/test_X.cc` | 只编、只跑 `test_X` |
+| 单个 `core/tests/test_<名字>.cc` | 只编、只跑该测试 |
 | `core/**/calibration/**` | `test_sim_calibration`、`test_state_machines` |
 | `core/**/mission/**` | 任务相关几套 |
 | **`core/**/mavlink/**`、`bridge/ffi/**`、共享测试夹具、CMake、未分类路径** | **升级为后端全量并打印原因** |
@@ -192,6 +192,8 @@ tools/install-hooks.sh
 - **单一实现的抽象 / 纯转发层**：抽出的接口要有至少两个真实使用方，或有当前的变更原因。Dart 的 `*_backend.dart` 与 C++ 的 `ILink`、`IFirmwarePlugin`、`ICalibrationStrategy` 都已有多个实现；不要再为「将来可能扩展」加空接口（A7）。
 - **大文件**：按变更耦合判断，不按行数。拆之前先用 `git log --follow` 加逐块共变统计，并登记到 `docs/constraints/known-deviations.md` 再决定（KD-43、KD-44、KD-46 是既有结论）。
 - **重复逻辑**：形态相似的 JSON 映射、各自的领域模型不算重复，不要为消除相似强抽公共 helper（KD-47）。
+- **文档引用**：`python3 tools/check_doc_links.py` 检查三件事——反引号里的仓内文件引用是否存在、`docs/adr/README.md` 是否登记了目录下所有 ADR、文档头部日期是否早于仓库首次提交。新增 ADR 必须同步索引（ADR-0009/0010/0011 都曾漏登，索引停更于 0008）。
+  - 记录历史时提到**已删除**的文件是正常的，但要显式说明：所在行写上「已删除」「已移除」等标记词，或带上 commit 短 SHA，或让文件头部声明「历史快照」。三者都没有的悬空引用会被拦下——**要求作者说清楚「这个文件已经没了」比允许它静默悬空要好**。
 
 登记偏差不是扣分项：理由和触发条件写清楚的 `已决定` 条目，就是「已评估、不再来回纠缠」。
 

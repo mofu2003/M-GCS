@@ -276,7 +276,7 @@ Main modules:
     → 如有新的常见场景
 
 优先级 3（可选）：
-  □ REFACTORING_FINAL_REPORT.md
+  □ docs/reports/2026-10-13-assembler-refactoring-report.md
     → 仅在重大改组时更新
 ```
 
@@ -287,7 +287,7 @@ Main modules:
 新开发者加入时：
 
 1. **了解架构**（1 小时）
-   - 读 `REFACTORING_FINAL_REPORT.md` 的摘要
+   - 读 `docs/reports/2026-10-13-assembler-refactoring-report.md` 的摘要
    - 读 `docs/adr/0009-vehicle-session-assembler.md`
 
 2. **理解约束**（30 分钟）

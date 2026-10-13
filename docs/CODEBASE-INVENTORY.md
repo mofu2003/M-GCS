@@ -326,7 +326,7 @@
 | `settings`／`ftp`／`log` | `FlightLoggingService::set_write_callback`、`MavlinkFtpClient::download_path_`、`FlightLogReplayer::replay_all` |
 | `ffi` | `mg_core_t` 的 `core_mtx`/`log_events`/`kMaxLogEvents`/`log_writer` 四个死成员；`ffi_config_extra.cc` 残留的函数横幅；`ffi_api_flight.h` 里指向已删导出的四段悬空注释 |
 | 测试内 | `test_mission_document.cc` 三个未用 helper、`test_sitl_mission_scenario.cc` 的 `ok_data`、两个硬件工具里未用的 `call_json_int`、`test_param_descriptors.cc` 三个未用局部变量、`mock_flight_controller.h` 的 `kFtpPayload` |
-| 工具 | `tools/audit_status.sh`（功能已被 `check_ffi_contract.py --write-catalog` 完整取代）；`firmware_literals_baseline.json` 中指向已删 `param_file_io.cc` 的 3 条僵尸记录 |
+| 工具 | `tools/audit_status.sh`（**已删除**；功能已被 `check_ffi_contract.py --write-catalog` 完整取代）；`firmware_literals_baseline.json` 中指向已删 `param_file_io.cc` 的 3 条僵尸记录 |
 
 同时修掉两处**编译能过但语义错**的地方：`test_ffi_comprehensive.cc` 用
 `state_string(...) == "disconnected"` 比较 `const char*`（比的是指针，靠字面量合并

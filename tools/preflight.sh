@@ -117,7 +117,7 @@ if [[ "$changed_mode" -eq 1 ]]; then
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
     case "$file" in
-      # 纯文档：只跑轻量检查
+      # 纯文档：只跑轻量检查（含 tools/check_doc_links.py，在全量段执行）
       docs/*|*.md|LICENSE|.gitignore)
         ;;
       # 前端
@@ -231,6 +231,9 @@ fi
 echo "[preflight] 检查补丁格式"
 git diff --check HEAD
 git diff --cached --check
+
+echo "[preflight] 检查文档一致性"
+python3 tools/check_doc_links.py
 
 echo "[preflight] 检查版本号一致性"
 cmake_version="$(sed -n 's/^project(mgcore VERSION \([0-9][0-9.]*\) LANGUAGES CXX.*/\1/p' CMakeLists.txt)"

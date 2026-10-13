@@ -2,7 +2,7 @@
 
 状态：方向已立项。**S1（native 状态层 + FFI 读契约修复）、S2（前端「相机与云台」页）、S3（本地视频解码/渲染管线）与 S4（本地录制/截图落盘 + 容量管理）已实现并验证**。解码后端与帧交付方式由 `docs/adr/0008-video-decode-backend.md` 定案（FFmpeg 仅 LGPL 构建、帧经 FFI 交付、无后端诚实降级）。macOS(arm64) 上用本地 LGPL FFmpeg 构建跑通了「真实码流播放 + 录制落盘 + 截图落盘」的端到端验证（2026-10-11，见 3.4/8/11 节）；「至少两端平台」的退出条件只完成一端，未验证平台一律如实标 `unsupported`。
 日期：2026-10-11
-来源：`docs/plans/mgcs-development-plan-2026-10-10.md` 阶段 3 第 4 条；`docs/capabilities.md` 对 `ffi_api_payload.h` 的「待接入」说明。
+来源：阶段 3 第 4 条（计划文档已废弃删除）；`docs/capabilities.md` 对 `ffi_api_payload.h` 的「待接入」说明。
 
 本文件是阶段 3「能力扩展，逐项立项」的第四个方向。按计划要求，先完成产品需求、上游行为研究、license/外部依赖检查与验收标准，再做切片。上游源码事实来自本地快照（QGC `bf0096d97`、MP `a2fcd74d6`，见 `docs/constraints/parity.md` 参考版本表）。
 
@@ -50,7 +50,7 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 - **dispatcher（P0/P4）**：`core/src/mavlink/mavlink_adapter_dispatch.cc` 全部改用 `MAVLINK_MSG_ID_*` 宏，补齐 `CAMERA_INFORMATION`(259)/`CAMERA_SETTINGS`(260)/`STORAGE_INFORMATION`(261)/`CAMERA_CAPTURE_STATUS`(262)/`CAMERA_IMAGE_CAPTURED`(263)/`VIDEO_STREAM_STATUS`(270)/`GIMBAL_MANAGER_INFORMATION`(280)/`GIMBAL_MANAGER_STATUS`(281)/`GIMBAL_DEVICE_INFORMATION`(283)/`GIMBAL_DEVICE_ATTITUDE_STATUS`(285)。ID 已逐个对照 `third_party/mavlink` 头文件宏。
 - **适配器状态层（P3）**：`core/include/core/mavlink/mavlink_adapter.h` 新增相机/云台/视频流状态结构体与读 API（`latest_cameras`、`camera_information/settings/capture_status`、`camera_storage`、`latest_gimbals`、`gimbal_manager_information/status`、`gimbal_device_information`、`gimbal_device_attitude_status`、`latest_video_stream_status`）；`core/src/mavlink/mavlink_adapter_state.h` 按 `(sysid, compid[, stream_id/storage_id])` 键控缓存；`core/src/mavlink/mavlink_adapter_handlers.cc` 用 `upsert_by` 落地，替代原来的 `MGC_LOG_INFO` 空实现；`core/src/mavlink/mavlink_adapter.cc` 加锁读取。
 - **FFI 读契约（P1/P2/P5）**：`bridge/ffi/ffi_payload_commands.cc` 重写——`mg_camera_get_status` 返回真实缓存（`available`/`vendor`/`model`/`photo_count`/`recording`/`mode`/`storage` 等），无设备时 `success:true`+`available:false`（D5）；新增 `mg_gimbal_get_status`/`mg_gimbal_get_attitude` 导出（四元数 → 欧拉角）；`mg_video_status` 返回真实流列表并与 `VIDEO_STREAM_STATUS` 配对；`mg_video_start` 空 URI 返回 `MG_ERROR_INVALID_PARAM`、非空 URI 返回 `MG_ERROR_NOT_SUPPORTED`，不再误发 `camera_start_video`；`camera_id`/`gimbal_id` 按 D4 处理。
-- **删除死代码（D1）**：删除 `core/include/core/camera/camera_manager.h`、`core/src/camera/camera_manager.cc`、`core/include/core/video/video_receiver.h`、`core/src/video/video_receiver.cc`，并从 `CMakeLists.txt`、`core/include/core/vehicle/vehicle.h`（访问器与成员）、`core/src/vehicle/vehicle.cc`（`on_video_stream_info` 转发块）摘除引用。`ffmpeg_decoder` 当时保留（S3 判定其无调用点后删除，见 3.3）。
+- **删除死代码（D1，以下文件已删除）**：`core/include/core/camera/camera_manager.h`、`core/src/camera/camera_manager.cc`、`core/include/core/video/video_receiver.h`、`core/src/video/video_receiver.cc`，并从 `CMakeLists.txt`、`core/include/core/vehicle/vehicle.h`（访问器与成员）、`core/src/vehicle/vehicle.cc`（`on_video_stream_info` 转发块）摘除引用。`ffmpeg_decoder` 当时保留（S3 判定其无调用点后删除，见 3.3）。
 - **文档/契约（F1）**：`docs/capabilities.md`、`bridge/ffi/API_CATALOG.md` 由 `python3 tools/check_ffi_contract.py --write-catalog` 重新生成。
 
 ### 3.2 S2 落地结果（2026-10-11）

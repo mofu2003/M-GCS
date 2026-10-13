@@ -2,7 +2,7 @@
 
 状态：S1 可用闭环、S2 录制/回放、P1（`mg_fs_*` FTP 异步化）与 S3（FTP 文件浏览页 + 本地索引/缓存）均已落地（native 修 P2/P3/P4/P5/P7/P6 + 擦除 `mg_onboard_log_erase` + 下载完整性 `size_declared` + tlog 录制接线 + `mg_tlog_replay_*` 导出 + FTP 异步状态机；Flutter「机载日志」「飞行记录」「机载文件」三页均已接入）。本方向收口，剩下 `.bin` 解析/图表与断点续传两个独立议题（见第 10 节）
 日期：2026-10-11
-来源：`docs/plans/mgcs-development-plan-2026-10-10.md` 阶段 3 第 1 条；`docs/capabilities.md` 对 `ffi_api_logging.h` 的「待接入」说明。
+来源：阶段 3 第 1 条（计划文档已废弃删除）；`docs/capabilities.md` 对 `ffi_api_logging.h` 的「待接入」说明。
 
 本文件是阶段 3「能力扩展，逐项立项」的第一个方向的需求与上游研究记录。它只定义要做什么、参考了上游的什么行为、验收标准和平台范围，不在此实现。实现前先按本文件确认范围。
 
@@ -23,7 +23,7 @@
 |---|---|---|---|
 | 机载 DataFlash | `mg_onboard_log_request_list`、`mg_onboard_log_get_entries`、`mg_onboard_log_download`、`mg_onboard_log_download_cancel`、`mg_onboard_log_download_status`、`mg_onboard_log_erase` | `bridge/ffi/ffi_log_commands.cc`、`core/src/mavlink/mavlink_senders.cc:992-1105`、`core/src/mavlink/mavlink_adapter_log.cc` | `LOG_REQUEST_LIST`/`LOG_ENTRY` 列表；`LOG_REQUEST_DATA` 异步下载到文件 |
 | tlog 录制 | `mg_tlog_start/stop/status` | `bridge/ffi/ffi_log_commands.cc`、`core/src/settings/mavlink_log_writer.cc` | 把链路上的 MAVLink 帧写成 `.tlog`；写入点挂在 `MavlinkAdapter` 的帧投递路径（ADR-0006） |
-| 会话文件日志 | `mg_session_log_start/stop/status` | `bridge/ffi/ffi_telemetry.cc:229-262`、`core/src/settings/flight_log_writer.cc` | 把事件写成 JSONL/CSV 文本 |
+| 会话文件日志 | `mg_session_log_start/stop/status` | `bridge/ffi/ffi_telemetry.cc:229-262`、`core/src/settings/flight_log_writer.cc`（已删除） | 把事件写成 JSONL/CSV 文本 |
 | 事件日志服务（导出已删除） | — | `core/src/settings/flight_logging_service.cc` | STATUSTEXT/连接/命令结果的结构化事件流 |
 | MAVLink FTP | `mg_fs_list_directory`、`mg_fs_download_file`、`mg_fs_upload_file`、`mg_fs_transfer_status`、`mg_fs_cancel` | `bridge/ffi/ffi_log_commands.cc`、`core/src/ftp/mavlink_ftp.cc` | 通用机载文件系统浏览/收发；异步状态机（起线程 → 轮询 `mg_fs_transfer_status` → 取消），已接 FFI 与「机载文件」页（S3） |
 

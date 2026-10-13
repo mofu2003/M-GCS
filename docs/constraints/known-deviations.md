@@ -45,9 +45,9 @@
 | KD-15 | S5 | 车辆状态改为与传输层状态同源，断链/心跳丢失后不再残留 `Connected`。 |
 | KD-16 | S5 | 状态接口统一返回 `heartbeat_fresh`/`heartbeat_age_ms`，前端危险操作经新鲜度门控。 |
 | KD-20 | A1 | core 与 bridge/ffi 拆成两个 CMake 目标，core 反向引用 bridge 头变为编译期报错。 |
-| KD-21 | A2 | 去掉 `firmware_flasher.h` → `connection_manager.h` 的回边；新增模块环守卫测试。（所引用的 `firmware_flasher.{h,cc}` 已在本轮清洗中删除、尚未提交，CHANGELOG 暂无条目，见 `docs/workflow/HANDOFF-2026-10-12.md:56`） |
+| KD-21 | A2 | 去掉 `firmware_flasher.h` → `connection_manager.h` 的回边；新增模块环守卫测试。（所引用的 `firmware_flasher.{h,cc}` 已在提交 `27b5dfb` 中随死代码清理删除） |
 | KD-22 | A3、A4 | 剩余持锁发送改为锁内打包、出锁统一 flush（ADR-0005）；重入回调测试覆盖。 |
-| KD-23 | A3 | `firmware_flasher.cc` 的进度回调改为锁内复制、锁外调用。（`firmware_flasher.{h,cc}` 已在本轮清洗中删除、尚未提交，CHANGELOG 暂无条目，见 `docs/workflow/HANDOFF-2026-10-12.md:56`） |
+| KD-23 | A3 | `firmware_flasher.cc` 的进度回调改为锁内复制、锁外调用。（`firmware_flasher.{h,cc}` 已在提交 `27b5dfb` 中随死代码清理删除） |
 | KD-24 | A3 | 串口读线程只访问自持状态；join 超时不再 `TerminateThread`（避免 use-after-free）。 |
 | KD-25 | S4、A3 | TCP 建立连接改为非阻塞 + 3 s 有界等待；串口写补齐短写/`EAGAIN` 与有界等待。 |
 | KD-26 | 架构（建议） | 同步命令在头文件标注最长阻塞时间并指向 submit/poll 非阻塞形式。 |

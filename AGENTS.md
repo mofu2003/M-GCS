@@ -2,7 +2,7 @@
 
 M-GCS 是无人机地面站，对标 Mission Planner 与 QGroundControl。
 
-**当前版本（0.2.2）支持 ArduPilot 固件**。
+**当前版本（1.0.0）支持 ArduPilot 固件**。
 
 开始任何改动前，先按任务类型阅读对应细则：
 

@@ -95,7 +95,7 @@ class MyController {
 | 学习如何添加新功能 | `docs/development/adding-features.md` |
 | 了解长期维护计划 | `docs/development/maintenance.md` |
 | 查看已知的技术债 | `docs/constraints/known-deviations.md` |
-| 看完整的重构报告 | `REFACTORING_FINAL_REPORT.md` |
+| 看完整的重构报告 | `docs/reports/2026-10-13-assembler-refactoring-report.md` |
 
 ---
 

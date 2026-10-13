@@ -218,7 +218,7 @@ _assembler = VehicleSessionAssembler(
 |------|------|
 | `docs/constraints/vehicle-session-assembler.md` | 装配器约束（必读） |
 | `docs/adr/0009-vehicle-session-assembler.md` | 为什么这样设计 |
-| `REFACTORING_FINAL_REPORT.md` | 重构的历史和决策 |
+| `docs/reports/2026-10-13-assembler-refactoring-report.md` | 重构的历史和决策 |
 | `docs/constraints/known-deviations.md` | 当前的技术债 |
 
 ---

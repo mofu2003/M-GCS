@@ -1,8 +1,7 @@
 # 项目文档总览
 
 **项目版本**：1.0.0  
-**质量评分**：98/100  
-**最后更新**：2025-01-15
+**最后更新**：2026-10-13
 
 ---
 
@@ -34,7 +33,7 @@
 
 | 文档 | 长度 | 用途 | 何时读 |
 |------|------|------|--------|
-| **[REFACTORING_FINAL_REPORT.md](REFACTORING_FINAL_REPORT.md)** | 315 行 | 本轮重构的完整报告（93→98 分） | 了解背景 |
+| **[2026-10-13-assembler-refactoring-report.md](docs/reports/2026-10-13-assembler-refactoring-report.md)** | 见左栏路径 | 装配器重构的过程与决策记录 | 了解背景 |
 | **[docs/refactoring/connection-controller-assembler-migration.md](docs/refactoring/connection-controller-assembler-migration.md)** | 600 行 | 迁移指南（已完成的阶段 1-2） | 参考实现 |
 
 ### 🛠️ 开发环境与测试
@@ -119,7 +118,7 @@
   2. docs/adr/0009-vehicle-session-assembler.md - 为什么这样
 
 ✓ 完整版（60 分钟）：
-  1. REFACTORING_FINAL_REPORT.md - 背景与历史
+  1. docs/reports/2026-10-13-assembler-refactoring-report.md - 背景与历史
   2. docs/adr/0009-* - 决策过程
   3. docs/constraints/vehicle-session-assembler.md - 约束详解
   4. docs/development/adding-features.md - 实践指南
@@ -227,7 +226,7 @@
 /
 ├── DEVELOPMENT_CHECKLIST.md          👈 开发检查清单（必读）
 ├── QUICK_REFERENCE.md                👈 速查表（必读）
-├── REFACTORING_FINAL_REPORT.md       📖 重构报告
+├── docs/reports/2026-10-13-assembler-refactoring-report.md       📖 重构报告
 ├── DOCUMENTATION_OVERVIEW.md          📖 本文件（文档总览）
 └── AGENTS.md                          📖 协作规则
 ```
@@ -339,7 +338,7 @@ Day 5  添加第二个功能，参照 adding-features 的不同场景
 Week 1 完成上述学习
 Week 2 独立审查 5+ 个 PR
 Week 3 做 Release 维护
-Week 4 深度理解完整重构史（REFACTORING_FINAL_REPORT）
+Week 4 深度理解完整重构史（docs/reports/2026-10-13-assembler-refactoring-report.md）
 ```
 
 ---
@@ -360,4 +359,4 @@ Week 4 深度理解完整重构史（REFACTORING_FINAL_REPORT）
 
 **最后提示**：这套文档体系的目的是**让长期维护变容易**，而不是限制。有问题就改文档，不要绕过约束。
 
-版本 1.0.0 · 质量评分 98/100 · 2025-01-15
+版本 1.0.0 · 2026-10-13

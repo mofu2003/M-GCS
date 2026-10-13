@@ -1,7 +1,7 @@
 # 功能清单与交付分类（Feature Inventory）
 
 状态：核对日期 2026-10-11，对应 `v0.2.1`（main）。
-来源：`docs/plans/mgcs-development-plan-2026-10-10.md` 阶段 0 的交付口径；`docs/capabilities.md` 的模块状态表；`bridge/ffi/API_CATALOG.md` 的导出/绑定明细。
+来源：阶段 0 计划的交付口径（计划文档已废弃删除）；`docs/capabilities.md` 的模块状态表；`bridge/ffi/API_CATALOG.md` 的导出/绑定明细。
 
 本文件的用途是把「有导出」「有原生实现」「有 UI 入口」「用户能用」这几件事分开讲清楚，回答三类问题：
 **已经能用的功能有哪些、还有什么没做、哪些 FFI 导出没接前端以及为什么。** 它不是需求文档，也不替代 `docs/features/` 下的方向简报。

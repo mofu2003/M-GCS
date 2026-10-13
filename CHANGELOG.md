@@ -1,5 +1,7 @@
 # Changelog
 
+> **历史快照**：本文件记录历次发布与变更的**历史记录**，其中提到的文件可能已被删除。当前状态见各约束文档与代码。
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
