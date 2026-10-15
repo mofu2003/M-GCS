@@ -13,7 +13,6 @@ import '../widgets/mg_command_confirmation.dart';
 import '../widgets/mg_confirm.dart';
 import '../widgets/mg_dialog.dart';
 import '../widgets/mg_floating_panel.dart';
-import '../widgets/mac_panel.dart';
 import 'mission_document_controller.dart';
 import 'mission_document_models.dart';
 import 'mission_transfer_section.dart';
@@ -29,9 +28,8 @@ const EdgeInsets _fieldPadding = EdgeInsets.symmetric(
 
 /// 航线规划面板。
 ///
-/// 任务页 = 本地可编辑的任务文档（Home + 航点卡片 + 从飞控读取 / 上传到飞控）；
-/// 设置页 = 整份任务的默认高度与速度。数据流照 Mission Planner 的 Read/Write 与
-/// QGC 的 Download/Upload：**不自动拉取**，覆盖本地改动前先确认。
+/// 只负责本地可编辑的任务文档、航点卡片、任务读写和执行进度。
+/// 围栏/Rally 由独立的 [GeofenceFloatingPanel] 管理。
 class MissionPlanningFloatingPanel extends StatefulWidget {
   const MissionPlanningFloatingPanel({
     super.key,
@@ -53,13 +51,6 @@ class MissionPlanningFloatingPanel extends StatefulWidget {
 
 class _MissionPlanningFloatingPanelState
     extends State<MissionPlanningFloatingPanel> {
-  static const _tabLabels = ['任务', '设置'];
-
-  final MacosTabController _tabs = MacosTabController(
-    initialIndex: 0,
-    length: _tabLabels.length,
-  );
-
   bool _collapsed = false;
 
   String? _lastSelectedEntityId;
@@ -74,7 +65,6 @@ class _MissionPlanningFloatingPanelState
   @override
   void initState() {
     super.initState();
-    _tabs.addListener(_handleTabChanged);
     _mission.addListener(_handleMissionChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_mission.initialize());
@@ -84,10 +74,6 @@ class _MissionPlanningFloatingPanelState
       const Duration(seconds: 1),
       (_) => unawaited(_mission.refreshExecutionProgress()),
     );
-  }
-
-  void _handleTabChanged() {
-    if (mounted) setState(() {});
   }
 
   void _handleMissionChanged() {
@@ -118,9 +104,7 @@ class _MissionPlanningFloatingPanelState
   @override
   void dispose() {
     _executionTimer?.cancel();
-    _tabs.removeListener(_handleTabChanged);
     _mission.removeListener(_handleMissionChanged);
-    _tabs.dispose();
     super.dispose();
   }
 
@@ -193,23 +177,7 @@ class _MissionPlanningFloatingPanelState
                 padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Center(
-                      child: MacosSegmentedControl(
-                        controller: _tabs,
-                        tabs: [
-                          for (final label in _tabLabels)
-                            MacosTab(label: label),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: kMacTabStripGap),
-                    Expanded(
-                      child: _tabs.index == 0
-                          ? _buildTasksTab(context)
-                          : _buildSettingsTab(context),
-                    ),
-                  ],
+                  children: [Expanded(child: _buildTasksTab(context))],
                 ),
               ),
             ),
@@ -326,74 +294,6 @@ class _MissionPlanningFloatingPanelState
     }
   }
 
-  Future<void> _updateHome(MissionHome home) async {
-    final document = _mission.document;
-    if (document == null) return;
-    try {
-      await _mission.replaceDocument(document.copyWith(home: home));
-    } on Object {
-      // 同上，错误走 status。
-    }
-  }
-
-  // ================================================================
-  // 设置页
-  // ================================================================
-
-  Widget _buildSettingsTab(BuildContext context) => ListenableBuilder(
-    listenable: _mission,
-    builder: (context, _) {
-      final document = _mission.document;
-      if (document == null) {
-        return Text(
-          '任务文档尚未初始化',
-          style: MacosTheme.of(
-            context,
-          ).typography.callout.copyWith(color: context.mgColors.textSecondary),
-        );
-      }
-      final enabled = !_mission.busy && !_mission.transferActive;
-      return SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _MissionSectionTitle('Home / 返航基准'),
-            const SizedBox(height: 6),
-            _HomeCard(
-              controller: widget.controller,
-              home: document.home,
-              enabled: enabled,
-              onChanged: _updateHome,
-            ),
-            const SizedBox(height: 14),
-            const _MissionSectionTitle('任务默认值'),
-            const SizedBox(height: 6),
-            _MissionDefaultsForm(
-              defaults: document.defaults,
-              enabled: enabled,
-              onSubmit: (defaults) async {
-                try {
-                  await _mission.replaceDocument(
-                    document.copyWith(defaults: defaults),
-                  );
-                } on Object {
-                  // 错误走 status。
-                }
-              },
-            ),
-            const SizedBox(height: 14),
-            const _MissionSectionTitle('围栏 / Rally'),
-            const SizedBox(height: 6),
-            _FenceRallyCard(
-              mission: _mission,
-              enabled: enabled && widget.controller.isConnected,
-            ),
-          ],
-        ),
-      );
-    },
-  );
-
   String? _distanceFromPrevious(List<MissionEntity> entities, int index) {
     if (index <= 0) return null;
     final current = entities[index];
@@ -502,306 +402,6 @@ class _MissionExecutionProgressBar extends StatelessWidget {
   }
 }
 
-/// 围栏 / Rally 操作组。
-///
-/// 两者是独立的 MAVLink mission type，不随任务上传；下发流程自带回读核对。
-class _FenceRallyCard extends StatelessWidget {
-  const _FenceRallyCard({required this.mission, required this.enabled});
-
-  final MissionDocumentController mission;
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.mgColors;
-    return MissionCardFrame(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _row(
-            context,
-            icon: CupertinoIcons.lock_shield,
-            label: '围栏',
-            hint: '围栏是独立的 MAVLink mission type，不随任务上传',
-            onRead: mission.readFenceFromVehicle,
-            onUpload: () => _confirmUpload(context, '围栏', mission.uploadFence),
-            onClear: mission.clearFence,
-            labelColor: colors.warning,
-          ),
-          const SizedBox(height: 8),
-          _row(
-            context,
-            icon: CupertinoIcons.flag,
-            label: 'Rally',
-            hint: 'Rally 点同样是独立 mission type，不随任务上传',
-            onRead: mission.readRallyFromVehicle,
-            onUpload: () =>
-                _confirmUpload(context, 'Rally', mission.uploadRally),
-            onClear: mission.clearRally,
-            labelColor: colors.accent,
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 围栏 / Rally 下发同样会覆盖飞控上的同类数据，先确认（KD-08）。
-  Future<Object?> _confirmUpload(
-    BuildContext context,
-    String label,
-    Future<Object?> Function() upload,
-  ) async {
-    final confirmed = await confirmMissionAction(
-      context,
-      title: '下发$label到飞控？',
-      message: '这会把本地$label写入飞控，覆盖飞控上的同类数据，下发后会自动回读核对。',
-      confirmLabel: '下发$label',
-    );
-    if (!confirmed) return null;
-    return upload();
-  }
-
-  Widget _row(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required String hint,
-    required Future<Object?> Function() onRead,
-    required Future<Object?> Function() onUpload,
-    required Future<void> Function() onClear,
-    required Color labelColor,
-  }) {
-    final colors = context.mgColors;
-    final typography = MacosTheme.of(context).typography;
-    return Row(
-      children: [
-        Container(width: 3, height: 14, color: labelColor),
-        const SizedBox(width: 8),
-        MacosTooltip(
-          message: hint,
-          child: MacosIcon(icon, size: 13, color: colors.textSecondary),
-        ),
-        const SizedBox(width: 6),
-        Text(label, style: typography.body),
-        const Spacer(),
-        PushButton(
-          controlSize: ControlSize.regular,
-          secondary: true,
-          onPressed: enabled ? () => unawaited(onRead()) : null,
-          child: const Text('读取'),
-        ),
-        const SizedBox(width: 6),
-        MacosTooltip(
-          message: '下发并自动回读核对',
-          child: PushButton(
-            controlSize: ControlSize.regular,
-            onPressed: enabled ? () => unawaited(onUpload()) : null,
-            child: const Text('下发'),
-          ),
-        ),
-        const SizedBox(width: 6),
-        PushButton(
-          controlSize: ControlSize.regular,
-          secondary: true,
-          onPressed: enabled ? () => unawaited(onClear()) : null,
-          child: const Text('清除'),
-        ),
-      ],
-    );
-  }
-}
-
-/// Home 卡片：编辑文档 home，并可把它设为飞控 home（影响 RTL 基准）。
-class _HomeCard extends StatefulWidget {
-  const _HomeCard({
-    required this.controller,
-    required this.home,
-    required this.onChanged,
-    this.enabled = true,
-  });
-
-  final ConnectionController controller;
-  final MissionHome? home;
-  final bool enabled;
-  final Future<void> Function(MissionHome home) onChanged;
-
-  @override
-  State<_HomeCard> createState() => _HomeCardState();
-}
-
-class _HomeCardState extends State<_HomeCard> {
-  late final TextEditingController _latitude = TextEditingController(
-    text: _format(widget.home?.latitude),
-  );
-  late final TextEditingController _longitude = TextEditingController(
-    text: _format(widget.home?.longitude),
-  );
-  late final TextEditingController _altitude = TextEditingController(
-    text: (widget.home?.altitudeMeters ?? 0).toStringAsFixed(1),
-  );
-
-  static String _format(double? value) =>
-      value == null ? '' : value.toStringAsFixed(7);
-
-  @override
-  void dispose() {
-    _latitude.dispose();
-    _longitude.dispose();
-    _altitude.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    final latitude = double.tryParse(_latitude.text.trim());
-    final longitude = double.tryParse(_longitude.text.trim());
-    final altitude = double.tryParse(_altitude.text.trim());
-    if (latitude == null || longitude == null || altitude == null) return;
-    await widget.onChanged(
-      MissionHome(
-        set: true,
-        latitude: latitude,
-        longitude: longitude,
-        altitudeMeters: altitude,
-      ),
-    );
-  }
-
-  Future<void> _useVehiclePosition() async {
-    final fix = widget.controller.vehiclePosition;
-    if (!widget.controller.vehiclePositionValid || fix == null) return;
-    final currentAltitude = double.tryParse(_altitude.text) ?? 0;
-    _latitude.text = fix.latitude.toStringAsFixed(7);
-    _longitude.text = fix.longitude.toStringAsFixed(7);
-    _altitude.text = (fix.altitudeMeters ?? currentAltitude).toStringAsFixed(1);
-    await _save();
-  }
-
-  /// 设为飞控 home：QGC 会先弹确认，因为这会改返航基准。
-  Future<void> _setVehicleHome() async {
-    final latitude = double.tryParse(_latitude.text.trim());
-    final longitude = double.tryParse(_longitude.text.trim());
-    final altitude = double.tryParse(_altitude.text.trim());
-    if (latitude == null || longitude == null || altitude == null) return;
-
-    final confirmed = await confirmMissionAction(
-      context,
-      title: '设置 Home',
-      message: '把 Home 设为该坐标会改变飞控的返航基准（RTL 落点）。是否继续？',
-      confirmLabel: '设为 Home',
-    );
-    if (!confirmed) return;
-    try {
-      await widget.controller.setVehicleHome(latitude, longitude, altitude);
-    } on Object {
-      // 失败信息由后端返回，界面保持原值。
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.mgColors;
-    return MissionCardFrame(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              MissionBadge(label: 'H', color: colors.warning),
-              const SizedBox(width: 10),
-              Text('设置 Home', style: MacosTheme.of(context).typography.body),
-              const Spacer(),
-              if (widget.controller.vehiclePositionValid)
-                Tooltip(
-                  message: '使用飞机当前位置',
-                  child: MacosIconButton(
-                    icon: const MacosIcon(CupertinoIcons.location, size: 13),
-                    semanticLabel: '使用飞机当前位置',
-                    onPressed: widget.enabled
-                        ? () => unawaited(_useVehiclePosition())
-                        : null,
-                  ),
-                ),
-              PushButton(
-                controlSize: ControlSize.regular,
-                secondary: true,
-                onPressed: widget.controller.isConnected && widget.enabled
-                    ? _setVehicleHome
-                    : null,
-                child: const Text('设为飞控 Home'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _LabeledField(
-                  label: '纬度',
-                  child: MacosTextField(
-                    controller: _latitude,
-                    enabled: widget.enabled,
-                    padding: _fieldPadding,
-                    onSubmitted: (_) => _save(),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _LabeledField(
-                  label: '经度',
-                  child: MacosTextField(
-                    controller: _longitude,
-                    enabled: widget.enabled,
-                    padding: _fieldPadding,
-                    onSubmitted: (_) => _save(),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _LabeledField(
-                  label: 'H(m)',
-                  child: MacosTextField(
-                    controller: _altitude,
-                    enabled: widget.enabled,
-                    padding: _fieldPadding,
-                    onSubmitted: (_) => _save(),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: PushButton(
-              controlSize: ControlSize.regular,
-              secondary: true,
-              onPressed: widget.enabled ? _save : null,
-              child: const Text('保存'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 任务项卡片：编号徽标 + 命令下拉 + 编辑 / 排序 / 删除 + 高度与位置。
-class _MissionSectionTitle extends StatelessWidget {
-  const _MissionSectionTitle(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Text(
-    text,
-    style: MacosTheme.of(
-      context,
-    ).typography.body.copyWith(color: context.mgColors.textSecondary),
-  );
-}
-
 class _MissionEmptyState extends StatelessWidget {
   const _MissionEmptyState();
 
@@ -836,6 +436,7 @@ class _MissionEmptyState extends StatelessWidget {
   }
 }
 
+/// 任务项卡片：编号徽标 + 命令下拉 + 编辑 / 排序 / 删除 + 高度与位置。
 class _MissionEntityCard extends StatelessWidget {
   const _MissionEntityCard({
     required this.position,
@@ -981,99 +582,6 @@ class _MissionEntityCard extends StatelessWidget {
     if (latitude == null || longitude == null) return '无位置';
     return '${latitude.toStringAsFixed(7)}, ${longitude.toStringAsFixed(7)}';
   }
-}
-
-/// 任务默认参数（整份任务共用）。
-class _MissionDefaultsForm extends StatefulWidget {
-  const _MissionDefaultsForm({
-    required this.defaults,
-    required this.onSubmit,
-    this.enabled = true,
-  });
-
-  final MissionDefaults defaults;
-  final Future<void> Function(MissionDefaults defaults) onSubmit;
-  final bool enabled;
-
-  @override
-  State<_MissionDefaultsForm> createState() => _MissionDefaultsFormState();
-}
-
-class _MissionDefaultsFormState extends State<_MissionDefaultsForm> {
-  late final TextEditingController _altitude = TextEditingController(
-    text: widget.defaults.altitudeMeters.toStringAsFixed(1),
-  );
-  late final TextEditingController _speed = TextEditingController(
-    text: widget.defaults.speedMetersPerSecond.toStringAsFixed(1),
-  );
-  late int _frame = widget.defaults.frame;
-
-  @override
-  void dispose() {
-    _altitude.dispose();
-    _speed.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    final altitude = double.tryParse(_altitude.text.trim());
-    final speed = double.tryParse(_speed.text.trim());
-    if (altitude == null || speed == null) return;
-    await widget.onSubmit(
-      MissionDefaults(
-        frame: _frame,
-        altitudeMeters: altitude,
-        speedMetersPerSecond: speed,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      _LabeledField(
-        label: '默认高度基准',
-        child: AdaptivePopupButton<int>(
-          value: _frame,
-          options: [for (final choice in kMissionFrameChoices) choice.$1],
-          labelOf: missionFrameLabel,
-          onChanged: widget.enabled
-              ? (frame) => setState(() => _frame = frame)
-              : null,
-        ),
-      ),
-      const SizedBox(height: 10),
-      _LabeledField(
-        label: '默认高度 (m)',
-        child: MacosTextField(
-          controller: _altitude,
-          enabled: widget.enabled,
-          padding: _fieldPadding,
-          onSubmitted: (_) => _submit(),
-        ),
-      ),
-      const SizedBox(height: 10),
-      _LabeledField(
-        label: '默认速度 (m/s)',
-        child: MacosTextField(
-          controller: _speed,
-          enabled: widget.enabled,
-          padding: _fieldPadding,
-          onSubmitted: (_) => _submit(),
-        ),
-      ),
-      const SizedBox(height: 12),
-      Align(
-        alignment: Alignment.centerRight,
-        child: PushButton(
-          controlSize: ControlSize.regular,
-          onPressed: widget.enabled ? _submit : null,
-          child: const Text('应用'),
-        ),
-      ),
-    ],
-  );
 }
 
 /// 面板内的卡片外观：只包裹「重复的任务项」，避免卡片套卡片。
@@ -1655,6 +1163,137 @@ Future<void> showChangeAltitudeDialog(
   );
 }
 
+/// 起飞高度确认弹窗。
+///
+/// 起飞是一个独立的飞行动作，不需要先进入通用的引导操作选择器。
+/// 弹窗只收集目标高度，并把“确认”作为起飞动作本身的确认层。
+Future<void> showTakeoffDialog(
+  BuildContext context, {
+  required ConnectionController controller,
+}) async {
+  await _showFadeDialog<void>(
+    context: context,
+    builder: (dialogContext) => _TakeoffSheet(controller: controller),
+  );
+}
+
+class _TakeoffSheet extends StatefulWidget {
+  const _TakeoffSheet({required this.controller});
+
+  final ConnectionController controller;
+
+  @override
+  State<_TakeoffSheet> createState() => _TakeoffSheetState();
+}
+
+class _TakeoffSheetState extends State<_TakeoffSheet> {
+  late final TextEditingController _altitude = TextEditingController(
+    text: _defaultAltitude().toStringAsFixed(1),
+  );
+  late final int? _inputSessionId;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _inputSessionId = widget.controller.sessionId;
+  }
+
+  double _defaultAltitude() {
+    final minimum = widget.controller.minimumTakeoffAltitudeMeters;
+    return minimum > 0 ? minimum : 30;
+  }
+
+  bool _validateInputTarget() {
+    if (widget.controller.sessionId == _inputSessionId) {
+      return true;
+    }
+    setState(() => _error = '飞机已切换或断开，请关闭窗口后重新操作');
+    return false;
+  }
+
+  @override
+  void dispose() {
+    _altitude.dispose();
+    super.dispose();
+  }
+
+  Future<void> _execute() async {
+    if (!_validateInputTarget()) return;
+    final target = double.tryParse(_altitude.text.trim());
+    if (target == null || !target.isFinite || target <= 0) {
+      setState(() => _error = '请输入有效的起飞高度');
+      return;
+    }
+    try {
+      await widget.controller.guidedTakeoff(target);
+      if (mounted) Navigator.of(context).pop();
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.toString().replaceFirst('Bad state: ', ''));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    return Center(
+      child: MacosSheet(
+        insetPadding: EdgeInsets.zero,
+        child: SizedBox(
+          width: 280,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('起飞', style: MacosTheme.of(context).typography.title3),
+                const SizedBox(height: 10),
+                _LabeledField(
+                  label: '高度 (m)',
+                  child: MacosTextField(
+                    controller: _altitude,
+                    padding: _fieldPadding,
+                    onSubmitted: (_) => _execute(),
+                  ),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: MacosTheme.of(
+                      context,
+                    ).typography.caption1.copyWith(color: colors.danger),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    PushButton(
+                      controlSize: ControlSize.regular,
+                      secondary: true,
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('取消'),
+                    ),
+                    const SizedBox(width: 8),
+                    PushButton(
+                      controlSize: ControlSize.regular,
+                      onPressed: _execute,
+                      child: const Text('确认'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ChangeAltitudeSheet extends StatefulWidget {
   const _ChangeAltitudeSheet({
     required this.controller,
@@ -1804,7 +1443,6 @@ Future<void> showGuidedActionsDialog(
   required ConnectionController controller,
   required LatLng position,
   String? initialActionLabel,
-  ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation,
 }) async {
   await _showFadeDialog<void>(
     context: context,
@@ -1812,7 +1450,6 @@ Future<void> showGuidedActionsDialog(
       controller: controller,
       position: position,
       initialActionLabel: initialActionLabel,
-      onRequestCommandConfirmation: onRequestCommandConfirmation,
     ),
   );
 }
@@ -1844,15 +1481,11 @@ class _GuidedActionsSheet extends StatefulWidget {
     required this.controller,
     required this.position,
     this.initialActionLabel,
-    this.onRequestCommandConfirmation,
   });
 
   final ConnectionController controller;
   final LatLng position;
   final String? initialActionLabel;
-
-  /// 起飞仍需先在该弹窗填写高度；点击执行后改由顶部悬浮按钮长按确认。
-  final ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation;
 
   @override
   State<_GuidedActionsSheet> createState() => _GuidedActionsSheetState();
@@ -1973,19 +1606,6 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
             controller.guidedLand(),
       ),
       _GuidedAction(
-        label: '起飞',
-        disabledReason: firstDisabled([
-          if (!connected) '未连接飞控',
-          if (connected && !stateFresh) '飞控状态已过期',
-          if (!controller.supportsGuidedTakeoff) '当前机型不支持引导起飞',
-          if (flying) '飞机已经在空中',
-        ]),
-        needsAltitude: true,
-        confirmMessage: '飞控将进入 GUIDED，解锁后以该高度起飞并悬停。',
-        run: ({required latitude, required longitude, required altitude}) =>
-            controller.guidedTakeoff(altitude),
-      ),
-      _GuidedAction(
         label: '暂停/继续',
         disabledReason: firstDisabled([
           if (!connected) '未连接飞控',
@@ -2030,21 +1650,6 @@ class _GuidedActionsSheetState extends State<_GuidedActionsSheet> {
   Future<void> _execute(_GuidedAction action) async {
     if (!_validateInputTarget()) return;
     final altitude = double.tryParse(_altitude.text.trim()) ?? 0;
-    final onRequest = widget.onRequestCommandConfirmation;
-    if (action.label == '起飞' && onRequest != null) {
-      final command = MgCommandConfirmation(
-        label: action.label,
-        execute: () => action.run(
-          latitude: widget.position.latitude,
-          longitude: widget.position.longitude,
-          altitude: altitude,
-        ),
-      );
-      Navigator.of(context).pop();
-      onRequest(command);
-      return;
-    }
-
     final confirmed = await confirmMissionAction(
       context,
       title: action.label,

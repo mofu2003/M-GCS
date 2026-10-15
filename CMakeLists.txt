@@ -389,6 +389,7 @@ if(MGCORE_BUILD_TESTS)
         core/tests/test_sim_fence_rally.cc
         core/tests/test_sim_full_flow.cc
         core/tests/test_sim_ui_paths.cc
+        core/tests/test_vehicle_semantics_contract.cc
         tests/test_real_fc_dump.cc
         tests/test_scan_connect.cc
     )

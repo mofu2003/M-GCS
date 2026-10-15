@@ -134,7 +134,9 @@ List<String> _unguardedThroughCallers(
       if (gates.any((gate) => _insideCall(source, at, gate))) continue;
       final method = _enclosingMethod(source, at);
       if (method == null) {
-        violations.add('第 ${source.substring(0, at).split('\n').length} 行的 $needle 找不到所属方法，无法证明经过确认');
+        violations.add(
+          '第 ${source.substring(0, at).split('\n').length} 行的 $needle 找不到所属方法，无法证明经过确认',
+        );
         continue;
       }
       final sites = _callSites(source, method);
@@ -144,7 +146,9 @@ List<String> _unguardedThroughCallers(
       }
       for (final site in sites) {
         if (!gates.any((gate) => _insideCall(source, site, gate))) {
-          violations.add('$method 的调用点（第 ${source.substring(0, site).split('\n').length} 行）不在确认组件内');
+          violations.add(
+            '$method 的调用点（第 ${source.substring(0, site).split('\n').length} 行）不在确认组件内',
+          );
         }
       }
     }
@@ -170,13 +174,16 @@ List<String> _unguardedWithoutInternalGuard(
       }
       // 只在"下发点之前"找方法起点，否则会取到方法之后的其它同名调用。
       final before = source.substring(0, at);
-      final methodAt =
-          before.lastIndexOf(RegExp(r'\b' + RegExp.escape(method) + r'\s*\('));
+      final methodAt = before.lastIndexOf(
+        RegExp(r'\b' + RegExp.escape(method) + r'\s*\('),
+      );
       final from = methodAt < 0 ? 0 : methodAt;
       final between = source.substring(from, at);
       final dialogAt = between.lastIndexOf(dialogCall);
       if (dialogAt < 0) {
-        violations.add('第 ${source.substring(0, at).split('\n').length} 行的 $needle 之前没有 $dialogCall');
+        violations.add(
+          '第 ${source.substring(0, at).split('\n').length} 行的 $needle 之前没有 $dialogCall',
+        );
         continue;
       }
       if (!between.substring(dialogAt).contains('!confirmed')) {
@@ -431,7 +438,10 @@ void main() {
     });
 
     test('任务启动：悬浮确认或对话框确认，缺确认通道时不直发', () {
-      final sites = _occurrences(transferSection, 'await _executeStartMission()');
+      final sites = _occurrences(
+        transferSection,
+        'await _executeStartMission()',
+      );
       expect(sites, isNotEmpty, reason: '任务启动必须有下发点');
       for (final at in sites) {
         final guarded = _insideCall(
@@ -459,8 +469,10 @@ void main() {
         reason: '缺确认通道时必须回退到对话框确认，而不是直发',
       );
       expect(
-        _occurrences(transferSection, 'MgCommandConfirmation(label: \'开始任务\'')
-            .isNotEmpty,
+        _occurrences(
+          transferSection,
+          'MgCommandConfirmation(label: \'开始任务\'',
+        ).isNotEmpty,
         isTrue,
       );
     });
@@ -504,8 +516,8 @@ void main() {
     });
 
     test('起飞/降落/返航（导航面板与地图栏）：都经确认或确认对话框', () {
-      // 导航面板的引导动作：下发闭包只被 _execute 调用，而 _execute 里
-      // 起飞走 MgCommandConfirmation，其余走 confirmMissionAction + confirmed 校验。
+      // 导航面板的通用引导动作：下发闭包只被 _execute 调用，
+      // _execute 统一走 confirmMissionAction + confirmed 校验。
       expect(
         _unguardedWithoutInternalGuard(
           planningPanel,
@@ -526,12 +538,13 @@ void main() {
       expect(runAt, greaterThan(start));
       final between = planningPanel.substring(start, runAt);
       expect(
-        between.contains('confirmMissionAction(') && between.contains('!confirmed'),
+        between.contains('confirmMissionAction(') &&
+            between.contains('!confirmed'),
         isTrue,
         reason: 'S3：引导动作在 confirmMissionAction 确认后才下发',
       );
 
-      // 地图工具条上的起飞/降落/返航统一走 _showGuidedAction → 确认通道。
+      // 地图工具条上的起飞直接打开高度确认弹窗；降落/返航仍走长按确认。
       for (final label in ['起飞', '降落', '返航']) {
         expect(
           _occurrences(mapView, "onAction('$label").isNotEmpty,
@@ -540,8 +553,9 @@ void main() {
         );
       }
       expect(
-        _occurrences(mapView, 'await showGuidedActionsDialog(').isNotEmpty,
+        _occurrences(mapView, 'await showTakeoffDialog(').isNotEmpty,
         isTrue,
+        reason: '起飞应直接打开高度确认弹窗',
       );
       expect(
         mapView.contains("_requestConfirmedCommand('返航'") &&

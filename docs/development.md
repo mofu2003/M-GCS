@@ -1,19 +1,10 @@
 # 开发指南
 
-## 🏗️ 架构与文档导航
+## 开始开发
 
-**首次开发前必读**：如果你要修改 `flutter_shell/lib/connection/`，先读这些：
-
-| 文档 | 用途 | 时间 |
-|------|------|------|
-| `QUICK_REFERENCE.md` | 速查表，30 秒快速答案 | 5 min |
-| `docs/development/adding-features.md` | 新功能怎么加不破坏架构 | 10 min |
-| `docs/constraints/vehicle-session-assembler.md` | 架构约束（代码审查清单） | 15 min |
-| `docs/development/maintenance.md` | 长期维护计划 | 按需 |
-
-**一句话**：无状态用装配器，有状态用控制器，业务逻辑用新 Controller。
-
-更多：见下方的 [环境] 和 [测试]。
+先阅读与当前改动直接相关的代码和测试。`docs/constraints/`、`docs/adr/` 和审计
+报告是历史参考，不要求每次改动同步更新；只有改变公开 ABI、线程模型或许可边界时
+才需要补充记录。
 
 ---
 
@@ -118,7 +109,7 @@ tools/sanitize.sh --tsan-only  # 只跑其中一个
 sanitizer 需要重编所有测试，比 Release 门禁慢得多。macOS 的 ASan 不支持 `detect_leaks`，脚本不设置
 `ASAN_OPTIONS`。
 
-### SITL 端到端任务场景（阶段 2 证据）
+### SITL 端到端任务场景
 
 需要本地可运行的 ArduPilot SITL 构建：
 
@@ -143,7 +134,7 @@ tools/sitl-mission-scenario.sh --vehicle arduplane --model plane \
 tools/preflight.sh
 ```
 
-它依次检查补丁格式、文档一致性（`tools/check_doc_links.py`）、版本一致性、FFI 目录、UI token、前端固件参数字面量（S6，`tools/check_firmware_literals.py`）、Flutter 分析与测试、后端测试，以及 macOS debug 构建。全量检查最后核对新编译库的符号和版本，并运行 Flutter 与原生后端的 FFI smoke。
+它检查补丁格式、版本一致性、Flutter 分析与测试、后端构建与测试，以及可用时的 macOS debug 构建。它不再把历史文档、UI 风格、FFI 目录或静态审计台账当作普通改动的门禁。
 
 可用选项：
 
@@ -172,7 +163,7 @@ tools/preflight.sh --no-macos-build       # 提交前：全量
 | `core/**/mission/**` | 任务相关几套 |
 | **`core/**/mavlink/**`、`bridge/ffi/**`、共享测试夹具、CMake、未分类路径** | **升级为后端全量并打印原因** |
 
-最后一行的存在理由：39 套后端测试（`ctest -N` 于 `build_check` 中列出 `Total Tests: 39`）全部驱动同一个 MAVLink adapter，改 ACK 匹配、FFI 上下文或共享夹具会跨模块影响，定向跑会漏。工具会明确打印升级原因，不会静默降级。拼错的套件名同样回退到全量，而不是让构建失败。
+最后一行的存在理由：涉及 MAVLink adapter、FFI 上下文、共享夹具或 CMake 的改动可能跨多个测试目标，工具会明确打印升级原因。测试数量随代码变化，不在这里固定记录。
 
 `--changed` 是内环工具。**提交前请仍跑一次不带 `--changed` 的全量**，它是唯一能覆盖全部组合的检查。
 
@@ -184,29 +175,19 @@ tools/install-hooks.sh
 
 钩子要求相关修改全部暂存且没有未跟踪文件，再运行 `preflight.sh`；已暂存的修改不要求先提交。
 
-### 防屎山与防过度工程复查
+### 维护原则
 
-维护现有功能为主时，每轮动手前按下面的信号做一次低成本扫描；有问题的按性质处理，不为指标而改代码：
-
-- **无引用/未定性导出**：`python3 tools/check_ffi_contract.py` 会打印 `unbound/untested export debt: N`，并与 `tools/ffi_unbound_baseline.json` 比对，基线只允许缩小（KD-45）。定性分「内部能力」（`INTERNAL_SYMBOL_NOTES`）与「被取代」（`SUPERSEDED_SYMBOL_NOTES`，当前为空）两类；确认无未来用途的旧导出直接删除并登记进 `RETIRED_SYMBOLS`（若重新出现在声明或 Dart 绑定里，门禁报错）。逐簇说明见 `docs/features/feature-inventory.md`。
-- **单一实现的抽象 / 纯转发层**：抽出的接口要有至少两个真实使用方，或有当前的变更原因。Dart 的 `*_backend.dart` 与 C++ 的 `ILink`、`IFirmwarePlugin`、`ICalibrationStrategy` 都已有多个实现；不要再为「将来可能扩展」加空接口（A7）。
-- **大文件**：按变更耦合判断，不按行数。拆之前先用 `git log --follow` 加逐块共变统计，并登记到 `docs/constraints/known-deviations.md` 再决定（KD-43、KD-44、KD-46 是既有结论）。
-- **重复逻辑**：形态相似的 JSON 映射、各自的领域模型不算重复，不要为消除相似强抽公共 helper（KD-47）。
-- **文档引用**：`python3 tools/check_doc_links.py` 检查三件事——反引号里的仓内文件引用是否存在、`docs/adr/README.md` 是否登记了目录下所有 ADR、文档头部日期是否早于仓库首次提交。新增 ADR 必须同步索引（ADR-0009/0010/0011 都曾漏登，索引停更于 0008）。
-  - 记录历史时提到**已删除**的文件是正常的，但要显式说明：所在行写上「已删除」「已移除」等标记词，或带上 commit 短 SHA，或让文件头部声明「历史快照」。三者都没有的悬空引用会被拦下——**要求作者说清楚「这个文件已经没了」比允许它静默悬空要好**。
-
-登记偏差不是扣分项：理由和触发条件写清楚的 `已决定` 条目，就是「已评估、不再来回纠缠」。
+保持实现简单，避免为假设中的未来增加层和接口。只有出现真实使用方、真实错误或
+明确的架构变化时，才增加抽象、测试或文档。
 
 ## 前后端接口对齐
 
 ```bash
-python3 tools/check_ffi_contract.py --write-catalog
-python3 tools/check_ffi_contract.py --write-baseline   # 仅在你确实新增了已定性的导出时
-python3 tools/check_ffi_contract.py --library build/libmgcore.dylib
 (cd flutter_shell && MGCS_FLEET_LIBRARY="$PWD/../build/libmgcore.dylib" flutter test --no-pub test/fleet_ffi_smoke_test.dart)
 ```
 
-Linux 的库路径为 `build/libmgcore.so`，Windows 为 `build/mgcore.dll`。目录和声明检查已纳入 preflight，后端全量构建后还会核对编译库的全部公开符号和版本，防止误用旧库。同一脚本还会同步 `bridge/ffi/API_CATALOG.md` 与 `docs/capabilities.md` 的模块覆盖表；改了公开头文件或 Dart 绑定后，先跑一次 `--write-catalog` 再提交，否则 preflight 会因目录/能力表过期而失败。它同时把「无前端绑定、无定性（内部能力/被取代）、无测试引用」的导出与 `tools/ffi_unbound_baseline.json` 比对，基线**只允许缩小**：新增未定性导出会失败，被覆盖的符号仍留在基线里也会失败（语义见 KD-45）。新增导出请先绑定 UI 或补测试引用；确实要保留为存量时，用 `--write-baseline` 更新基线并在提交说明里写明理由。FFI smoke 用本地 UDP 模拟链路覆盖生产 backend，不需要实体飞控。
+Linux 的库路径为 `build/libmgcore.so`，Windows 为 `build/mgcore.dll`。FFI smoke 使用本地
+UDP 模拟链路覆盖生产 backend，不需要实体飞控；没有本地共享库时跳过。
 
 ## Docker（仅后端）
 
@@ -216,7 +197,7 @@ tools/docker-dev.sh check
 
 ## 发布
 
-遵循 `docs/constraints/release-and-hardware.md`：
+发布时只执行实际需要的版本和硬件检查：
 
 1. `tools/release.sh <x.y.z>` 同步版本号。
 2. 更新 `CHANGELOG.md`。

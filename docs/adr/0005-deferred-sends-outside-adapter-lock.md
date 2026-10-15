@@ -1,5 +1,7 @@
 # ADR-0005：持锁派发路径的发送改为延迟队列
 
+> 历史记录：本文记录特定时间点的架构决策。当前行为以代码、测试和根目录 `AGENTS.md` 为准。
+
 状态：已接受
 日期：2026-10-10
 
@@ -47,5 +49,4 @@
 ## 相关
 
 - `docs/constraints/architecture.md`（A3、A4、A6）
-- `docs/constraints/known-deviations.md`（KD-22、KD-25）
 - `core/src/mavlink/mavlink_adapter_internal.h`、`mavlink_adapter_dispatch.cc`

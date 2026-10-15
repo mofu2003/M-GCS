@@ -1,5 +1,7 @@
 # ADR-0002：上游参考与许可
 
+> 历史记录：本文记录特定时间点的架构决策。当前行为以代码、测试和根目录 `AGENTS.md` 为准。
+
 状态：已接受
 日期：2026-10-09
 
@@ -11,7 +13,7 @@ M-GCS 对标 QGroundControl 与 Mission Planner。两者各有所长，许可证
 
 - 按模块分工：链路生命周期、状态机、测试治理、跨平台结构参考 QGC；ArduPilot 专用的命令、参数、校准、固件行为参考 MP。
 - 只参考行为与协议事实，不复制源码。M-GCS 保持 MIT。
-- 开发任何功能前，先阅读对应的 QGC 与 MP 源码，并把参考记录在 `docs/constraints/parity.md` 中。
+- 开发功能时，可按需参考对应的 QGC 与 MP 源码。
 - 引用 QGC 的 Apache-2.0 分支代码之前，需要核对 Qt 商业授权与再分发义务，并在本 ADR 中补充记录。
 - 再分发上游数据文件时，必须在仓库内保留版权与许可声明，并记录来源 commit 与校验和。
 - 上游数据文件的许可分支**一律取 Apache-2.0**：GPLv3 分支的代码与数据不进入 M-GCS（MIT 与 GPLv3 不兼容）。衍生作品还必须按 Apache-2.0 §4(b) 显著声明所做的修改。
@@ -31,4 +33,3 @@ M-GCS 对标 QGroundControl 与 Mission Planner。两者各有所长，许可证
 ## 相关
 
 - `docs/constraints/upstream.md`
-- `docs/constraints/parity.md`

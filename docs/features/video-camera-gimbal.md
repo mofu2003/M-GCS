@@ -1,10 +1,12 @@
 # 功能简报：视频 / 相机 / 云台（Video / Camera / Gimbal）
 
+> 功能参考：本文记录历史实现过程和验证结果，不是当前开发约束。具体能力以当前代码、FFI 契约和测试为准。
+
 状态：方向已立项。**S1（native 状态层 + FFI 读契约修复）、S2（前端「相机与云台」页）、S3（本地视频解码/渲染管线）与 S4（本地录制/截图落盘 + 容量管理）已实现并验证**。解码后端与帧交付方式由 `docs/adr/0008-video-decode-backend.md` 定案（FFmpeg 仅 LGPL 构建、帧经 FFI 交付、无后端诚实降级）。macOS(arm64) 上用本地 LGPL FFmpeg 构建跑通了「真实码流播放 + 录制落盘 + 截图落盘」的端到端验证（2026-10-11，见 3.4/8/11 节）；「至少两端平台」的退出条件只完成一端，未验证平台一律如实标 `unsupported`。
 日期：2026-10-11
 来源：阶段 3 第 4 条（计划文档已废弃删除）；`docs/capabilities.md` 对 `ffi_api_payload.h` 的「待接入」说明。
 
-本文件是阶段 3「能力扩展，逐项立项」的第四个方向。按计划要求，先完成产品需求、上游行为研究、license/外部依赖检查与验收标准，再做切片。上游源码事实来自本地快照（QGC `bf0096d97`、MP `a2fcd74d6`，见 `docs/constraints/parity.md` 参考版本表）。
+本文件是阶段 3「能力扩展，逐项立项」的第四个方向。按计划要求，先完成产品需求、上游行为研究、license/外部依赖检查与验收标准，再做切片。
 
 ## 1. 目的
 
@@ -152,7 +154,7 @@ M-GCS 里 `ffi_api_payload.h` 的公开导出（立项时 17 个，S1 新增 2 �
 - **MP**：GPLv3（`COPYING.txt`）。**禁止复制源码**，只参考行为与协议事实。
 - **MAVLink**：`CAMERA_*`/`GIMBAL_*`/`VIDEO_STREAM_*` 使用官方定义（`upstream.md` P5）。
 - **S3（已决定 → ADR-0008）**：选 **FFmpeg 且只允许 LGPL 构建**（`--disable-gpl`），动态链接；禁止 GPL 传染，发布须随包附 LGPL 许可与源码获取方式（见 `docs/constraints/release-and-hardware.md` R6、ADR-0008 后果）。GStreamer（LGPL）与平台原生（系统 API）保留为未来可选项，届时另写 ADR。默认不引入任何 GPL 组件。
-- **参考源码版本**：QGC `bf0096d97`、MP `a2fcd74d6`（`parity.md` 参考版本表）。
+- **参考源码**：QGC 和 MP 的实现。
 
 ## 10. 未决问题
 

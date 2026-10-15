@@ -45,9 +45,25 @@ void FirmwareAdapter::detect(uint8_t autopilot_type, uint8_t vehicle_type,
 
     // Detect vehicle kind
     vehicle_kind_ = static_cast<VehicleKind>(vehicle_type);
+
+    // MAV_TYPE 的 VTOL 家族是 19–25 连续七个值，而 VehicleKind 只声明了
+    // VTOL = 19。上面这行强转对 19 之外的六个值都不会等于 VehicleKind::VTOL，
+    // 于是 20–25 会掉出所有 switch(vehicle_kind())：pause_mode 退化成空串、
+    // 命令目录的 vehicle_class 退化成空串（机型过滤空转，NAV_VTOL_TAKEOFF /
+    // NAV_VTOL_LAND 对真 VTOL 重新不可见）。
+    //
+    // 这里把整个家族无条件收敛到 VehicleKind::VTOL，使下游只存在一种取值。
+    // 谓词由 firmware_adapter.h 的 is_vtol_mav_type() 提供，不得在此重写区间。
+    if (is_vtol_mav_type(vehicle_type)) {
+        vehicle_kind_ = VehicleKind::VTOL;
+    }
+
     // ArduPilot QuadPlane defaults to MAV_TYPE_FIXED_WING in HEARTBEAT. The
     // backend is the single authority for this distinction: once Q_ENABLE is
     // cached, promote the raw heartbeat type to the semantic VTOL kind.
+    // 上面那条只对「显式声明 VTOL 身份」的机型生效；这一条补的是
+    // Q_MAV_TYPE=0 的上游默认 QuadPlane——它上报 MAV_TYPE_FIXED_WING，
+    // 身份只能靠参数判定。两者互不重叠：前者看 MAV_TYPE，后者看参数。
     if (firmware_kind_ == FirmwareKind::ArduPilot &&
         vehicle_type == static_cast<uint8_t>(VehicleKind::FixedWing) &&
         quadplane_enable.has_value() && *quadplane_enable > 0.0f) {

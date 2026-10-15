@@ -52,7 +52,8 @@ void main() {
 
     expect(fixedWing.modeLabel, 'Guided');
     expect(multirotor.modeLabel, 'Guided');
-    expect(vtol.modeLabel, 'Guided · VTOL');
+    // 兜底文案用中文，与四态后缀保持一致（避免同一行中英混排）。
+    expect(vtol.modeLabel, 'Guided · 垂直起降');
   });
 
   test('VTOL transition labels take precedence in guided mode', () {

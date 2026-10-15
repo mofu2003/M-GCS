@@ -346,6 +346,10 @@ class MgTopStatusData {
   /// 界面以中文为主，所以这里用中文描述状态，不写 MC/FW：
   /// 1=TRANSITION_TO_FW、2=TRANSITION_TO_MC、3=MC、4=FW；
   /// 0=UNDEFINED（非 VTOL 或还没上报）时不加后缀。
+  ///
+  /// 兜底分支（vtolState==0 但已知是 VTOL 机型）只在 EXTENDED_SYS_STATE
+  /// 到达之前短暂出现——后端已按 QGC 的做法以 1Hz 请求该消息。
+  /// 文案同样用中文，避免同一行里中英混排。
   String get modeLabel {
     if (flightMode.isEmpty) return '—';
     final vtolSuffix = switch (vtolState) {
@@ -357,7 +361,7 @@ class MgTopStatusData {
     };
     if (vtolSuffix != null) return '$flightMode · $vtolSuffix';
     if (flightMode.toLowerCase() == 'guided' && isVtolVehicle) {
-      return '$flightMode · VTOL';
+      return '$flightMode · 垂直起降';
     }
     return flightMode;
   }

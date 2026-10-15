@@ -9,6 +9,7 @@ enum MgSettingsDestination {
   connection,
   configuration,
   missionPlanning,
+  geofence,
   payload,
   logs,
   flightLog,
@@ -105,6 +106,14 @@ class _MgSettingsPanel extends StatelessWidget {
                 onTap: () => Navigator.of(
                   context,
                 ).pop(MgSettingsDestination.missionPlanning),
+              ),
+              Divider(height: 1, color: colors.hairline),
+              _SettingsRow(
+                icon: CupertinoIcons.lock_shield,
+                title: '围栏与集结点',
+                subtitle: '地理围栏、Rally 点读取与下发',
+                onTap: () =>
+                    Navigator.of(context).pop(MgSettingsDestination.geofence),
               ),
               Divider(height: 1, color: colors.hairline),
               _SettingsRow(

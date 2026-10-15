@@ -2096,6 +2096,12 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
+  /// Keeps every await in a guided workflow bound to the vehicle that started it.
+  Future<T> _runForCurrentVehicle<T>(Future<T> Function() execute) {
+    final target = fleet.captureTarget(expectedVehicleId: sessionId);
+    return fleet.runForTarget(target, execute);
+  }
+
   /// 增量拉取飞控消息（只取 seq 比上次大的），追加到本地列表。
   ///
   /// 后端保留最近 200 条，这里同样限长，避免长时间连接后无限增长。
@@ -2336,15 +2342,17 @@ final class ConnectionController extends ChangeNotifier {
     if (!altitudeMeters.isFinite || altitudeMeters == 0) {
       throw StateError('移动到此处失败：没有有效的海拔高度');
     }
-    _requireCommandSuccess(
-      await flightCommandBackend.guidedPoint(
-        latitude,
-        longitude,
-        altitudeMeters,
-        -1,
-        -1,
+    await _runForCurrentVehicle(
+      () async => _requireCommandSuccess(
+        await flightCommandBackend.guidedPoint(
+          latitude,
+          longitude,
+          altitudeMeters,
+          -1,
+          -1,
+        ),
+        '移动到此处',
       ),
-      '移动到此处',
     );
     guidedTargetPosition = VehicleFix(
       latitude: latitude,
@@ -2390,12 +2398,14 @@ final class ConnectionController extends ChangeNotifier {
     }
 
     // ArduPilot requires GUIDED and an armed vehicle before NAV_TAKEOFF.
-    await _setFlightModeAndValidate('Guided');
-    if (!vehicleArmed) await _armVehicleAndValidate();
-    _requireCommandSuccess(
-      await flightCommandBackend.takeoff(takeoffAltitude),
-      '起飞',
-    );
+    await _runForCurrentVehicle(() async {
+      await _setFlightModeAndValidate('Guided');
+      if (!vehicleArmed) await _armVehicleAndValidate();
+      _requireCommandSuccess(
+        await flightCommandBackend.takeoff(takeoffAltitude),
+        '起飞',
+      );
+    });
   }
 
   /// Shared native workflow, also used by explicitly targeted batch starts.
@@ -2442,13 +2452,13 @@ final class ConnectionController extends ChangeNotifier {
   /// 界面在“已经解锁”时按了长按确认会什么都不发生也不提示（S1）。
   Future<bool> armVehicle() async {
     _requireFreshVehicleState('解锁');
-    return _armVehicleAndValidate();
+    return _runForCurrentVehicle(_armVehicleAndValidate);
   }
 
   /// 上锁。飞行中上锁会掉飞机，界面必须确认。返回值语义同 [armVehicle]。
   Future<bool> disarmVehicle() async {
     _requireFreshVehicleState('上锁');
-    return _disarmVehicleAndValidate();
+    return _runForCurrentVehicle(_disarmVehicleAndValidate);
   }
 
   /// 急停：强制上锁（COMPONENT_ARM_DISARM，param2=21196）。
@@ -2459,15 +2469,17 @@ final class ConnectionController extends ChangeNotifier {
   /// 返回 true 表示下发了强制上锁；false 表示飞控本来就未解锁，无需急停。
   Future<bool> emergencyDisarmVehicle() async {
     _requireFreshVehicleState('急停');
-    if (!vehicleArmed) return false;
-    _requireCommandSuccess(await flightCommandBackend.disarm(1), '急停');
-    if (await _waitForVehicleState(
-      armed: false,
-      timeout: _armValidationWindow,
-    )) {
-      return true;
-    }
-    throw StateError('急停失败：飞控仍报告 armed=true');
+    return _runForCurrentVehicle(() async {
+      if (!vehicleArmed) return false;
+      _requireCommandSuccess(await flightCommandBackend.disarm(1), '急停');
+      if (await _waitForVehicleState(
+        armed: false,
+        timeout: _armValidationWindow,
+      )) {
+        return true;
+      }
+      throw StateError('急停失败：飞控仍报告 armed=true');
+    });
   }
 
   /// 返回是否真的下发了命令。已经解锁时返回 false，不当作失败（S1）。
@@ -2548,30 +2560,39 @@ final class ConnectionController extends ChangeNotifier {
   /// 高度偏移（只动 z）。偏差小于 1 cm 时直接返回，避免无意义地切模式。
   Future<void> guidedChangeAltitude(double targetAltitudeAboveHome) async {
     _requireFreshVehicleState('改变高度');
+    final target = fleet.captureTarget(expectedVehicleId: sessionId);
     final current = relativeAltitudeMeters;
     if (!vehiclePositionValid || current == null) {
       throw StateError('改变高度失败：飞机高度未知');
     }
     final delta = targetAltitudeAboveHome - current;
     if (delta.abs() < 0.01) return;
-    await _setFlightModeAndValidate('Guided');
-    _requireCommandSuccess(
-      await flightCommandBackend.changeAltitude(delta),
-      '改变高度',
-    );
+    await fleet.runForTarget(target, () async {
+      await _setFlightModeAndValidate('Guided');
+      _requireCommandSuccess(
+        await flightCommandBackend.changeAltitude(delta),
+        '改变高度',
+      );
+    });
   }
 
   Future<void> guidedPause() async {
     _requireFreshVehicleState('暂停');
+    final target = fleet.captureTarget(expectedVehicleId: sessionId);
     // ArduPilot's guided pause is a flight-mode change, not just a zero
     // velocity target. A one-shot velocity command can expire and silently
     // let the mission continue.
     final pauseMode = firmwareInfo?['pause_mode']?.toString() ?? '';
     if (pauseMode.isNotEmpty) {
-      await _setFlightModeAndValidate(pauseMode);
+      await fleet.runForTarget(
+        target,
+        () => _setFlightModeAndValidate(pauseMode),
+      );
       return;
     }
-    _requireCommandSuccess(await flightCommandBackend.guidedPause(), '暂停');
+    await fleet.runForTarget(target, () async {
+      _requireCommandSuccess(await flightCommandBackend.guidedPause(), '暂停');
+    });
   }
 
   Future<void> guidedOrbit({
@@ -2582,15 +2603,17 @@ final class ConnectionController extends ChangeNotifier {
     double altitudeMeters = 50,
   }) async {
     _requireFreshVehicleState('环绕飞行');
-    _requireCommandSuccess(
-      await flightCommandBackend.orbit(
-        latitude: latitude,
-        longitude: longitude,
-        radiusMeters: radiusMeters,
-        velocityMetersPerSecond: velocityMetersPerSecond,
-        altitudeMeters: altitudeMeters,
+    await _runForCurrentVehicle(
+      () async => _requireCommandSuccess(
+        await flightCommandBackend.orbit(
+          latitude: latitude,
+          longitude: longitude,
+          radiusMeters: radiusMeters,
+          velocityMetersPerSecond: velocityMetersPerSecond,
+          altitudeMeters: altitudeMeters,
+        ),
+        '环绕飞行',
       ),
-      '环绕飞行',
     );
     // 环绕会替换当前的水平目的地；旧 Go To 图标不应继续留在图上。
     _clearGuidedTarget();
@@ -2640,7 +2663,11 @@ final class ConnectionController extends ChangeNotifier {
       LatLng(fix.latitude, fix.longitude),
       LatLng(latitude, longitude),
     );
-    var delta = bearing - (headingDegrees ?? 0);
+    final heading = headingDegrees;
+    if (heading == null || !heading.isFinite) {
+      throw StateError('设置航向失败：当前航向未知');
+    }
+    var delta = bearing - heading;
     while (delta < -180) {
       delta += 360;
     }

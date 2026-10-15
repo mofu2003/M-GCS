@@ -71,6 +71,15 @@ void configure_vehicle_telemetry_streams(Vehicle& vehicle) {
     mav->request_message_interval(sys, comp, 74, 50000);    // VFR_HUD 20Hz
     mav->request_message_interval(sys, comp, 147, 500000);  // BATTERY_STATUS 2Hz
 
+    // EXTENDED_SYS_STATE 1Hz。ArduPilot 不主动发这条，必须请求：
+    // QGC 在 APMFirmwarePlugin.cc:441-443 同位置请求，注释写明
+    // "ArduPilot doesn't send MAVLINK_MSG_ID_EXTENDED_SYS_STATE messages
+    // unless requested"。它是 vtol_state（MAV_VTOL_STATE）与 landed_state
+    // 的唯一来源；不请求则 vtol_state 恒为 0，VTOL 顶栏只能退化成
+    // "Guided · VTOL" 占位，四态（多旋翼/固定翼/转固定翼/转多旋翼）永不出现。
+    // 频率对齐 QGC 取 1Hz：转态是秒级过程，无需更高。
+    mav->request_message_interval(sys, comp, 245, 1000000);  // EXTENDED_SYS_STATE 1Hz
+
     MGC_LOG_INFO("[Vehicle %d] Telemetry streams configured", vehicle.vehicle_id());
 }
 }

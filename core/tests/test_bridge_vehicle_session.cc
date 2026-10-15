@@ -230,8 +230,9 @@ struct TwoVehicleMockEnv {
     std::atomic<bool> pumping{false};
     std::thread pump_thread;
 
-    End& add(int id, uint8_t sysid) {
-        MockFlightController::Config cfg; cfg.system_id = sysid; cfg.component_id = 1;
+    End& add(int id, uint8_t sysid,
+             MockFlightController::Config cfg = MockFlightController::Config()) {
+        cfg.system_id = sysid; cfg.component_id = 1;
         auto link = std::make_unique<mg::core::transport::InMemoryLink>(); link->open();
         auto mav = std::make_unique<mg::core::mavlink::MavlinkAdapter>();
         auto* raw_link = link.get();
@@ -286,6 +287,59 @@ struct TwoVehicleMockEnv {
         mg_destroy(core);
     }
 };
+
+static void test_vehicle_list_uses_each_vehicle_quadplane_state() {
+    fprintf(stderr, "\n[Group] per-vehicle QuadPlane classification\n");
+    TwoVehicleMockEnv env;
+
+    MockFlightController::Config quadplane;
+    quadplane.vehicle = MockFlightController::Plane;
+    quadplane.mav_type_override = MAV_TYPE_FIXED_WING;
+    env.add(61, 1, quadplane);
+
+    MockFlightController::Config fixed_wing;
+    fixed_wing.vehicle = MockFlightController::Plane;
+    fixed_wing.mav_type_override = MAV_TYPE_FIXED_WING;
+    env.add(62, 2, fixed_wing);
+    env.ends[0].mock->add_param("Q_ENABLE", 1);
+
+    CHECK(env.wait_connected(), "two fixed-wing heartbeat vehicles connect");
+    for (auto& end : env.ends) {
+        const auto mav = end.vehicle->shared_mavlink();
+        CHECK(mav && mav->request_param_list(end.mock == env.ends[0].mock ? 1 : 2, 1),
+              "each vehicle starts its parameter download");
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(6000);
+    while (std::chrono::steady_clock::now() < deadline) {
+        env.tick();
+        bool ready = true;
+        for (const auto& end : env.ends) {
+            const auto mav = end.vehicle->shared_mavlink();
+            ready = ready && mav && !mav->param_download_active() && mav->param_count() > 0;
+        }
+        if (ready) break;
+    }
+
+    env.core->vehicles.set_active_vehicle(61);
+    char* list = mg_vehicle_list(env.core);
+    CHECK(list && strstr(list, R"("vehicle_id":61)"),
+          "vehicle list contains QuadPlane session");
+    CHECK(list && strstr(list, R"("vehicle_id":62)"),
+          "vehicle list contains fixed-wing session");
+    CHECK(list && strstr(list, R"("vehicle_id":61,"system_id":1,"name":"","firmware_type":"ArduPilot","vehicle_type":"VTOL")"),
+          "QuadPlane keeps its own VTOL classification");
+    CHECK(list && strstr(list, R"("vehicle_id":62,"system_id":2,"name":"","firmware_type":"ArduPilot","vehicle_type":"FixedWing")"),
+          "fixed-wing keeps its own FixedWing classification");
+    mg_free_string(list);
+
+    env.core->vehicles.set_active_vehicle(62);
+    list = mg_vehicle_list(env.core);
+    CHECK(list && strstr(list, R"("vehicle_id":61,"system_id":1,"name":"","firmware_type":"ArduPilot","vehicle_type":"VTOL")"),
+          "switching focus does not reclassify QuadPlane");
+    CHECK(list && strstr(list, R"("vehicle_id":62,"system_id":2,"name":"","firmware_type":"ArduPilot","vehicle_type":"FixedWing")"),
+          "switching focus does not reclassify fixed-wing");
+    mg_free_string(list);
+}
 
 static uint64_t command_ticket(char* result) {
     cJSON* json = result ? mg::core::json::parse(result) : nullptr;
@@ -966,6 +1020,7 @@ int main() {
     test_ffi_signing_control();
     test_targeted_operation_cancel_isolated();
     test_targeted_operation_timeout_isolated();
+    test_vehicle_list_uses_each_vehicle_quadplane_state();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

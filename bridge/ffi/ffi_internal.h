@@ -233,8 +233,8 @@ inline mg::core::mission::MissionPlan ffi_prepare_mission_upload(mg_core_t* core
 /// 返回值语义：nullopt 表示「无法判定」——非 ArduPilot、未连接、没有心跳，
 /// 或该参数尚未进入参数缓存（连接初期 PARAM_VALUE 还没到）。调用方必须把
 /// nullopt 与 `0.0f`（明确关闭）区分对待。
-inline std::optional<float> ffi_quadplane_enable(mg_core_t* core) {
-    auto mav = shared_active_mavlink(core);
+inline std::optional<float> ffi_quadplane_enable(
+    const std::shared_ptr<mg::core::mavlink::MavlinkAdapter>& mav) {
     if (!mav) return std::nullopt;
     auto hb = mav->latest_heartbeat();
     if (!hb.has_value() || hb->autopilot_type != MAV_AUTOPILOT_ARDUPILOTMEGA) return std::nullopt;
@@ -249,6 +249,10 @@ inline std::optional<float> ffi_quadplane_enable(mg_core_t* core) {
     const auto param = mav->get_param_by_name(param_id);
     if (!param.has_value()) return std::nullopt;
     return static_cast<float>(param->value);
+}
+
+inline std::optional<float> ffi_quadplane_enable(mg_core_t* core) {
+    return ffi_quadplane_enable(shared_active_mavlink(core));
 }
 
 /// 归一化机型名（"Copter"/"FixedWing"/…）到 FFI 机型类别字符串的映射。

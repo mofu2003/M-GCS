@@ -1,5 +1,7 @@
 # ADR-0009: VehicleSessionAssembler 用于多固件适配
 
+> 历史记录：本文记录特定时间点的架构决策。当前行为以代码、测试和根目录 `AGENTS.md` 为准。
+
 **状态**: Accepted  
 **日期**: 2026-10-13
 **作者**: Architecture Team
@@ -74,14 +76,7 @@ final assembler = VehicleSessionAssembler(backendFactory: factory);
 
 ## 约束
 
-为防止装配器被滥用，建立强制约束（参考 docs/constraints/vehicle-session-assembler.md）：
-
-1. **职责范围明确** — 只管理"无状态依赖的基础后端"
-2. **禁止业务逻辑** — 无条件判断、无 UI 操作、无状态检查
-3. **无循环依赖** — 不持有 ConnectionController 的引用
-4. **代码审查清单** — 新增后端必须满足"无状态依赖"条件
-
-违反约束的 PR 必须 block merge 并要求 refactor。
+装配器管理以下"无状态依赖"的后端，职责边界明确。
 
 ## 收益
 
@@ -104,5 +99,4 @@ final assembler = VehicleSessionAssembler(backendFactory: factory);
 
 ## 参考
 
-- docs/constraints/vehicle-session-assembler.md
 - 相关代码审查: PR#XXX（待合并）

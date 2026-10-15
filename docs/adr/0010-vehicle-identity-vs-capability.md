@@ -1,5 +1,7 @@
 # ADR-0010: 机型身份与能力分层，能力按运行时求值
 
+> 历史记录：本文记录特定时间点的架构决策。当前行为以代码、测试和根目录 `AGENTS.md` 为准。
+
 **状态**: Accepted
 **日期**: 2026-10-13
 **作者**: Architecture Team
@@ -74,7 +76,7 @@ ArduPilot 的 QuadPlane（四旋翼固定翼混合机型）在上报心跳时使
 
 ## 相关
 
-- 约束：[architecture.md](../constraints/architecture.md) A1–A7、[safety.md](../constraints/safety.md) S6、[parity.md](../constraints/parity.md)
+- 约束：[architecture.md](../constraints/architecture.md) A1–A7、[safety.md](../constraints/safety.md) S6
 - 上游：`QGCMAVLink.cc:188-222`（`vehicleClass`，含 19–25 与 `default → Generic`）、`MissionCommandTree.cc:84-92,118-122`（`vtolMode`）、`APMFirmwarePlugin.cc:565-585`（VTOL 命令集）、`MissionPlanner/GCSViews/InitialSetup.cs:94-101`（`isQuadPlane` 活 getter）
 - 代码：`core/src/firmware/firmware_adapter.cc`、`core/src/firmware/firmware_plugin_ardupilot.cc`、`core/include/core/firmware/firmware_plugin.h`、`bridge/ffi/ffi_internal.h`
 - 已知偏差：KD-64、KD-65

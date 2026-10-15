@@ -17,6 +17,7 @@ import '../flight/flight_message_panel.dart';
 import '../mission/mission_document_controller.dart';
 import '../mission/mission_document_models.dart';
 import '../mission/mission_geo.dart';
+import '../mission/geofence_floating_panel.dart';
 import '../mission/mission_planning_panel.dart';
 import '../widgets/mg_map_action_menu.dart';
 import '../widgets/mg_command_confirmation.dart';
@@ -154,6 +155,7 @@ class AMapMapView extends StatefulWidget {
     this.connectionPanelRequest,
     this.flightMessagePanelRequest,
     this.missionPlanningRequest,
+    this.geofenceRequest,
     this.onRequestCommandConfirmation,
   });
 
@@ -167,6 +169,7 @@ class AMapMapView extends StatefulWidget {
   final ValueListenable<int>? connectionPanelRequest;
   final ValueListenable<int>? flightMessagePanelRequest;
   final ValueListenable<int>? missionPlanningRequest;
+  final ValueListenable<int>? geofenceRequest;
 
   /// 把飞行命令交给主页面顶部状态栏，等待用户长按确认后再执行。
   final ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation;
@@ -203,6 +206,7 @@ class _AMapMapViewState extends State<AMapMapView> {
   bool _showConnectionPanel = false;
   bool _showFlightMessagePanel = false;
   bool _showMissionPlanning = false;
+  bool _showGeofence = false;
   OverlayEntry? _transientMessage;
 
   /// 地图点击菜单：锚点是点击处在地图控件内的坐标，点位是换算后的 WGS-84 坐标。
@@ -243,19 +247,22 @@ class _AMapMapViewState extends State<AMapMapView> {
       _handleFlightMessagePanelRequest,
     );
     widget.missionPlanningRequest?.addListener(_handleMissionPlanningRequest);
+    widget.geofenceRequest?.addListener(_handleGeofenceRequest);
     unawaited(_restorePreferences());
   }
 
-  /// 右上角三个浮层互斥：同时只显示一个，免得在同一个角落叠在一起。
+  /// 右上角浮层互斥：同时只显示一个，免得在同一个角落叠在一起。
   void _showRightPanel({
     bool connection = false,
     bool messages = false,
     bool mission = false,
+    bool geofence = false,
   }) {
     setState(() {
       _showConnectionPanel = connection;
       _showFlightMessagePanel = messages;
       _showMissionPlanning = mission;
+      _showGeofence = geofence;
     });
   }
 
@@ -269,6 +276,10 @@ class _AMapMapViewState extends State<AMapMapView> {
 
   void _handleMissionPlanningRequest() {
     if (mounted) _showRightPanel(mission: true);
+  }
+
+  void _handleGeofenceRequest() {
+    if (mounted) _showRightPanel(geofence: true);
   }
 
   /// 遥测定位更新时决定是否移动视角。
@@ -457,6 +468,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     widget.missionPlanningRequest?.removeListener(
       _handleMissionPlanningRequest,
     );
+    widget.geofenceRequest?.removeListener(_handleGeofenceRequest);
     _saveTimer?.cancel();
     _fleetFitDebounce?.cancel();
     _transientMessage?.remove();
@@ -736,6 +748,13 @@ class _AMapMapViewState extends State<AMapMapView> {
       return;
     }
 
+    // 起飞是独立流程：点击后直接填写高度并在同一个弹窗确认，
+    // 不进入“引导模式选项”窗口，也不再叠加顶部的长按确认层。
+    if (actionLabel.startsWith('起飞')) {
+      await showTakeoffDialog(context, controller: controller);
+      return;
+    }
+
     // 返航是 QGC Guided Actions 的核心动作，但这里按 M-GCS 的统一交互走
     // 顶部状态栏长按确认，不再进入二次弹窗流程。
     if (actionLabel.startsWith('返航')) {
@@ -759,7 +778,6 @@ class _AMapMapViewState extends State<AMapMapView> {
       controller: controller,
       position: position,
       initialActionLabel: actionLabel,
-      onRequestCommandConfirmation: widget.onRequestCommandConfirmation,
     );
   }
 
@@ -1562,6 +1580,16 @@ class _AMapMapViewState extends State<AMapMapView> {
               controller: widget.connectionController,
               onRequestCommandConfirmation: widget.onRequestCommandConfirmation,
               onClose: () => setState(() => _showMissionPlanning = false),
+            ),
+          ),
+        if (_showGeofence)
+          Positioned(
+            top: _missionPanelTopInset,
+            right: 18,
+            child: GeofenceFloatingPanel(
+              key: ValueKey(widget.connectionController.sessionId),
+              controller: widget.connectionController,
+              onClose: () => setState(() => _showGeofence = false),
             ),
           ),
         if (_showFlightMessagePanel)

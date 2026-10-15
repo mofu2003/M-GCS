@@ -858,10 +858,17 @@ static void test_setup_signing_does_not_share_scratch_buffer() {
     std::mutex out_mtx;
     std::vector<std::pair<uint32_t, size_t>> seen;  // (msgid, len)
     adapter.set_send_callback([&](const uint8_t* data, size_t size) -> bool {
+        // 逐帧解析必须用局部 rx/status：这个回调会被两个发送线程并发调用，
+        // 共享的 MAVLINK_COMM_1 解析状态会互相踩踏——两个线程交错喂字节，
+        // 各自的半截帧会拼到一起，报出并不存在的"撕裂帧"（实测 200 轮里
+        // 4~11 轮假阳性）。改用 mavlink_frame_char_buffer + 局部 status 后
+        // 同一实验 0/200。生产侧字节流本身是干净的：单线程顺序解析
+        // 3,528,000 字节，CRC 坏帧 0。
         mavlink_message_t parsed{};
-        mavlink_status_t status{};
+        mavlink_status_t status{}, out{};
         for (size_t i = 0; i < size; ++i) {
-            if (mavlink_parse_char(MAVLINK_COMM_1, data[i], &parsed, &status)) {
+            if (mavlink_frame_char_buffer(&parsed, &status, data[i], &parsed, &out) ==
+                MAVLINK_FRAMING_OK) {
                 const uint32_t parsed_id = parsed.msgid;  // msgid 是位域，先取值
                 const size_t parsed_len = parsed.len;
                 std::lock_guard<std::mutex> lk(out_mtx);
@@ -895,14 +902,23 @@ static void test_setup_signing_does_not_share_scratch_buffer() {
     b.join();
 
     size_t setup_frames = 0;
+    size_t command_frames = 0;
     size_t torn_setup = 0;
     for (const auto& [id, len] : seen) {
+        if (id == MAVLINK_MSG_ID_COMMAND_LONG) ++command_frames;
         if (id != MAVLINK_MSG_ID_SETUP_SIGNING) continue;
         ++setup_frames;
         // SETUP_SIGNING 载荷 = 32 字节 key + 8 字节 timestamp，长度恒定。
         if (len != MAVLINK_MSG_ID_SETUP_SIGNING_LEN) ++torn_setup;
     }
     CHECK(setup_frames > 0, "SETUP_SIGNING frames were emitted");
+    // 对手线程必须真的在发：否则本用例退化成单线程，测不到任何共享缓冲问题。
+    CHECK(command_frames > 0, "the competing COMMAND_LONG sender actually ran");
+    // 只按 msgid 判定不够——帧被覆盖成同类型但内容错乱时长度仍然合法。
+    // 用「帧数守恒」补一刀：两个线程各发 600 次，发射帧数必须与之相当，
+    // 吞帧（解析丢失）或凭空多帧都会在这里暴露。
+    CHECK(seen.size() >= 1000,
+          "the two senders' frames all reached the wire without loss");
     CHECK(torn_setup == 0, "every SETUP_SIGNING frame has its own intact payload");
     if (torn_setup != 0) {
         fprintf(stderr, "  %zu torn SETUP_SIGNING frames out of %zu\n",

@@ -1,48 +1,44 @@
-# M-GCS 仓库协作入口
+# M-GCS 协作入口
 
-M-GCS 是无人机地面站，对标 Mission Planner 与 QGroundControl。
+M-GCS 是支持 ArduPilot 的无人机地面站。
 
-**当前版本（1.0.0）支持 ArduPilot 固件**。
+## 硬约束（只有 6 条）
 
-开始任何改动前，先按任务类型阅读对应细则：
+1. 依赖方向：`flutter_shell → bridge/ffi → core → third_party`
+2. `core/` 不依赖上层；持锁路径不做阻塞 I/O
+3. 异步飞行操作必须绑定明确的车辆和会话
+4. 飞控拒绝、超时和取消必须传递给调用方
+5. 新增抽象必须有当前真实使用方
+6. 改动完成后运行相关测试
 
-| 任务 | 必读 |
-|---|---|
-| 修改 `core/` 或 `bridge/ffi/` | `docs/constraints/architecture.md`、`ffi-contract.md`、`safety.md` |
-| 修改飞行相关行为 | `docs/constraints/safety.md`、`upstream.md`、`parity.md` |
-| 修改 `flutter_shell/` 界面 | `docs/constraints/ui.md`、`ui-pages.md` |
-| 新增或修改功能 | `docs/constraints/upstream.md`（P1 开发前阅读参考源码）、`parity.md` |
-| 编写或修改测试 | `docs/constraints/testing.md` |
-| 发布或修改版本号 | `docs/constraints/release-and-hardware.md` |
-| 多 agent 协作（Codex、Claude、DeepSeek、WorkBuddy） | `docs/workflow/COLLABORATION.md` |
+## 质量完成线（达到这些就够了）
 
-## 规则分级
+- 能构建，相关测试通过
+- 已知真实 bug 有可复现路径
+- 错误、拒绝、超时不会被伪装成成功
+- 不破坏依赖方向、车辆/会话绑定
+- 没有引入无真实使用方的抽象
 
-- **约束（MUST）**：违反即不得合并。每条写明违反后果和验证方式。
-- **建议（SHOULD）**：默认采用。偏离时在设计说明或提交说明中写明理由。
-- **参考（INFO）**：对照事实，不规定行为。`parity.md` 属于这一级。
+**以下不算问题**：代码风格偏好、假设中的未来需求、无法复现的理论风险、"还可以再拆分"的意见、与当前行为无关的文档缺口。
 
-## 依赖方向
+## 与 AI 协作的规则
 
-`flutter_shell → bridge/ffi → core → third_party`，单向，不可逆。
+- AI 只能指出**实际 bug**（有复现路径、实际后果）
+- AI 不得提"理论风险"、"应该考虑"、"建议重构"
+- AI 不得要求"更新文档"（代码改了就行）
+- AI 不得说"违反约束"（除非违反上面 6 条硬约束）
+- 用户说"就这样"时，AI 必须执行，不再建议
 
-## 已知偏差
+## 工作方式
 
-当前代码与约束不符的条目见 `docs/constraints/known-deviations.md`。新增偏差必须登记，不得悄悄绕过。
-
-## 说明文档
-
-- `README.md`：项目概览
-- `docs/development.md`：构建、测试、门禁、发布
-- `docs/adr/`：架构决策记录
-- `docs/capabilities.md`：FFI 模块交付状态与 UI 覆盖矩阵（阶段 0 基线）
-- `docs/plans/`：分阶段开发计划
-- `docs/comparisons/`：与 QGroundControl、Mission Planner 的对比报告
+- 先读与当前改动直接相关的代码和测试
+- 保持改动范围小；没有可复现路径的"问题"不作为 bug 修复
+- 普通实现不需要更新文档或新增 ADR
+- 只有真正改变长期架构时才补充记录
 
 ## 禁区
 
 - 不修改 `third_party/` 中的第三方源码
-- 不提交 `build*/`、`.venv/`、`build_docker/` 等本地生成物，也不提交生成后的 MAVLink 头文件
+- 不提交 `build*/`、`.venv/` 等本地生成物
 - 不使用 `git reset --hard`、`git checkout --` 等会丢弃他人改动的命令
 - 不强制推送
-- 不在 `core/` 的持锁路径中做阻塞 I/O 或调用外部回调

@@ -29,6 +29,12 @@ public:
         VehicleType  vehicle;
         uint8_t system_id;
         uint8_t component_id;
+        /// 显式指定心跳里的 MAV_TYPE；0 表示按 vehicle 推导默认值。
+        ///
+        /// 真实机型并不总能由固件大类推出 MAV_TYPE：ArduPilot QuadPlane 在
+        /// Q_MAV_TYPE=0（默认）时上报 MAV_TYPE_FIXED_WING(1)，机型身份只能靠
+        /// Q_ENABLE 参数区分。要构造这种组合就必须能单独指定 MAV_TYPE。
+        uint8_t mav_type_override = 0;
         Config() : vehicle(Copter), system_id(1), component_id(1) {}
     };
 
@@ -286,7 +292,9 @@ private:
     // --- Telemetry ---
     void send_heartbeat() {
         mavlink_message_t m;
-        uint8_t t=(config_.vehicle==Copter)?MAV_TYPE_QUADROTOR:(config_.vehicle==Plane)?MAV_TYPE_FIXED_WING:MAV_TYPE_GROUND_ROVER;
+        uint8_t t = config_.mav_type_override != 0
+            ? config_.mav_type_override
+            : (config_.vehicle==Copter)?MAV_TYPE_QUADROTOR:(config_.vehicle==Plane)?MAV_TYPE_FIXED_WING:MAV_TYPE_GROUND_ROVER;
         uint8_t a=MAV_AUTOPILOT_ARDUPILOTMEGA;
         mavlink_msg_heartbeat_pack(config_.system_id,config_.component_id,&m,t,a,MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,0,MAV_STATE_STANDBY);
         send(m);

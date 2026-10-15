@@ -1,5 +1,7 @@
 # ADR-0004：UI 设计系统与字体
 
+> 历史记录：本文记录特定时间点的架构决策。当前行为以代码、测试和根目录 `AGENTS.md` 为准。
+
 状态：已接受（字体许可**已登记**：`flutter_shell/assets/fonts/MiSans-LICENSE.txt` 随包分发，`flutter_shell/pubspec.yaml:31-35` 已在 `assets` 与 `fonts` 两段登记）
 日期：2026-10-09
 

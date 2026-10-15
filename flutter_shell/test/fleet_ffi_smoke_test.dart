@@ -299,6 +299,22 @@ void main() {
         }
         expect(controller.sessionId, vehicleIds.first);
         expect(controller.vehicleFlightMode, 'Guided');
+        controller.vehiclePosition = const VehicleFix(
+          latitude: 30,
+          longitude: 120,
+        );
+        controller.vehiclePositionValid = true;
+        controller.headingDegrees = null;
+        await expectLater(
+          controller.guidedSetHeading(30.001, 120.001),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              '设置航向失败：当前航向未知',
+            ),
+          ),
+        );
         controller.waveform.imuPointCount = 17;
         controller.flightTimeSeconds = 42.5;
         controller.flightDistanceMeters = 321.0;

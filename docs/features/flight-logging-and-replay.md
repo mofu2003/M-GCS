@@ -1,5 +1,7 @@
 # 功能简报：飞行日志与回放
 
+> 功能参考：本文记录历史实现过程，不是当前开发约束。具体能力以当前代码、FFI 契约和测试为准。
+
 状态：S1 可用闭环、S2 录制/回放、P1（`mg_fs_*` FTP 异步化）与 S3（FTP 文件浏览页 + 本地索引/缓存）均已落地（native 修 P2/P3/P4/P5/P7/P6 + 擦除 `mg_onboard_log_erase` + 下载完整性 `size_declared` + tlog 录制接线 + `mg_tlog_replay_*` 导出 + FTP 异步状态机；Flutter「机载日志」「飞行记录」「机载文件」三页均已接入）。本方向收口，剩下 `.bin` 解析/图表与断点续传两个独立议题（见第 10 节）
 日期：2026-10-11
 来源：阶段 3 第 1 条（计划文档已废弃删除）；`docs/capabilities.md` 对 `ffi_api_logging.h` 的「待接入」说明。
@@ -81,7 +83,7 @@
 
 ## 4. 上游行为研究
 
-参考版本见 `docs/constraints/parity.md` 顶部（QGC `bf0096d97`、MP `a2fcd74d6`）。只记录行为事实，不复制源码。
+参考 QGC 和 MP 的实现。只记录行为事实，不复制源码。
 
 ### QGroundControl
 

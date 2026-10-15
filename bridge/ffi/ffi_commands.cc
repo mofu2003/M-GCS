@@ -88,7 +88,7 @@ MGCORE_API char* mg_vehicle_list(mg_core_t* core) {
             if (hb.has_value()) {
                 mg::core::firmware::FirmwareAdapter adapter;
                 adapter.detect(hb->autopilot_type, hb->vehicle_type,
-                               ffi_quadplane_enable(core));
+                               ffi_quadplane_enable(mav));
                 vehicle_type = adapter.normalized_vehicle_name();
             }
         }

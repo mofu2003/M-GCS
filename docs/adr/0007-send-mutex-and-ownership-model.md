@@ -1,5 +1,7 @@
 # ADR-0007：`send_mtx` 边界定义与适配器生命周期所有权模型
 
+> 历史记录：本文记录特定时间点的架构决策。当前行为以代码、测试和根目录 `AGENTS.md` 为准。
+
 状态：草案  
 日期：2026-10-12
 
@@ -206,7 +208,6 @@ void ConnectionManager::wire_callbacks() {
 ## 相关
 
 - `docs/constraints/architecture.md`（A3、A4）
-- `docs/constraints/known-deviations.md`（KD-49、KD-52、KD-51）
 - `docs/adr/0005-deferred-sends-outside-adapter-lock.md`（本 ADR 的前置）
 - `core/src/mavlink/mavlink_adapter_internal.h`
 - `core/src/transport/connection_manager.cc`
@@ -218,7 +219,7 @@ void ConnectionManager::wire_callbacks() {
 | 1 | 修改 `deliver_frame()`（锁内复制、锁外调用） | 0.5 天 | 已完成 |
 | 2 | 修改 `wire_callbacks()`（`weak_ptr` 捕获） | 0.5 天 | 已完成 |
 | 3 | 补充并发回归测试（重入、竞态、TSan） | 2 天 | 回归、TSan、ASan 定向验证已完成 |
-| 4 | 更新 `known-deviations.md`（KD-49/52 → 已关闭） | 0.5 天 | 已完成 |
+| 4 | 验证修复 | 0.5 天 | 已完成 |
 | 5 | 代码审查与 CI 验证 | 1 天 | 阶段二定向构建与验证已完成；完整 preflight 受既有文档空白阻塞 |
 
 **总计**：~4.5 天（约 1 周）

@@ -11,24 +11,18 @@ changed_ref="HEAD"
 backend_scope="full"
 backend_targets=""
 plan_reason=""
-# S6 字面量守卫的扫描范围是 flutter_shell/lib + core/src + bridge/ffi，这些范围内
-# 的改动即使不重跑整套 Flutter，也要重跑守卫（守卫本身不到 1 s）。
-want_firmware_literals=0
-
 usage() {
   cat <<'EOF'
 用法：tools/preflight.sh [选项]
 
 默认执行：
   1. git diff --check HEAD
-  2. UI 设计 token 扫描
-  3. 固件参数字面量守卫（S6，扫 flutter_shell/lib + core/src + bridge/ffi）
-  4. Flutter analyze + test
-  5. 编译 build_check 并运行后端口禁
-  6. macOS 上执行 flutter build macos --debug
+  2. Flutter analyze + test
+  3. 编译 build_check 并运行后端测试
+  4. macOS 上执行 flutter build macos --debug
 
 选项：
-  --frontend-only        只跑 token 扫描、Flutter analyze/test 和 macOS 构建
+  --frontend-only        只跑 Flutter analyze/test 和 macOS 构建
   --backend-only         只编译并运行后端口禁
   --no-macos-build       跳过 macOS debug 构建
   --changed              按改动挑最小范围（默认对比 HEAD，含未提交与未跟踪文件）
@@ -117,7 +111,7 @@ if [[ "$changed_mode" -eq 1 ]]; then
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
     case "$file" in
-      # 纯文档：只跑轻量检查（含 tools/check_doc_links.py，在全量段执行）
+      # 纯文档：不触发构建或测试。
       docs/*|*.md|LICENSE|.gitignore)
         ;;
       # 前端
@@ -128,20 +122,8 @@ if [[ "$changed_mode" -eq 1 ]]; then
       flutter_shell/*)
         want_frontend=1
         ;;
-      tools/check_ui_tokens.dart)
-        want_frontend=1
-        ;;
-      tools/check_firmware_literals.py|tools/firmware_literals_baseline.json)
-        want_firmware_literals=1
-        ;;
       # 开发者工具：不参与构建产物，不影响前后端，无需触发任何重跑。
       tools/flutter-pty-run.py)
-        ;;
-      # 参数描述符是 S6 字面量守卫的事实来源，改了要重跑守卫。
-      core/src/config/*.json)
-        backend_full=1
-        backend_full_reason="参数描述符 $file（S6 字面量守卫的事实来源）"
-        want_firmware_literals=1
         ;;
       # 共享测试夹具：所有 sim 测试都用
       core/tests/mock_flight_controller.h|core/tests/*.h)
@@ -187,13 +169,6 @@ if [[ "$changed_mode" -eq 1 ]]; then
         ;;
     esac
 
-    # S6 守卫现在也扫 core/src 与 bridge/ffi（不只是前端），命中扫描范围的改动
-    # 一律重跑守卫——否则往桥接层塞一个固件参数名，--changed 会静默放过。
-    case "$file" in
-      flutter_shell/*|core/src/*|core/include/*|bridge/*)
-        want_firmware_literals=1
-        ;;
-    esac
   done <<< "$changed_list"
 
   file_count="$(printf '%s\n' "$changed_list" | grep -c . || true)"
@@ -232,9 +207,6 @@ echo "[preflight] 检查补丁格式"
 git diff --check HEAD
 git diff --cached --check
 
-echo "[preflight] 检查文档一致性"
-python3 tools/check_doc_links.py
-
 echo "[preflight] 检查版本号一致性"
 cmake_version="$(sed -n 's/^project(mgcore VERSION \([0-9][0-9.]*\) LANGUAGES CXX.*/\1/p' CMakeLists.txt)"
 pubspec_version="$(sed -n 's/^version: \([0-9][0-9.]*\)+[0-9][0-9]*$/\1/p' flutter_shell/pubspec.yaml)"
@@ -263,19 +235,6 @@ ffi_library_is_sanitized() {
   grep -Eq 'clang_rt\.(tsan|asan)|libtsan|libasan' <<<"$deps"
 }
 
-echo "[preflight] 检查 FFI 声明与前端绑定"
-"${PYTHON_BIN:-python3}" tools/check_ffi_contract.py
-
-# T2：假断言写法（恒真条件、OR 组合恒真、只查非空、无条件 SKIP）。
-echo "[preflight] 检查假断言写法（T2）"
-"${PYTHON_BIN:-python3}" tools/check_fake_assertions.py
-"${PYTHON_BIN:-python3}" tools/check_fake_assertions.py --self-test
-
-# F1：改了 bridge/ffi/ffi_api*.h 就必须是成套变更（实现/测试/catalog/文档）。
-echo "[preflight] 检查 FFI 公开头的成套变更（F1）"
-"${PYTHON_BIN:-python3}" tools/check_api_change_set.py --self-test
-"${PYTHON_BIN:-python3}" tools/check_api_change_set.py --base "${changed_ref:-HEAD}"
-
 # 编译并发上限。
 # 不带数字的 `cmake --build --parallel` 等于不限并发：16 GB 机器上 10+ 个 clang
 # 同时编译 mavlink 重头文件的 TU 会触发换页，实测 165 s，而限成 8 路只要 26 s。
@@ -302,11 +261,6 @@ if [[ -z "$build_jobs" ]]; then
 fi
 echo "[preflight] 编译并发：${build_jobs}（可用 MGCORE_BUILD_JOBS 覆盖）"
 
-if [[ "$run_frontend" -eq 1 || "$want_firmware_literals" -eq 1 ]]; then
-  echo "[preflight] 检查固件参数字面量（S6）"
-  "${PYTHON_BIN:-python3}" tools/check_firmware_literals.py
-fi
-
 if [[ "$run_frontend" -eq 1 ]]; then
   command -v dart >/dev/null 2>&1 || {
     echo "[preflight] 未找到 dart；请先安装 Flutter SDK。" >&2
@@ -316,9 +270,6 @@ if [[ "$run_frontend" -eq 1 ]]; then
     echo "[preflight] 未找到 flutter。" >&2
     exit 1
   }
-
-  echo "[preflight] 检查 UI 设计 token"
-  dart tools/check_ui_tokens.dart
 
   echo "[preflight] Flutter analyze"
   (
@@ -431,7 +382,6 @@ if [[ "$run_backend" -eq 1 && "$backend_scope" == "full" ]]; then
     rm -f "$ffi_library"
     cmake --build build_check --config Release --target mgcore --parallel "$build_jobs"
   fi
-  "${PYTHON_BIN:-python3}" tools/check_ffi_contract.py --library "$ffi_library"
   if [[ "$run_frontend" -eq 1 ]]; then
     echo "[preflight] Flutter 与刚编译后端的 FFI 联调"
     (

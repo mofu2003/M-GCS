@@ -71,6 +71,7 @@ class _MapPageState extends State<MapPage> {
   final _connectionPanelRequest = ValueNotifier<int>(0);
   final _flightMessagePanelRequest = ValueNotifier<int>(0);
   final _missionPlanningRequest = ValueNotifier<int>(0);
+  final _geofenceRequest = ValueNotifier<int>(0);
 
   /// 设置菜单直接跳到配置工作区的某个页面（如「机载日志」）。
   final _configurationPageRequest = ValueNotifier<String?>(null);
@@ -297,6 +298,9 @@ class _MapPageState extends State<MapPage> {
       case MgSettingsDestination.missionPlanning:
         _cancelCommandConfirmation();
         _missionPlanningRequest.value++;
+      case MgSettingsDestination.geofence:
+        _cancelCommandConfirmation();
+        _geofenceRequest.value++;
       case MgSettingsDestination.payload:
         _cancelCommandConfirmation();
         _configurationPageRequest.value = 'payload';
@@ -416,6 +420,7 @@ class _MapPageState extends State<MapPage> {
                           connectionPanelRequest: _connectionPanelRequest,
                           flightMessagePanelRequest: _flightMessagePanelRequest,
                           missionPlanningRequest: _missionPlanningRequest,
+                          geofenceRequest: _geofenceRequest,
                           onRequestCommandConfirmation:
                               _requestCommandConfirmation,
                         ),
@@ -447,6 +452,7 @@ class _MapPageState extends State<MapPage> {
     _connectionPanelRequest.dispose();
     _flightMessagePanelRequest.dispose();
     _missionPlanningRequest.dispose();
+    _geofenceRequest.dispose();
     _configurationPageRequest.dispose();
     _pendingCommand.dispose();
     _connectionController.dispose();
