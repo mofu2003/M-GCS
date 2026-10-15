@@ -22,6 +22,21 @@ import 'parameter_ffi_backend.dart';
 import 'calibration_ffi_backend.dart';
 import '../fleet/fleet_ffi_backend.dart';
 
+/// 测试注入：只在测试时使用
+final class BackendOverrides {
+  const BackendOverrides({
+    this.telemetry,
+    this.parameter,
+    this.calibration,
+    this.fleet,
+  });
+
+  final TelemetryFfiBackend? telemetry;
+  final ParameterFfiBackend? parameter;
+  final CalibrationFfiBackend? calibration;
+  final FleetFfiBackend? fleet;
+}
+
 /// 车辆会话装配器
 ///
 /// 仅创建和管理"无状态依赖的基础 FFI 后端"。
@@ -32,21 +47,13 @@ import '../fleet/fleet_ffi_backend.dart';
 /// 3. 参考 docs/constraints/vehicle-session-assembler.md
 final class VehicleSessionAssembler {
   VehicleSessionAssembler({
-    required this._nativeCore,
-    // 用于测试注入
-    this._telemetryBackendOverride,
-    this._parameterBackendOverride,
-    this._calibrationBackendOverride,
-    this._fleetBackendOverride,
-  });
+    required NativeCore nativeCore,
+    BackendOverrides? overrides,
+  })  : _nativeCore = nativeCore,
+        _overrides = overrides ?? const BackendOverrides();
 
   final NativeCore _nativeCore;
-
-  // 测试注入
-  final TelemetryFfiBackend? _telemetryBackendOverride;
-  final ParameterFfiBackend? _parameterBackendOverride;
-  final CalibrationFfiBackend? _calibrationBackendOverride;
-  final FleetFfiBackend? _fleetBackendOverride;
+  final BackendOverrides _overrides;
 
   // Lazy-init 缓存
   TelemetryFfiBackend? _telemetryBackend;
@@ -58,24 +65,24 @@ final class VehicleSessionAssembler {
   // 后端 Getter（lazy-init 或注入）
   // ================================================================
 
-  TelemetryFfiBackend get telemetryBackend => _telemetryBackend ??=
-      _telemetryBackendOverride ??
-      TelemetryFfiBackend(_nativeCore.library, _nativeCore.handle);
+  TelemetryFfiBackend get telemetryBackend =>
+      _telemetryBackend ??= _overrides.telemetry ??
+          TelemetryFfiBackend(_nativeCore.library, _nativeCore.handle);
 
-  ParameterFfiBackend get parameterBackend => _parameterBackend ??=
-      _parameterBackendOverride ??
-      ParameterFfiBackend(_nativeCore.library, _nativeCore.handle);
+  ParameterFfiBackend get parameterBackend =>
+      _parameterBackend ??= _overrides.parameter ??
+          ParameterFfiBackend(_nativeCore.library, _nativeCore.handle);
 
-  CalibrationFfiBackend get calibrationBackend => _calibrationBackend ??=
-      _calibrationBackendOverride ??
-      CalibrationFfiBackend(_nativeCore.library, _nativeCore.handle);
+  CalibrationFfiBackend get calibrationBackend =>
+      _calibrationBackend ??= _overrides.calibration ??
+          CalibrationFfiBackend(_nativeCore.library, _nativeCore.handle);
 
   FleetFfiBackend get fleetBackend =>
-      _fleetBackend ??= _fleetBackendOverride ??
-      FleetFfiBackend(
-        _nativeCore.library,
-        _nativeCore.handle,
-      );
+      _fleetBackend ??= _overrides.fleet ??
+          FleetFfiBackend(
+            _nativeCore.library,
+            _nativeCore.handle,
+          );
 
   /// 清理所有资源
   void dispose() {

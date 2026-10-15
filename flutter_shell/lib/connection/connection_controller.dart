@@ -1678,9 +1678,11 @@ final class ConnectionController extends ChangeNotifier {
       _native = NativeCore.open();
       _assembler = VehicleSessionAssembler(
         nativeCore: _native!,
-        telemetryBackendOverride: _telemetryBackend,
-        parameterBackendOverride: _parameterBackend,
-        calibrationBackendOverride: _calibrationBackend,
+        overrides: BackendOverrides(
+          telemetry: _telemetryBackend,
+          parameter: _parameterBackend,
+          calibration: _calibrationBackend,
+        ),
       );
       _fleet = FleetController(
         _assembler.fleetBackend,
