@@ -18,6 +18,9 @@ void main() {
 
     expect(planningPanel, isNot(contains('_buildSettingsTab')));
     expect(planningPanel, isNot(contains('class _FenceRallyCard')));
+    expect(planningPanel, contains('_initializeAndSyncHome'));
+    expect(planningPanel, contains('telemetryChanges.addListener'));
+    expect(planningPanel, contains('markDirty: false'));
     expect(geofencePanel, contains('class GeofenceFloatingPanel'));
     expect(geofencePanel, contains('mission.readFenceFromVehicle'));
     expect(geofencePanel, contains('mission.uploadFence'));

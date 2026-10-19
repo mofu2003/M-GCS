@@ -1,5 +1,6 @@
 typedef JsonMap = Map<String, Object?>;
 
+const int kMavCmdNavTakeoff = 22;
 const int kMavCmdNavVtolTakeoff = 84;
 const int kMavCmdNavVtolLand = 85;
 
@@ -291,6 +292,8 @@ final class MissionEntity {
   /// `AMSLAltAboveTerrain`），按原样透传，编辑后导出不丢用户数据。
   final JsonMap extensions;
 
+  bool get isTakeoff =>
+      command == kMavCmdNavTakeoff || command == kMavCmdNavVtolTakeoff;
   bool get isVtolTakeoff => command == kMavCmdNavVtolTakeoff;
   bool get isVtolLand => command == kMavCmdNavVtolLand;
 

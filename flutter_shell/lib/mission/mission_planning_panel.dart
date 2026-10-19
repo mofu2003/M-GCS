@@ -35,11 +35,15 @@ class MissionPlanningFloatingPanel extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onClose,
+    this.missionController,
     this.onRequestCommandConfirmation,
   });
 
   final ConnectionController controller;
   final VoidCallback onClose;
+
+  /// Test seam for widget tests that exercise the list without dart:ffi.
+  final MissionDocumentController? missionController;
 
   /// 把“开始任务”变成地图悬浮确认层的长按确认指令。
   final ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation;
@@ -52,22 +56,25 @@ class MissionPlanningFloatingPanel extends StatefulWidget {
 class _MissionPlanningFloatingPanelState
     extends State<MissionPlanningFloatingPanel> {
   bool _collapsed = false;
+  bool _reordering = false;
 
   String? _lastSelectedEntityId;
-  final Map<String, GlobalKey> _entityKeys = {};
+  final ScrollController _entityScroll = ScrollController();
   Timer? _executionTimer;
+  bool _homeSyncInFlight = false;
 
   // This widget is keyed by session; detach the exact instance registered in
   // initState rather than a getter which may already point to the next vehicle.
   late final MissionDocumentController _mission =
-      widget.controller.missionPlanning;
+      widget.missionController ?? widget.controller.missionPlanning;
 
   @override
   void initState() {
     super.initState();
     _mission.addListener(_handleMissionChanged);
+    widget.controller.telemetryChanges.addListener(_handleTelemetryChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_mission.initialize());
+      if (mounted) unawaited(_initializeAndSyncHome());
     });
     // 面板只在显示时挂载，所以这里的轮询随面板出现/消失自动开始和停止。
     _executionTimer = Timer.periodic(
@@ -77,6 +84,9 @@ class _MissionPlanningFloatingPanelState
   }
 
   void _handleMissionChanged() {
+    // 拖拽排序期间列表项会临时进入 Overlay；此时只更新任务状态，不启动
+    // 滚动动画，避免拖拽与滚动同时改变同一列表的布局。
+    if (_reordering) return;
     final selectedIndex = _mission.selectedEntityIndex;
     final entities = _mission.document?.entities ?? const <MissionEntity>[];
     if (selectedIndex == null ||
@@ -88,24 +98,65 @@ class _MissionPlanningFloatingPanelState
     final selectedId = entities[selectedIndex].id;
     if (selectedId == _lastSelectedEntityId) return;
     _lastSelectedEntityId = selectedId;
-    final entityKey = _entityKeys.putIfAbsent(selectedId, GlobalKey.new);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final target = entityKey.currentContext;
-      if (target != null) {
-        Scrollable.ensureVisible(
-          target,
-          duration: const Duration(milliseconds: 180),
-          alignment: 0.1,
-        );
-      }
+      if (!mounted || !_entityScroll.hasClients) return;
+      final maxOffset = _entityScroll.position.maxScrollExtent;
+      final target = entities.length <= 1
+          ? 0.0
+          : maxOffset * selectedIndex / (entities.length - 1);
+      _entityScroll.animateTo(
+        target.clamp(0.0, maxOffset),
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
     });
   }
 
   @override
   void dispose() {
     _executionTimer?.cancel();
+    _entityScroll.dispose();
     _mission.removeListener(_handleMissionChanged);
+    widget.controller.telemetryChanges.removeListener(_handleTelemetryChanged);
     super.dispose();
+  }
+
+  Future<void> _initializeAndSyncHome() async {
+    await _mission.initialize();
+    await _syncVehicleHome();
+  }
+
+  void _handleTelemetryChanged() {
+    if (mounted) unawaited(_syncVehicleHome());
+  }
+
+  /// 任务文档需要一个规划 Home，优先采用当前飞控已经建立的 Home。
+  ///
+  /// 这里只补齐缺失值，不覆盖用户或文件已有的规划 Home。飞控 Home 可能在
+  /// 面板打开后才收到，所以还要由 telemetryChanges 触发重试。
+  Future<void> _syncVehicleHome() async {
+    if (!mounted ||
+        _homeSyncInFlight ||
+        !_mission.initialized ||
+        _mission.busy ||
+        _mission.document?.home.set == true) {
+      return;
+    }
+    final controller = widget.controller;
+    final home = controller.homePosition;
+    if (!controller.homePositionValid || home == null) return;
+
+    _homeSyncInFlight = true;
+    try {
+      await _mission.adoptVehicleHomeIfMissing(
+        latitude: home.latitude,
+        longitude: home.longitude,
+        altitudeMeters: home.altitudeMeters ?? 0,
+        markDirty: false,
+      );
+    } finally {
+      _homeSyncInFlight = false;
+    }
   }
 
   void _toggleCollapsed() => setState(() => _collapsed = !_collapsed);
@@ -213,58 +264,77 @@ class _MissionPlanningFloatingPanelState
           Expanded(
             child: entities.isEmpty
                 ? const _MissionEmptyState()
-                : ReorderableListView.builder(
-                    buildDefaultDragHandles: false,
-                    itemCount: entities.length,
-                    onReorderItem: (oldIndex, newIndex) => unawaited(
-                      _mutate(() => _mission.reorderEntity(oldIndex, newIndex)),
-                    ),
-                    itemBuilder: (context, index) {
-                      final entity = entities[index];
-                      return Padding(
-                        key: _entityKeys.putIfAbsent(entity.id, GlobalKey.new),
-                        padding: const EdgeInsets.only(bottom: 7),
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => _mission.selectEntity(index),
-                          child: _MissionEntityCard(
-                            position: index + 1,
-                            reorderIndex: index,
-                            selected: _mission.selectedEntityIndex == index,
-                            enabled: enabled,
-                            entity: entity,
-                            catalog: _catalogForEntity(entity),
-                            distanceLabel: _distanceFromPrevious(
-                              entities,
-                              index,
-                            ),
-                            onCommandChanged: (command) => _mutate(
-                              () => _mission.updateEntity(
-                                entity.copyWith(
-                                  command: command,
-                                  type: _typeForCommand(command),
+                : ScrollConfiguration(
+                    // ReorderableListView moves the dragged row into an Overlay.
+                    // macos_ui's automatic MacosScrollbar uses LayoutBuilder and
+                    // gets reparented with that row, which can crash Flutter during
+                    // layout. Wheel/trackpad scrolling still works without it.
+                    behavior: ScrollConfiguration.of(
+                      context,
+                    ).copyWith(scrollbars: false),
+                    child: ReorderableListView.builder(
+                      buildDefaultDragHandles: false,
+                      scrollController: _entityScroll,
+                      itemCount: entities.length,
+                      onReorderStart: (_) => _reordering = true,
+                      onReorderEnd: (_) => _reordering = false,
+                      onReorderItem: (oldIndex, newIndex) {
+                        _reordering = false;
+                        unawaited(
+                          _mutate(
+                            () => _mission.reorderEntity(oldIndex, newIndex),
+                          ),
+                        );
+                      },
+                      itemBuilder: (context, index) {
+                        final entity = entities[index];
+                        return Padding(
+                          key: ValueKey(entity.id),
+                          padding: const EdgeInsets.only(bottom: 7),
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => _mission.selectEntity(index),
+                            child: _MissionEntityCard(
+                              position: index + 1,
+                              reorderIndex: index,
+                              selected: _mission.selectedEntityIndex == index,
+                              enabled: enabled,
+                              entity: entity,
+                              catalog: _catalogForEntity(entity),
+                              distanceLabel: _distanceFromPrevious(
+                                entities,
+                                index,
+                              ),
+                              onCommandChanged: (command) => _mutate(
+                                () => _mission.updateEntity(
+                                  entity.copyWith(
+                                    command: command,
+                                    type: _typeForCommand(command),
+                                  ),
+                                ),
+                              ),
+                              onDelete: () => _mutate(
+                                () => _mission.removeEntity(entity.id),
+                              ),
+                              onAltitudeChanged: (altitude) => _mutate(
+                                () => _mission.updateEntity(
+                                  entity.copyWith(altitudeMeters: altitude),
+                                ),
+                              ),
+                              onEdit: () => showMissionEntityDialog(
+                                context,
+                                controller: widget.controller,
+                                catalog: _mission.commandCatalog,
+                                entity: entity,
+                                onSave: (updated) => _mutate(
+                                  () => _mission.updateEntity(updated),
                                 ),
                               ),
                             ),
-                            onDelete: () =>
-                                _mutate(() => _mission.removeEntity(entity.id)),
-                            onAltitudeChanged: (altitude) => _mutate(
-                              () => _mission.updateEntity(
-                                entity.copyWith(altitudeMeters: altitude),
-                              ),
-                            ),
-                            onEdit: () => showMissionEntityDialog(
-                              context,
-                              controller: widget.controller,
-                              catalog: _mission.commandCatalog,
-                              entity: entity,
-                              onSave: (updated) =>
-                                  _mutate(() => _mission.updateEntity(updated)),
-                            ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
           ),
         ],
@@ -481,7 +551,7 @@ class _MissionEntityCard extends StatelessWidget {
               MissionBadge(label: '$position', color: colors.accent),
               const SizedBox(width: 10),
               Expanded(
-                child: AdaptivePopupButton<int>(
+                child: _MissionCommandPopupButton(
                   value: selectedCommand,
                   options: commands,
                   labelOf: _labelFor,
@@ -582,6 +652,64 @@ class _MissionEntityCard extends StatelessWidget {
     if (latitude == null || longitude == null) return '无位置';
     return '${latitude.toStringAsFixed(7)}, ${longitude.toStringAsFixed(7)}';
   }
+}
+
+/// Mission rows are reparented into the drag Overlay by ReorderableListView.
+/// Avoid AdaptivePopupButton's LayoutBuilder here: a LayoutBuilder reparented
+/// during another LayoutBuilder's layout triggers Flutter's
+/// `_RenderLayoutBuilder was mutated` assertion.
+class _MissionCommandPopupButton extends StatelessWidget {
+  static const double _labelWidth = 210;
+
+  const _MissionCommandPopupButton({
+    required this.value,
+    required this.options,
+    required this.labelOf,
+    required this.onChanged,
+  });
+
+  final int? value;
+  final List<int> options;
+  final String Function(int value) labelOf;
+  final ValueChanged<int>? onChanged;
+
+  @override
+  Widget build(BuildContext context) => MacosPopupButton<int>(
+    value: value,
+    items: [
+      for (final option in options)
+        MacosPopupMenuItem<int>(
+          value: option,
+          child: SizedBox(
+            width: _labelWidth,
+            child: Text(
+              labelOf(option),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+    ],
+    selectedItemBuilder: (context) => [
+      for (final option in options)
+        SizedBox(
+          width: _labelWidth,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              labelOf(option),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+    ],
+    onChanged: onChanged == null
+        ? null
+        : (selected) {
+            if (selected != null) onChanged!(selected);
+          },
+  );
 }
 
 /// 面板内的卡片外观：只包裹「重复的任务项」，避免卡片套卡片。
@@ -722,9 +850,10 @@ Future<void> showMissionEntityDialog(
   required Future<void> Function(MissionEntity entity) onSave,
   MissionEntity? entity,
   LatLng? initialPosition,
+  MissionDocumentController? missionController,
 }) async {
   if (catalog.isEmpty) return;
-  final mission = controller.missionPlanning;
+  final mission = missionController ?? controller.missionPlanning;
   await mission.initialize();
   if (!context.mounted) return;
   final fullCatalog = mission.commandCatalog.isEmpty
@@ -881,13 +1010,19 @@ class _MissionEntitySheetState extends State<_MissionEntitySheet> {
     }
 
     final base = widget.entity ?? const MissionEntity();
+    // NAV_TAKEOFF 不飞向 MAVLink 里的坐标，但新建时仍保留地图点击位置作为
+    // 显示参考；否则离线的第一个起飞点没有 Home 可回退，地图上会直接消失。
+    final initialReference =
+        widget.entity == null && _descriptor.command == kMavCmdNavTakeoff
+        ? widget.initialPosition
+        : null;
     final entity = base.copyWith(
       type: _descriptor.entityType,
       command: _descriptor.command,
       autocontinue: 1,
       frame: _descriptor.requiresAltitude ? _frame : base.frame,
-      latitude: latitude,
-      longitude: longitude,
+      latitude: latitude ?? initialReference?.latitude,
+      longitude: longitude ?? initialReference?.longitude,
       altitudeMeters: altitude,
       params: params,
     );

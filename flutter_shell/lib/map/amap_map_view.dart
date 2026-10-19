@@ -1000,6 +1000,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     }
     // 任务文档里的航点：画成编号标记，点击打开编辑框。
     final mission = connection.missionPlanning;
+    final missionHome = mission.document?.home ?? const MissionHome();
     final geoFence = mission.document?.geoFence;
     final breachReturn = geoFence?.breachReturn;
     if (breachReturn?.latitude != null && breachReturn?.longitude != null) {
@@ -1052,34 +1053,40 @@ class _AMapMapViewState extends State<AMapMapView> {
       final entity = entities[index];
       final dragging = entity.id == _draggingEntityId;
       final preview = dragging ? _dragPreviewWgs84 : null;
-      final latitude = preview?.latitude ?? entity.latitude;
-      final longitude = preview?.longitude ?? entity.longitude;
-      if (latitude == null || longitude == null) continue;
+      final position = missionEntityMapPosition(
+        entity,
+        missionHome,
+        preview: preview,
+      );
+      if (position == null) continue;
+      final entityDragEnabled = dragEnabled && !entity.isTakeoff;
       markers.add(
         Marker(
-          point: _toTileFrame(latitude, longitude),
+          point: _toTileFrame(position.latitude, position.longitude),
           width: 26,
           height: 26,
           child: MouseRegion(
-            cursor: dragging
+            cursor: !entityDragEnabled
+                ? SystemMouseCursors.basic
+                : dragging
                 ? SystemMouseCursors.grabbing
                 : SystemMouseCursors.move,
             child: GestureDetector(
               onTap: () => mission.selectEntity(index),
               onDoubleTap: () => unawaited(_editEntity(mission, entity)),
-              onPanStart: dragEnabled
+              onPanStart: entityDragEnabled
                   ? (_) => _beginEntityDrag(index, entity)
                   : null,
-              onPanUpdate: dragEnabled
+              onPanUpdate: entityDragEnabled
                   ? (details) => _updateEntityDrag(details.globalPosition)
                   : null,
-              onPanEnd: dragEnabled
+              onPanEnd: entityDragEnabled
                   ? (_) => unawaited(_finishEntityDrag(mission, entity))
                   : null,
-              onPanCancel: dragEnabled ? _cancelEntityDrag : null,
+              onPanCancel: entityDragEnabled ? _cancelEntityDrag : null,
               child: _WaypointMarker(
-                label: entity.isVtolTakeoff ? 'T' : '${index + 1}',
-                color: entity.isVtolTakeoff ? colors.warning : colors.accent,
+                label: entity.isTakeoff ? 'T' : '${index + 1}',
+                color: entity.isTakeoff ? colors.warning : colors.accent,
                 selected: mission.selectedEntityIndex == index,
                 dragging: dragging,
               ),
@@ -1146,48 +1153,35 @@ class _AMapMapViewState extends State<AMapMapView> {
     final mission = widget.connectionController.missionPlanning;
     final document = mission.document;
     final entities = document?.entities ?? const <MissionEntity>[];
+    final home = document?.home ?? const MissionHome();
     final vertices = <_MissionRouteVertex>[];
-    var vtolTakeoffHandled = false;
+    var takeoffHandled = false;
     for (final entity in entities) {
       if (!entity.enabled) continue;
-      if (entity.isVtolTakeoff) {
-        if (!vtolTakeoffHandled) {
-          vtolTakeoffHandled = true;
-          final home = document?.home;
-          final latitude = home?.latitude;
-          final longitude = home?.longitude;
-          if (home?.set == true &&
-              latitude != null &&
-              longitude != null &&
-              latitude.isFinite &&
-              longitude.isFinite) {
-            vertices.add(
-              _MissionRouteVertex(
-                wgs84: LatLng(latitude, longitude),
-                tileFrame: _toTileFrame(latitude, longitude),
-              ),
-            );
-          }
+      final position = missionEntityMapPosition(
+        entity,
+        home,
+        preview: entity.id == _draggingEntityId ? _dragPreviewWgs84 : null,
+      );
+      if (entity.isTakeoff) {
+        if (!takeoffHandled && position != null) {
+          takeoffHandled = true;
+          vertices.add(
+            _MissionRouteVertex(
+              wgs84: position,
+              tileFrame: _toTileFrame(position.latitude, position.longitude),
+            ),
+          );
         }
-        // ArduPilot 的 VTOL takeoff 只使用高度，水平位置固定为起飞时的当前
-        // XY，QGC 兼容参考点不参与实际航线。
+        // ArduPilot 起飞使用当前/Home 水平位置；NAV_TAKEOFF 的坐标和
+        // NAV_VTOL_TAKEOFF 的兼容参考点都不作为实际飞抵点。
         continue;
       }
-      final dragging = entity.id == _draggingEntityId;
-      final preview = dragging ? _dragPreviewWgs84 : null;
-      final latitude = preview?.latitude ?? entity.latitude;
-      final longitude = preview?.longitude ?? entity.longitude;
-      if (latitude == null ||
-          longitude == null ||
-          !latitude.isFinite ||
-          !longitude.isFinite) {
-        continue;
-      }
-      final wgs84 = LatLng(latitude, longitude);
+      if (position == null) continue;
       vertices.add(
         _MissionRouteVertex(
-          wgs84: wgs84,
-          tileFrame: _toTileFrame(latitude, longitude),
+          wgs84: position,
+          tileFrame: _toTileFrame(position.latitude, position.longitude),
         ),
       );
     }

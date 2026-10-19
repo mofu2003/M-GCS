@@ -98,6 +98,7 @@ final class MissionDocumentController extends ChangeNotifier {
     required double latitude,
     required double longitude,
     required double altitudeMeters,
+    bool markDirty = true,
   }) async {
     final current = document;
     if (current == null || current.home.set) return;
@@ -114,6 +115,15 @@ final class MissionDocumentController extends ChangeNotifier {
         ),
       ),
     );
+    final adopted =
+        document?.home.set == true &&
+        document?.home.latitude == latitude &&
+        document?.home.longitude == longitude &&
+        document?.home.altitudeMeters == altitudeMeters;
+    if (!markDirty && adopted) {
+      dirty = false;
+      notifyListeners();
+    }
   }
 
   /// 记录当前飞控的机型/固件；用于新建文档时写入 metadata。

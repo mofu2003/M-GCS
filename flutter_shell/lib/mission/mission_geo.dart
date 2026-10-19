@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:latlong2/latlong.dart';
 
+import 'mission_document_models.dart';
+
 /// Mission Planner uses the Haversine formula with a 6371 km earth radius
 /// for mission leg distances. Keep the same spherical model so the values in
 /// M-GCS do not disagree with MP.
@@ -27,4 +29,40 @@ String formatMissionDistance(double meters) {
     return '${(meters / 1000).toStringAsFixed(decimals)} km';
   }
   return '${meters.round()} m';
+}
+
+/// Where a mission entity should be drawn on the map.
+///
+/// Takeoff commands do not fly to their stored MAVLink reference coordinate:
+/// ArduPilot takes off from the current/Home position. Prefer the mission Home
+/// for those items, but keep a stored or just-clicked reference as a fallback
+/// when the document has no Home yet.
+LatLng? missionEntityMapPosition(
+  MissionEntity entity,
+  MissionHome home, {
+  LatLng? preview,
+}) {
+  if (preview != null) return preview;
+
+  if (entity.isTakeoff) {
+    final homeLatitude = home.latitude;
+    final homeLongitude = home.longitude;
+    if (home.set &&
+        homeLatitude != null &&
+        homeLongitude != null &&
+        homeLatitude.isFinite &&
+        homeLongitude.isFinite) {
+      return LatLng(homeLatitude, homeLongitude);
+    }
+  }
+
+  final latitude = entity.latitude;
+  final longitude = entity.longitude;
+  if (latitude == null ||
+      longitude == null ||
+      !latitude.isFinite ||
+      !longitude.isFinite) {
+    return null;
+  }
+  return LatLng(latitude, longitude);
 }

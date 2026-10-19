@@ -306,6 +306,31 @@ final class FakeMissionBackend implements MissionDocumentBackend {
             entity.copyWith(id: 'entity-${_document.entities.length + 1}'),
           ],
         );
+      case 'update':
+        final entity = MissionEntity.fromJson(command['entity'] as JsonMap);
+        _document = _document.copyWith(
+          revision: _document.revision + 1,
+          entities: [
+            for (final existing in _document.entities)
+              if (existing.id == entity.id) entity else existing,
+          ],
+        );
+      case 'move':
+        final id = command['entity_id'];
+        final toIndex = command['to_index'] as int? ?? 0;
+        final entities = [..._document.entities];
+        final fromIndex = entities.indexWhere((entity) => entity.id == id);
+        if (fromIndex >= 0) {
+          final entity = entities.removeAt(fromIndex);
+          entities.insert(toIndex.clamp(0, entities.length), entity);
+        }
+        _document = _document.copyWith(
+          revision: _document.revision + 1,
+          entities: [
+            for (var index = 0; index < entities.length; index++)
+              entities[index].copyWith(order: index),
+          ],
+        );
       case 'replace':
         // native 的 replace 是「整份文档原子替换」；这里保留实体并推进 revision，
         // 让「追加航点后整体替换」这类调用方拿到新的文档版本。

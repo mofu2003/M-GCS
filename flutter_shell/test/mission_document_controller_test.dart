@@ -164,6 +164,37 @@ void main() {
     expect(restored.geoFence.breachReturn, isNotNull);
   });
 
+  test(
+    'vehicle Home fills a missing planning Home without marking a clean baseline dirty',
+    () async {
+      final backend = FakeMissionBackend();
+      final controller = MissionDocumentController(backend: backend)
+        ..bindSession(1);
+
+      await controller.initialize();
+      await controller.adoptVehicleHomeIfMissing(
+        latitude: 32.546388889,
+        longitude: 114.736666667,
+        altitudeMeters: 30,
+        markDirty: false,
+      );
+
+      expect(controller.document?.home.set, isTrue);
+      expect(controller.document?.home.latitude, 32.546388889);
+      expect(controller.document?.home.longitude, 114.736666667);
+      expect(controller.document?.home.altitudeMeters, 30);
+      expect(controller.dirty, isFalse);
+
+      await controller.adoptVehicleHomeIfMissing(
+        latitude: 31,
+        longitude: 121,
+        altitudeMeters: 100,
+        markDirty: false,
+      );
+      expect(controller.document?.home.latitude, 32.546388889);
+    },
+  );
+
   test('mission entities identify VTOL takeoff and landing commands', () {
     const takeoff = MissionEntity(command: kMavCmdNavVtolTakeoff);
     const landing = MissionEntity(command: kMavCmdNavVtolLand);
