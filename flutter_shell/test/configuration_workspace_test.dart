@@ -46,7 +46,7 @@ void main() {
       ),
     );
     expect(controller.hasSession, isFalse);
-    expect(find.byType(MotorOutputPage), findsOneWidget);
+    expect(find.byType(SystemStatusPage), findsOneWidget);
     final routes = <String, Type>{
       'system': SystemStatusPage,
       'calibration': CalibrationPage,

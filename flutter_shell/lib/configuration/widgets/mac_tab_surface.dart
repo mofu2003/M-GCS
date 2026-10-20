@@ -35,13 +35,18 @@ class _MacTabSurfaceState extends State<MacTabSurface> {
       MacosTabController(initialIndex: 0, length: widget.labels.length);
   late final bool _ownsTabs = widget.controller == null;
 
+  /// 已经访问过的标签页；未访问的页面不构建，避免一次点击建满全部标签。
+  final Set<int> _builtIndices = <int>{};
+
   @override
   void initState() {
     super.initState();
+    _builtIndices.add(_tabs.index);
     _tabs.addListener(_handleTabChanged);
   }
 
   void _handleTabChanged() {
+    _builtIndices.add(_tabs.index);
     if (mounted) setState(() {});
   }
 
@@ -72,7 +77,15 @@ class _MacTabSurfaceState extends State<MacTabSurface> {
         const SizedBox(height: kMacTabStripGap),
         Expanded(
           child: MacPanel(
-            child: IndexedStack(index: _tabs.index, children: widget.children),
+            child: IndexedStack(
+              index: _tabs.index,
+              children: [
+                for (var i = 0; i < widget.children.length; i++)
+                  _builtIndices.contains(i)
+                      ? widget.children[i]
+                      : const SizedBox.shrink(),
+              ],
+            ),
           ),
         ),
       ],

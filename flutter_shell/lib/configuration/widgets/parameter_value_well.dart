@@ -84,31 +84,46 @@ class _ValueWellState extends State<ParameterValueWell> {
 
   @override
   Widget build(BuildContext context) {
-    final textColor = context.mgColors.textPrimary;
+    final colors = context.mgColors;
+    final textColor = colors.textPrimary;
+    final textStyle = MgTypography.sans(
+      // 数值不加粗：这一格在表格里成片出现，加粗会把整张表压得发闷。
+      MgTypography.body.copyWith(color: textColor),
+    );
+    final decoration = BoxDecoration(
+      color: widget.fillColor ?? colors.well,
+      borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+      border: Border.all(color: colors.divider),
+    );
+    // 不可编辑的数值格用纯文本渲染：表格里成片出现时，
+    // 禁用 MacosTextField 的构建成本远高于普通 Text。
+    if (!widget.enabled) {
+      return Container(
+        alignment: widget.center ? Alignment.center : Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: decoration,
+        child: Text(
+          widget.text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: textStyle,
+        ),
+      );
+    }
     return MacosTextField(
       controller: _textController,
       focusNode: _focusNode,
-      enabled: widget.enabled,
-      readOnly: !widget.enabled,
+      enabled: true,
       placeholder: widget.text,
-      placeholderStyle: MgTypography.sans(
-        MgTypography.body.copyWith(color: textColor),
-      ),
-      style: MgTypography.sans(
-        // 数值不加粗：这一格在表格里成片出现，加粗会把整张表压得发闷。
-        MgTypography.body.copyWith(color: textColor),
-      ),
+      placeholderStyle: textStyle,
+      style: textStyle,
       textAlign: widget.center ? TextAlign.center : TextAlign.start,
       keyboardType: const TextInputType.numberWithOptions(
         decimal: true,
         signed: true,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: widget.fillColor ?? context.mgColors.well,
-        borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
-        border: Border.all(color: context.mgColors.divider),
-      ),
+      decoration: decoration,
       onSubmitted: (value) {
         unawaited(
           _commitCurrentValue().whenComplete(() => _focusNode.unfocus()),

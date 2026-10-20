@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
+import 'fonts/mg_font_macos.dart';
+import 'fonts/mg_font_windows.dart';
+
 /// 字体族：全应用只允许使用这里定义的那一套。
 ///
 /// MiSans 同时覆盖汉字与拉丁，是 pubspec.yaml 中唯一打包的字体族。
@@ -13,24 +16,43 @@ class MgFonts {
   /// 中英文统一字体族名。
   static const String misans = 'MiSans';
 
-  /// 界面文字族。MiSans 覆盖中英文，三平台一致。
-  static String get sans => misans;
+  /// 界面文字族：平台差异只放在对应平台的字体文件里。
+  static String get sans {
+    if (Platform.isWindows) {
+      return MgFontWindows.family;
+    }
+    if (Platform.isMacOS) {
+      return MgFontMacos.family;
+    }
+    return misans;
+  }
 
   /// 兜底链：只用于 MiSans 缺失的生僻字或符号，正常界面文本走不到这里。
   ///
   /// 不再按平台挑西文字体——不同平台解析到不同字体，正是此前 macOS 与 Windows
   /// 观感差异很大的原因。
   static List<String> get sansFallback {
-    if (Platform.isMacOS) {
-      return const ['PingFang SC'];
-    }
     if (Platform.isWindows) {
-      return const ['Microsoft YaHei UI'];
+      return MgFontWindows.fallback;
+    }
+    if (Platform.isMacOS) {
+      return MgFontMacos.fallback;
     }
     if (Platform.isAndroid) {
       return const ['Noto Sans SC'];
     }
     return const ['Noto Sans CJK SC'];
+  }
+
+  /// 把当前平台的字体配置套到文本样式上。
+  static TextStyle apply(TextStyle style) {
+    if (Platform.isWindows) {
+      return MgFontWindows.apply(style);
+    }
+    if (Platform.isMacOS) {
+      return MgFontMacos.apply(style);
+    }
+    return style.copyWith(fontFamily: sans, fontFamilyFallback: sansFallback);
   }
 }
 
@@ -46,10 +68,7 @@ class MgFonts {
 class MgTypography {
   const MgTypography._();
 
-  static TextStyle sans(TextStyle style) => style.copyWith(
-    fontFamily: MgFonts.sans,
-    fontFamilyFallback: MgFonts.sansFallback,
-  );
+  static TextStyle sans(TextStyle style) => MgFonts.apply(style);
 
   /// 页面标题，例如"电机输出""飞控校准"。
   static const TextStyle title = TextStyle(
@@ -139,13 +158,13 @@ class MgTypography {
     final color = brightness == Brightness.dark
         ? const Color(0xFFF5F5F7)
         : const Color(0xFF1D1D1F);
-    TextStyle style(TextStyle source, TextStyle token) => source.copyWith(
-      fontFamily: MgFonts.sans,
-      fontFamilyFallback: MgFonts.sansFallback,
-      fontSize: token.fontSize,
-      height: token.height,
-      fontWeight: token.fontWeight,
-      color: color,
+    TextStyle style(TextStyle source, TextStyle token) => MgFonts.apply(
+      source.copyWith(
+        fontSize: token.fontSize,
+        height: token.height,
+        fontWeight: token.fontWeight,
+        color: color,
+      ),
     );
     return MacosTypography(
       color: color,

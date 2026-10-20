@@ -57,7 +57,7 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
     _ConfigPageInfo('files', '机载文件', CupertinoIcons.folder),
   ];
 
-  String _selectedPageId = 'motors';
+  String _selectedPageId = _basePages.first.id;
 
   @override
   void initState() {
@@ -91,7 +91,7 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
       );
       final selectedPageId = pages.any((page) => page.id == _selectedPageId)
           ? _selectedPageId
-          : 'motors';
+          : _basePages.first.id;
       final selectedIndex = pages.indexWhere(
         (page) => page.id == selectedPageId,
       );
