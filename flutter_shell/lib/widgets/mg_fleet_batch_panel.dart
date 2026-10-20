@@ -30,6 +30,7 @@ class MgFleetBatchPanel extends StatelessWidget {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: fleet,
     builder: (context, _) {
+      final colors = context.mgColors;
       final vehicles = fleet.snapshot.vehicles;
       final selected = fleet.selectedVehicleIds;
       final selectedVehicles = vehicles
@@ -46,6 +47,7 @@ class MgFleetBatchPanel extends StatelessWidget {
         (vehicle) =>
             vehicle.armed && vehicle.missionValid && vehicle.missionTotal > 0,
       );
+
       return SizedBox(
         width: MgMetrics.fleetPanelWidth,
         child: MgFloatingPanel(
@@ -60,16 +62,24 @@ class MgFleetBatchPanel extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _Header(selectedCount: selected.length, onClose: onClose),
-                const SizedBox(height: 8),
+                _Header(
+                  totalCount: vehicles.length,
+                  selectedCount: selected.length,
+                  onClose: onClose,
+                ),
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        '已选飞机：${selected.isEmpty ? '-' : selected.length}',
+                        selected.isEmpty
+                            ? '选择飞机后可批量下发动作'
+                            : '已选择 ${selected.length} 架飞机',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: MgTypography.sans(
                           MgTypography.caption.copyWith(
-                            color: context.mgColors.textSecondary,
+                            color: colors.textSecondary,
                           ),
                         ),
                       ),
@@ -84,30 +94,19 @@ class MgFleetBatchPanel extends StatelessWidget {
                     const SizedBox(width: 6),
                     _SmallActionButton(
                       key: const ValueKey('fleet-clear-selection'),
-                      label: '取消全选',
+                      label: '取消',
                       onPressed: selected.isEmpty
                           ? null
                           : fleet.clearVehicleSelection,
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 if (vehicles.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                    child: Text(
-                      '当前没有已发现的飞机',
-                      textAlign: TextAlign.center,
-                      style: MgTypography.sans(
-                        MgTypography.body.copyWith(
-                          color: context.mgColors.textTertiary,
-                        ),
-                      ),
-                    ),
-                  )
+                  _EmptyState(colors: colors)
                 else
                   ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 320),
+                    constraints: const BoxConstraints(maxHeight: 326),
                     child: ListView.builder(
                       shrinkWrap: true,
                       itemCount: vehicles.length,
@@ -127,13 +126,14 @@ class MgFleetBatchPanel extends StatelessWidget {
                     ),
                   ),
                 const SizedBox(height: 12),
-                Divider(height: 1, color: context.mgColors.hairline),
+                Divider(height: 1, color: colors.hairline),
                 const SizedBox(height: 10),
                 Text(
-                  '多机动作',
+                  '批量操作',
                   style: MgTypography.sans(
-                    MgTypography.body.copyWith(
-                      color: context.mgColors.textPrimary,
+                    MgTypography.caption.copyWith(
+                      color: colors.textSecondary,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -181,22 +181,21 @@ class MgFleetBatchPanel extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: _BatchActionButton(
-                        key: const ValueKey('fleet-batch-mission-start'),
-                        label: '开始任务',
-                        enabled:
-                            connectedSelected.isNotEmpty && canStartMission,
-                        onPressed: () => _request(
+                  ],
+                ),
+                const SizedBox(height: 7),
+                PushButton(
+                  key: const ValueKey('fleet-batch-mission-start'),
+                  controlSize: ControlSize.regular,
+                  onPressed: connectedSelected.isNotEmpty && canStartMission
+                      ? () => _request(
                           context,
                           fleet,
                           onRequestAction,
                           FleetBatchAction.startMission,
-                        ),
-                      ),
-                    ),
-                  ],
+                        )
+                      : null,
+                  child: const Text('开始任务'),
                 ),
               ],
             ),
@@ -225,49 +224,102 @@ class MgFleetBatchPanel extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.selectedCount, required this.onClose});
+  const _Header({
+    required this.totalCount,
+    required this.selectedCount,
+    required this.onClose,
+  });
 
+  final int totalCount;
   final int selectedCount;
   final VoidCallback? onClose;
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Icon(
-        CupertinoIcons.list_bullet,
-        size: 15,
-        color: context.mgColors.accent,
-      ),
-      const SizedBox(width: 7),
-      Expanded(
-        child: Text(
-          '多机控制',
-          style: MgTypography.sans(
-            MgTypography.body.copyWith(color: context.mgColors.textPrimary),
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    return Row(
+      children: [
+        Container(
+          width: 28,
+          height: 28,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: colors.accentSurface,
+            borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+          ),
+          child: Icon(
+            CupertinoIcons.list_bullet,
+            size: 15,
+            color: colors.accent,
           ),
         ),
-      ),
-      if (selectedCount > 0)
+        const SizedBox(width: 9),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '多机控制',
+                style: MgTypography.sans(
+                  MgTypography.section.copyWith(color: colors.textPrimary),
+                ),
+              ),
+              Text(
+                totalCount == 0
+                    ? '等待飞机'
+                    : '$totalCount 架飞机${selectedCount > 0 ? ' · 已选 $selectedCount' : ''}',
+                style: MgTypography.sans(
+                  MgTypography.caption.copyWith(color: colors.textSecondary),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (onClose != null)
+          MacosIconButton(
+            key: const ValueKey('fleet-batch-close'),
+            icon: const MacosIcon(CupertinoIcons.xmark, size: 12),
+            semanticLabel: '收起多机控制面板',
+            boxConstraints: const BoxConstraints.tightFor(
+              width: 26,
+              height: 26,
+            ),
+            padding: EdgeInsets.zero,
+            backgroundColor: colors.transparent,
+            hoverColor: colors.mapControlHover,
+            onPressed: onClose,
+          ),
+      ],
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.colors});
+
+  final MgColors colors;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 20),
+    child: Column(
+      children: [
+        Icon(
+          CupertinoIcons.antenna_radiowaves_left_right,
+          size: 22,
+          color: colors.textTertiary,
+        ),
+        const SizedBox(height: 7),
         Text(
-          '已选 $selectedCount',
+          '当前没有已发现的飞机',
+          textAlign: TextAlign.center,
           style: MgTypography.sans(
-            MgTypography.caption.copyWith(color: context.mgColors.accent),
+            MgTypography.body.copyWith(color: colors.textSecondary),
           ),
-        ),
-      if (onClose != null) ...[
-        const SizedBox(width: 5),
-        MacosIconButton(
-          key: const ValueKey('fleet-batch-close'),
-          icon: const MacosIcon(CupertinoIcons.xmark, size: 12),
-          semanticLabel: '收起多机控制面板',
-          boxConstraints: const BoxConstraints.tightFor(width: 24, height: 24),
-          padding: EdgeInsets.zero,
-          backgroundColor: context.mgColors.transparent,
-          hoverColor: context.mgColors.mapControlHover,
-          onPressed: onClose,
         ),
       ],
-    ],
+    ),
   );
 }
 
@@ -311,7 +363,7 @@ class _BatchActionButton extends StatelessWidget {
   );
 }
 
-/// QGC 风格的多机卡片：ID、飞行模式、锁状态、航向、高度、速度。
+/// macOS 风格的机队列表行：活动焦点使用强调色，批量选择使用复选框。
 class _VehicleCard extends StatelessWidget {
   const _VehicleCard({
     super.key,
@@ -323,10 +375,6 @@ class _VehicleCard extends StatelessWidget {
     required this.onSelect,
   });
 
-  /// QGC 当前飞机卡片用绿色，其余飞机用灰色。
-  static const _activeColor = Color(0xFF1F7A1F);
-  static const _idleColor = Color(0xFF6E6E73);
-
   final FleetVehicleSummary vehicle;
   final bool selected;
   final bool active;
@@ -336,93 +384,100 @@ class _VehicleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final background = active ? _activeColor : _idleColor;
+    final colors = context.mgColors;
     final id = vehicle.systemId > 0 ? vehicle.systemId : vehicle.id;
     final mode = vehicle.flightMode.isEmpty ? '未知模式' : vehicle.flightMode;
-    final heading = vehicle.headingDegrees;
-    final altitude = vehicle.altitudeMeters;
-    final speed = vehicle.groundSpeedMps;
+    final rowColor = active ? colors.accentSurface : colors.surface;
+    final borderColor = active ? colors.accent : colors.divider;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 7),
       child: Material(
-        color: enabled ? background : background.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
-          onTap: enabled ? onSelect : null,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(4, 8, 10, 8),
-            child: Row(
-              children: [
-                MacosCheckbox(
-                  value: selected,
-                  semanticLabel: '选择飞机 $id',
-                  onChanged: enabled ? (_) => onToggle() : null,
-                ),
-                const SizedBox(width: 2),
-                SizedBox(
-                  width: 30,
-                  child: Text(
-                    '$id',
-                    textAlign: TextAlign.center,
-                    style: MgTypography.sans(
-                      MgTypography.title.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
+        color: colors.transparent,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: rowColor,
+            borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+            border: Border.all(color: borderColor, width: active ? 1.2 : 1),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+            onTap: enabled ? onSelect : null,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 9, 10, 9),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: MacosCheckbox(
+                      value: selected,
+                      semanticLabel: '选择飞机 $id',
+                      onChanged: enabled ? (_) => onToggle() : null,
                     ),
                   ),
-                ),
-                Container(
-                  width: 1,
-                  height: 44,
-                  margin: const EdgeInsets.symmetric(horizontal: 8),
-                  color: Colors.white24,
-                ),
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              mode,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              '飞机 $id',
                               style: MgTypography.sans(
                                 MgTypography.section.copyWith(
-                                  color: Colors.white,
+                                  color: enabled
+                                      ? colors.textPrimary
+                                      : colors.textSecondary,
                                 ),
                               ),
                             ),
-                          ),
-                          Text(
-                            vehicle.armed ? '已解锁' : '未解锁',
-                            style: MgTypography.sans(
-                              MgTypography.caption.copyWith(
-                                color: vehicle.armed
-                                    ? Colors.white
-                                    : const Color(0xFFFF8A80),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: Text(
+                                mode,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: MgTypography.sans(
+                                  MgTypography.caption.copyWith(
+                                    color: colors.textSecondary,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '航向 ${_heading(heading)}   高度 ${_meters(altitude)}   速度 ${_speed(speed)}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: MgTypography.sans(
-                          MgTypography.caption.copyWith(color: Colors.white70),
+                            _StatusBadge(vehicle: vehicle, enabled: enabled),
+                          ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _Metric(
+                                label: '航向',
+                                value: _heading(vehicle.headingDegrees),
+                              ),
+                            ),
+                            Expanded(
+                              child: _Metric(
+                                label: '高度',
+                                value: _meters(vehicle.altitudeMeters),
+                              ),
+                            ),
+                            Expanded(
+                              child: _Metric(
+                                label: '地速',
+                                value: _speed(vehicle.groundSpeedMps),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -438,4 +493,69 @@ class _VehicleCard extends StatelessWidget {
 
   static String _speed(double? value) =>
       value == null ? '—' : '${value.toStringAsFixed(1)} m/s';
+}
+
+class _Metric extends StatelessWidget {
+  const _Metric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: MgTypography.sans(
+            MgTypography.caption.copyWith(color: colors.textTertiary),
+          ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: MgTypography.sans(
+            MgTypography.caption.copyWith(color: colors.textPrimary),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.vehicle, required this.enabled});
+
+  final FleetVehicleSummary vehicle;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    final (label, color) = !enabled
+        ? ('离线', colors.danger)
+        : vehicle.armed
+        ? ('已解锁', colors.warning)
+        : ('未解锁', colors.textSecondary);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: MgTypography.sans(
+          MgTypography.caption.copyWith(
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
 }

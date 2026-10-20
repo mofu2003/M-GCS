@@ -13,6 +13,9 @@ import 'mission_document_controller.dart';
 import 'mission_document_models.dart';
 
 /// 飞控围栏与 Rally 的独立操作面板，不属于航点规划任务编辑流程。
+/// 围栏/Rally 面板宽度。
+const double kGeofencePanelWidth = 380;
+
 class GeofenceFloatingPanel extends StatefulWidget {
   const GeofenceFloatingPanel({
     super.key,
@@ -60,7 +63,7 @@ class _GeofenceFloatingPanelState extends State<GeofenceFloatingPanel> {
         !_mission.busy &&
         !_mission.transferActive;
     return SizedBox(
-      width: 380,
+      width: kGeofencePanelWidth,
       child: MgFloatingPanel(
         child: Column(
           mainAxisSize: MainAxisSize.min,

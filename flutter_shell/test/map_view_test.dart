@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mgcs_frontend/connection_panel.dart';
 import 'package:mgcs_frontend/map/amap_map_view.dart';
 import 'package:mgcs_frontend/map/map_preferences.dart';
+import 'package:mgcs_frontend/mission/mission_planning_panel.dart';
 
 void main() {
   group('custom tile source (KD-37)', () {
@@ -50,6 +52,39 @@ void main() {
       expect(mapStyleLabel(MapStyle.amap), '高德标准地图');
       expect(MapStyle.values.first.name, 'standard');
       expect(MapStyle.values.last, MapStyle.custom);
+    });
+  });
+
+  group('right panel coordination', () {
+    test('primary panels share one right-edge slot', () {
+      var panel = nextMapRightPanel(
+        MapRightPanel.none,
+        MapRightPanel.connection,
+      );
+      expect(panel, MapRightPanel.connection);
+
+      panel = nextMapRightPanel(panel, MapRightPanel.mission);
+      expect(panel, MapRightPanel.mission);
+
+      panel = nextMapRightPanel(panel, MapRightPanel.none);
+      expect(panel, MapRightPanel.none);
+    });
+
+    test('fleet inspector offsets left by the primary panel width', () {
+      expect(fleetPanelRightInset(MapRightPanel.none), kMapPanelEdgeInset);
+      expect(
+        fleetPanelRightInset(MapRightPanel.connection),
+        kMapPanelEdgeInset + kConnectionPanelMaxWidth + kMapPanelGap,
+      );
+      expect(
+        fleetPanelRightInset(MapRightPanel.mission),
+        kMapPanelEdgeInset + kMissionPanelWidth + kMapPanelGap,
+      );
+    });
+
+    test('fleet inspector hides instead of overflowing a narrow window', () {
+      expect(canShowFleetAlongside(1600, MapRightPanel.mission), isTrue);
+      expect(canShowFleetAlongside(800, MapRightPanel.mission), isFalse);
     });
   });
 

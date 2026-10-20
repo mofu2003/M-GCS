@@ -13,7 +13,6 @@ import 'map/amap_map_view.dart';
 import 'theme/mg_typography.dart';
 import 'widgets/mg_command_confirmation.dart';
 import 'widgets/mg_dialog.dart';
-import 'widgets/mg_fleet_batch_panel.dart';
 import 'widgets/mg_settings_menu.dart';
 import 'widgets/mg_top_status_bar.dart';
 
@@ -72,6 +71,7 @@ class _MapPageState extends State<MapPage> {
   final _flightMessagePanelRequest = ValueNotifier<int>(0);
   final _missionPlanningRequest = ValueNotifier<int>(0);
   final _geofenceRequest = ValueNotifier<int>(0);
+  final _fleetPanelRequest = ValueNotifier<int>(0);
 
   /// 设置菜单直接跳到配置工作区的某个页面（如「机载日志」）。
   final _configurationPageRequest = ValueNotifier<String?>(null);
@@ -79,9 +79,6 @@ class _MapPageState extends State<MapPage> {
 
   FleetTarget? _pendingTarget;
   int? _confirmationFocusRevision;
-
-  /// 多机面板默认显示；用户手动收起后保持隐藏，直到再次打开。
-  bool _fleetPanelVisible = true;
 
   @override
   void initState() {
@@ -188,9 +185,6 @@ class _MapPageState extends State<MapPage> {
       ),
     );
   }
-
-  void _toggleFleetPanel() =>
-      setState(() => _fleetPanelVisible = !_fleetPanelVisible);
 
   Future<void> _executeCommandConfirmation(
     MgCommandConfirmation command,
@@ -395,7 +389,7 @@ class _MapPageState extends State<MapPage> {
               selectedVehicleIds:
                   _connectionController.fleet.selectedVehicleIds,
               onSelectVehicle: _selectFleetVehicle,
-              onOpenFleetBatch: _toggleFleetPanel,
+              onOpenFleetBatch: () => _fleetPanelRequest.value++,
               onOpenFlightMessages: () => _flightMessagePanelRequest.value++,
               onToggleArm: _requestArmConfirmation,
               onEmergencyStop: _requestEmergencyStopConfirmation,
@@ -419,38 +413,15 @@ class _MapPageState extends State<MapPage> {
                           flightMessagePanelRequest: _flightMessagePanelRequest,
                           missionPlanningRequest: _missionPlanningRequest,
                           geofenceRequest: _geofenceRequest,
+                          fleetPanelRequest: _fleetPanelRequest,
+                          onSelectFleetVehicle: (vehicleId) async =>
+                              _selectFleetVehicle(vehicleId),
+                          onRequestFleetBatchAction: _requestFleetBatchAction,
                           onRequestCommandConfirmation:
                               _requestCommandConfirmation,
                         ),
                       ),
                     ],
-                  ),
-                  AnimatedBuilder(
-                    animation: _connectionController.fleet,
-                    builder: (context, _) {
-                      final vehicles =
-                          _connectionController.fleet.snapshot.vehicles;
-                      if (vehicles.length < 2 || !_fleetPanelVisible) {
-                        return const SizedBox.shrink();
-                      }
-                      return Positioned(
-                        top: 8,
-                        right: MgMetrics.fleetPanelAnchorInset,
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxHeight: MediaQuery.sizeOf(context).height - 168,
-                          ),
-                          child: MgFleetBatchPanel(
-                            fleet: _connectionController.fleet,
-                            onSelectVehicle: (vehicleId) async =>
-                                _selectFleetVehicle(vehicleId),
-                            onRequestAction: _requestFleetBatchAction,
-                            onClose: () =>
-                                setState(() => _fleetPanelVisible = false),
-                          ),
-                        ),
-                      );
-                    },
                   ),
                   if (pendingCommand != null)
                     MgCommandConfirmationOverlay(
@@ -478,6 +449,7 @@ class _MapPageState extends State<MapPage> {
     _flightMessagePanelRequest.dispose();
     _missionPlanningRequest.dispose();
     _geofenceRequest.dispose();
+    _fleetPanelRequest.dispose();
     _configurationPageRequest.dispose();
     _pendingCommand.dispose();
     _connectionController.dispose();

@@ -13,12 +13,14 @@ import '../connection/connection_controller.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import '../connection_panel.dart';
+import '../fleet/fleet_models.dart';
 import '../flight/flight_message_panel.dart';
 import '../mission/mission_document_controller.dart';
 import '../mission/mission_document_models.dart';
 import '../mission/mission_geo.dart';
 import '../mission/geofence_floating_panel.dart';
 import '../mission/mission_planning_panel.dart';
+import '../widgets/mg_fleet_batch_panel.dart';
 import '../widgets/mg_map_action_menu.dart';
 import '../widgets/mg_command_confirmation.dart';
 import '../widgets/mg_mac_glass_attitude_panel.dart';
@@ -146,6 +148,36 @@ _MapSource _sourceFor(
   MapStyle.custom => _customSource(customTileUrl),
 };
 
+/// 地图右侧的主面板。多机面板是独立的次级 inspector。
+enum MapRightPanel { none, connection, messages, mission, geofence }
+
+const double kMapPanelEdgeInset = 18;
+const double kMapPanelGap = 12;
+
+MapRightPanel nextMapRightPanel(
+  MapRightPanel current,
+  MapRightPanel requested,
+) => requested;
+
+double mapRightPanelWidth(MapRightPanel panel) => switch (panel) {
+  MapRightPanel.connection => kConnectionPanelMaxWidth,
+  MapRightPanel.messages => kFlightMessagePanelWidth,
+  MapRightPanel.mission => kMissionPanelWidth,
+  MapRightPanel.geofence => kGeofencePanelWidth,
+  MapRightPanel.none => 0,
+};
+
+double fleetPanelRightInset(MapRightPanel primary) {
+  final width = mapRightPanelWidth(primary);
+  return kMapPanelEdgeInset + (width > 0 ? width + kMapPanelGap : 0);
+}
+
+bool canShowFleetAlongside(double availableWidth, MapRightPanel primary) =>
+    availableWidth >=
+    fleetPanelRightInset(primary) +
+        MgMetrics.fleetPanelWidth +
+        kMapPanelEdgeInset;
+
 class AMapMapView extends StatefulWidget {
   const AMapMapView({
     super.key,
@@ -156,6 +188,9 @@ class AMapMapView extends StatefulWidget {
     this.flightMessagePanelRequest,
     this.missionPlanningRequest,
     this.geofenceRequest,
+    this.fleetPanelRequest,
+    this.onSelectFleetVehicle,
+    this.onRequestFleetBatchAction,
     this.onRequestCommandConfirmation,
   });
 
@@ -170,6 +205,11 @@ class AMapMapView extends StatefulWidget {
   final ValueListenable<int>? flightMessagePanelRequest;
   final ValueListenable<int>? missionPlanningRequest;
   final ValueListenable<int>? geofenceRequest;
+  final ValueListenable<int>? fleetPanelRequest;
+
+  /// 多机面板的飞机焦点切换和批量动作交给主页面统一处理。
+  final Future<void> Function(int vehicleId)? onSelectFleetVehicle;
+  final void Function(FleetBatchTarget target)? onRequestFleetBatchAction;
 
   /// 把飞行命令交给主页面顶部状态栏，等待用户长按确认后再执行。
   final ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation;
@@ -203,10 +243,8 @@ class _AMapMapViewState extends State<AMapMapView> {
   bool _centeredOnVehicle = false;
   bool _followVehicle = false;
   Timer? _saveTimer;
-  bool _showConnectionPanel = false;
-  bool _showFlightMessagePanel = false;
-  bool _showMissionPlanning = false;
-  bool _showGeofence = false;
+  MapRightPanel _rightPanel = MapRightPanel.none;
+  bool _fleetPanelVisible = true;
   OverlayEntry? _transientMessage;
 
   /// 地图点击菜单：锚点是点击处在地图控件内的坐标，点位是换算后的 WGS-84 坐标。
@@ -248,38 +286,45 @@ class _AMapMapViewState extends State<AMapMapView> {
     );
     widget.missionPlanningRequest?.addListener(_handleMissionPlanningRequest);
     widget.geofenceRequest?.addListener(_handleGeofenceRequest);
+    widget.fleetPanelRequest?.addListener(_handleFleetPanelRequest);
     unawaited(_restorePreferences());
   }
 
-  /// 右上角浮层互斥：同时只显示一个，免得在同一个角落叠在一起。
-  void _showRightPanel({
-    bool connection = false,
-    bool messages = false,
-    bool mission = false,
-    bool geofence = false,
-  }) {
+  void _showRightPanel(MapRightPanel panel) {
     setState(() {
-      _showConnectionPanel = connection;
-      _showFlightMessagePanel = messages;
-      _showMissionPlanning = mission;
-      _showGeofence = geofence;
+      _rightPanel = nextMapRightPanel(_rightPanel, panel);
     });
   }
 
   void _handleConnectionPanelRequest() {
-    if (mounted) _showRightPanel(connection: true);
+    if (mounted) _showRightPanel(MapRightPanel.connection);
   }
 
   void _handleFlightMessagePanelRequest() {
-    if (mounted) _showRightPanel(messages: true);
+    if (mounted) _showRightPanel(MapRightPanel.messages);
   }
 
   void _handleMissionPlanningRequest() {
-    if (mounted) _showRightPanel(mission: true);
+    if (mounted) _showRightPanel(MapRightPanel.mission);
   }
 
   void _handleGeofenceRequest() {
-    if (mounted) _showRightPanel(geofence: true);
+    if (mounted) _showRightPanel(MapRightPanel.geofence);
+  }
+
+  void _handleFleetPanelRequest() {
+    if (!mounted) return;
+    final width = MediaQuery.sizeOf(context).width;
+    if (!canShowFleetAlongside(width, _rightPanel)) {
+      // Narrow window: make room by closing the primary panel instead of
+      // pushing the fleet inspector off-screen.
+      setState(() {
+        _rightPanel = MapRightPanel.none;
+        _fleetPanelVisible = true;
+      });
+      return;
+    }
+    setState(() => _fleetPanelVisible = !_fleetPanelVisible);
   }
 
   /// 遥测定位更新时决定是否移动视角。
@@ -469,6 +514,7 @@ class _AMapMapViewState extends State<AMapMapView> {
       _handleMissionPlanningRequest,
     );
     widget.geofenceRequest?.removeListener(_handleGeofenceRequest);
+    widget.fleetPanelRequest?.removeListener(_handleFleetPanelRequest);
     _saveTimer?.cancel();
     _fleetFitDebounce?.cancel();
     _transientMessage?.remove();
@@ -516,7 +562,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     final controller = widget.connectionController;
     final mission = controller.missionPlanning;
 
-    if (_showMissionPlanning) {
+    if (_rightPanel == MapRightPanel.mission) {
       await mission.initialize();
       final home = controller.homePosition;
       if (home != null && controller.homePositionValid) {
@@ -1398,6 +1444,12 @@ class _AMapMapViewState extends State<AMapMapView> {
   @override
   Widget build(BuildContext context) {
     final source = _sourceFor(_style, customTileUrl: _customTileUrl);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final showFleetPanel =
+        _fleetPanelVisible &&
+        widget.connectionController.fleetSnapshot.vehicles.length >= 2 &&
+        canShowFleetAlongside(screenWidth, _rightPanel);
+    final fleetRight = fleetPanelRightInset(_rightPanel);
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -1555,16 +1607,37 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           ),
         ),
-        if (_showConnectionPanel)
+        if (showFleetPanel)
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            top: _rightPanelTopInset,
+            right: fleetRight,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height - 168,
+              ),
+              child: MgFleetBatchPanel(
+                fleet: widget.connectionController.fleet,
+                onSelectVehicle:
+                    widget.onSelectFleetVehicle ??
+                    (vehicleId) async =>
+                        widget.connectionController.selectVehicle(vehicleId),
+                onRequestAction: widget.onRequestFleetBatchAction ?? (_) {},
+                onClose: () => setState(() => _fleetPanelVisible = false),
+              ),
+            ),
+          ),
+        if (_rightPanel == MapRightPanel.connection)
           Positioned(
             top: _rightPanelTopInset,
             right: 18,
             child: ConnectionFloatingPanel(
               controller: widget.connectionController,
-              onClose: () => setState(() => _showConnectionPanel = false),
+              onClose: () => setState(() => _rightPanel = MapRightPanel.none),
             ),
           ),
-        if (_showMissionPlanning)
+        if (_rightPanel == MapRightPanel.mission)
           Positioned(
             top: _missionPanelTopInset,
             bottom: _missionPanelBottomInset,
@@ -1573,20 +1646,20 @@ class _AMapMapViewState extends State<AMapMapView> {
               key: ValueKey(widget.connectionController.sessionId),
               controller: widget.connectionController,
               onRequestCommandConfirmation: widget.onRequestCommandConfirmation,
-              onClose: () => setState(() => _showMissionPlanning = false),
+              onClose: () => setState(() => _rightPanel = MapRightPanel.none),
             ),
           ),
-        if (_showGeofence)
+        if (_rightPanel == MapRightPanel.geofence)
           Positioned(
             top: _missionPanelTopInset,
             right: 18,
             child: GeofenceFloatingPanel(
               key: ValueKey(widget.connectionController.sessionId),
               controller: widget.connectionController,
-              onClose: () => setState(() => _showGeofence = false),
+              onClose: () => setState(() => _rightPanel = MapRightPanel.none),
             ),
           ),
-        if (_showFlightMessagePanel)
+        if (_rightPanel == MapRightPanel.messages)
           // 右上角与连接面板共用同一个槽位，避免互相覆盖。
           Positioned(
             top: _rightPanelTopInset,
@@ -1594,7 +1667,7 @@ class _AMapMapViewState extends State<AMapMapView> {
             height: 340,
             child: FlightMessageFloatingPanel(
               controller: widget.connectionController,
-              onClose: () => setState(() => _showFlightMessagePanel = false),
+              onClose: () => setState(() => _rightPanel = MapRightPanel.none),
             ),
           ),
         if (_mapActionPoint != null && _mapActionAnchor != null)

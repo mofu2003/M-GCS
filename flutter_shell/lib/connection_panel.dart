@@ -16,6 +16,9 @@ import 'widgets/mg_floating_panel.dart';
 import 'widgets/parameter_load_progress.dart';
 
 /// 连接表单的统一网格：标签列等宽、控件行等高、行间距一致。
+/// 连接面板在右侧槽位中的最大宽度。
+const double kConnectionPanelMaxWidth = 400;
+
 const double _formLabelWidth = 76;
 const double _formRowGap = 10;
 const double _formControlHeight = 26;
@@ -102,7 +105,7 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
         // Use the actual space remaining beside the map controls, not the
         // screen size: this also behaves correctly when the window is resized.
         final panelWidth = constraints.maxWidth.isFinite
-            ? math.min(400.0, constraints.maxWidth)
+            ? math.min(kConnectionPanelMaxWidth, constraints.maxWidth)
             : 400.0;
         final maxHeight = constraints.maxHeight.isFinite
             ? constraints.maxHeight

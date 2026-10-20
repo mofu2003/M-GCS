@@ -109,9 +109,12 @@ void main() {
 
       expect(find.text('多机控制'), findsOneWidget);
       expect(find.byType(MacosCheckbox), findsNWidgets(2));
-      expect(find.textContaining('航向 90°'), findsNWidgets(2));
-      expect(find.textContaining('高度 12.5 m'), findsNWidgets(2));
-      expect(find.textContaining('速度 3.2 m/s'), findsNWidgets(2));
+      expect(find.text('航向'), findsNWidgets(2));
+      expect(find.text('高度'), findsNWidgets(2));
+      expect(find.text('地速'), findsNWidgets(2));
+      expect(find.text('90°'), findsNWidgets(2));
+      expect(find.text('12.5 m'), findsNWidgets(2));
+      expect(find.text('3.2 m/s'), findsNWidgets(2));
 
       await tester.tap(find.byType(MacosCheckbox).first);
       await tester.pumpAndSettle();
