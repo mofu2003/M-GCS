@@ -360,10 +360,17 @@ void TcpLink::close() {
     if (socket != MG_INVALID_SOCKET) {
         mg::core::platform::socket_shutdown(socket);
     }
+#ifdef _WIN32
+    // Winsock 上 shutdown() 不一定能唤醒阻塞中的 recv()：实测对本机回环 TCP
+    // 会一直等到 120 秒超时。关闭句柄会让 recv() 立刻返回，读线程随后退出；
+    // ReadState 用 exchange 保证这里和析构不会重复关闭同一个 socket。
+    const mg_socket_t closing = state->sock.exchange(MG_INVALID_SOCKET);
+    if (closing != MG_INVALID_SOCKET) {
+        mg::core::platform::socket_close(closing);
+    }
+#endif
 
     // Never release the socket/state while the OS read is still running.
-    // If a driver ignores shutdown, this blocks rather than trading safety
-    // for a destructor race.
     wait_for_read_thread(state);
     state->close_socket();
     mg::core::platform::socket_cleanup();
