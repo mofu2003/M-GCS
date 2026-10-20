@@ -203,6 +203,7 @@ class FleetVehicleSummary {
     this.longitude = 0,
     this.altitudeMeters,
     this.headingDegrees,
+    this.groundSpeedMps,
     this.homePositionValid = false,
     this.homeLatitude = 0,
     this.homeLongitude = 0,
@@ -237,6 +238,7 @@ class FleetVehicleSummary {
   final double longitude;
   final double? altitudeMeters;
   final double? headingDegrees;
+  final double? groundSpeedMps;
   final bool homePositionValid;
   final double homeLatitude;
   final double homeLongitude;
@@ -276,6 +278,7 @@ class FleetVehicleSummary {
       longitude == other.longitude &&
       altitudeMeters == other.altitudeMeters &&
       headingDegrees == other.headingDegrees &&
+      groundSpeedMps == other.groundSpeedMps &&
       homePositionValid == other.homePositionValid &&
       homeLatitude == other.homeLatitude &&
       homeLongitude == other.homeLongitude &&
@@ -311,6 +314,7 @@ class FleetVehicleSummary {
     longitude,
     altitudeMeters,
     headingDegrees,
+    groundSpeedMps,
     homePositionValid,
     homeLatitude,
     homeLongitude,

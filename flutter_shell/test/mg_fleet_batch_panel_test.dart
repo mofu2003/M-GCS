@@ -30,6 +30,9 @@ class _MemoryFleetBackend implements FleetBackend {
       endpoint: spec.uri,
       connected: true,
       flightMode: 'Guided',
+      headingDegrees: 90,
+      altitudeMeters: 12.5,
+      groundSpeedMps: 3.2,
       linkCount: 1,
       healthyLinkCount: 1,
     );
@@ -83,20 +86,18 @@ void main() {
           data: MacosThemeData.light(),
           child: MaterialApp(
             home: Scaffold(
-              body: Builder(
-                builder: (context) => Center(
-                  child: PushButton(
-                    controlSize: ControlSize.regular,
-                    onPressed: () => showMgFleetBatchPanel(
-                      context,
-                      fleet: fleet,
-                      onSelectVehicle: (vehicleId) async {
-                        activeSelections.add(vehicleId);
-                        fleet.selectVehicle(vehicleId);
-                      },
-                      onRequestAction: (target) => requested = target,
-                    ),
-                    child: const Text('打开'),
+              body: Align(
+                alignment: Alignment.topRight,
+                child: SizedBox(
+                  width: 400,
+                  height: 640,
+                  child: MgFleetBatchPanel(
+                    fleet: fleet,
+                    onSelectVehicle: (vehicleId) async {
+                      activeSelections.add(vehicleId);
+                      fleet.selectVehicle(vehicleId);
+                    },
+                    onRequestAction: (target) => requested = target,
                   ),
                 ),
               ),
@@ -104,11 +105,13 @@ void main() {
           ),
         ),
       );
-
-      await tester.tap(find.text('打开'));
       await tester.pumpAndSettle();
+
       expect(find.text('多机控制'), findsOneWidget);
       expect(find.byType(MacosCheckbox), findsNWidgets(2));
+      expect(find.textContaining('航向 90°'), findsNWidgets(2));
+      expect(find.textContaining('高度 12.5 m'), findsNWidgets(2));
+      expect(find.textContaining('速度 3.2 m/s'), findsNWidgets(2));
 
       await tester.tap(find.byType(MacosCheckbox).first);
       await tester.pumpAndSettle();
@@ -118,7 +121,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(fleet.selectedVehicleIds, {first, second});
 
-      await tester.tap(find.text('飞机 $second · 系统 $second'));
+      await tester.tap(find.byKey(ValueKey('fleet-batch-vehicle-$second')));
       await tester.pumpAndSettle();
       expect(activeSelections, [second]);
       expect(fleet.snapshot.activeVehicleId, second);
@@ -128,7 +131,8 @@ void main() {
       expect(requested, isNotNull);
       expect(requested!.action, FleetBatchAction.returnToLaunch);
       expect(requested!.vehicleIds, [first, second]);
-      expect(find.text('多机控制'), findsNothing);
+      // 固定悬浮面板在动作下发后保持显示，不再自动关闭。
+      expect(find.text('多机控制'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

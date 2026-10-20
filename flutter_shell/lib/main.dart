@@ -80,6 +80,9 @@ class _MapPageState extends State<MapPage> {
   FleetTarget? _pendingTarget;
   int? _confirmationFocusRevision;
 
+  /// 多机面板默认显示；用户手动收起后保持隐藏，直到再次打开。
+  bool _fleetPanelVisible = true;
+
   @override
   void initState() {
     super.initState();
@@ -186,13 +189,8 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
-  Future<void> _openFleetBatch(BuildContext context) => showMgFleetBatchPanel(
-    context,
-    fleet: _connectionController.fleet,
-    onSelectVehicle: (vehicleId) async => _selectFleetVehicle(vehicleId),
-    onRequestAction: _requestFleetBatchAction,
-    alignToLeft: true,
-  );
+  void _toggleFleetPanel() =>
+      setState(() => _fleetPanelVisible = !_fleetPanelVisible);
 
   Future<void> _executeCommandConfirmation(
     MgCommandConfirmation command,
@@ -397,7 +395,7 @@ class _MapPageState extends State<MapPage> {
               selectedVehicleIds:
                   _connectionController.fleet.selectedVehicleIds,
               onSelectVehicle: _selectFleetVehicle,
-              onOpenFleetBatch: () => unawaited(_openFleetBatch(context)),
+              onOpenFleetBatch: _toggleFleetPanel,
               onOpenFlightMessages: () => _flightMessagePanelRequest.value++,
               onToggleArm: _requestArmConfirmation,
               onEmergencyStop: _requestEmergencyStopConfirmation,
@@ -426,6 +424,33 @@ class _MapPageState extends State<MapPage> {
                         ),
                       ),
                     ],
+                  ),
+                  AnimatedBuilder(
+                    animation: _connectionController.fleet,
+                    builder: (context, _) {
+                      final vehicles =
+                          _connectionController.fleet.snapshot.vehicles;
+                      if (vehicles.length < 2 || !_fleetPanelVisible) {
+                        return const SizedBox.shrink();
+                      }
+                      return Positioned(
+                        top: 8,
+                        right: MgMetrics.fleetPanelAnchorInset,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: MediaQuery.sizeOf(context).height - 168,
+                          ),
+                          child: MgFleetBatchPanel(
+                            fleet: _connectionController.fleet,
+                            onSelectVehicle: (vehicleId) async =>
+                                _selectFleetVehicle(vehicleId),
+                            onRequestAction: _requestFleetBatchAction,
+                            onClose: () =>
+                                setState(() => _fleetPanelVisible = false),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   if (pendingCommand != null)
                     MgCommandConfirmationOverlay(

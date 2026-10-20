@@ -8,62 +8,23 @@ import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import 'mg_floating_panel.dart';
 
-/// 多机批量控制面板。active vehicle 和批量 selection 是两个独立概念：
-/// 点击飞机行只切换 active，勾选框只改变批量选择，不触发飞行命令。
-Future<void> showMgFleetBatchPanel(
-  BuildContext context, {
-  required FleetController fleet,
-  required Future<void> Function(int vehicleId) onSelectVehicle,
-  required void Function(FleetBatchTarget target) onRequestAction,
-  bool alignToLeft = false,
-}) => showGeneralDialog<void>(
-  context: context,
-  barrierDismissible: true,
-  barrierLabel: '关闭多机控制面板',
-  barrierColor: context.mgColors.shadow.withValues(alpha: 0.12),
-  transitionDuration: const Duration(milliseconds: 120),
-  pageBuilder: (dialogContext, animation, secondaryAnimation) => Align(
-    alignment: alignToLeft ? Alignment.topLeft : Alignment.topRight,
-    child: Padding(
-      padding: alignToLeft
-          ? const EdgeInsets.only(
-              top: MgMetrics.toolbarHeight + 8,
-              left: MgMetrics.sidebarWidth - MgMetrics.fleetPanelAnchorInset,
-            )
-          : const EdgeInsets.only(
-              top: MgMetrics.toolbarHeight + 8,
-              right: MgMetrics.fleetPanelAnchorInset,
-            ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(dialogContext).height - 120,
-        ),
-        child: MgFleetBatchPanel(
-          fleet: fleet,
-          onSelectVehicle: onSelectVehicle,
-          onRequestAction: onRequestAction,
-        ),
-      ),
-    ),
-  ),
-  transitionBuilder: (context, animation, secondaryAnimation, child) =>
-      FadeTransition(
-        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-        child: child,
-      ),
-);
-
+/// 多机批量控制面板。
+///
+/// 固定在地图右上角悬浮显示，不使用模态遮罩；active vehicle 和批量 selection
+/// 仍然是两个独立概念：点卡片只切换 active，勾选框只改变批量选择。
 class MgFleetBatchPanel extends StatelessWidget {
   const MgFleetBatchPanel({
     super.key,
     required this.fleet,
     required this.onSelectVehicle,
     required this.onRequestAction,
+    this.onClose,
   });
 
   final FleetController fleet;
   final Future<void> Function(int vehicleId) onSelectVehicle;
   final void Function(FleetBatchTarget target) onRequestAction;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -99,18 +60,13 @@ class MgFleetBatchPanel extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _Header(
-                  selectedCount: selected.length,
-                  onClose: () => Navigator.of(context).pop(),
-                ),
+                _Header(selectedCount: selected.length, onClose: onClose),
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        selected.isEmpty
-                            ? '勾选飞机后使用批量动作'
-                            : '已选 ${selected.length} 架飞机',
+                        '已选飞机：${selected.isEmpty ? '-' : selected.length}',
                         style: MgTypography.sans(
                           MgTypography.caption.copyWith(
                             color: context.mgColors.textSecondary,
@@ -125,10 +81,10 @@ class MgFleetBatchPanel extends StatelessWidget {
                           ? null
                           : fleet.selectAllVehicles,
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 6),
                     _SmallActionButton(
                       key: const ValueKey('fleet-clear-selection'),
-                      label: '清空',
+                      label: '取消全选',
                       onPressed: selected.isEmpty
                           ? null
                           : fleet.clearVehicleSelection,
@@ -150,15 +106,14 @@ class MgFleetBatchPanel extends StatelessWidget {
                     ),
                   )
                 else
-                  Flexible(
-                    child: ListView.separated(
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 320),
+                    child: ListView.builder(
                       shrinkWrap: true,
                       itemCount: vehicles.length,
-                      separatorBuilder: (context, index) =>
-                          Divider(height: 1, color: context.mgColors.hairline),
                       itemBuilder: (context, index) {
                         final vehicle = vehicles[index];
-                        return _VehicleRow(
+                        return _VehicleCard(
                           key: ValueKey('fleet-batch-vehicle-${vehicle.id}'),
                           vehicle: vehicle,
                           selected: selected.contains(vehicle.id),
@@ -175,7 +130,7 @@ class MgFleetBatchPanel extends StatelessWidget {
                 Divider(height: 1, color: context.mgColors.hairline),
                 const SizedBox(height: 10),
                 Text(
-                  '批量动作',
+                  '多机动作',
                   style: MgTypography.sans(
                     MgTypography.body.copyWith(
                       color: context.mgColors.textPrimary,
@@ -183,52 +138,62 @@ class MgFleetBatchPanel extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
+                Row(
                   children: [
-                    _BatchActionButton(
-                      key: const ValueKey('fleet-batch-arm'),
-                      label: '解锁',
-                      enabled: connectedSelected.isNotEmpty && canArm,
-                      onPressed: () => _request(
-                        context,
-                        fleet,
-                        onRequestAction,
-                        FleetBatchAction.arm,
+                    Expanded(
+                      child: _BatchActionButton(
+                        key: const ValueKey('fleet-batch-arm'),
+                        label: '解锁',
+                        enabled: connectedSelected.isNotEmpty && canArm,
+                        onPressed: () => _request(
+                          context,
+                          fleet,
+                          onRequestAction,
+                          FleetBatchAction.arm,
+                        ),
                       ),
                     ),
-                    _BatchActionButton(
-                      key: const ValueKey('fleet-batch-disarm'),
-                      label: '上锁',
-                      enabled: connectedSelected.isNotEmpty && canDisarm,
-                      onPressed: () => _request(
-                        context,
-                        fleet,
-                        onRequestAction,
-                        FleetBatchAction.disarm,
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: _BatchActionButton(
+                        key: const ValueKey('fleet-batch-disarm'),
+                        label: '上锁',
+                        enabled: connectedSelected.isNotEmpty && canDisarm,
+                        onPressed: () => _request(
+                          context,
+                          fleet,
+                          onRequestAction,
+                          FleetBatchAction.disarm,
+                        ),
                       ),
                     ),
-                    _BatchActionButton(
-                      key: const ValueKey('fleet-batch-rtl'),
-                      label: '返航',
-                      enabled: connectedSelected.isNotEmpty,
-                      onPressed: () => _request(
-                        context,
-                        fleet,
-                        onRequestAction,
-                        FleetBatchAction.returnToLaunch,
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: _BatchActionButton(
+                        key: const ValueKey('fleet-batch-rtl'),
+                        label: '返航',
+                        enabled: connectedSelected.isNotEmpty,
+                        onPressed: () => _request(
+                          context,
+                          fleet,
+                          onRequestAction,
+                          FleetBatchAction.returnToLaunch,
+                        ),
                       ),
                     ),
-                    _BatchActionButton(
-                      key: const ValueKey('fleet-batch-mission-start'),
-                      label: '开始任务',
-                      enabled: connectedSelected.isNotEmpty && canStartMission,
-                      onPressed: () => _request(
-                        context,
-                        fleet,
-                        onRequestAction,
-                        FleetBatchAction.startMission,
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: _BatchActionButton(
+                        key: const ValueKey('fleet-batch-mission-start'),
+                        label: '开始任务',
+                        enabled:
+                            connectedSelected.isNotEmpty && canStartMission,
+                        onPressed: () => _request(
+                          context,
+                          fleet,
+                          onRequestAction,
+                          FleetBatchAction.startMission,
+                        ),
                       ),
                     ),
                   ],
@@ -248,9 +213,7 @@ class MgFleetBatchPanel extends StatelessWidget {
     FleetBatchAction action,
   ) {
     try {
-      final target = fleet.captureBatchTarget(action);
-      Navigator.of(context).pop();
-      onRequestAction(target);
+      onRequestAction(fleet.captureBatchTarget(action));
     } on Object catch (error) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
@@ -265,7 +228,7 @@ class _Header extends StatelessWidget {
   const _Header({required this.selectedCount, required this.onClose});
 
   final int selectedCount;
-  final VoidCallback onClose;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -291,17 +254,19 @@ class _Header extends StatelessWidget {
             MgTypography.caption.copyWith(color: context.mgColors.accent),
           ),
         ),
-      const SizedBox(width: 5),
-      MacosIconButton(
-        key: const ValueKey('fleet-batch-close'),
-        icon: const MacosIcon(CupertinoIcons.xmark, size: 12),
-        semanticLabel: '关闭多机控制面板',
-        boxConstraints: const BoxConstraints.tightFor(width: 24, height: 24),
-        padding: EdgeInsets.zero,
-        backgroundColor: context.mgColors.transparent,
-        hoverColor: context.mgColors.mapControlHover,
-        onPressed: onClose,
-      ),
+      if (onClose != null) ...[
+        const SizedBox(width: 5),
+        MacosIconButton(
+          key: const ValueKey('fleet-batch-close'),
+          icon: const MacosIcon(CupertinoIcons.xmark, size: 12),
+          semanticLabel: '收起多机控制面板',
+          boxConstraints: const BoxConstraints.tightFor(width: 24, height: 24),
+          padding: EdgeInsets.zero,
+          backgroundColor: context.mgColors.transparent,
+          hoverColor: context.mgColors.mapControlHover,
+          onPressed: onClose,
+        ),
+      ],
     ],
   );
 }
@@ -338,19 +303,17 @@ class _BatchActionButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: MgMetrics.fleetPanelActionWidth,
-    child: PushButton(
-      controlSize: ControlSize.regular,
-      onPressed: enabled ? onPressed : null,
-      secondary: true,
-      child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-    ),
+  Widget build(BuildContext context) => PushButton(
+    controlSize: ControlSize.regular,
+    onPressed: enabled ? onPressed : null,
+    secondary: true,
+    child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
   );
 }
 
-class _VehicleRow extends StatelessWidget {
-  const _VehicleRow({
+/// QGC 风格的多机卡片：ID、飞行模式、锁状态、航向、高度、速度。
+class _VehicleCard extends StatelessWidget {
+  const _VehicleCard({
     super.key,
     required this.vehicle,
     required this.selected,
@@ -359,6 +322,10 @@ class _VehicleRow extends StatelessWidget {
     required this.onToggle,
     required this.onSelect,
   });
+
+  /// QGC 当前飞机卡片用绿色，其余飞机用灰色。
+  static const _activeColor = Color(0xFF1F7A1F);
+  static const _idleColor = Color(0xFF6E6E73);
 
   final FleetVehicleSummary vehicle;
   final bool selected;
@@ -369,85 +336,106 @@ class _VehicleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.mgColors;
-    final details = <String>[];
-    if (vehicle.flightMode.isNotEmpty) details.add(vehicle.flightMode);
-    details.add(vehicle.armed ? '已解锁' : '未解锁');
-    if (vehicle.communicationLost) {
-      details.add('链路丢失');
-    } else if (vehicle.linkCount > 0) {
-      details.add('链路 ${vehicle.healthyLinkCount}/${vehicle.linkCount}');
-    }
-    return SizedBox(
-      height: MgMetrics.fleetLinkRowHeight,
-      child: Row(
-        children: [
-          MacosCheckbox(
-            value: selected,
-            semanticLabel: '选择飞机 ${vehicle.id}',
-            onChanged: enabled ? (_) => onToggle() : null,
-          ),
-          const SizedBox(width: 5),
-          Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: enabled ? onSelect : null,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          '飞机 ${vehicle.id} · 系统 ${vehicle.systemId}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: MgTypography.sans(
-                            MgTypography.body.copyWith(
-                              color: enabled
-                                  ? colors.textPrimary
-                                  : colors.textTertiary,
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (active) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: colors.accent,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '当前',
-                          style: MgTypography.sans(
-                            MgTypography.caption.copyWith(color: colors.accent),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  Text(
-                    details.join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+    final background = active ? _activeColor : _idleColor;
+    final id = vehicle.systemId > 0 ? vehicle.systemId : vehicle.id;
+    final mode = vehicle.flightMode.isEmpty ? '未知模式' : vehicle.flightMode;
+    final heading = vehicle.headingDegrees;
+    final altitude = vehicle.altitudeMeters;
+    final speed = vehicle.groundSpeedMps;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: enabled ? background : background.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
+          onTap: enabled ? onSelect : null,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(4, 8, 10, 8),
+            child: Row(
+              children: [
+                MacosCheckbox(
+                  value: selected,
+                  semanticLabel: '选择飞机 $id',
+                  onChanged: enabled ? (_) => onToggle() : null,
+                ),
+                const SizedBox(width: 2),
+                SizedBox(
+                  width: 30,
+                  child: Text(
+                    '$id',
+                    textAlign: TextAlign.center,
                     style: MgTypography.sans(
-                      MgTypography.caption.copyWith(
-                        color: colors.textSecondary,
+                      MgTypography.title.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+                Container(
+                  width: 1,
+                  height: 44,
+                  margin: const EdgeInsets.symmetric(horizontal: 8),
+                  color: Colors.white24,
+                ),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              mode,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: MgTypography.sans(
+                                MgTypography.section.copyWith(
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Text(
+                            vehicle.armed ? '已解锁' : '未解锁',
+                            style: MgTypography.sans(
+                              MgTypography.caption.copyWith(
+                                color: vehicle.armed
+                                    ? Colors.white
+                                    : const Color(0xFFFF8A80),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '航向 ${_heading(heading)}   高度 ${_meters(altitude)}   速度 ${_speed(speed)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: MgTypography.sans(
+                          MgTypography.caption.copyWith(color: Colors.white70),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
+
+  static String _heading(double? value) =>
+      value == null ? '—' : '${value.round()}°';
+
+  static String _meters(double? value) =>
+      value == null ? '—' : '${value.toStringAsFixed(1)} m';
+
+  static String _speed(double? value) =>
+      value == null ? '—' : '${value.toStringAsFixed(1)} m/s';
 }
