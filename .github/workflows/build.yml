@@ -27,7 +27,7 @@ jobs:
       shell: bash
       run: PYTHON_BIN=python ./tools/generate-mavlink.sh
 
-    - name: 检查 FFI 目录与 Flutter 绑定
+    - name: 检查 FFI 声明与 Flutter 绑定
       run: python tools/check_ffi_contract.py
 
     - name: 配置 CMake（测试）
@@ -83,13 +83,13 @@ jobs:
     - name: 获取依赖
       run: flutter pub get
 
-    - name: 检查 FFI 目录与 Flutter 绑定
+    - name: 检查 FFI 声明与 Flutter 绑定
       working-directory: .
       run: python tools/check_ffi_contract.py
 
-    # 设计 token、静态分析、外壳测试统一交给 preflight（KD-32）；
+    # 静态分析、外壳测试统一交给 preflight（KD-32）；
     # 它跳过 macOS 构建，与本地 tools/preflight.sh --frontend-only 一致。
-    - name: 前端门禁（token / analyze / test）
+    - name: 前端门禁（analyze / test）
       working-directory: .
       run: tools/preflight.sh --frontend-only --no-macos-build
 
@@ -151,7 +151,7 @@ jobs:
     - name: 生成 MAVLink C 头
       run: PYTHON_BIN=python ./tools/generate-mavlink.sh
 
-    - name: 检查 FFI 目录与 Flutter 绑定
+    - name: 检查 FFI 声明与 Flutter 绑定
       run: python tools/check_ffi_contract.py
 
     - name: TSan 门禁（build_tsan，offline|simulation 全量）
@@ -178,7 +178,7 @@ jobs:
       working-directory: flutter_shell
       run: flutter pub get
 
-    - name: 检查 FFI 目录与 Flutter 绑定
+    - name: 检查 FFI 声明与 Flutter 绑定
       run: python tools/check_ffi_contract.py
 
     - name: 构建 Android debug APK

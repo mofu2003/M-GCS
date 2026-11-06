@@ -296,6 +296,7 @@ final class MissionEntity {
       command == kMavCmdNavTakeoff || command == kMavCmdNavVtolTakeoff;
   bool get isVtolTakeoff => command == kMavCmdNavVtolTakeoff;
   bool get isVtolLand => command == kMavCmdNavVtolLand;
+  bool get isReturnToLaunch => command == 20;
 
   factory MissionEntity.fromJson(JsonMap json) => MissionEntity(
     id: json['id'] as String? ?? '',
@@ -635,6 +636,7 @@ final class MissionExecutionProgress {
     this.reachedEnd = false,
     this.aborted = false,
     this.finished = false,
+    this.ended = false,
   });
 
   final bool valid;
@@ -647,14 +649,24 @@ final class MissionExecutionProgress {
   /// 航段飞完：最后一项已到达。固定翼此时还在返航/降落，不等于任务完成。
   final bool reachedEnd;
 
-  /// 任务完成，判定与 QGC 一致：曾在任务模式下解锁飞行，之后上锁。
+  /// 末项已到达，且本轮参与任务的飞行已经上锁结束。
   final bool finished;
 
-  /// 任务已中止：解锁飞行中离开过任务模式，且最后一项未到达。
+  /// 飞行已结束，可能尚未完成任务。
+  final bool ended;
+
+  /// 任务当前中断：离开任务模式后尚未恢复，且最后一项未到达。
   final bool aborted;
 
   /// 有可判断的飞控任务时才展示进度。
   bool get active => valid && total > 0;
+
+  /// 当前目标推进也更新显示，不依赖可能丢失的单次到达通知。
+  double get fraction {
+    if (!active) return 0;
+    if (finished || reachedEnd) return 1;
+    return (currentIndex / total).clamp(0.0, 1.0);
+  }
 
   factory MissionExecutionProgress.fromJson(JsonMap json) =>
       MissionExecutionProgress(
@@ -667,6 +679,7 @@ final class MissionExecutionProgress {
         reachedEnd: json['reached_end'] == true,
         aborted: json['aborted'] == true,
         finished: json['finished'] == true,
+        ended: json['ended'] == true,
       );
 }
 

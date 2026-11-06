@@ -262,6 +262,7 @@ private:
     std::array<SensorInstanceActivity, kMaxImuInstances> instance_activity_;
     std::atomic<bool> needs_reidentify_{false};
     std::atomic<bool> requested_firmware_version_{false};
+    std::atomic<uint64_t> last_home_request_ms_{0};
 };
 
 } // namespace mg::core::vehicle

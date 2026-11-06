@@ -31,20 +31,30 @@ String formatMissionDistance(double meters) {
   return '${meters.round()} m';
 }
 
-/// Where a mission entity should be drawn on the map.
-///
-/// Takeoff commands do not fly to their stored MAVLink reference coordinate:
-/// ArduPilot takes off from the current/Home position. Prefer the mission Home
-/// for those items, but keep a stored or just-clicked reference as a fallback
-/// when the document has no Home yet.
+/// Display the planned reference coordinate without changing command semantics.
+/// A takeoff reference can be the user's map click even if ArduPilot does not
+/// navigate to that coordinate. RTL always uses Home. Downloaded takeoffs with
+/// no reference (including MAVLink's 0,0 sentinel) fall back to Home.
 LatLng? missionEntityMapPosition(
   MissionEntity entity,
   MissionHome home, {
   LatLng? preview,
 }) {
-  if (preview != null) return preview;
+  if (preview != null && !entity.isReturnToLaunch) return preview;
 
-  if (entity.isTakeoff) {
+  final latitude = entity.latitude;
+  final longitude = entity.longitude;
+  final hasReference =
+      latitude != null &&
+      longitude != null &&
+      latitude.isFinite &&
+      longitude.isFinite &&
+      !(entity.isTakeoff && latitude == 0 && longitude == 0);
+  if (!entity.isReturnToLaunch && hasReference) {
+    return LatLng(latitude, longitude);
+  }
+
+  if (entity.isTakeoff || entity.isReturnToLaunch) {
     final homeLatitude = home.latitude;
     final homeLongitude = home.longitude;
     if (home.set &&
@@ -55,14 +65,5 @@ LatLng? missionEntityMapPosition(
       return LatLng(homeLatitude, homeLongitude);
     }
   }
-
-  final latitude = entity.latitude;
-  final longitude = entity.longitude;
-  if (latitude == null ||
-      longitude == null ||
-      !latitude.isFinite ||
-      !longitude.isFinite) {
-    return null;
-  }
-  return LatLng(latitude, longitude);
+  return null;
 }

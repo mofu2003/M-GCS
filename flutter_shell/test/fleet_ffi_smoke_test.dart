@@ -21,6 +21,278 @@ const _heartbeats = <List<int>>[
   [253, 9, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 2, 3, 129, 4, 3, 225, 62],
 ];
 
+const _attitudeFrame = <int>[
+  253,
+  28,
+  0,
+  0,
+  0,
+  1,
+  1,
+  30,
+  0,
+  0,
+  232,
+  3,
+  0,
+  0,
+  0,
+  0,
+  128,
+  62,
+  205,
+  204,
+  204,
+  189,
+  195,
+  245,
+  200,
+  63,
+  10,
+  215,
+  35,
+  60,
+  10,
+  215,
+  163,
+  188,
+  143,
+  194,
+  245,
+  60,
+  16,
+  209,
+];
+const _vfrFrame = <int>[
+  253,
+  19,
+  0,
+  0,
+  1,
+  1,
+  1,
+  74,
+  0,
+  0,
+  0,
+  0,
+  64,
+  65,
+  0,
+  0,
+  32,
+  65,
+  0,
+  0,
+  200,
+  66,
+  0,
+  0,
+  192,
+  63,
+  90,
+  0,
+  55,
+  218,
+  201,
+];
+const _rcFrame = <int>[
+  253,
+  42,
+  0,
+  0,
+  2,
+  1,
+  1,
+  65,
+  0,
+  0,
+  232,
+  3,
+  0,
+  0,
+  220,
+  5,
+  120,
+  5,
+  20,
+  5,
+  176,
+  4,
+  76,
+  4,
+  232,
+  3,
+  132,
+  3,
+  32,
+  3,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  8,
+  80,
+  98,
+  234,
+];
+const _servoFrame = <int>[
+  253,
+  37,
+  0,
+  0,
+  3,
+  1,
+  1,
+  36,
+  0,
+  0,
+  64,
+  66,
+  15,
+  0,
+  233,
+  3,
+  234,
+  3,
+  235,
+  3,
+  236,
+  3,
+  237,
+  3,
+  238,
+  3,
+  239,
+  3,
+  240,
+  3,
+  0,
+  241,
+  3,
+  242,
+  3,
+  243,
+  3,
+  244,
+  3,
+  245,
+  3,
+  246,
+  3,
+  247,
+  3,
+  248,
+  3,
+  217,
+  237,
+];
+
+// GLOBAL_POSITION_INT frames generated with the bundled pymavlink dialect.
+// System 1: MSL 30 m, relative 0 m. System 2: MSL 42.5 m, relative 12.5 m.
+const _globalPositions = <List<int>>[
+  [
+    253,
+    28,
+    0,
+    0,
+    0,
+    1,
+    1,
+    33,
+    0,
+    0,
+    232,
+    3,
+    0,
+    0,
+    0,
+    163,
+    225,
+    17,
+    0,
+    140,
+    134,
+    71,
+    48,
+    117,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    255,
+    255,
+    79,
+    169,
+  ],
+  [
+    253,
+    28,
+    0,
+    0,
+    0,
+    2,
+    1,
+    33,
+    0,
+    0,
+    232,
+    3,
+    0,
+    0,
+    0,
+    163,
+    225,
+    17,
+    0,
+    140,
+    134,
+    71,
+    4,
+    166,
+    0,
+    0,
+    212,
+    48,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    255,
+    255,
+    118,
+    92,
+  ],
+];
+
 List<int> _freshSignedAutoDetectHeartbeat() {
   final packet = <int>[
     253,
@@ -159,11 +431,15 @@ void main() {
             0,
           );
           senders.add(sender);
-          void heartbeat() => sender.send(
-            _heartbeats[index],
-            InternetAddress.loopbackIPv4,
-            port,
-          );
+          void heartbeat() {
+            sender.send(_heartbeats[index], InternetAddress.loopbackIPv4, port);
+            sender.send(
+              _globalPositions[index],
+              InternetAddress.loopbackIPv4,
+              port,
+            );
+          }
+
           heartbeat();
           timers.add(
             Timer.periodic(
@@ -179,7 +455,10 @@ void main() {
           final ids = rawFleet.snapshot.vehicles
               .map((vehicle) => vehicle.systemId)
               .toSet();
-          if (ids.containsAll({1, 2})) break;
+          if (ids.containsAll({1, 2}) &&
+              rawFleet.snapshot.vehicles.every((v) => v.positionValid)) {
+            break;
+          }
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
 
@@ -187,6 +466,12 @@ void main() {
         expect(vehicles.length, 2);
         expect(vehicles.map((vehicle) => vehicle.systemId), {1, 2});
         expect(vehicles.every((vehicle) => vehicle.connected), isTrue);
+        final first = vehicles.singleWhere((v) => v.systemId == 1);
+        final second = vehicles.singleWhere((v) => v.systemId == 2);
+        expect(first.altitudeMeters, 30);
+        expect(first.relativeAltitudeMeters, 0);
+        expect(second.altitudeMeters, 42.5);
+        expect(second.relativeAltitudeMeters, 12.5);
         expect(
           vehicles.map((vehicle) => vehicle.id),
           contains(rawFleet.snapshot.activeVehicleId),
@@ -207,6 +492,13 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
         expect(controller.vehicleFlightMode, expectedMode);
+        final altitudeDeadline = DateTime.now().add(const Duration(seconds: 3));
+        while (controller.relativeAltitudeMeters !=
+                other.relativeAltitudeMeters &&
+            DateTime.now().isBefore(altitudeDeadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        expect(controller.relativeAltitudeMeters, other.relativeAltitudeMeters);
 
         // Closing one vehicle must leave the shared UDP socket usable for the
         // other vehicle on the same endpoint.
@@ -453,6 +745,236 @@ void main() {
         expect(controller.isConnected, isFalse);
         expect(controller.vehicleFlightMode, isEmpty);
         expect(controller.fleetSnapshot.vehicles, isEmpty);
+      } finally {
+        for (final timer in timers) {
+          timer.cancel();
+        }
+        for (final sender in senders) {
+          sender.close();
+        }
+      }
+    },
+    skip: libraryPath == null
+        ? 'Set MGCS_FLEET_LIBRARY for actual native smoke'
+        : false,
+  );
+  test(
+    'dashboard aggregation updates attitude, VFR, RC and servo telemetry',
+    () async {
+      final controller = ConnectionController();
+      addTearDown(controller.dispose);
+      final rawFleet = controller.fleet;
+      RawDatagramSocket? sender;
+      Timer? telemetryTimer;
+      try {
+        final port = await _freeLoopbackUdpPort();
+        controller.selectTransport(ConnectionTransport.udp);
+        controller.updateNetworkEndpoint(host: '127.0.0.1', port: '$port');
+        await controller.connect();
+        sender = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
+        final socket = sender;
+        final flightDataBefore = controller.flightDataChanges.value;
+        final attitudeBefore = controller.attitudeChanges.value;
+        final ioBefore = controller.ioChanges.value;
+        void sendTelemetry() {
+          socket.send(_heartbeats[0], InternetAddress.loopbackIPv4, port);
+          socket.send(_attitudeFrame, InternetAddress.loopbackIPv4, port);
+          socket.send(_vfrFrame, InternetAddress.loopbackIPv4, port);
+          socket.send(_rcFrame, InternetAddress.loopbackIPv4, port);
+          socket.send(_servoFrame, InternetAddress.loopbackIPv4, port);
+        }
+
+        sendTelemetry();
+        telemetryTimer = Timer.periodic(
+          const Duration(milliseconds: 100),
+          (_) => sendTelemetry(),
+        );
+
+        final deadline = DateTime.now().add(const Duration(seconds: 4));
+        while (DateTime.now().isBefore(deadline)) {
+          rawFleet.refresh();
+          if (rawFleet.snapshot.vehicles.isNotEmpty &&
+              controller.rollDegrees != null &&
+              controller.rcChannelsValid &&
+              controller.servoOutputsValid) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+
+        expect(controller.rollDegrees, closeTo(14.3239, 0.1));
+        expect(controller.pitchDegrees, closeTo(-5.7296, 0.1));
+        expect(controller.airspeedMetersPerSecond, closeTo(12.0, 0.01));
+        expect(controller.groundSpeedMetersPerSecond, closeTo(10.0, 0.01));
+        expect(controller.rcChannelsValid, isTrue);
+        expect(controller.servoOutputsValid, isTrue);
+        expect(controller.rcChannels.take(8), [
+          1500,
+          1400,
+          1300,
+          1200,
+          1100,
+          1000,
+          900,
+          800,
+        ]);
+        expect(controller.servoOutputs.take(8), [
+          1001,
+          1002,
+          1003,
+          1004,
+          1005,
+          1006,
+          1007,
+          1008,
+        ]);
+        expect(
+          controller.flightDataChanges.value,
+          greaterThan(flightDataBefore),
+        );
+        expect(controller.attitudeChanges.value, greaterThan(attitudeBefore));
+        expect(controller.ioChanges.value, greaterThan(ioBefore));
+      } finally {
+        telemetryTimer?.cancel();
+        sender?.close();
+      }
+    },
+    skip: libraryPath == null
+        ? 'Set MGCS_FLEET_LIBRARY for actual native smoke'
+        : false,
+  );
+  test(
+    'duplicate sysid on another link is surfaced without merging vehicles',
+    () async {
+      final controller = ConnectionController();
+      addTearDown(controller.dispose);
+      final rawFleet = controller.fleet;
+      final senders = <RawDatagramSocket>[];
+      final timers = <Timer>[];
+      try {
+        for (var index = 0; index < 2; index++) {
+          final port = await _freeLoopbackUdpPort();
+          controller.selectTransport(ConnectionTransport.udp);
+          controller.updateNetworkEndpoint(host: '127.0.0.1', port: '$port');
+          await controller.connect();
+          final sender = await RawDatagramSocket.bind(
+            InternetAddress.loopbackIPv4,
+            0,
+          );
+          senders.add(sender);
+          void heartbeat() =>
+              sender.send(_heartbeats[0], InternetAddress.loopbackIPv4, port);
+          heartbeat();
+          timers.add(
+            Timer.periodic(
+              const Duration(milliseconds: 100),
+              (_) => heartbeat(),
+            ),
+          );
+        }
+
+        final deadline = DateTime.now().add(const Duration(seconds: 4));
+        while (DateTime.now().isBefore(deadline)) {
+          rawFleet.refresh();
+          if (rawFleet.snapshot.links.any(
+            (link) => link.state == 'duplicate_system_id',
+          )) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+
+        expect(rawFleet.snapshot.vehicles.length, 1);
+        expect(rawFleet.snapshot.links.length, 2);
+        final duplicate = rawFleet.snapshot.links.singleWhere(
+          (link) => link.state == 'duplicate_system_id',
+        );
+        expect(duplicate.vehicleId, isNull);
+        expect(duplicate.connected, isFalse);
+        expect(duplicate.systemId, 1);
+      } finally {
+        for (final timer in timers) {
+          timer.cancel();
+        }
+        for (final sender in senders) {
+          sender.close();
+        }
+      }
+    },
+    skip: libraryPath == null
+        ? 'Set MGCS_FLEET_LIBRARY for actual native smoke'
+        : false,
+  );
+  test(
+    'active calibration blocks link-list focus switching',
+    () async {
+      final controller = ConnectionController();
+      addTearDown(controller.dispose);
+      final rawFleet = controller.fleet;
+      final senders = <RawDatagramSocket>[];
+      final timers = <Timer>[];
+      try {
+        for (var index = 0; index < 2; index++) {
+          final port = await _freeLoopbackUdpPort();
+          controller.selectTransport(ConnectionTransport.udp);
+          controller.updateNetworkEndpoint(host: '127.0.0.1', port: '$port');
+          await controller.connect();
+          final sender = await RawDatagramSocket.bind(
+            InternetAddress.loopbackIPv4,
+            0,
+          );
+          senders.add(sender);
+          void heartbeat() => sender.send(
+            _heartbeats[index],
+            InternetAddress.loopbackIPv4,
+            port,
+          );
+          heartbeat();
+          timers.add(
+            Timer.periodic(
+              const Duration(milliseconds: 100),
+              (_) => heartbeat(),
+            ),
+          );
+          final discoveryDeadline = DateTime.now().add(
+            const Duration(seconds: 3),
+          );
+          while (rawFleet.snapshot.vehicles.length < index + 1 &&
+              DateTime.now().isBefore(discoveryDeadline)) {
+            rawFleet.refresh();
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+          }
+          expect(rawFleet.snapshot.vehicles.length, index + 1);
+        }
+
+        final deadline = DateTime.now().add(const Duration(seconds: 4));
+        while (DateTime.now().isBefore(deadline)) {
+          rawFleet.refresh();
+          if (rawFleet.snapshot.vehicles.length == 2 &&
+              rawFleet.snapshot.vehicles.every(
+                (vehicle) => vehicle.connected,
+              )) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        final vehicleIds = rawFleet.snapshot.vehicles
+            .map((vehicle) => vehicle.id)
+            .toList(growable: false);
+        expect(vehicleIds.length, 2);
+        expect(controller.sessionId, vehicleIds.first);
+
+        await controller.startCalibration(CalibrationType.magnetometer);
+        expect(controller.calibrationStatus.active, isTrue);
+
+        final otherLink = rawFleet.snapshot.links.firstWhere(
+          (link) => link.vehicleId == vehicleIds.last,
+        );
+        controller.selectLink(otherLink.id);
+
+        expect(controller.sessionId, vehicleIds.first);
+        expect(controller.calibrationStatus.active, isTrue);
+        expect(controller.message, contains('未完成操作'));
       } finally {
         for (final timer in timers) {
           timer.cancel();

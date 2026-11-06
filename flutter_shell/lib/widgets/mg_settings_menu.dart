@@ -22,6 +22,7 @@ Future<MgSettingsDestination?> showMgSettingsMenu(
   BuildContext context, {
   required bool connected,
   required String linkLabel,
+  double topInset = MgMetrics.toolbarHeight,
 }) {
   return showGeneralDialog<MgSettingsDestination>(
     context: context,
@@ -32,10 +33,7 @@ Future<MgSettingsDestination?> showMgSettingsMenu(
     pageBuilder: (dialogContext, animation, secondaryAnimation) => Align(
       alignment: Alignment.topRight,
       child: Padding(
-        padding: const EdgeInsets.only(
-          top: MgMetrics.toolbarHeight + 8,
-          right: 12,
-        ),
+        padding: EdgeInsets.only(top: topInset + 8, right: 12),
         child: _MgSettingsPanel(connected: connected, linkLabel: linkLabel),
       ),
     ),

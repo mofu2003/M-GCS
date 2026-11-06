@@ -301,6 +301,7 @@ void MavlinkAdapter::Impl::handle_mission_ack(const mavlink_message_t& m)
     if (!mg::core::mavlink::is_valid_mission_type(ack.mission_type)) return;
     auto& state = select_transfer(ack.mission_type);
     const bool expecting_ack = state.progress.state == mg::core::mission::MissionState::Uploading ||
+                               state.progress.state == mg::core::mission::MissionState::WaitingAck ||
                                state.upload_backup.armed;  // 清除任务没有 Uploading 状态
     if (!expecting_ack) return;
     if (state.target_sys == 0 ||
@@ -335,6 +336,16 @@ void MavlinkAdapter::Impl::handle_mission_current(const mavlink_message_t& m)
     mavlink_msg_mission_current_decode(&m, &mc);
     // 非本机来源的进度帧一律忽略（多机共用一条链路时别的飞机会改写本机进度）。
     if (!execution_source_matches(mission, tel.heartbeat, m.sysid, m.compid)) return;
+    if (mission.restart_pending) {
+        mission.restart_pending = false;
+        const uint16_t first = tel.heartbeat &&
+            tel.heartbeat->autopilot_type == MAV_AUTOPILOT_ARDUPILOTMEGA ? 1 : 0;
+        if (mc.seq <= first) mission.clear_execution_progress();
+    }
+    // 返回较早目标后，旧的末项到达通知不再代表当前航段已经结束。
+    if (static_cast<size_t>(mc.seq) + 1 < mission.plan.items.size()) {
+        mission.route_reached_end = false;
+    }
     mission.plan.current_index = mc.seq;
 }
 
@@ -355,6 +366,9 @@ void MavlinkAdapter::Impl::handle_mission_item_reached(const mavlink_message_t& 
     }
     execution.last_reached_seq = mr.seq;
     execution.has_reached = true;
+    if (static_cast<size_t>(mr.seq) + 1 == execution.plan.items.size()) {
+        execution.route_reached_end = true;
+    }
     if (tel.mission_reached_cb)
         deferred_cbs.push_back([cb = tel.mission_reached_cb, seq = mr.seq]() { cb(seq); });
 }

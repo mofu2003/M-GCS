@@ -6,6 +6,65 @@ import 'support/mission_backend_fake.dart';
 
 void main() {
   test(
+    'upload syncs a late VTOL context before capturing the revision',
+    () async {
+      final backend = FakeMissionBackend();
+      final controller = MissionDocumentController(backend: backend)
+        ..bindSession(4);
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      await controller.addEntity(
+        const MissionEntity(
+          type: 'vtol_takeoff',
+          command: 84,
+          latitude: 32.546,
+          longitude: 114.736,
+          altitudeMeters: 50,
+        ),
+      );
+      final oldRevision = controller.document!.revision;
+      controller.setVehicleContext(
+        vehicleClass: 'vtol',
+        firmwareProfile: 'ardupilot',
+      );
+      await controller.upload();
+      expect(controller.document!.metadata.vehicleType, 'vtol');
+      expect(controller.document!.revision, oldRevision + 1);
+      expect(controller.verification?.matches, isTrue);
+      expect(controller.error, isNull);
+    },
+  );
+
+  test(
+    'unknown or unreconciled context preserves the draft metadata',
+    () async {
+      final controller = MissionDocumentController(
+        backend: FakeMissionBackend(),
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      final original = controller.document!.toJson();
+      controller.setVehicleContext(
+        vehicleClass: 'vtol',
+        firmwareProfile: 'ardupilot',
+      );
+      await controller.validate();
+      expect(controller.document!.toJson(), original);
+      controller.bindSession(1);
+      controller.setVehicleContext();
+      await controller.validate();
+      expect(controller.document!.toJson(), original);
+      controller.bindSession(4);
+      controller.setVehicleContext(
+        vehicleClass: 'vtol',
+        firmwareProfile: 'ardupilot',
+      );
+      await controller.validate();
+      expect(controller.document!.toJson(), original);
+    },
+  );
+
+  test(
     'mission document controller edits and validates through backend',
     () async {
       final backend = FakeMissionBackend();

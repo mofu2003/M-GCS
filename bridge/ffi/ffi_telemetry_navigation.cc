@@ -34,8 +34,8 @@ MGCORE_API char* mg_vehicle_get_session_status(mg_core_t* core, int vehicle_id) 
         cache.is_fresh(mg::core::telemetry::TelemetryType::kGlobalPosition);
     const bool battery_fresh = cache.is_fresh(mg::core::telemetry::TelemetryType::kBattery);
     const bool sys_status_fresh = cache.is_fresh(mg::core::telemetry::TelemetryType::kSysStatus);
-    const bool home_fresh =
-        cache.is_fresh(mg::core::telemetry::TelemetryType::kHomePosition, 60000);
+    // Home is persistent vehicle state, updated by HOME_POSITION events.
+    const bool home_valid = home.system_id != 0;
 
     const int satellite_count = gps.satellites_visible == UINT8_MAX
         ? -1
@@ -93,10 +93,10 @@ MGCORE_API char* mg_vehicle_get_session_status(mg_core_t* core, int vehicle_id) 
     else data.raw_field("battery_voltage_v", "null");
     if (battery_remaining >= 0) data.field("battery_remaining_pct", battery_remaining);
     else data.raw_field("battery_remaining_pct", "null");
-    data.field("home_valid", home_fresh);
-    data.field("home_lat_deg", home_fresh ? home.latitude / 1e7 : 0.0);
-    data.field("home_lon_deg", home_fresh ? home.longitude / 1e7 : 0.0);
-    data.field("home_alt_msl_m", home_fresh ? home.altitude / 1000.0 : 0.0);
+    data.field("home_valid", home_valid);
+    data.field("home_lat_deg", home_valid ? home.latitude / 1e7 : 0.0);
+    data.field("home_lon_deg", home_valid ? home.longitude / 1e7 : 0.0);
+    data.field("home_alt_msl_m", home_valid ? home.altitude / 1000.0 : 0.0);
     data.field("mission_valid", mission.valid);
     data.field("mission_total", static_cast<int>(mission.items.size()));
     data.field("mission_current_index",

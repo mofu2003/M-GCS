@@ -12,8 +12,7 @@ import '../widgets/mg_dialog.dart';
 /// 运行：flutter run -d macos --target lib/component_gallery_demo.dart
 ///
 /// 开发工具，不在应用主流程里：`main.dart` 不引用它，也不会进 release 包。
-/// 它是 token 扫描唯一豁免的业务文件（见 `tools/check_ui_tokens.dart`），
-/// 因为画廊需要并排对照 `macos_ui` 的原始色板与字号。
+/// 画廊需要并排对照 `macos_ui` 的原始色板与字号，因此直接使用原始颜色和字号。
 Future<void> main() async {
   if (!kIsWeb && Platform.isMacOS) {
     await const MacosWindowUtilsConfig().apply();

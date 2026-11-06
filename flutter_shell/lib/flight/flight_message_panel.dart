@@ -88,12 +88,12 @@ class _FlightMessageFloatingPanelState
               padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
               child: Row(
                 children: [
-                  Text('飞控消息', style: typography.title3),
+                  Text('飞控消息', style: typography.title2),
                   const SizedBox(width: 8),
                   if (messages.isNotEmpty)
                     Text(
                       '${messages.length}',
-                      style: typography.caption1.copyWith(
+                      style: typography.body.copyWith(
                         color: colors.textTertiary,
                       ),
                     ),
@@ -128,7 +128,7 @@ class _FlightMessageFloatingPanelState
                         padding: const EdgeInsets.all(12),
                         child: Text(
                           widget.controller.isConnected ? '暂无飞控消息' : '未连接飞控',
-                          style: typography.caption1.copyWith(
+                          style: typography.body.copyWith(
                             color: colors.textSecondary,
                           ),
                         ),
@@ -143,7 +143,6 @@ class _FlightMessageFloatingPanelState
                         itemBuilder: (context, index) => _MessageLine(
                           message: messages[index],
                           colors: colors,
-                          typography: typography,
                         ),
                       ),
                     ),
@@ -156,15 +155,10 @@ class _FlightMessageFloatingPanelState
 }
 
 class _MessageLine extends StatelessWidget {
-  const _MessageLine({
-    required this.message,
-    required this.colors,
-    required this.typography,
-  });
+  const _MessageLine({required this.message, required this.colors});
 
   final FlightMessage message;
   final MgColors colors;
-  final MacosTypography typography;
 
   /// 严重级别配色：error 及以上用危险色，warning 用警告色，其余用次要文本色。
   Color get _color {
@@ -184,24 +178,47 @@ class _MessageLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final translation = translateFlightMessage(message.text);
+    final content = SelectableText(
+      translation.displayText,
+      style: MgTypography.sans(
+        MgTypography.flightMessageBody.copyWith(color: _color),
+      ),
+    );
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: 6),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
         children: [
           SizedBox(
             width: MgMetrics.flightMessageTimeWidth,
             child: Text(
               _time,
               textAlign: TextAlign.right,
-              style: typography.caption2.copyWith(color: colors.textTertiary),
+              style: MgTypography.sans(
+                MgTypography.flightMessageTime.copyWith(
+                  color: colors.textTertiary,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: SelectableText(
-              translation.displayText,
-              style: typography.caption1.copyWith(color: _color),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(
+                  left: BorderSide(color: colors.hairline, width: 0.5),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: translation.translated
+                    ? MacosTooltip(
+                        message: '原文：${translation.originalText}',
+                        child: content,
+                      )
+                    : content,
+              ),
             ),
           ),
         ],

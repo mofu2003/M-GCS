@@ -182,6 +182,9 @@ final class FleetFfiBackend implements FleetBackend {
           latitude: (telemetry?['lat_deg'] as num?)?.toDouble() ?? 0,
           longitude: (telemetry?['lon_deg'] as num?)?.toDouble() ?? 0,
           altitudeMeters: (telemetry?['alt_msl_m'] as num?)?.toDouble(),
+          relativeAltitudeMeters: telemetry?['position_valid'] == true
+              ? (telemetry?['alt_rel_m'] as num?)?.toDouble()
+              : null,
           headingDegrees: (telemetry?['heading_deg'] as num?)?.toDouble(),
           groundSpeedMps: (telemetry?['groundspeed_m_s'] as num?)?.toDouble(),
           homePositionValid: telemetry?['home_valid'] == true,

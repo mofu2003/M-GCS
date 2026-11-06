@@ -742,7 +742,7 @@ public:
         uint16_t last_reached_seq = 0;
         bool has_reached = false;   // 本次任务是否收到过 MISSION_ITEM_REACHED
         // 最后一项已到达。只代表"航段飞完"，固定翼此时还在返航/降落，
-        // 所以不能直接当成任务完成——完成判定见 FlightModeManager::mission_fly_completed()。
+        // 所以不能直接当成任务完成——完成判定见 FlightModeManager::mission_flight_ended()。
         bool reached_end = false;
     };
 
@@ -1099,7 +1099,7 @@ public:
     // 传输跑在 FTP 客户端的后台线程上：这些入口只负责发起，调用线程立刻
     // 返回；进度、结果与错误通过 file_transfer_status() 读取；取消走
     // file_transfer_cancel()。同一时刻只允许一个传输（协议是单会话），
-    // 重复发起返回 false。详见 docs/features/flight-logging-and-replay.md。
+    // 重复发起返回 false。
     // ================================================================
 
     /// 发起列目录；已有传输在进行时返回 false。

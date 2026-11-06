@@ -64,8 +64,9 @@ public:
     Vehicle* open_shared_vehicle(const mg::core::transport::LinkConfig& config);
 
     /// Opens an explicit link handle. Vehicles are created only after valid
-    /// heartbeats and the same sysid on multiple links is merged into one
-    /// Vehicle.
+    /// heartbeats. A duplicate sysid on another physical link is rejected so a
+    /// distinct aircraft with the same default sysid cannot be merged into the
+    /// first vehicle.
     int open_shared_link(const mg::core::transport::LinkConfig& config);
     bool close_link(int link_id, bool suppress_rediscovery = false);
     /// Closes one (link, vehicle) route. The physical link remains open when
@@ -139,6 +140,7 @@ private:
         std::shared_ptr<mg::core::transport::LinkSession> session;
         std::string endpoint;
         std::map<int, int> route_vehicles;
+        uint8_t duplicate_system_id = 0;
     };
 
     // Serializes shared-session discovery with open/close lifecycle.

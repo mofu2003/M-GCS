@@ -431,16 +431,13 @@ void MultiVehicleManager::on_managed_link_heartbeat(
                 return;
             }
         }
-        const int route_id = next_vehicle_id();
-        session->set_peer_for_route(route_id, link_peer);
-        if (!existing->attach_shared_route(session, route_id,
-                                           heartbeat.system_id,
-                                           heartbeat.component_id)) {
-            return;
+        if (record.duplicate_system_id != heartbeat.system_id) {
+            MGC_LOG_WARN(
+                "[MultiVehicle] Rejected duplicate sysid=%d on link %d; "
+                "already owned by vehicle %d",
+                heartbeat.system_id, link_id, existing->vehicle_id());
         }
-        record.route_vehicles[route_id] = existing->vehicle_id();
-        MGC_LOG_INFO("[MultiVehicle] Merged sysid=%d into vehicle %d on link %d",
-                     heartbeat.system_id, existing->vehicle_id(), link_id);
+        record.duplicate_system_id = heartbeat.system_id;
         return;
     }
 
@@ -504,7 +501,15 @@ std::vector<ManagedLinkInfo> MultiVehicleManager::managed_links() const {
     }
 
     for (const auto& [record, vehicles] : records) {
-        if (vehicles.empty()) {
+        if (record.duplicate_system_id > 0) {
+            ManagedLinkInfo info;
+            info.link_id = record.link_id;
+            info.endpoint = record.endpoint;
+            info.system_id = record.duplicate_system_id;
+            info.state = "duplicate_system_id";
+            result.push_back(std::move(info));
+        }
+        if (vehicles.empty() && record.duplicate_system_id == 0) {
             ManagedLinkInfo info;
             info.link_id = record.link_id;
             info.endpoint = record.endpoint;

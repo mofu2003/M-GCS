@@ -2,7 +2,6 @@ USBBoardInfo.json — 第三方数据许可与出处
 ========================================
 
 本文件记录同目录下 USBBoardInfo.json 的版权归属与再分发条件。
-决策记录见 docs/adr/0002-upstream-reference-and-license.md。
 
 出处
 ----
@@ -27,7 +26,7 @@ USBBoardInfo.json — 第三方数据许可与出处
   * boardManufacturerFallback：随上游结构保留。
 
 维护方式：新增板卡直接在本文件追加条目；上游更新时不自动同步，
-按需手动核对（`docs/constraints/upstream.md` 的 P6 要求记录来源）。
+按需手动核对并在此记录来源。
 
 许可
 ----

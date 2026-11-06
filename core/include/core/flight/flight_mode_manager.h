@@ -94,15 +94,11 @@ public:
     std::vector<mg::core::firmware::FlightModeEntry> mode_entries() const;
 
 
-    /// 本轮飞行是否跑完了任务。
-    ///
-    /// 判定逻辑与 QGC `FlyViewMissionCompleteDialog.qml` 一致：**曾经在任务模式
-    /// （AUTO / Auto Mission）下解锁飞行，然后上锁**才叫完成。只看"Heartbeat 最后一项
-    /// 到达"会偏早——固定翼到达最后一项后还要返航降落。
-    /// 下一次解锁会清掉这个标记，所以它表示"最近一次飞行"的结果。
-    bool mission_fly_completed() const;
+    /// 本轮进过任务模式的飞行是否已上锁结束。
+    /// 这不代表任务完成；调用方还必须确认最后一项已到达。
+    bool mission_flight_ended() const;
 
-    /// 本轮解锁飞行中是否**离开过任务模式**（任务模式下解锁后又切到别的模式）。
+    /// 进过任务模式后，当前是否仍处于中断状态。恢复任务模式时清除。
     ///
     /// 光看这一位不能判定"中止"：飞控跑完任务后自己也会切 RTL/降落。调用方要结合
     /// "最后一项是否到达"来判断，见 `mg_mission_get_execution_progress` 的 `aborted`。
@@ -157,11 +153,11 @@ private:
     uint8_t autopilot_type_ = 0;
     uint8_t vehicle_type_ = 0;
 
-    // 任务完成判定的历史状态（详见 mission_fly_completed()）。
+    // 任务完成判定的历史状态（详见 mission_flight_ended()）。
     bool was_armed_ = false;
     bool flight_armed_ = false;
     bool flight_in_mission_mode_ = false;
-    bool mission_fly_completed_ = false;
+    bool mission_flight_ended_ = false;
     bool mission_mode_exited_ = false;
 
     // Mode parameters

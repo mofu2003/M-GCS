@@ -91,6 +91,13 @@ class MgTypography {
     fontWeight: FontWeight.w400,
   );
 
+  /// 顶部状态栏及其下拉菜单。
+  static const TextStyle toolbar = TextStyle(
+    fontSize: 14,
+    height: 1.35,
+    fontWeight: FontWeight.w400,
+  );
+
   /// 强调正文，例如当前选中的导航项。
   static const TextStyle bodyStrong = TextStyle(
     fontSize: 13,
@@ -110,6 +117,20 @@ class MgTypography {
     fontSize: 11,
     height: 1.40,
     fontWeight: FontWeight.w400,
+  );
+
+  /// 飞控消息正文，长消息换行时保持清晰的阅读间距。
+  static const TextStyle flightMessageBody = TextStyle(
+    fontSize: 13,
+    height: 1.5,
+    fontWeight: FontWeight.w400,
+  );
+
+  static const TextStyle flightMessageTime = TextStyle(
+    fontSize: 12,
+    height: 1.5,
+    fontWeight: FontWeight.w400,
+    fontFeatures: [FontFeature.tabularFigures()],
   );
 
   /// 数字读数：与界面同一套字体，靠 tabularFigures 保证位数变化时不抖动。
@@ -294,7 +315,7 @@ class MgMetrics {
 
   /// 多机状态栏：窄窗口保留切机入口，不与关键遥测竞争空间。
   static const double fleetSelectorWidth = 190;
-  static const double fleetSelectorCompactWidth = 88;
+  static const double fleetSelectorCompactWidth = 140;
   static const double fleetSelectorWideBreakpoint = 1180;
   static const double fleetToolbarDetailBreakpoint = 1080;
   static const double fleetToolbarGap = 8;

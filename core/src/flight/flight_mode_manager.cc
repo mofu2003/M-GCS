@@ -54,27 +54,29 @@ void FlightModeManager::update_from_heartbeat(uint8_t autopilot_type, uint8_t ve
         // MAV_STATE_ACTIVE = 4, MAV_STATE_IN_FLIGHT = 4
         in_flight_ = armed && (system_status == 4);
 
-        // 任务完成判定（QGC FlyViewMissionCompleteDialog 的等价实现）：
-        // 记录"本轮解锁期间是否进过任务模式"，解锁状态消失时据此置完成标记。
+        // 只记录参与任务的飞行是否已经结束；任务完成还需末项到达证据。
         const char* auto_mode = fw_plugin_ ? fw_plugin_->auto_mode_name() : nullptr;
         const bool in_mission_mode =
             auto_mode != nullptr && current_mode_ == auto_mode;
         if (armed) {
             if (!was_armed_) {
                 // 新一轮飞行：清掉上一轮的结果，重新累计。
-                mission_fly_completed_ = false;
+                mission_flight_ended_ = false;
                 mission_mode_exited_ = false;
                 flight_armed_ = false;
                 flight_in_mission_mode_ = false;
             }
             flight_armed_ = true;
-            if (in_mission_mode) flight_in_mission_mode_ = true;
-            // 解锁状态下从任务模式切走 = 人为中断。正常收尾（AUTO → RTL）由调用方
+            if (in_mission_mode) {
+                flight_in_mission_mode_ = true;
+                mission_mode_exited_ = false;
+            }
+            // 从任务模式切走后暂记中断。正常收尾（AUTO → RTL）由调用方
             // 结合"最后一项是否到达"再判断，这里只记录"曾经切走"这个事实。
             else if (flight_in_mission_mode_) mission_mode_exited_ = true;
         } else if (was_armed_) {
             if (flight_armed_ && flight_in_mission_mode_) {
-                mission_fly_completed_ = true;
+                mission_flight_ended_ = true;
             }
             flight_armed_ = false;
             flight_in_mission_mode_ = false;
@@ -152,9 +154,9 @@ bool FlightModeManager::mission_mode_exited_while_armed() const {
     return mission_mode_exited_;
 }
 
-bool FlightModeManager::mission_fly_completed() const {
+bool FlightModeManager::mission_flight_ended() const {
     mg::core::platform::LockGuard lk(mtx_);
-    return mission_fly_completed_;
+    return mission_flight_ended_;
 }
 
 bool FlightModeManager::resolve_mode_request_locked(

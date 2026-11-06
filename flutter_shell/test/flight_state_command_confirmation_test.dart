@@ -11,8 +11,7 @@ import 'package:mgcs_frontend/widgets/mg_top_status_bar.dart';
 /// S3：飞行状态命令（解锁/上锁/起飞/降落/返航/急停/模式切换/任务启动/Goto/
 /// Orbit/ROI）的界面入口必须经过确认组件（长按或对话框），不得存在无确认入口。
 ///
-/// 这条约束此前只能靠评审：`docs/constraints/testing.md` 的 T1 要求"每条安全约束
-/// 至少一条断言真实行为的测试"，S3 一直没有。这里分两层：
+/// 这条约束此前只能靠评审。这里分两层：
 ///   1. 行为层：驱动确认组件本身，断言"短按/单击不下发、长按或确认才下发"；
 ///   2. 接线层：读 `lib/` 源码，断言上面 11 类命令的每个下发点都在确认组件内部
 ///      （或确认对话框之后），防止将来新增一个"单击直发"的入口。
@@ -468,13 +467,7 @@ void main() {
         isTrue,
         reason: '缺确认通道时必须回退到对话框确认，而不是直发',
       );
-      expect(
-        _occurrences(
-          transferSection,
-          'MgCommandConfirmation(label: \'开始任务\'',
-        ).isNotEmpty,
-        isTrue,
-      );
+      // 动态动作名称及两种确认入口由 mission_transfer_section_test 行为验证。
     });
 
     test('地图指令（Goto/Orbit/ROI/Home/航向）：必须经地图确认通道', () {

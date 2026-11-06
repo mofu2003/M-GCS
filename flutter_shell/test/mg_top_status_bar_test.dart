@@ -219,6 +219,18 @@ void main() {
     expect(find.text('78'), findsOneWidget);
     expect(find.text('串口'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
+    for (final label in [
+      '飞行中',
+      'AUTO · 固定翼',
+      'GPS',
+      'BAT',
+      '星',
+      '%',
+      '串口',
+      '3',
+    ]) {
+      expect(tester.widget<Text>(find.text(label)).style?.fontSize, 14);
+    }
     expect(tester.takeException(), isNull);
   });
 
@@ -261,6 +273,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        expect(find.text('待命'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );
@@ -350,6 +363,7 @@ void main() {
           findsOneWidget,
         );
         expect(tester.takeException(), isNull);
+        expect(find.text('已解锁'), findsOneWidget);
         await tester.tap(find.byKey(const ValueKey('fleet-vehicle-selector')));
         expect(opened, 1);
         expect(tester.takeException(), isNull);
@@ -357,64 +371,74 @@ void main() {
     );
   }
 
-  testWidgets('multi-vehicle batch button exposes selection count', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1100, 600);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    var opened = 0;
-    await tester.pumpWidget(
-      MacosTheme(
-        data: MacosThemeData.light(),
-        child: MaterialApp(
-          home: Scaffold(
-            body: MgTopStatusBar(
-              data: const MgTopStatusData(
-                connected: true,
-                armed: false,
-                flying: false,
-                flightMode: 'Guided',
-                vtolState: 0,
-                gpsFixType: 3,
-                satellitesVisible: 12,
-                batteryRemainingPercent: 80,
-                batteryVoltage: 12.4,
-                transportLabel: 'UDP',
-                messageCount: 0,
+  testWidgets(
+    'vehicle identity follows mode and shows only aircraft and system IDs',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      var opened = 0;
+      await tester.pumpWidget(
+        MacosTheme(
+          data: MacosThemeData.light(),
+          child: MaterialApp(
+            home: Scaffold(
+              body: MgTopStatusBar(
+                data: const MgTopStatusData(
+                  connected: true,
+                  armed: false,
+                  flying: false,
+                  flightMode: 'Guided',
+                  vtolState: 0,
+                  gpsFixType: 3,
+                  satellitesVisible: 12,
+                  batteryRemainingPercent: 80,
+                  batteryVoltage: 12.4,
+                  transportLabel: 'UDP',
+                  messageCount: 0,
+                ),
+                vehicles: const [
+                  FleetVehicleSummary(
+                    id: 1,
+                    systemId: 1,
+                    endpoint: 'udp://127.0.0.1:14550',
+                    connected: true,
+                  ),
+                  FleetVehicleSummary(
+                    id: 2,
+                    systemId: 4,
+                    endpoint: 'udp://127.0.0.1:14551',
+                    connected: true,
+                  ),
+                ],
+                activeVehicleId: 2,
+                selectedVehicleCount: 2,
+                selectedVehicleIds: const {1, 2},
+                onSelectVehicle: (_) {},
+                onOpenFleetBatch: () => opened++,
               ),
-              vehicles: const [
-                FleetVehicleSummary(
-                  id: 1,
-                  systemId: 1,
-                  endpoint: 'udp://127.0.0.1:14550',
-                  connected: true,
-                ),
-                FleetVehicleSummary(
-                  id: 2,
-                  systemId: 2,
-                  endpoint: 'udp://127.0.0.1:14551',
-                  connected: true,
-                ),
-              ],
-              activeVehicleId: 1,
-              selectedVehicleCount: 2,
-              selectedVehicleIds: const {1, 2},
-              onSelectVehicle: (_) {},
-              onOpenFleetBatch: () => opened++,
             ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.textContaining('已选 2 架'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('fleet-vehicle-selector')));
-    expect(opened, 1);
-    expect(tester.takeException(), isNull);
-  });
+      expect(find.text('飞机 2 · 系统 4'), findsOneWidget);
+      expect(find.textContaining('已选 2 架'), findsNothing);
+      expect(
+        tester.getTopLeft(find.text('Guided')).dx,
+        lessThan(
+          tester
+              .getTopLeft(find.byKey(const ValueKey('fleet-vehicle-selector')))
+              .dx,
+        ),
+      );
+      await tester.tap(find.byKey(const ValueKey('fleet-vehicle-selector')));
+      expect(opened, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('急停入口只在已解锁时出现，并走确认回调（U8）', (tester) async {
     tester.view.physicalSize = const Size(1600, 600);

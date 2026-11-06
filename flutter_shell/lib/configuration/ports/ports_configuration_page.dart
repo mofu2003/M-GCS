@@ -74,7 +74,7 @@ class _PortConfigurationPageState extends State<PortsConfigurationPage> {
         controller: widget.scrollController,
         padding: const EdgeInsets.fromLTRB(
           MgMetrics.configPageMargin,
-          22,
+          18,
           MgMetrics.configPageMargin,
           32,
         ),
@@ -116,10 +116,12 @@ class _PortConfigurationPageState extends State<PortsConfigurationPage> {
               builder: (context, constraints) {
                 final columns = constraints.maxWidth >= 900 ? 2 : 1;
                 final cardWidth =
-                    (constraints.maxWidth - (columns - 1) * 14) / columns;
+                    (constraints.maxWidth -
+                        (columns - 1) * MgMetrics.configCardGap) /
+                    columns;
                 return Wrap(
-                  spacing: 14,
-                  runSpacing: 14,
+                  spacing: MgMetrics.configCardGap,
+                  runSpacing: MgMetrics.configCardGap,
                   children: [
                     for (final port in ports)
                       SizedBox(
@@ -209,10 +211,7 @@ class _SerialParameterCardState extends State<_SerialParameterCard> {
           children: [
             Row(
               children: [
-                Text(
-                  serial,
-                  style: MgTypography.sans(MgTypography.section),
-                ),
+                Text(serial, style: MgTypography.sans(MgTypography.section)),
                 if (widget.hardwareName case final hardwareName?) ...[
                   const SizedBox(width: 10),
                   Flexible(

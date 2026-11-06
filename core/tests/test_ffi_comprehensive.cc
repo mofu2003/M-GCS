@@ -182,6 +182,8 @@ static void test_backend_hardening_contracts() {
     CHECK(is_success(dash), "dashboard snapshot success envelope");
     CHECK(contains(dash, "\"connection\""), "dashboard includes connection");
     CHECK(contains(dash, "\"telemetry\""), "dashboard includes telemetry");
+    CHECK(contains(dash, "\"rc_channels\""), "dashboard includes RC channels");
+    CHECK(contains(dash, "\"servo_output\""), "dashboard includes servo outputs");
     CHECK(contains(dash, "\"validity\""), "dashboard includes validity");
     mg_free_string(dash);
 

@@ -171,6 +171,20 @@ std::vector<int> MavlinkRouter::route_bytes(const uint8_t* data,
                     adapter = target->second.adapter;
                 }
             }
+            // Vehicle peripherals (camera, gimbal, storage) use their own
+            // component IDs but share the vehicle system ID. They must reach
+            // the vehicle adapter even though only AUTOPILOT1 is registered
+            // as the primary route.
+            if (!adapter) {
+                for (const auto& [candidate_id, candidate] : impl_->by_id) {
+                    if (candidate.system_id != message.sysid || !candidate.adapter) {
+                        continue;
+                    }
+                    route_id = candidate_id;
+                    adapter = candidate.adapter;
+                    break;
+                }
+            }
         }
 
         bool is_heartbeat = message.msgid == MAVLINK_MSG_ID_HEARTBEAT;

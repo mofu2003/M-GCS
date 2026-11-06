@@ -133,6 +133,16 @@ static void test_session_status_includes_position() {
           "session status reports heading");
     CHECK(status && strstr(status, "\"home_valid\":true"),
           "session status reports home validity");
+    {
+        auto& cache = vehicle->cache();
+        const auto saved_freshness = cache.freshness;
+        cache.freshness = mg::core::telemetry::TelemetryFreshness{};
+        char* retained = mg_vehicle_get_session_status(env.core, 91);
+        CHECK(retained && strstr(retained, "\"home_valid\":true"),
+              "received Home persists when its message freshness expires");
+        if (retained) mg_free_string(retained);
+        cache.freshness = saved_freshness;
+    }
     CHECK(status && strstr(status, "\"home_lat_deg\":39.9"),
           "session status reports home latitude");
     CHECK(status && strstr(status, "\"mission_total\""),
@@ -405,6 +415,24 @@ static void test_nonblocking_commands_and_mission_rejection() {
     const auto timeout = command_ticket(mg_command_submit_for_vehicle(env.core, 42, R"({"command":"mission_start"})"));
     env.start_pump(); done = poll_command(env.core, timeout); env.stop_pump();
     CHECK(done.find("timeout") != std::string::npos, "MISSION_START missing ACK times out");
+}
+
+static void test_async_mission_clear_targets_vehicle() {
+    TwoVehicleMockEnv env;
+    env.add(41, 1); env.add(42, 2);
+    CHECK(env.wait_connected(), "clear vehicles identified");
+    env.core->vehicles.set_active_vehicle(41);
+    const auto ticket = command_ticket(mg_command_submit_for_vehicle(
+        env.core, 42, R"({"command":"clear_mission"})"));
+    CHECK(ticket > 0, "clear submission returns a ticket");
+    env.ends[1].mock->set_mission_ack_type(MAV_MISSION_DENIED);
+    env.start_pump();
+    const auto done = poll_command(env.core, ticket);
+    env.stop_pump();
+    CHECK(env.ends[1].mock->mission_clear_received, "clear reaches the explicit target");
+    CHECK(!env.ends[0].mock->mission_clear_received, "clear never reaches focused vehicle");
+    CHECK(done.find("rejected") != std::string::npos, "clear preserves mission rejection");
+    CHECK(mg_vehicle_get_active(env.core) == 41, "clear does not change focus");
 }
 
 static void test_mission_workflow_by_vehicle_type() {
@@ -1011,6 +1039,7 @@ int main() {
     test_independent_vehicle_telemetry_and_registry_lease();
     test_targeted_command_dispatch_isolated();
     test_nonblocking_commands_and_mission_rejection();
+    test_async_mission_clear_targets_vehicle();
     test_mission_workflow_by_vehicle_type();
     test_redundant_routes_inherit_signing_and_keep_operation_owner();
     test_fallback_session_is_available();

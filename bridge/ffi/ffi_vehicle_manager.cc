@@ -321,14 +321,13 @@ MGCORE_API char* mg_connection_get_session_state(mg_core_t* core, int session_id
     for (const auto& link : core->vehicles.managed_links()) {
         if (link.link_id != session_id) continue;
         is_link = true;
+        if (!link.state.empty()) state = link.state;
         if (link.route_id < 0) continue;
         vehicle_id = link.vehicle_id;
         connected = connected || link.connected;
         heartbeat_alive = heartbeat_alive || link.heartbeat_alive;
         heartbeat_age_ms = std::max(heartbeat_age_ms, link.heartbeat_age_ms);
         active_focus = active_focus || link.active_focus;
-        if (link.connected) state = link.state;
-        else if (state == "waiting_heartbeat") state = link.state;
     }
 
     if (!is_link) {

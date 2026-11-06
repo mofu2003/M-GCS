@@ -11,6 +11,8 @@
 #include "mission_json_serializers.h"
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 
 #include "cJSON.h"
 #include "core/util/json.h"
@@ -41,10 +43,25 @@ MGCORE_API char* mg_mission_download(mg_core_t* core) {
 
 
 MGCORE_API char* mg_mission_clear(mg_core_t* core) {
-    return send_active_mission_request(core, "send failed",
-        [](auto& mav, uint8_t sys, uint8_t comp) {
-            return mav.mission_clear(sys, comp);
-        });
+    CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
+    auto mav = shared_active_mavlink(core);
+    if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
+    if (!mav->mission_clear(active_target_sys(core), active_target_comp(core))) {
+        return fail(MG_ERROR_SEND_FAILED, "mission clear send failed");
+    }
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto progress = mav->mission_get_progress();
+        if (progress.state == mg::core::mission::MissionState::Idle) {
+            if (progress.result == MAV_MISSION_ACCEPTED) return ok();
+            return fail(MG_ERROR_REJECTED,
+                        progress.error.empty() ? "flight controller rejected mission clear"
+                                               : progress.error.c_str());
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return fail(MG_ERROR_TIMEOUT, "mission clear acknowledgement timeout");
 }
 
 
@@ -53,6 +70,7 @@ MGCORE_API char* mg_mission_clear(mg_core_t* core) {
 
 MGCORE_API char* mg_mission_get_execution_progress(mg_core_t* core) {
     CHECK_CORE(core);
+    mg::bridge::ffi::VehicleSessionScope session(core);
     auto mav = shared_active_mavlink(core);
     auto raw_plan = mav ? mav->mission_get_plan() : mg::core::mission::MissionPlan{};
     auto plan = ffi_present_mission_plan(core, raw_plan);
@@ -71,10 +89,11 @@ MGCORE_API char* mg_mission_get_execution_progress(mg_core_t* core) {
     jb.field("reached_count", static_cast<int>(progress.reached_count));
     jb.field("last_reached_seq", static_cast<int>(progress.last_reached_seq));
     // reached_end：航段飞完（最后一项到达）；
-    // finished：任务完成，按 QGC FlyViewMissionCompleteDialog 的定义——
-    // 曾经在任务模式下解锁飞行，之后上锁。
+    // finished：最后一项已到达，而且本轮参与任务的飞行已上锁结束。
     jb.field("reached_end", progress.reached_end);
-    jb.field("finished", get_active_flight_modes(core).mission_fly_completed());
+    const bool ended = get_active_flight_modes(core).mission_flight_ended();
+    jb.field("ended", ended);
+    jb.field("finished", ended && progress.valid && progress.reached_end);
     // 中止：解锁飞行中离开过任务模式，而且最后一项没到达。带上"未到达"这一条是为了
     // 区分正常收尾——飞控跑完任务后自己也会切 RTL/降落，那时 reached_end 已经是 true。
     jb.field("aborted",

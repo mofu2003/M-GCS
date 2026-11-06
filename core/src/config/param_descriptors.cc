@@ -825,8 +825,7 @@ ParamDescriptor ParamDescriptors::apply_fallback_translation(
         // 刻意**不回填** ArduPilot 的英文原文：那份 @Description 文本是 GPLv3 源码的
         // 一部分，与 M-GCS 的 MIT 许可不兼容，不得进入本仓库或随包分发。
         // 需要英文原始说明时，参照 Mission Planner 的做法在运行时从上游获取。
-        // 见 docs/adr/0002-upstream-reference-and-license.md 与
-        // core/src/config/ParameterDescriptors.json 的 metadata_note。
+        // 见 core/src/config/ParameterDescriptors.json 的 metadata_note。
         descriptor.description = "用于配置“" + descriptor.display_name +
                                  "”。修改前请核对参数范围、单位和 ArduPilot 官方说明。";
     }

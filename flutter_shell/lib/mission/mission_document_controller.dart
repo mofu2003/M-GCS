@@ -9,6 +9,13 @@ final class MissionDocumentController extends ChangeNotifier {
   MissionDocumentController({required this.backend});
 
   final MissionDocumentBackend backend;
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
 
   MissionDocument? document;
   MissionValidationReport? validation;
@@ -27,7 +34,7 @@ final class MissionDocumentController extends ChangeNotifier {
 
   /// 连接飞控的机型/固件上下文，由 UI 在连接变化时写入。
   ///
-  /// 新建任务文档时把它写进 metadata，让文档级校验的机型门禁使用真实机型；
+  /// 同步到当前会话文档的 metadata，让文档级校验使用真实机型；
   /// 机型未知或非 ArduPilot 时保持原值，不影响上传前的运行时门禁。
   String? vehicleClass;
   String? firmwareProfile;
@@ -41,6 +48,52 @@ final class MissionDocumentController extends ChangeNotifier {
   int? _boundSessionId;
   int? _lastVehicleSessionId;
   bool requiresVehicleReconciliation = false;
+
+  bool _hasLocalEdits = false;
+  bool _initialVehicleReadAttempted = false;
+  bool _checkingInitialVehicleRead = false;
+
+  bool _initialVehicleReadCompleted = false;
+
+  void resumeInitialVehicleRead() {
+    if (!_initialVehicleReadCompleted) _initialVehicleReadAttempted = false;
+  }
+
+  void resetInitialVehicleRead() {
+    _initialVehicleReadAttempted = false;
+    _initialVehicleReadCompleted = false;
+  }
+
+  /// Read the selected session once without replacing a locally edited draft.
+  /// Busy/manual transfers defer this attempt until the next connection poll.
+  Future<void> downloadOnInitialConnection() async {
+    if (_disposed ||
+        !boundToVehicle ||
+        busy ||
+        _initialVehicleReadAttempted ||
+        _checkingInitialVehicleRead) {
+      return;
+    }
+    _checkingInitialVehicleRead = true;
+    try {
+      await initialize();
+      if (!initialized || busy) return;
+      if (_hasLocalEdits) {
+        _initialVehicleReadAttempted = true;
+        return;
+      }
+      await _refreshTransfer();
+      if (busy || transferActive) return;
+      _initialVehicleReadAttempted = true;
+      await downloadFromVehicle();
+    } on Object {
+      // downloadFromVehicle keeps the actual failure available in error/status.
+      // Automatic polling must not repeatedly restart a failed transfer.
+      _initialVehicleReadAttempted = true;
+    } finally {
+      _checkingInitialVehicleRead = false;
+    }
+  }
 
   bool get transferActive => transfer?.active ?? false;
   int? get boundSessionId => _boundSessionId;
@@ -84,6 +137,14 @@ final class MissionDocumentController extends ChangeNotifier {
     await _run('正在初始化任务文档…', () async {
       commandCatalog = await backend.getMissionCommandCatalog();
       document = await backend.getMissionDocument();
+      final current = document!;
+      _hasLocalEdits =
+          _hasLocalEdits ||
+          current.revision > 1 ||
+          current.entities.isNotEmpty ||
+          current.complexItems.isNotEmpty ||
+          current.rallyPoints.isNotEmpty ||
+          current.home.set;
       initialized = true;
       await _refreshDerived();
       await _refreshTransfer();
@@ -105,6 +166,7 @@ final class MissionDocumentController extends ChangeNotifier {
     if (!latitude.isFinite || !longitude.isFinite || !altitudeMeters.isFinite) {
       return;
     }
+    final hadLocalEdits = _hasLocalEdits;
     await replaceDocument(
       current.copyWith(
         home: MissionHome(
@@ -121,15 +183,55 @@ final class MissionDocumentController extends ChangeNotifier {
         document?.home.longitude == longitude &&
         document?.home.altitudeMeters == altitudeMeters;
     if (!markDirty && adopted) {
+      _hasLocalEdits = hadLocalEdits;
       dirty = false;
       notifyListeners();
     }
   }
 
-  /// 记录当前飞控的机型/固件；用于新建文档时写入 metadata。
+  /// 记录当前飞控的机型/固件；未知机型不覆盖文档的规划上下文。
   void setVehicleContext({String? vehicleClass, String? firmwareProfile}) {
     this.vehicleClass = vehicleClass;
     this.firmwareProfile = firmwareProfile;
+  }
+
+  bool get vehicleContextNeedsSync {
+    final metadata = document?.metadata;
+    return boundToVehicle &&
+        !requiresVehicleReconciliation &&
+        metadata != null &&
+        vehicleClass != null &&
+        vehicleClass!.isNotEmpty &&
+        (metadata.vehicleType != vehicleClass ||
+            (firmwareProfile != null &&
+                firmwareProfile!.isNotEmpty &&
+                metadata.firmwareProfile != firmwareProfile));
+  }
+
+  Future<void> refreshVehicleContext() => _run('正在同步任务机型…', () async {
+    await _refreshDerived();
+    status = '任务机型已同步';
+  });
+
+  Future<void> _syncDocumentVehicleContext() async {
+    if (!vehicleContextNeedsSync) return;
+    final current = document!;
+    final metadata = current.metadata.toJson();
+    metadata['vehicle_type'] = vehicleClass;
+    if (firmwareProfile != null && firmwareProfile!.isNotEmpty) {
+      metadata['firmware_profile'] = firmwareProfile;
+    }
+    final result = await backend.applyMissionDocumentCommand({
+      'operation': 'replace',
+      'expected_revision': current.revision,
+      'document': current
+          .copyWith(metadata: MissionDocumentMetadata.fromJson(metadata))
+          .toJson(),
+    });
+    document = result.document;
+    compileResult = null;
+    verification = null;
+    dirty = true;
   }
 
   JsonMap _createConfig(JsonMap config) {
@@ -150,6 +252,7 @@ final class MissionDocumentController extends ChangeNotifier {
   Future<void> create([JsonMap config = const {}]) =>
       _run('正在创建任务文档…', () async {
         document = await backend.createMissionDocument(_createConfig(config));
+        _hasLocalEdits = true;
         validation = null;
         compileResult = null;
         estimate = null;
@@ -219,10 +322,12 @@ final class MissionDocumentController extends ChangeNotifier {
       _operation('redo', '正在重做…', backend.redoMissionDocument);
 
   Future<void> validate() => _run('正在校验任务…', () async {
+    await _syncDocumentVehicleContext();
     validation = await backend.validateMissionDocument();
   });
 
   Future<void> compile() => _run('正在编译任务…', () async {
+    await _syncDocumentVehicleContext();
     compileResult = await backend.compileMissionDocument();
     validation = compileResult?.report;
   });
@@ -239,11 +344,11 @@ final class MissionDocumentController extends ChangeNotifier {
     if (current == null) {
       throw StateError('任务文档尚未初始化');
     }
-    final currentRevision = current.revision;
     verification = null;
     await _run('正在上传任务…', rethrowErrors: true, () async {
       _requireVehicleReconciled();
-      await backend.uploadMissionDocument(currentRevision);
+      await _syncDocumentVehicleContext();
+      await backend.uploadMissionDocument(document!.revision);
       await _waitForTransfer('上传任务');
 
       status = '上传完成，正在从飞控回读核对…';
@@ -275,10 +380,12 @@ final class MissionDocumentController extends ChangeNotifier {
   Future<void> downloadFromVehicle() =>
       _run('正在从飞控读取任务…', rethrowErrors: true, () async {
         _requireVehicleSession();
+        _initialVehicleReadAttempted = true;
         verification = null;
         await backend.startMissionDownload();
         await _waitForTransfer('读取飞控任务');
         document = await backend.importMissionDocumentFromVehicle();
+        _hasLocalEdits = false;
         validation = null;
         compileResult = null;
         estimate = null;
@@ -287,6 +394,7 @@ final class MissionDocumentController extends ChangeNotifier {
         dirty = false;
         requiresVehicleReconciliation = false;
         await _refreshDerived();
+        _initialVehicleReadCompleted = true;
         status = '已从飞控读取 ${document?.entities.length ?? 0} 个任务项';
       });
 
@@ -296,6 +404,7 @@ final class MissionDocumentController extends ChangeNotifier {
       _run('正在采用飞控回读任务…', rethrowErrors: true, () async {
         _requireVehicleSession();
         document = await backend.importMissionDocumentFromVehicle();
+        _hasLocalEdits = false;
         validation = null;
         compileResult = null;
         estimate = null;
@@ -496,6 +605,7 @@ final class MissionDocumentController extends ChangeNotifier {
       _run('正在导入任务…', () async {
         final imported = await backend.importMissionInterchange(format, text);
         document = imported.document;
+        _hasLocalEdits = true;
         interchangeWarnings = imported.warnings;
         validation = null;
         compileResult = null;
@@ -510,6 +620,7 @@ final class MissionDocumentController extends ChangeNotifier {
 
   Future<void> load(String filePath) => _run('正在加载任务…', () async {
     document = await backend.loadMissionDocument(filePath);
+    _hasLocalEdits = true;
     interchangeWarnings = const [];
     validation = null;
     compileResult = null;
@@ -552,7 +663,10 @@ final class MissionDocumentController extends ChangeNotifier {
   }
 
   Future<void> _refreshTransfer() async {
-    transfer = await backend.getMissionTransferProgress();
+    if (_disposed) throw StateError('任务控制器已关闭');
+    final progress = await backend.getMissionTransferProgress();
+    if (_disposed) throw StateError('任务控制器已关闭');
+    transfer = progress;
     notifyListeners();
   }
 
@@ -603,6 +717,7 @@ final class MissionDocumentController extends ChangeNotifier {
   }
 
   Future<void> _refreshDerived() async {
+    await _syncDocumentVehicleContext();
     validation = await backend.validateMissionDocument();
     estimate = await backend.estimateMissionDocument();
   }
@@ -620,6 +735,7 @@ final class MissionDocumentController extends ChangeNotifier {
   ) => _run(initialStatus, () async {
     final result = await action();
     document = result.document;
+    _hasLocalEdits = true;
     compileResult = null;
     verification = null;
     dirty = true;
@@ -636,7 +752,7 @@ final class MissionDocumentController extends ChangeNotifier {
     Future<void> Function() action, {
     bool rethrowErrors = false,
   }) async {
-    if (busy) return;
+    if (busy || _disposed) return;
     busy = true;
     status = initialStatus;
     error = null;
@@ -652,7 +768,7 @@ final class MissionDocumentController extends ChangeNotifier {
       if (rethrowErrors) rethrow;
     } finally {
       busy = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 

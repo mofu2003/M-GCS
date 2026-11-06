@@ -202,6 +202,7 @@ class FleetVehicleSummary {
     this.latitude = 0,
     this.longitude = 0,
     this.altitudeMeters,
+    this.relativeAltitudeMeters,
     this.headingDegrees,
     this.groundSpeedMps,
     this.homePositionValid = false,
@@ -236,7 +237,12 @@ class FleetVehicleSummary {
   final bool positionValid;
   final double latitude;
   final double longitude;
+
+  /// 海拔高度（MSL），用于地理位置。
   final double? altitudeMeters;
+
+  /// 飞控上报的相对 Home 高度。
+  final double? relativeAltitudeMeters;
   final double? headingDegrees;
   final double? groundSpeedMps;
   final bool homePositionValid;
@@ -277,6 +283,7 @@ class FleetVehicleSummary {
       latitude == other.latitude &&
       longitude == other.longitude &&
       altitudeMeters == other.altitudeMeters &&
+      relativeAltitudeMeters == other.relativeAltitudeMeters &&
       headingDegrees == other.headingDegrees &&
       groundSpeedMps == other.groundSpeedMps &&
       homePositionValid == other.homePositionValid &&
@@ -313,6 +320,7 @@ class FleetVehicleSummary {
     latitude,
     longitude,
     altitudeMeters,
+    relativeAltitudeMeters,
     headingDegrees,
     groundSpeedMps,
     homePositionValid,

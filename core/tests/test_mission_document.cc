@@ -768,6 +768,20 @@ static void test_frame_mission_command_import() {
 }
 
 
+static void test_empty_vehicle_mission_import() {
+    MissionPlan empty;
+    empty.valid = true;
+    MissionDocument document = valid_document();
+    const auto original_name = document.metadata.name;
+    std::string error;
+    CHECK(import_mission_plan_into_document(empty, document, error),
+          "a completed empty vehicle mission imports successfully");
+    CHECK(document.entities.empty(), "empty vehicle mission clears route entities");
+    CHECK(document.metadata.name == original_name,
+          "empty vehicle mission preserves document metadata");
+    CHECK(error.empty(), "empty mission import reports no error");
+}
+
 static void test_qgc_plan_interchange() {
     fprintf(stderr, "\n[Group] QGC .plan interchange\n");
     const MissionDocument document = valid_document();
@@ -1821,6 +1835,7 @@ int main() {
     test_entity_type_for_command();
     test_ffi_waypoints_interchange();
     test_frame_mission_command_import();
+    test_empty_vehicle_mission_import();
     test_qgc_plan_interchange();
     test_qgc_plan_preserves_unknown_fields();
     test_mission_format_recommendation();

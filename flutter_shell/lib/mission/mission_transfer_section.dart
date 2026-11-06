@@ -41,6 +41,17 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
   /// 导出/导入成功后的内联提示；关闭或下一次操作时更新。
   String? _interchangeNotice;
 
+  bool get _continuingMission {
+    final progress = widget.mission.executionProgress;
+    return progress != null &&
+        progress.active &&
+        progress.aborted &&
+        !progress.ended &&
+        !progress.finished;
+  }
+
+  String get _missionActionLabel => _continuingMission ? '继续任务' : '开始任务';
+
   /// 命令守卫：失败信息由任务文档控制器的 status / error 呈现。
   Future<void> _mutate(Future<void> Function() operation) async {
     try {
@@ -53,6 +64,7 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
   @override
   Widget build(BuildContext context) {
     final document = widget.mission.document;
+    final actionLabel = _missionActionLabel;
     final colors = context.mgColors;
     final busy = widget.mission.busy;
     final transfer = widget.mission.transfer;
@@ -169,16 +181,20 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
               ),
             ),
             MacosTooltip(
-              message: widget.mission.dirty ? '请先上传任务' : '解锁并开始任务',
+              message: widget.mission.dirty
+                  ? '请先上传任务'
+                  : _continuingMission
+                  ? '继续执行飞控当前任务'
+                  : '解锁并开始任务',
               child: PushButton(
                 controlSize: ControlSize.regular,
                 onPressed: canStartMission ? _startMission : null,
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    MacosIcon(CupertinoIcons.play_fill, size: 12),
-                    SizedBox(width: 5),
-                    Text('开始任务'),
+                    const MacosIcon(CupertinoIcons.play_fill, size: 12),
+                    const SizedBox(width: 5),
+                    Text(actionLabel),
                   ],
                 ),
               ),
@@ -432,6 +448,8 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
   }
 
   Future<void> _startMission() async {
+    final continuing = _continuingMission;
+    final actionLabel = _missionActionLabel;
     if (widget.mission.dirty) {
       await showMgConfirmDialog(
         context,
@@ -445,7 +463,10 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
     final request = widget.onRequestCommandConfirmation;
     if (request != null) {
       request(
-        MgCommandConfirmation(label: '开始任务', execute: _executeStartMission),
+        MgCommandConfirmation(
+          label: actionLabel,
+          execute: _executeStartMission,
+        ),
       );
       return;
     }
@@ -454,9 +475,11 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
     // 不允许存在"缺确认组件就直发"的降级路径。
     final confirmed = await showMgConfirmDialog(
       context,
-      title: '开始任务',
-      message: '飞控将按当前任务开始执行，飞机随即开始运动。',
-      confirmLabel: '开始任务',
+      title: actionLabel,
+      message: continuing
+          ? '飞控将从当前目标任务项继续执行，飞机随即开始运动。'
+          : '飞控将按当前任务开始执行，飞机随即开始运动。',
+      confirmLabel: actionLabel,
     );
     if (!confirmed || !mounted) return;
     await _executeStartMission();

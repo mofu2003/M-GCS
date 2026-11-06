@@ -35,6 +35,11 @@ void MavlinkAdapter::Impl::handle_log_data(const mavlink_message_t& m)
     mavlink_msg_log_data_decode(&m, &ld);
     if (ld.id != log_state.download_id)
         return;
+    if (ld.count > sizeof(ld.data)) {
+        MGC_LOG_WARN("[MavlinkAdapter] LOG_DATA count %u exceeds payload capacity %zu, dropped",
+                     static_cast<unsigned>(ld.count), sizeof(ld.data));
+        return;
+    }
 
     // ld.ofs 是飞控给的 uint32：先提升到 64 位再相加。直接写 `ld.ofs + ld.count`
     // 会在 ofs 接近 UINT32_MAX 时回绕成小值，使下面按 end 做的 resize 失效，而

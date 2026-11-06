@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 
 import 'package:macos_ui/macos_ui.dart';
 
@@ -26,6 +27,79 @@ class AllParametersPage extends StatefulWidget {
 
 class _AllParametersPageState extends State<AllParametersPage> {
   String _query = '';
+  final _search = TextEditingController();
+  final _searchTerms = <String, String>{};
+  final _indexedGroups = <String, List<VehicleParameter>>{};
+  bool _indexDirty = true;
+  bool _restored = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.parameterChanges.addListener(_invalidateIndex);
+  }
+
+  void _invalidateIndex() => _indexDirty = true;
+
+  @override
+  void didUpdateWidget(covariant AllParametersPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.parameterChanges.removeListener(_invalidateIndex);
+      widget.controller.parameterChanges.addListener(_invalidateIndex);
+      _indexDirty = true;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_restored) return;
+    _restored = true;
+    final saved = PageStorage.maybeOf(
+      context,
+    )?.readState(context, identifier: 'parameter-search');
+    if (saved is Map<String, Object?>) {
+      _query = saved['query'] as String? ?? '';
+      _search.text = _query;
+      _expandedGroups.addAll(Map<String, bool>.from(saved['groups'] as Map));
+    }
+  }
+
+  void _saveViewState() => PageStorage.maybeOf(context)?.writeState(context, {
+    'query': _query,
+    'groups': Map<String, bool>.of(_expandedGroups),
+  }, identifier: 'parameter-search');
+
+  void _ensureIndex() {
+    if (!_indexDirty) return;
+    _searchTerms.clear();
+    final grouped = <String, List<VehicleParameter>>{};
+    for (final parameter in widget.controller.parameters.values) {
+      _searchTerms[parameter.name] = [
+        parameter.name,
+        parameter.displayName ?? '',
+        parameter.description ?? '',
+        parameter.group ?? '',
+      ].join(' ').toLowerCase();
+      grouped.putIfAbsent(_parameterGroup(parameter), () => []).add(parameter);
+    }
+    _indexedGroups.clear();
+    final names = grouped.keys.toList()..sort();
+    for (final name in names) {
+      _indexedGroups[name] = grouped[name]!
+        ..sort((a, b) => a.name.compareTo(b.name));
+    }
+    _indexDirty = false;
+  }
+
+  @override
+  void dispose() {
+    widget.controller.parameterChanges.removeListener(_invalidateIndex);
+    _search.dispose();
+    super.dispose();
+  }
+
   final Map<String, bool> _expandedGroups = {};
 
   @override
@@ -43,22 +117,19 @@ class _AllParametersPageState extends State<AllParametersPage> {
           : null;
 
       final query = _query.trim().toLowerCase();
-      final grouped = <String, List<VehicleParameter>>{};
-      for (final parameter in controller.parameters.values) {
-        final terms = [
-          parameter.name,
-          parameter.displayName ?? '',
-          parameter.description ?? '',
-          parameter.group ?? '',
-        ].join(' ').toLowerCase();
-        if (query.isNotEmpty && !terms.contains(query)) continue;
-        final group = _parameterGroup(parameter);
-        grouped.putIfAbsent(group, () => []).add(parameter);
-      }
-      for (final values in grouped.values) {
-        values.sort((a, b) => a.name.compareTo(b.name));
-      }
-      final groups = grouped.keys.toList()..sort();
+      _ensureIndex();
+      final grouped = <String, List<VehicleParameter>>{
+        for (final group in _indexedGroups.entries)
+          group.key: query.isEmpty
+              ? group.value
+              : group.value
+                    .where(
+                      (parameter) =>
+                          _searchTerms[parameter.name]!.contains(query),
+                    )
+                    .toList(),
+      }..removeWhere((_, values) => values.isEmpty);
+      final groups = grouped.keys;
       final entries = <_ParameterTreeEntry>[];
       for (final group in groups) {
         entries.add(_ParameterTreeEntry.group(group, grouped[group]!.length));
@@ -82,11 +153,13 @@ class _AllParametersPageState extends State<AllParametersPage> {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                MacosSearchField(
+                CupertinoSearchTextField(
+                  controller: _search,
                   placeholder: '搜索参数名称或说明',
                   onChanged: (value) => setState(() {
                     _query = value;
                     _expandedGroups.clear();
+                    _saveViewState();
                   }),
                   style: MgTypography.sans(
                     MgTypography.body.copyWith(
@@ -118,7 +191,10 @@ class _AllParametersPageState extends State<AllParametersPage> {
             final group = entry.group!;
             final isExpanded = _expandedGroups[group] ?? query.isNotEmpty;
             void toggleGroup() {
-              setState(() => _expandedGroups[group] = !isExpanded);
+              setState(() {
+                _expandedGroups[group] = !isExpanded;
+                _saveViewState();
+              });
             }
 
             return Column(

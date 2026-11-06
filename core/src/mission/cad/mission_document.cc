@@ -1078,11 +1078,6 @@ bool import_mission_plan_into_document(
     MissionDocument& document,
     std::string& error) {
     error.clear();
-    if (plan.items.empty()) {
-        error = "vehicle returned an empty mission";
-        return false;
-    }
-
     std::vector<MissionEntity> entities;
     entities.reserve(plan.items.size());
     int index = 0;

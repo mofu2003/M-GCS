@@ -495,6 +495,7 @@ final class ConnectionController extends ChangeNotifier {
 
   MissionDocumentController? _offlineMissionPlanning;
   final Map<int, MissionDocumentController> _missionPlanningBySession = {};
+  final Map<int, DateTime> _initialMissionWaitStarted = {};
 
   final Map<int, _VehicleRuntimeSnapshot> _runtimeSnapshots = {};
   final TelemetryFfiBackend? _telemetryBackend;
@@ -533,6 +534,9 @@ final class ConnectionController extends ChangeNotifier {
           _requireNative().library,
           _requireNative().handle,
           isConnected: () => isConnected && sessionId == ownerId,
+          targetVehicleId: () => ownerId,
+          executeCommand: (id, command) =>
+              flightCommandBackend.executeRawForVehicle(id, command),
           beforeAccess: () {
             if (_disposed ||
                 sessionId != ownerId ||
@@ -683,6 +687,14 @@ final class ConnectionController extends ChangeNotifier {
     milliseconds: 1300,
   );
   static const Duration _armValidationWindow = Duration(milliseconds: 1500);
+  static const int _telemetryPositionChanged = 1 << 0;
+  static const int _telemetryAttitudeChanged = 1 << 1;
+  static const int _telemetryBatteryChanged = 1 << 2;
+  static const int _telemetryFlightStateChanged = 1 << 3;
+  static const int _telemetryIoChanged = 1 << 4;
+  static const int _telemetryStateChanged = 1 << 5;
+  static const int _telemetryGpsChanged = 1 << 6;
+  static const int _telemetryFlightDataChanged = 1 << 7;
 
   /// Go To 下发后，等待飞控切到对应模式的窗口。超过后仍未进入目标模式，
   /// 就把尚未激活的显示目标作废，避免以后手工切回 Guided 时旧点复活。
@@ -692,6 +704,15 @@ final class ConnectionController extends ChangeNotifier {
 
   final ValueNotifier<int> parameterChanges = ValueNotifier(0);
   final ValueNotifier<int> telemetryChanges = ValueNotifier(0);
+  final ValueNotifier<int> positionChanges = ValueNotifier(0);
+  final fleetPositions = ValueNotifier<Map<int, VehicleFix?>>(const {});
+  final ValueNotifier<int> attitudeChanges = ValueNotifier(0);
+  final ValueNotifier<int> batteryChanges = ValueNotifier(0);
+  final ValueNotifier<int> flightStateChanges = ValueNotifier(0);
+  final ValueNotifier<int> ioChanges = ValueNotifier(0);
+  final ValueNotifier<int> stateChanges = ValueNotifier(0);
+  final ValueNotifier<int> gpsChanges = ValueNotifier(0);
+  final ValueNotifier<int> flightDataChanges = ValueNotifier(0);
   final ValueNotifier<int> profileChanges = ValueNotifier(0);
   final ValueNotifier<int> connectionChanges = ValueNotifier(0);
   final ValueNotifier<int> calibrationChanges = ValueNotifier(0);
@@ -1021,7 +1042,33 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   void _notifyTelemetryChanges() {
-    if (!_disposed) telemetryChanges.value++;
+    if (_disposed) return;
+    positionChanges.value++;
+    attitudeChanges.value++;
+    batteryChanges.value++;
+    flightStateChanges.value++;
+    ioChanges.value++;
+    stateChanges.value++;
+    gpsChanges.value++;
+    flightDataChanges.value++;
+    telemetryChanges.value++;
+  }
+
+  void _publishTelemetryChanges(int changes) {
+    if (_disposed || changes == 0) return;
+    if (changes & _telemetryPositionChanged != 0) positionChanges.value++;
+    if (changes & _telemetryAttitudeChanged != 0) attitudeChanges.value++;
+    if (changes & _telemetryBatteryChanged != 0) batteryChanges.value++;
+    if (changes & _telemetryFlightStateChanged != 0) {
+      flightStateChanges.value++;
+    }
+    if (changes & _telemetryIoChanged != 0) ioChanges.value++;
+    if (changes & _telemetryStateChanged != 0) stateChanges.value++;
+    if (changes & _telemetryGpsChanged != 0) gpsChanges.value++;
+    if (changes & _telemetryFlightDataChanged != 0) {
+      flightDataChanges.value++;
+    }
+    telemetryChanges.value++;
   }
 
   void _notifyProfileChanges() {
@@ -1538,6 +1585,7 @@ final class ConnectionController extends ChangeNotifier {
     notifyListeners();
 
     VehicleParameter? latest;
+    var sessionChangedDuringWrite = false;
     try {
       if (previous != null) await previous;
       if (_disposed) return false;
@@ -1604,18 +1652,21 @@ final class ConnectionController extends ChangeNotifier {
                   '${actualValue == actualValue.roundToDouble() ? actualValue.toInt() : actualValue}',
       );
     } on Object catch (error) {
+      sessionChangedDuringWrite = _disposed || sessionId != requestedSessionId;
       // 若写入失败，把乐观更新回滚到写入前的值。
       final previousValue = latest;
-      if (previousValue != null) {
+      if (!sessionChangedDuringWrite && previousValue != null) {
         final current = parameters[name];
         if (current != null &&
             _parameterValuesMatch(value, current.value, current.mavlinkType)) {
           parameters[name] = previousValue;
         }
       }
-      _recordParameterWriteError(name, _friendlyError(error));
-      _notifyParameterChanges();
-      notifyListeners();
+      if (!sessionChangedDuringWrite) {
+        _recordParameterWriteError(name, _friendlyError(error));
+        _notifyParameterChanges();
+        notifyListeners();
+      }
     } finally {
       if (identical(_parameterWriteJobs[name], job)) {
         _parameterWriteJobs.remove(name);
@@ -1624,7 +1675,8 @@ final class ConnectionController extends ChangeNotifier {
       _notifyParameterChanges();
       if (!_disposed) notifyListeners();
     }
-    return !_parameterWriteErrors.containsKey(name);
+    return !sessionChangedDuringWrite &&
+        !_parameterWriteErrors.containsKey(name);
   }
 
   /// 发送前记录当前最大写入记录 id；之后只认这次写入新产生的终态，避免把
@@ -1713,6 +1765,22 @@ final class ConnectionController extends ChangeNotifier {
     return native;
   }
 
+  /// Warms lazily-created FFI backends and page controllers after the first
+  /// frame. This does not query the vehicle or mutate flight state; it only
+  /// resolves symbols and constructs local controller state while the map is
+  /// still the active workspace.
+  void preloadConfigurationResources() {
+    if (_disposed || initializationError != null) return;
+    telemetryBackend;
+    parameterBackend;
+    calibrationBackend;
+    logController;
+    tlogController;
+    fileController;
+    payloadController;
+    missionPlanning;
+  }
+
   /// Cancellable long operations no longer pin the UI focus. Parameter
   /// writes and metadata/hardware reads remain non-movable because switching
   /// them mid-command could write to the wrong aircraft.
@@ -1720,6 +1788,10 @@ final class ConnectionController extends ChangeNotifier {
     // First focus binding happens while connect() intentionally holds _busy.
     if (sessionId == null) return true;
     if (_busy) return false;
+    // QGC blocks navigation while sensor calibration is active. Calibration is
+    // a vehicle-owned workflow; silently moving UI focus leaves the operation
+    // running without any visible state or cancel path.
+    if (calibrationStatus.active) return false;
     if (_parameterWriteJobs.isNotEmpty) return false;
     if (serialHardwareMappingLoading || _loadingParameterMetadata) {
       return false;
@@ -1735,6 +1807,9 @@ final class ConnectionController extends ChangeNotifier {
   /// to the old vehicle. Command confirmations still remain pinned.
   void selectVehicle(int vehicleId) {
     if (_busy || vehicleId == sessionId) return;
+    if (!_canSwitchActiveVehicle()) {
+      throw StateError('当前飞控有未完成操作，暂不能切换飞机');
+    }
     final previousVehicleId = sessionId;
     if (previousVehicleId != null) {
       _cancelOperationsForVehicle(previousVehicleId);
@@ -1827,6 +1902,7 @@ final class ConnectionController extends ChangeNotifier {
     }
     final liveIds = fleet.snapshot.vehicles.map((v) => v.id).toSet();
     _runtimeSnapshots.removeWhere((id, _) => !liveIds.contains(id));
+    _initialMissionWaitStarted.removeWhere((id, _) => !liveIds.contains(id));
     // Keep detached mission controllers alive until UI listeners detach;
     // their beforeAccess guard rejects edits against a removed session.
     _notifyConnectionChanges();
@@ -1871,7 +1947,12 @@ final class ConnectionController extends ChangeNotifier {
           ? SerialConnectionPhase.connected
           : SerialConnectionPhase.waitingForHeartbeat;
       _pollTelemetry(target); // Fresh native cache before publishing UI state.
+      if (calibrationStatus.active) {
+        _startCalibrationPolling();
+        unawaited(_pollCalibrationStatus());
+      }
       missionPlanning.bindSession(target);
+      missionPlanning.resumeInitialVehicleRead();
       _bindLogSession(target);
       _startSessionPolling();
       unawaited(_signing.applyIfNeeded());
@@ -1908,6 +1989,7 @@ final class ConnectionController extends ChangeNotifier {
     _telemetryTimer = Timer.periodic(_telemetryPollInterval, (_) {
       final id = sessionId;
       if (id != null) _pollTelemetry(id);
+      _pollFleetPositions();
     });
     _waveform.restartPolling();
   }
@@ -2927,6 +3009,11 @@ final class ConnectionController extends ChangeNotifier {
           }
         }
       } else {
+        if (capturedVehicleId != null) {
+          _initialMissionWaitStarted.remove(capturedVehicleId);
+          _missionPlanningBySession[capturedVehicleId]
+              ?.resetInitialVehicleRead();
+        }
         phase = SerialConnectionPhase.waitingForHeartbeat;
         message = '$selectedTransportLabel 链路已打开，等待飞控心跳…';
       }
@@ -2940,6 +3027,25 @@ final class ConnectionController extends ChangeNotifier {
         // 角色表与参数下载并行：连接稳定后拉取一次，页面的参数名全部由它解析。
         unawaited(ensureParamRoles());
         _pollParameterDownload();
+        if (phase == SerialConnectionPhase.connected) {
+          final ownerId = sessionId!;
+          final started = _initialMissionWaitStarted.putIfAbsent(
+            ownerId,
+            DateTime.now,
+          );
+          // Like QGC, finish initial parameter sync before loading the route.
+          // A missing PARAM response must not block the mission indefinitely.
+          // QGC's noInitialDownloadWhenArmed defaults to false: an aircraft
+          // already flying when connected still needs its route displayed.
+          if (parametersLoaded ||
+              parameterError != null ||
+              DateTime.now().difference(started) >=
+                  const Duration(seconds: 30)) {
+            final mission =
+                missionPlanning; // Captures the explicit owner session.
+            unawaited(mission.downloadOnInitialConnection());
+          }
+        }
       }
       if (phase != previousPhase || message != previousMessage) {
         _notifyConnectionChanges();
@@ -3173,7 +3279,7 @@ final class ConnectionController extends ChangeNotifier {
       if (vehicleId == null) {
         throw StateError('链路尚未识别到飞控');
       }
-      fleet.selectVehicle(vehicleId);
+      selectVehicle(vehicleId);
       _activeLinkId = linkId;
       _notifyConnectionChanges();
       notifyListeners();
@@ -3185,26 +3291,61 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
+  void _pollFleetPositions() {
+    if (_disposed) return;
+    final previous = fleetPositions.value;
+    final next = <int, VehicleFix?>{};
+    for (final vehicle in fleetSnapshot.vehicles) {
+      if (vehicle.id == sessionId) continue;
+      try {
+        final envelope = telemetryBackend.sessionStatus(vehicle.id);
+        final data = envelope['data'] as Map<String, Object?>?;
+        if (envelope['success'] != true || data?['session_id'] != vehicle.id) {
+          next[vehicle.id] = null;
+          continue;
+        }
+        final latitude = (data!['lat_deg'] as num?)?.toDouble();
+        final longitude = (data['lon_deg'] as num?)?.toDouble();
+        if (data['position_valid'] != true ||
+            latitude == null ||
+            longitude == null ||
+            !latitude.isFinite ||
+            !longitude.isFinite) {
+          next[vehicle.id] = null;
+          continue;
+        }
+        final heading = (data['heading_deg'] as num?)?.toDouble();
+        final old = previous[vehicle.id];
+        next[vehicle.id] =
+            old != null &&
+                old.latitude == latitude &&
+                old.longitude == longitude &&
+                old.headingDegrees == heading
+            ? old
+            : VehicleFix(
+                latitude: latitude,
+                longitude: longitude,
+                headingDegrees: heading,
+              );
+      } on Object {
+        next[vehicle.id] = previous[vehicle.id];
+      }
+    }
+    if (!mapEquals(previous, next)) {
+      fleetPositions.value = Map.unmodifiable(next);
+    }
+  }
+
   void _pollTelemetry(int id) {
     if (!isConnected || sessionId != id || _disposed) return;
     if (fleet.snapshot.activeVehicleId != id) return;
     final previousError = telemetryError;
-    final previousSatellites = satellitesVisible;
-    final previousFix = gpsFixType;
-    final previousHeading = headingDegrees;
-    final previousBatteryPercent = batteryRemainingPercent;
-    final previousBatteryVoltage = batteryVoltage;
     try {
       final envelope = telemetryBackend.sessionStatus(id);
       if (envelope['success'] != true) {
         telemetryError = ffiErrorText(envelope, '读取飞控遥测失败');
         _clearTelemetryValues();
-        if (previousError != telemetryError ||
-            previousSatellites != satellitesVisible ||
-            previousFix != gpsFixType ||
-            previousHeading != headingDegrees ||
-            previousBatteryPercent != batteryRemainingPercent ||
-            previousBatteryVoltage != batteryVoltage) {
+        if (previousError != telemetryError) {
           _notifyTelemetryChanges();
           notifyListeners();
         }
@@ -3221,38 +3362,27 @@ final class ConnectionController extends ChangeNotifier {
       }
 
       telemetryError = null;
-      final satelliteValue = data['gps_satellites'] as int?;
-      satellitesVisible = satelliteValue != null && satelliteValue >= 0
-          ? satelliteValue
-          : null;
-      final fixValue = data['gps_fix_type'] as int?;
-      gpsFixType = fixValue != null && fixValue >= 0 ? fixValue : null;
-      headingDegrees = (data['heading_deg'] as num?)?.toDouble();
-      batteryRemainingPercent = data['battery_remaining_pct'] as int?;
-      batteryVoltage = (data['battery_voltage_v'] as num?)?.toDouble();
-      var changed =
-          previousError != telemetryError ||
-          previousSatellites != satellitesVisible ||
-          previousFix != gpsFixType ||
-          previousHeading != headingDegrees ||
-          previousBatteryPercent != batteryRemainingPercent ||
-          previousBatteryVoltage != batteryVoltage;
+      var changes = _applySessionTelemetry(data);
+      if (previousError != telemetryError) changes |= _telemetryStateChanged;
+
+      try {
+        changes |= _applyDashboardTelemetry(
+          telemetryBackend.dashboardSnapshot(),
+        );
+      } on Object {
+        // Preserve the last high-rate sample; the next poll will retry.
+      }
 
       final now = DateTime.now().millisecondsSinceEpoch;
       if (now - _lastSystemStatusPollMs >= 2000) {
         _lastSystemStatusPollMs = now;
         final profileChanged = _pollSystemStatus();
         if (profileChanged) _notifyProfileChanges();
-        changed = profileChanged || changed;
+        if (profileChanged) changes |= _telemetryStateChanged;
       }
-      changed = _pollServoOutputs() || changed;
-      changed = _pollRcChannels() || changed;
-      changed = _pollVehicleFix() || changed;
-      changed = _pollVfrHud() || changed;
-      changed = _pollAttitude() || changed;
-      changed = _pollFlightStats() || changed;
-      if (changed) {
-        _notifyTelemetryChanges();
+      if (_pollFlightStats()) changes |= _telemetryFlightDataChanged;
+      if (changes != 0) {
+        _publishTelemetryChanges(changes);
         notifyListeners();
       }
     } on Object catch (error) {
@@ -3315,141 +3445,140 @@ final class ConnectionController extends ChangeNotifier {
     }
   }
 
-  bool _pollServoOutputs() {
-    final oldValid = servoOutputsValid;
-    final oldValues = servoOutputs;
-    try {
-      final result = telemetryBackend.servoOutputs();
-      servoOutputsValid = result['valid'] == true;
-      final values = result['servos'] as List<Object?>? ?? const [];
-      servoOutputs = values
-          .map((value) => value is num ? value.toInt() : 0)
-          .toList(growable: false);
-    } on Object {
-      servoOutputsValid = false;
-      servoOutputs = const [];
-    }
-    return oldValid != servoOutputsValid ||
-        !_sameIntList(oldValues, servoOutputs);
-  }
-
-  bool _pollRcChannels() {
-    final oldValid = rcChannelsValid;
-    final oldValues = rcChannels;
-    try {
-      final result = telemetryBackend.rcChannels();
-      rcChannelsValid = result['valid'] == true;
-      final values = result['channels'] as List<Object?>? ?? const [];
-      rcChannels = values
-          .map((value) => value is num ? value.toInt() : 0)
-          .toList(growable: false);
-    } on Object {
-      rcChannelsValid = false;
-      rcChannels = const [];
-    }
-    return oldValid != rcChannelsValid || !_sameIntList(oldValues, rcChannels);
-  }
-
-  /// 读取当前位置与 Home 点。
-  ///
-  /// 后端已经缓存了 GLOBAL_POSITION_INT / HOME_POSITION，这里只做取数和比较，
-  /// 位置变化很小也照常通知，地图标记才跟得上。
-  bool _pollVehicleFix() {
-    final oldPosition = vehiclePosition == null
-        ? ''
-        : jsonEncode(vehiclePosition!.toJson());
+  int _applySessionTelemetry(Map<String, Object?> data) {
+    final oldPosition = vehiclePosition;
     final oldPositionValid = vehiclePositionValid;
-    final oldHome = homePosition == null
-        ? ''
-        : jsonEncode(homePosition!.toJson());
+    final oldHome = homePosition;
     final oldHomeValid = homePositionValid;
     final oldRelativeAltitude = relativeAltitudeMeters;
     final oldAbsoluteAltitude = absoluteAltitudeMeters;
-    try {
-      final envelope = telemetryBackend.globalPosition();
-      final data = envelope['data'] as Map<String, Object?>?;
-      vehiclePositionValid =
-          envelope['success'] == true && data?['valid'] == true;
-      vehiclePosition = data == null
-          ? null
-          : VehicleFix(
-              latitude: (data['lat_deg'] as num?)?.toDouble() ?? 0,
-              longitude: (data['lon_deg'] as num?)?.toDouble() ?? 0,
-              altitudeMeters: (data['alt_msl_m'] as num?)?.toDouble(),
-              headingDegrees: (data['heading_deg'] as num?)?.toDouble(),
-            );
-      relativeAltitudeMeters = (data?['alt_rel_m'] as num?)?.toDouble();
-      absoluteAltitudeMeters = (data?['alt_msl_m'] as num?)?.toDouble();
-    } on Object {
-      vehiclePosition = null;
-      vehiclePositionValid = false;
-      relativeAltitudeMeters = null;
-      absoluteAltitudeMeters = null;
+    final oldSatellites = satellitesVisible;
+    final oldFix = gpsFixType;
+    final oldHeading = headingDegrees;
+    final oldBatteryPercent = batteryRemainingPercent;
+    final oldBatteryVoltage = batteryVoltage;
+
+    final satelliteValue = data['gps_satellites'] as int?;
+    satellitesVisible = satelliteValue != null && satelliteValue >= 0
+        ? satelliteValue
+        : null;
+    final fixValue = data['gps_fix_type'] as int?;
+    gpsFixType = fixValue != null && fixValue >= 0 ? fixValue : null;
+    headingDegrees = (data['heading_deg'] as num?)?.toDouble();
+    batteryRemainingPercent = data['battery_remaining_pct'] as int?;
+    batteryVoltage = (data['battery_voltage_v'] as num?)?.toDouble();
+
+    vehiclePositionValid = data['position_valid'] == true;
+    vehiclePosition = VehicleFix(
+      latitude: (data['lat_deg'] as num?)?.toDouble() ?? 0,
+      longitude: (data['lon_deg'] as num?)?.toDouble() ?? 0,
+      altitudeMeters: (data['alt_msl_m'] as num?)?.toDouble(),
+      headingDegrees: (data['heading_deg'] as num?)?.toDouble(),
+    );
+    relativeAltitudeMeters = (data['alt_rel_m'] as num?)?.toDouble();
+    absoluteAltitudeMeters = (data['alt_msl_m'] as num?)?.toDouble();
+
+    homePositionValid = data['home_valid'] == true;
+    homePosition = VehicleFix(
+      latitude: (data['home_lat_deg'] as num?)?.toDouble() ?? 0,
+      longitude: (data['home_lon_deg'] as num?)?.toDouble() ?? 0,
+      altitudeMeters: (data['home_alt_msl_m'] as num?)?.toDouble(),
+    );
+
+    var changes = 0;
+    if (oldSatellites != satellitesVisible || oldFix != gpsFixType) {
+      changes |= _telemetryGpsChanged;
     }
-    try {
-      final envelope = telemetryBackend.homePosition();
-      final data = envelope['data'] as Map<String, Object?>?;
-      homePositionValid = envelope['success'] == true && data?['valid'] == true;
-      homePosition = data == null
-          ? null
-          : VehicleFix(
-              latitude: (data['lat_deg'] as num?)?.toDouble() ?? 0,
-              longitude: (data['lon_deg'] as num?)?.toDouble() ?? 0,
-              altitudeMeters: (data['alt_m'] as num?)?.toDouble(),
-            );
-    } on Object {
-      homePosition = null;
-      homePositionValid = false;
-    }
-    return oldPosition !=
-            (vehiclePosition == null
-                ? ''
-                : jsonEncode(vehiclePosition!.toJson())) ||
+    if (oldHeading != headingDegrees ||
         oldPositionValid != vehiclePositionValid ||
-        oldHome !=
-            (homePosition == null ? '' : jsonEncode(homePosition!.toJson())) ||
+        !_sameVehicleFix(oldPosition, vehiclePosition) ||
         oldHomeValid != homePositionValid ||
+        !_sameVehicleFix(oldHome, homePosition) ||
         oldRelativeAltitude != relativeAltitudeMeters ||
-        oldAbsoluteAltitude != absoluteAltitudeMeters;
+        oldAbsoluteAltitude != absoluteAltitudeMeters) {
+      changes |= _telemetryPositionChanged;
+    }
+    if (oldBatteryPercent != batteryRemainingPercent ||
+        oldBatteryVoltage != batteryVoltage) {
+      changes |= _telemetryBatteryChanged;
+    }
+    return changes;
   }
 
-  /// ATTITUDE → 姿态仪的横滚/俯仰（度）。
-  bool _pollAttitude() {
+  int _applyDashboardTelemetry(Map<String, Object?> envelope) {
+    if (envelope['success'] != true) return 0;
+    final telemetry = envelope['telemetry'] as Map<String, Object?>?;
+    if (telemetry == null) return 0;
+
+    final oldRcValid = rcChannelsValid;
+    final oldRc = rcChannels;
+    final oldServoValid = servoOutputsValid;
+    final oldServo = servoOutputs;
     final oldRoll = rollDegrees;
     final oldPitch = pitchDegrees;
-    try {
-      final envelope = telemetryBackend.attitude();
-      final data = envelope['data'] as Map<String, Object?>? ?? const {};
-      rollDegrees = (data['roll_deg'] as num?)?.toDouble();
-      pitchDegrees = (data['pitch_deg'] as num?)?.toDouble();
-    } on Object {
-      // Preserve the previous sample; freshness handles stale data.
-    }
-    return oldRoll != rollDegrees || oldPitch != pitchDegrees;
-  }
-
-  /// VFR_HUD 是空速 / 地速的直接来源。它和位置 / 姿态一样走 20Hz 前端轮询，
-  /// 不通过 telemetryChanges 以外的路径更新。
-  bool _pollVfrHud() {
     final oldAirspeed = airspeedMetersPerSecond;
     final oldGroundSpeed = groundSpeedMetersPerSecond;
     final oldClimbRate = climbRateMetersPerSecond;
     final oldThrottle = throttlePercent;
-    try {
-      final envelope = telemetryBackend.vfrHud();
-      final data = envelope['data'] as Map<String, Object?>? ?? const {};
-      airspeedMetersPerSecond = (data['airspeed_m_s'] as num?)?.toDouble();
-      groundSpeedMetersPerSecond = (data['groundspeed_m_s'] as num?)
-          ?.toDouble();
-      climbRateMetersPerSecond = (data['climb_m_s'] as num?)?.toDouble();
-      throttlePercent = (data['throttle_pct'] as num?)?.toDouble();
-    } on Object {
-      // Preserve the previous sample; freshness handles stale data.
+
+    final rc = telemetry['rc_channels'] as Map<String, Object?>?;
+    if (rc != null) {
+      rcChannelsValid = rc['valid'] == true;
+      final values = rc['channels'] as List<Object?>? ?? const [];
+      rcChannels = values
+          .map((value) => value is num ? value.toInt() : 0)
+          .toList(growable: false);
     }
-    return oldAirspeed != airspeedMetersPerSecond ||
+
+    final servo = telemetry['servo_output'] as Map<String, Object?>?;
+    if (servo != null) {
+      servoOutputsValid = servo['valid'] == true;
+      final values = servo['servos'] as List<Object?>? ?? const [];
+      servoOutputs = values
+          .map((value) => value is num ? value.toInt() : 0)
+          .toList(growable: false);
+    }
+
+    final attitude = telemetry['attitude'] as Map<String, Object?>?;
+    if (attitude != null) {
+      rollDegrees = (attitude['roll_deg'] as num?)?.toDouble();
+      pitchDegrees = (attitude['pitch_deg'] as num?)?.toDouble();
+    }
+
+    final vfr = telemetry['vfr_hud'] as Map<String, Object?>?;
+    if (vfr != null) {
+      airspeedMetersPerSecond = (vfr['airspeed_m_s'] as num?)?.toDouble();
+      groundSpeedMetersPerSecond = (vfr['groundspeed_m_s'] as num?)?.toDouble();
+      climbRateMetersPerSecond = (vfr['climb_m_s'] as num?)?.toDouble();
+      throttlePercent = (vfr['throttle_pct'] as num?)?.toDouble();
+    }
+
+    var changes = 0;
+    if (oldRcValid != rcChannelsValid ||
+        !_sameIntList(oldRc, rcChannels) ||
+        oldServoValid != servoOutputsValid ||
+        !_sameIntList(oldServo, servoOutputs)) {
+      changes |= _telemetryIoChanged;
+    }
+    if (oldRoll != rollDegrees || oldPitch != pitchDegrees) {
+      changes |= _telemetryAttitudeChanged;
+    }
+    if (oldAirspeed != airspeedMetersPerSecond ||
         oldGroundSpeed != groundSpeedMetersPerSecond ||
         oldClimbRate != climbRateMetersPerSecond ||
-        oldThrottle != throttlePercent;
+        oldThrottle != throttlePercent) {
+      changes |= _telemetryFlightDataChanged;
+    }
+    return changes;
+  }
+
+  bool _sameVehicleFix(VehicleFix? left, VehicleFix? right) {
+    if (identical(left, right)) return true;
+    if (left == null || right == null) return false;
+    return left.latitude == right.latitude &&
+        left.longitude == right.longitude &&
+        left.altitudeMeters == right.altitudeMeters &&
+        left.headingDegrees == right.headingDegrees;
   }
 
   /// QGC `Vehicle::_flightTimerStart()` / `updateFlightDistance()` 的等价实现。
@@ -3737,6 +3866,15 @@ final class ConnectionController extends ChangeNotifier {
     _native?.dispose();
     parameterChanges.dispose();
     telemetryChanges.dispose();
+    positionChanges.dispose();
+    fleetPositions.dispose();
+    attitudeChanges.dispose();
+    batteryChanges.dispose();
+    flightStateChanges.dispose();
+    ioChanges.dispose();
+    stateChanges.dispose();
+    gpsChanges.dispose();
+    flightDataChanges.dispose();
     profileChanges.dispose();
     connectionChanges.dispose();
     calibrationChanges.dispose();

@@ -95,6 +95,17 @@ set(MAVLINK_INCLUDE_DIR
     CACHE PATH "Path to generated MAVLink v2 C headers")
 set(CJSON_INCLUDE_DIR   ${MGCORE_ROOT_DIR}/third_party/cjson)
 
+# QGC supplies its own MAVLink channel-status implementation. M-GCS uses the
+# same override, with thread-local slots because generated packers hardcode
+# MAVLINK_COMM_0 while multiple vehicle adapters may send concurrently.
+set(MGCS_MAVLINK_CHANNEL_STATUS_HEADER
+    ${MGCORE_ROOT_DIR}/core/include/core/mavlink/mavlink_channel_status.h)
+if(MSVC)
+    add_compile_options("/FI${MGCS_MAVLINK_CHANNEL_STATUS_HEADER}")
+else()
+    add_compile_options(-include "${MGCS_MAVLINK_CHANNEL_STATUS_HEADER}")
+endif()
+
 # All sources
 set(MGCORE_SOURCES
     # Core
@@ -107,6 +118,7 @@ set(MGCORE_SOURCES
     core/src/mavlink/mavlink_adapter_params.cc
     core/src/mavlink/mavlink_senders.cc
     core/src/mavlink/mavlink_router.cc
+    core/src/mavlink/mavlink_channel_status.cc
     core/src/mavlink/command_queue.cc
     core/src/mavlink/param_cache.cc
     core/src/mavlink/mission_transfer.cc

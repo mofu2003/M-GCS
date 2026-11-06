@@ -85,6 +85,8 @@ void main() {
     test('fleet inspector hides instead of overflowing a narrow window', () {
       expect(canShowFleetAlongside(1600, MapRightPanel.mission), isTrue);
       expect(canShowFleetAlongside(800, MapRightPanel.mission), isFalse);
+      expect(canShowFleetAlongside(1024, MapRightPanel.mission), isFalse);
+      expect(canShowFleetAlongside(1150, MapRightPanel.mission), isTrue);
     });
   });
 

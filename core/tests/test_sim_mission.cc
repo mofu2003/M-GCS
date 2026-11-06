@@ -578,6 +578,27 @@ static void test_mission_execution_progress() {
           "reaching the last mission item reports reached_end");
     if (progress) mg_free_string(progress);
 
+    // 再次起飞不能沿用上一轮的到达去重表。
+    env.mock->set_heartbeat_enabled(false);
+    for (bool armed : {false, true}) {
+        mavlink_message_t hb;
+        mavlink_msg_heartbeat_pack(1, 1, &hb, MAV_TYPE_QUADROTOR,
+            MAV_AUTOPILOT_ARDUPILOTMEGA,
+            armed ? MAV_MODE_FLAG_SAFETY_ARMED : 0, 3, MAV_STATE_ACTIVE);
+        inject_mavlink_message(env, hb);
+        env.tick(10);
+    }
+    CHECK(env.mav->mission_get_execution_progress().reached_count == 2,
+          "arming alone preserves reached items until restart is confirmed");
+    env.mock->send_mission_current(1);
+    env.tick(50);
+    CHECK(env.mav->mission_get_execution_progress().reached_count == 0,
+          "new flight at the first target clears previous reached items");
+    env.mock->send_mission_item_reached(1);
+    env.tick(50);
+    CHECK(env.mav->mission_get_execution_progress().reached_count == 1,
+          "same waypoint is counted again in the next flight");
+
     // 相同飞控任务重新下载时，上一轮 reached 状态必须清空。
     char* redownload = mg_mission_download(env.core);
     if (redownload) mg_free_string(redownload);
@@ -634,8 +655,8 @@ static void test_mission_completion_follows_qgc_rules() {
     send_heartbeat(true, 10);
     send_heartbeat(false, 0);
     progress = mg_mission_get_execution_progress(env.core);
-    CHECK(progress && strstr(progress, "\"finished\":true"),
-          "armed mission-mode flight followed by disarm reports finished");
+    CHECK(progress && strstr(progress, "\"finished\":false"),
+          "disarm without a reached final item must not report completion");
     CHECK(progress && strstr(progress, "\"reached_end\":false"),
           "reached_end stays false when no mission item was reached");
     if (progress) mg_free_string(progress);
@@ -669,6 +690,84 @@ static void test_mission_completion_follows_qgc_rules() {
     CHECK(progress && strstr(progress, "\"aborted\":true"),
           "leaving mission mode before the last item marks the mission aborted");
     if (progress) mg_free_string(progress);
+
+    env.mock->send_mission_item_reached(1);
+    env.mock->send_mission_current(2);
+    env.tick(50);
+    send_heartbeat(true, 10);
+    progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"aborted\":false") &&
+          strstr(progress, "\"reached_count\":1") &&
+          strstr(progress, "\"current_seq\":2"),
+          "AUTO resume clears interruption and preserves reached items and target");
+    if (progress) mg_free_string(progress);
+
+    send_heartbeat(true, 12);
+    send_heartbeat(false, 12);
+    progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"ended\":true") &&
+          strstr(progress, "\"finished\":false"),
+          "interrupted flight ending is not a completed mission");
+    if (progress) mg_free_string(progress);
+
+    send_heartbeat(true, 10);
+    env.mock->send_mission_current(1);
+    env.tick(50);
+    env.mock->send_mission_item_reached(2);
+    env.tick(50);
+    send_heartbeat(true, 11); // RTL: route done, still flying.
+    progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"reached_end\":true") &&
+          strstr(progress, "\"finished\":false"),
+          "reached final item while returning is not finished yet");
+    if (progress) mg_free_string(progress);
+    send_heartbeat(false, 11);
+    progress = mg_mission_get_execution_progress(env.core);
+    CHECK(progress && strstr(progress, "\"finished\":true"),
+          "final item reached and subsequent disarm completes the mission");
+    if (progress) mg_free_string(progress);
+
+    send_heartbeat(true, 10);
+    env.mock->send_mission_current(2);
+    env.tick(50); // Same target: resume, not restart.
+    CHECK(env.mav->mission_get_execution_progress().reached_count == 1,
+          "resuming at a later target retains the reached history");
+    env.mav->send_command_queued(1, 1, MAV_CMD_MISSION_START, 0, 0, 0, 0, 0, 0, 0);
+    env.tick(50); // Accepted by mock, but current target not confirmed yet.
+    CHECK(env.mav->mission_get_execution_progress().reached_count == 1,
+          "restart ACK alone does not erase progress");
+    env.mock->send_mission_current(1);
+    env.tick(50);
+    CHECK(env.mav->mission_get_execution_progress().reached_count == 0,
+          "accepted start followed by first target begins a new run");
+    env.mock->send_mission_item_reached(2);
+    env.tick(50);
+    CHECK(env.mav->mission_get_execution_progress().reached_end,
+          "second run can reach its final item again");
+    env.mock->send_mission_current(1);
+    env.tick(50);
+    CHECK(!env.mav->mission_get_execution_progress().reached_end,
+          "returning to an earlier target reopens the route");
+    env.mock->send_mission_current(2);
+    env.tick(50);
+    CHECK(!env.mav->mission_get_execution_progress().reached_end,
+          "targeting the final item again does not mean it was reached again");
+
+    env.mock->set_next_cmd_result(MAV_RESULT_DENIED);
+    env.mav->send_command_queued(1, 1, MAV_CMD_MISSION_START, 0, 0, 0, 0, 0, 0, 0);
+    env.tick(50);
+    env.mock->send_mission_current(1);
+    env.tick(50);
+    CHECK(env.mav->mission_get_execution_progress().reached_count == 1,
+          "rejected restart does not erase reached history");
+    mavlink_message_t foreign_ack;
+    mavlink_msg_command_ack_pack(2, 1, &foreign_ack, MAV_CMD_MISSION_START,
+        MAV_RESULT_ACCEPTED, 0, 0, 0, 0);
+    inject_mavlink_message(env, foreign_ack);
+    env.mock->send_mission_current(1);
+    env.tick(50);
+    CHECK(env.mav->mission_get_execution_progress().reached_count == 1,
+          "foreign start ACK cannot reset this vehicle's progress");
 }
 
 

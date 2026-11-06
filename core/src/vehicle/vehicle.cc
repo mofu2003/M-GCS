@@ -67,6 +67,7 @@ void configure_vehicle_telemetry_streams(Vehicle& vehicle) {
     mav->request_message_interval(sys, comp, 30, 50000);    // ATTITUDE 20Hz
     mav->request_message_interval(sys, comp, 33, 50000);    // GLOBAL_POSITION_INT 20Hz
     mav->request_message_interval(sys, comp, 36, 50000);    // SERVO_OUTPUT_RAW 20Hz
+    mav->request_message_interval(sys, comp, 42, 1000000);  // MISSION_CURRENT 1Hz
     mav->request_message_interval(sys, comp, 65, 50000);    // RC_CHANNELS 20Hz
     mav->request_message_interval(sys, comp, 74, 50000);    // VFR_HUD 20Hz
     mav->request_message_interval(sys, comp, 147, 500000);  // BATTERY_STATUS 2Hz
@@ -795,6 +796,7 @@ void Vehicle::wire_telemetry_callbacks_for(
             // 就收不到，地图上的 home 会一直空着（QGC 的 APMFirmwarePlugin 有同样
             // 的注释与做法）。识别出系统号之后再要，避免猜 target。
             if (const auto mav = src->shared_mavlink()) {
+                self->last_home_request_ms_.store(steady_now_ms());
                 mav->request_home_position(info.system_id, info.component_id);
                 mav->request_message_interval(
                     info.system_id, info.component_id,
@@ -808,6 +810,18 @@ void Vehicle::wire_telemetry_callbacks_for(
                     info.system_id, info.component_id,
                     MAVLINK_MSG_ID_EXTENDED_SYS_STATE,
                     1000000 /* 1 Hz */);
+            }
+        }
+        // Like QGC's ArduPilot plugin, recover missing Home streaming per vehicle.
+        const auto now = steady_now_ms();
+        auto last_request = self->last_home_request_ms_.load();
+        if (self->cache_.age_ms(mg::core::telemetry::TelemetryType::kHomePosition) > 10000 &&
+            now - last_request >= 10000 &&
+            self->last_home_request_ms_.compare_exchange_strong(last_request, now)) {
+            if (const auto mav = src->shared_mavlink()) {
+                mav->request_home_position(info.system_id, info.component_id);
+                mav->request_message_interval(info.system_id, info.component_id,
+                                              MAVLINK_MSG_ID_HOME_POSITION, 1000000);
             }
         }
     });

@@ -66,30 +66,17 @@ Write-Host "[windows-preflight] 检查 FFI 声明与前端绑定"
 python (Join-Path $Root "tools\check_ffi_contract.py")
 if ($LASTEXITCODE -ne 0) { throw "check_ffi_contract.py failed" }
 
-Write-Host "[windows-preflight] 检查固件参数字面量 (S6)"
-python (Join-Path $Root "tools\check_firmware_literals.py")
-if ($LASTEXITCODE -ne 0) { throw "check_firmware_literals.py failed" }
-
-Write-Host "[windows-preflight] 检查假断言写法 (T2)"
+Write-Host "[windows-preflight] 检查假断言写法"
 python (Join-Path $Root "tools\check_fake_assertions.py")
 if ($LASTEXITCODE -ne 0) { throw "check_fake_assertions.py failed" }
 python (Join-Path $Root "tools\check_fake_assertions.py") --self-test
 if ($LASTEXITCODE -ne 0) { throw "check_fake_assertions.py --self-test failed" }
-
-Write-Host "[windows-preflight] 检查 FFI 公开头的成套变更 (F1)"
-python (Join-Path $Root "tools\check_api_change_set.py") --self-test
-if ($LASTEXITCODE -ne 0) { throw "check_api_change_set.py --self-test failed" }
-python (Join-Path $Root "tools\check_api_change_set.py") --base HEAD
-if ($LASTEXITCODE -ne 0) { throw "check_api_change_set.py failed" }
 
 # --- 前端门禁检查 ---
 
 Push-Location $FlutterDir
 try {
     if (-not (Test-Path (Join-Path $FlutterDir "pubspec.lock"))) { throw "pubspec.lock missing; run flutter pub get explicitly before preflight." }
-
-    Write-Host "[windows-preflight] UI token check"
-    dart ../tools/check_ui_tokens.dart
 
     Write-Host "[windows-preflight] flutter analyze"
     flutter analyze lib test

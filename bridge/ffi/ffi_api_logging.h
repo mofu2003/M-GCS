@@ -7,8 +7,7 @@
 extern "C" {
 #endif
 
-/* 四组导出按对象命名，前缀即职责；不要再用 mg_log_* 同时表示多件事。
- * 逐项状态、上游对照与缺陷记录见 docs/features/flight-logging-and-replay.md。 */
+/* 四组导出按对象命名，前缀即职责；不要再用 mg_log_* 同时表示多件事。 */
 
 /* 机载 DataFlash 日志：列表、下载、取消、进度/结果。 */
 MGCORE_API char* mg_onboard_log_request_list(mg_core_t* core);

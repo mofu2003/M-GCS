@@ -120,56 +120,42 @@ void test_no_deadlock_on_reentry() {
                  send_count.load(), reentry_attempted.load());
 }
 
-// 测试 3：并发场景下的稳定性
+// 测试 3：多个 Vehicle adapter 并发发送时不共享 MAVLink 全局通道状态。
 void test_concurrent_operations() {
-    std::fprintf(stderr, "\n=== Test: 并发操作不死锁 ===\n");
+    std::fprintf(stderr, "\n=== Test: 多适配器并发发送 ===\n");
 
-    InMemoryLink link;
-    MavlinkAdapter adapter;
-
-    link.open();
+    MavlinkAdapter first;
+    MavlinkAdapter second;
 
     std::atomic<int> total_callbacks{0};
-    adapter.set_send_callback([&](const uint8_t* data, size_t size) -> bool {
-        total_callbacks++;
-        // 在回调中进行一些可能竞争的操作
-        adapter.on_heartbeat([](const HeartbeatInfo&) {});
-        return link.send(data, size);
-    });
+    auto make_send_callback = [&](MavlinkAdapter& adapter) {
+        return [&adapter, &total_callbacks](const uint8_t*, size_t) -> bool {
+            total_callbacks++;
+            adapter.on_heartbeat([](const HeartbeatInfo&) {});
+            return true;
+        };
+    };
+    first.set_send_callback(make_send_callback(first));
+    second.set_send_callback(make_send_callback(second));
 
-    link.set_receive_callback([&](const uint8_t* data, size_t size) {
-        adapter.feed_raw(data, size);
-    });
-
-    // 启动多个线程并发注入消息
-    constexpr int kNumThreads = 3;
-    constexpr int kMsgsPerThread = 10;
+    constexpr int kMsgsPerAdapter = 100;
     std::vector<std::thread> threads;
+    auto send_commands = [&](MavlinkAdapter& adapter) {
+        for (int i = 0; i < kMsgsPerAdapter; ++i) {
+            (void)adapter.send_command_long(
+                1, 1, MAV_CMD_COMPONENT_ARM_DISARM, 0,
+                0, 0, 0, 0, 0, 0, 0);
+        }
+    };
+    threads.emplace_back(send_commands, std::ref(first));
+    threads.emplace_back(send_commands, std::ref(second));
 
-    for (int t = 0; t < kNumThreads; ++t) {
-        threads.emplace_back([&]() {
-            for (int i = 0; i < kMsgsPerThread; ++i) {
-                mavlink_message_t msg;
-                mavlink_msg_heartbeat_pack(1, 1, &msg, MAV_TYPE_GCS,
-                                          MAV_AUTOPILOT_INVALID, 0, 0, MAV_STATE_ACTIVE);
-                uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-                uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-                link.inject_incoming(buf, len);
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            }
-        });
-    }
-
-    // 等待所有线程完成（若死锁，此处会超时）
     for (auto& th : threads) {
         th.join();
     }
 
-    // 给一点时间让回调完成
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-    // 验证并发操作完成（若死锁，线程不会全部 join）
-    CHECK(total_callbacks.load() >= 0, "concurrent operations completed without deadlock");
+    CHECK(total_callbacks.load() == kMsgsPerAdapter * 2,
+          "all concurrent adapter sends reached their callbacks");
 
     std::fprintf(stderr, "  [INFO] total_callbacks=%d\n", total_callbacks.load());
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""T2 守卫：静态扫描假断言写法。
+"""静态扫描假断言写法。
 
-`docs/constraints/testing.md` 的 T2 禁止四类写法，它们会让测试"通过但不验证行为"：
+禁止四类写法，它们会让测试"通过但不验证行为"：
 
   1. 恒真条件：`CHECK(true, ...)`、`CHECK(1, ...)`、`CHECK(!false, ...)`；
   2. OR 组合恒真：`A || !A`、`x || true`、`x || 1`；

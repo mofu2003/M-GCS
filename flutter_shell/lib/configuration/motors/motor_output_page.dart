@@ -58,7 +58,7 @@ class _MotorOutputPageState extends State<MotorOutputPage> {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: Listenable.merge([
       widget.controller.parameterChanges,
-      widget.controller.telemetryChanges,
+      widget.controller.ioChanges,
     ]),
     builder: (context, _) {
       final controller = widget.controller;

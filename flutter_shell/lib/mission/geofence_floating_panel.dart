@@ -86,48 +86,50 @@ class _GeofenceFloatingPanelState extends State<GeofenceFloatingPanel> {
               ),
             ),
             Divider(height: 1, color: colors.divider),
-            Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _FenceRallyCard(mission: _mission, enabled: enabled),
-                  if (_mission.busy) ...[
-                    const SizedBox(height: 10),
-                    const Center(child: ProgressCircle(radius: 8)),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _FenceRallyCard(mission: _mission, enabled: enabled),
+                    if (_mission.busy) ...[
+                      const SizedBox(height: 10),
+                      const Center(child: ProgressCircle(radius: 8)),
+                    ],
+                    if (status != null && status != error) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        status,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: MacosTheme.of(context).typography.caption1
+                            .copyWith(color: colors.textSecondary),
+                      ),
+                    ],
+                    if (error != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        error,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: MacosTheme.of(
+                          context,
+                        ).typography.caption1.copyWith(color: colors.danger),
+                      ),
+                    ],
+                    if (_mission.fenceVerification case final verification?)
+                      _VerificationStatus(
+                        label: '围栏',
+                        verification: verification,
+                      ),
+                    if (_mission.rallyVerification case final verification?)
+                      _VerificationStatus(
+                        label: 'Rally',
+                        verification: verification,
+                      ),
                   ],
-                  if (status != null && status != error) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      status,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: MacosTheme.of(context).typography.caption1
-                          .copyWith(color: colors.textSecondary),
-                    ),
-                  ],
-                  if (error != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      error,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: MacosTheme.of(
-                        context,
-                      ).typography.caption1.copyWith(color: colors.danger),
-                    ),
-                  ],
-                  if (_mission.fenceVerification case final verification?)
-                    _VerificationStatus(
-                      label: '围栏',
-                      verification: verification,
-                    ),
-                  if (_mission.rallyVerification case final verification?)
-                    _VerificationStatus(
-                      label: 'Rally',
-                      verification: verification,
-                    ),
-                ],
+                ),
               ),
             ),
           ],

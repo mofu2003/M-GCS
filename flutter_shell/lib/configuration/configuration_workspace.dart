@@ -58,6 +58,8 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
   ];
 
   String _selectedPageId = _basePages.first.id;
+  PageStorageBucket _pageStorage = PageStorageBucket();
+  int? _storageSessionId;
 
   @override
   void initState() {
@@ -95,18 +97,30 @@ class _ConfigurationWorkspaceState extends State<ConfigurationWorkspace> {
       final selectedIndex = pages.indexWhere(
         (page) => page.id == selectedPageId,
       );
-      return AppWorkspaceShell(
-        items: [
-          for (final page in pages)
-            AppWorkspaceItem(id: page.id, label: page.label, icon: page.icon),
-        ],
-        selectedId: pages[selectedIndex].id,
-        onSelected: (id) => setState(() => _selectedPageId = id),
-        onReturnToMap: widget.onReturnToMap,
-        contentBuilder: (context, scrollController) => _buildSelectedPage(
-          context,
-          scrollController,
-          pageId: selectedPageId,
+      final sessionId = widget.connectionController.sessionId;
+      if (_storageSessionId != sessionId) {
+        _storageSessionId = sessionId;
+        _pageStorage = PageStorageBucket();
+      }
+      return PageStorage(
+        bucket: _pageStorage,
+        child: AppWorkspaceShell(
+          key: ValueKey(sessionId),
+          items: [
+            for (final page in pages)
+              AppWorkspaceItem(id: page.id, label: page.label, icon: page.icon),
+          ],
+          selectedId: pages[selectedIndex].id,
+          onSelected: (id) => setState(() => _selectedPageId = id),
+          onReturnToMap: widget.onReturnToMap,
+          contentBuilder: (context, scrollController) => KeyedSubtree(
+            key: PageStorageKey(selectedPageId),
+            child: _buildSelectedPage(
+              context,
+              scrollController,
+              pageId: selectedPageId,
+            ),
+          ),
         ),
       );
     },

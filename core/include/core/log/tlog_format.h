@@ -14,8 +14,7 @@
  *   `mavlink_parse_char` 直到组帧完成。
  *
  * 该头文件是写入器与回放器共用的唯一格式契约，避免两侧各写一套格式导致
- * 「录了但读不回来」。改动此处即改动磁盘格式，需同步 writer / replayer /
- * 测试与 `docs/features/flight-logging-and-replay.md`。
+ * 「录了但读不回来」。改动此处即改动磁盘格式，需同步 writer / replayer / 测试。
  *
  * 参考版本：QGC `bf0096d97`（`src/Comms/MAVLinkProtocol.cc`、`LogReplayLink.cc`），
  * MP `a2fcd74d6`（`ExtLibs/ArduPilot/Mavlink/MAVLinkInterface.cs`）。

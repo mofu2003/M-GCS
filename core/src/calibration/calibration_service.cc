@@ -124,6 +124,8 @@ bool CalibrationService::start(CalibrationType type,
     status_.stage = CalibrationStage::WaitingForStart;
     status_.progress = 0;
     status_.compass_progress.clear();
+    compass_expected_ids_.clear();
+    compass_reports_received_.clear();
     status_.current_step = 0;
     status_.total_steps = type == CalibrationType::Accelerometer &&
             accel_mode_ != AccelCalMode::Full
@@ -165,6 +167,7 @@ bool CalibrationService::start(CalibrationType type,
 
     // Transition to Calibrating
     last_progress_ms_ = now_ms();
+
     transition_to(CalibrationStage::Calibrating);
     return true;
 }
@@ -385,6 +388,13 @@ void CalibrationService::process_mag_cal_progress(
 
     last_progress_ms_ = now_ms();
 
+    for (uint8_t id = 0; id < 8; ++id) {
+        if ((progress.cal_mask & (static_cast<uint8_t>(1u) << id)) != 0) {
+            compass_expected_ids_.insert(id);
+        }
+    }
+    compass_expected_ids_.insert(progress.compass_id);
+
     status_.progress = progress.completion_pct;
     current_result_.progress = progress.completion_pct;
     // 分罗盘记录：界面按识别到的罗盘数量各画一条进度条。
@@ -444,6 +454,14 @@ void CalibrationService::process_mag_cal_report(
     }
     if (report.cal_status != kMagCalSuccess) return;
 
+    for (uint8_t id = 0; id < 8; ++id) {
+        if ((report.cal_mask & (static_cast<uint8_t>(1u) << id)) != 0) {
+            compass_expected_ids_.insert(id);
+        }
+    }
+    compass_expected_ids_.insert(report.compass_id);
+    compass_reports_received_.insert(report.compass_id);
+
     current_result_.mag_report_received = true;
     current_result_.fitness = report.fitness;
     current_result_.offset_x = report.offset_x;
@@ -455,6 +473,17 @@ void CalibrationService::process_mag_cal_report(
     current_result_.offdiag_x = report.offdiag_x;
     current_result_.offdiag_y = report.offdiag_y;
     current_result_.offdiag_z = report.offdiag_z;
+    const bool all_reports_received = std::all_of(
+        compass_expected_ids_.begin(), compass_expected_ids_.end(),
+        [&](uint8_t id) { return compass_reports_received_.count(id) != 0; });
+    if (!all_reports_received) {
+        status_.stage = CalibrationStage::Calibrating;
+        current_result_.stage = CalibrationStage::Calibrating;
+        status_.progress = std::min<uint8_t>(status_.progress, 99);
+        status_.user_message = "Waiting for all compass calibration reports";
+        fire_event();
+        return;
+    }
     current_result_.progress = 100;
     status_.progress = 100;
     status_.user_message = report.autosaved

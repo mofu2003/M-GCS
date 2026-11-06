@@ -23,6 +23,8 @@ void MissionTransferState::reset() {
     reached_count = 0;
     last_reached_seq = 0;
     has_reached = false;
+    route_reached_end = false;
+    restart_pending = false;
     reached_flags.clear();
     upload_backup = UploadBackup{};
 }

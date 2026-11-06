@@ -45,7 +45,7 @@ class RcCalibrationView extends StatelessWidget {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: Listenable.merge([
       controller.parameterChanges,
-      controller.telemetryChanges,
+      controller.ioChanges,
       controller.calibrationChanges,
     ]),
     builder: (context, _) {

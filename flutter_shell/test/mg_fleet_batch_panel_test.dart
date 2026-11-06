@@ -29,9 +29,10 @@ class _MemoryFleetBackend implements FleetBackend {
       systemId: id,
       endpoint: spec.uri,
       connected: true,
-      flightMode: 'Guided',
+      flightMode: id == 1 ? 'Guided' : 'FBWA',
       headingDegrees: 90,
-      altitudeMeters: 12.5,
+      altitudeMeters: 42.5,
+      relativeAltitudeMeters: 12.5,
       groundSpeedMps: 3.2,
       linkCount: 1,
       healthyLinkCount: 1,
@@ -61,6 +62,47 @@ class _MemoryFleetBackend implements FleetBackend {
 }
 
 void main() {
+  for (final height in [200.0, 300.0, 500.0]) {
+    testWidgets('fleet actions remain reachable at height $height', (
+      tester,
+    ) async {
+      final backend = _MemoryFleetBackend();
+      final fleet = FleetController(backend);
+      fleet.openLink(FleetConnectionSpec('udp://localhost:12345'));
+      fleet.openLink(FleetConnectionSpec('udp://localhost:12346'));
+      addTearDown(fleet.dispose);
+      await tester.pumpWidget(
+        MacosTheme(
+          data: MacosThemeData.light(),
+          child: MaterialApp(
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: 360,
+                  height: height,
+                  child: MgFleetBatchPanel(
+                    fleet: fleet,
+                    onSelectVehicle: (_) async {},
+                    onRequestAction: (_) {},
+                    onClose: () {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final action = find.byKey(const ValueKey('fleet-batch-mission-start'));
+      await tester.ensureVisible(action);
+      await tester.pumpAndSettle();
+      expect(tester.getRect(action).bottom, lessThanOrEqualTo(height));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets(
     'fleet panel separates selection, active focus and batch request',
     (tester) async {
@@ -79,6 +121,7 @@ void main() {
         FleetConnectionSpec('udp://127.0.0.1:14551'),
       );
       final activeSelections = <int>[];
+      final modeRequests = <int>[];
       FleetBatchTarget? requested;
 
       await tester.pumpWidget(
@@ -89,7 +132,7 @@ void main() {
               body: Align(
                 alignment: Alignment.topRight,
                 child: SizedBox(
-                  width: 400,
+                  width: 360,
                   height: 640,
                   child: MgFleetBatchPanel(
                     fleet: fleet,
@@ -98,6 +141,7 @@ void main() {
                       fleet.selectVehicle(vehicleId);
                     },
                     onRequestAction: (target) => requested = target,
+                    onOpenFlightMode: modeRequests.add,
                   ),
                 ),
               ),
@@ -108,26 +152,58 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('多机控制'), findsOneWidget);
-      expect(find.byType(MacosCheckbox), findsNWidgets(2));
+      expect(find.text('2 架飞机'), findsNothing);
+      expect(find.text('选择飞机后可批量下发动作'), findsNothing);
+      expect(find.text('选择'), findsNothing);
+      expect(find.text('当前'), findsNothing);
       expect(find.text('航向'), findsNWidgets(2));
-      expect(find.text('高度'), findsNWidgets(2));
+      expect(find.text('相对高度'), findsNWidgets(2));
+      expect(find.text('高度'), findsNothing);
       expect(find.text('地速'), findsNWidgets(2));
       expect(find.text('90°'), findsNWidgets(2));
       expect(find.text('12.5 m'), findsNWidgets(2));
+      expect(find.text('42.5 m'), findsNothing);
       expect(find.text('3.2 m/s'), findsNWidgets(2));
 
-      await tester.tap(find.byType(MacosCheckbox).first);
+      final modeButton = find.byKey(ValueKey('fleet-mode-$first'));
+      final vehicleName = tester.getRect(find.text('飞机 $first'));
+      final modeRect = tester.getRect(modeButton);
+      expect(modeRect.left, greaterThan(vehicleName.right));
+      expect(modeRect.center.dy, closeTo(vehicleName.center.dy, 1));
+      expect(modeRect.width, 100);
+      expect(
+        tester.getSize(find.byKey(ValueKey('fleet-mode-$second'))).width,
+        modeRect.width,
+      );
+      expect(find.text('模式：Guided'), findsNothing);
+
+      final firstSelection = find.byKey(ValueKey('fleet-select-$first'));
+      expect(tester.getSize(firstSelection).width, greaterThanOrEqualTo(40));
+      await tester.tap(firstSelection);
       await tester.pumpAndSettle();
       expect(fleet.selectedVehicleIds, {first});
+      expect(find.text('已选'), findsNothing);
+      expect(activeSelections, isEmpty);
 
-      await tester.tap(find.byType(MacosCheckbox).last);
+      await tester.tap(find.byKey(ValueKey('fleet-select-$second')));
       await tester.pumpAndSettle();
       expect(fleet.selectedVehicleIds, {first, second});
+      expect(find.text('2 架飞机 · 已选 2'), findsNothing);
+      expect(find.text('已选择 2 架飞机'), findsNothing);
 
-      await tester.tap(find.byKey(ValueKey('fleet-batch-vehicle-$second')));
+      await tester.tap(find.byKey(ValueKey('fleet-mode-$second')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('fleet-mode-$first')));
+      await tester.pumpAndSettle();
+      expect(modeRequests, [second, first]);
+      expect(activeSelections, isEmpty);
+      expect(fleet.selectedVehicleIds, {first, second});
+
+      await tester.tap(find.text('飞机 $second'));
       await tester.pumpAndSettle();
       expect(activeSelections, [second]);
       expect(fleet.snapshot.activeVehicleId, second);
+      expect(find.text('当前'), findsNothing);
 
       await tester.tap(find.text('返航'));
       await tester.pumpAndSettle();
@@ -136,6 +212,29 @@ void main() {
       expect(requested!.vehicleIds, [first, second]);
       // 固定悬浮面板在动作下发后保持显示，不再自动关闭。
       expect(find.text('多机控制'), findsOneWidget);
+
+      // 遥测过期后保留最后的模式展示，但不允许通过入口下发切换。
+      backend.vehicles[second] = FleetVehicleSummary(
+        id: second,
+        systemId: second,
+        endpoint: 'udp://127.0.0.1:14551',
+        connected: true,
+        heartbeatFresh: false,
+        flightMode: 'LoiterAltQLand',
+      );
+      fleet.refresh();
+      await tester.pumpAndSettle();
+      expect(
+        tester.getSize(find.byKey(ValueKey('fleet-mode-$second'))).width,
+        modeRect.width,
+      );
+      expect(
+        tester
+            .widget<PushButton>(find.byKey(ValueKey('fleet-mode-$second')))
+            .onPressed,
+        isNull,
+      );
+      expect(modeRequests, [second, first]);
       expect(tester.takeException(), isNull);
     },
   );

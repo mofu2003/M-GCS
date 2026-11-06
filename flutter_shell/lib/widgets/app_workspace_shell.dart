@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/mg_colors.dart';
+import '../theme/mg_material_theme.dart';
 import '../theme/mg_typography.dart';
 
 /// A navigation entry in the cross-platform configuration workspace.
@@ -49,7 +50,7 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
       12 + 12 + MgMetrics.navIconSize / 2 - _collapseButtonWidth / 2;
 
   final _sidebarScroll = ScrollController();
-  final _contentScroll = ScrollController();
+  final _contentScrolls = <String, ScrollController>{};
 
   /// 手动折叠侧栏。窄窗口本来就只留图标，这里让用户在任意宽度下也能收起。
   bool _collapsed = false;
@@ -57,7 +58,9 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
   @override
   void dispose() {
     _sidebarScroll.dispose();
-    _contentScroll.dispose();
+    for (final scroll in _contentScrolls.values) {
+      scroll.dispose();
+    }
     super.dispose();
   }
 
@@ -68,132 +71,148 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
       (item) => item.id == widget.selectedId,
       orElse: () => widget.items.first,
     );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = _collapsed || constraints.maxWidth < 720;
-        return Material(
-          color: colors.workspace,
-          child: SafeArea(
-            child: Row(
-              children: [
-                SizedBox(
-                  width: compact
-                      ? MgMetrics.sidebarCompactWidth
-                      : MgMetrics.sidebarWidth,
-                  child: ColoredBox(
-                    color: colors.sidebar,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const SizedBox(height: 46),
-                        // 折叠按钮是这里唯一的控件：展开时也把它放在与导航图标
-                        // 同一条竖轴上，收起时随侧栏整体居中。
-                        Row(
-                          children: [
-                            SizedBox(width: compact ? 0 : _collapseButtonLeft),
-                            if (compact) const Spacer(),
-                            _SidebarCollapseButton(
-                              collapsed: compact,
-                              onPressed: () =>
-                                  setState(() => _collapsed = !_collapsed),
-                            ),
-                            if (compact) const Spacer(),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Expanded(
-                          child: ListView(
-                            controller: _sidebarScroll,
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
+    return MgMaterialTheme(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = _collapsed || constraints.maxWidth < 720;
+          return Material(
+            color: colors.workspace,
+            child: SafeArea(
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: compact
+                        ? MgMetrics.sidebarCompactWidth
+                        : MgMetrics.sidebarWidth,
+                    child: ColoredBox(
+                      color: colors.sidebar,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const SizedBox(height: 46),
+                          // 折叠按钮是这里唯一的控件：展开时也把它放在与导航图标
+                          // 同一条竖轴上，收起时随侧栏整体居中。
+                          Row(
                             children: [
-                              for (final item in widget.items)
-                                _SidebarEntry(
-                                  item: item,
-                                  selected: item.id == selected.id,
-                                  compact: compact,
-                                  onPressed: () => widget.onSelected(item.id),
-                                ),
+                              SizedBox(
+                                width: compact ? 0 : _collapseButtonLeft,
+                              ),
+                              if (compact) const Spacer(),
+                              _SidebarCollapseButton(
+                                collapsed: compact,
+                                onPressed: () =>
+                                    setState(() => _collapsed = !_collapsed),
+                              ),
+                              if (compact) const Spacer(),
                             ],
+                          ),
+                          const SizedBox(height: 12),
+                          Expanded(
+                            child: ListView(
+                              controller: _sidebarScroll,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              children: [
+                                for (final item in widget.items)
+                                  _SidebarEntry(
+                                    item: item,
+                                    selected: item.id == selected.id,
+                                    compact: compact,
+                                    onPressed: () => widget.onSelected(item.id),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: colors.hairline,
+                  ),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Container(
+                          height: MgMetrics.toolbarHeight,
+                          padding: const EdgeInsets.fromLTRB(24, 0, 12, 0),
+                          decoration: BoxDecoration(
+                            color: colors.toolbar,
+                            border: Border(
+                              bottom: BorderSide(color: colors.hairline),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  selected.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: MgTypography.sans(
+                                    MgTypography.title.copyWith(
+                                      color: colors.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Tooltip(
+                                message: '返回前台地图',
+                                child: TextButton(
+                                  onPressed: widget.onReturnToMap,
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: colors.textSecondary,
+                                    minimumSize: const Size(108, 44),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.map_outlined,
+                                        size: 18,
+                                        color: colors.accent,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '返回前台地图',
+                                        style: MgTypography.sans(
+                                          MgTypography.caption,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: ColoredBox(
+                            color: colors.toolbar,
+                            child: widget.contentBuilder(
+                              context,
+                              _contentScrolls.putIfAbsent(
+                                widget.selectedId,
+                                () => ScrollController(),
+                              ),
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-                VerticalDivider(width: 1, thickness: 1, color: colors.hairline),
-                Expanded(
-                  child: Column(
-                    children: [
-                      Container(
-                        height: MgMetrics.toolbarHeight,
-                        padding: const EdgeInsets.fromLTRB(24, 0, 12, 0),
-                        decoration: BoxDecoration(
-                          color: colors.toolbar,
-                          border: Border(
-                            bottom: BorderSide(color: colors.hairline),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                selected.label,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: MgTypography.sans(
-                                  MgTypography.title.copyWith(
-                                    color: colors.textPrimary,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Tooltip(
-                              message: '返回前台地图',
-                              child: TextButton(
-                                onPressed: widget.onReturnToMap,
-                                style: TextButton.styleFrom(
-                                  foregroundColor: colors.textSecondary,
-                                  minimumSize: const Size(108, 44),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                  ),
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.map_outlined,
-                                      size: 18,
-                                      color: colors.accent,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      '返回前台地图',
-                                      style: MgTypography.sans(
-                                        MgTypography.caption,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: ColoredBox(
-                          color: colors.toolbar,
-                          child: widget.contentBuilder(context, _contentScroll),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

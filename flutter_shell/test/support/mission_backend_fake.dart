@@ -9,8 +9,11 @@ final class FakeMissionBackend implements MissionDocumentBackend {
   );
   MissionTransferProgress _transfer = const MissionTransferProgress();
   int _transferPolls = 0;
+  int transferPollCalls = 0;
   int transferCompletionPolls = 2;
   int downloadStarts = 0;
+  MissionDocument? downloadedDocument;
+  String? downloadError;
   bool cancelCalled = false;
   int fenceDownloadStarts = 0;
   int fenceClears = 0;
@@ -130,7 +133,8 @@ final class FakeMissionBackend implements MissionDocumentBackend {
   Future<MissionDocument> getMissionDocument() async => _document;
 
   @override
-  Future<MissionDocument> importMissionDocumentFromVehicle() async => _document;
+  Future<MissionDocument> importMissionDocumentFromVehicle() async =>
+      _document = downloadedDocument ?? _document;
 
   @override
   Future<MissionDocument> loadMissionDocument(String filePath) async =>
@@ -169,6 +173,9 @@ final class FakeMissionBackend implements MissionDocumentBackend {
 
   @override
   Future<JsonMap> uploadMissionDocument(int expectedRevision) async {
+    if (expectedRevision != _document.revision) {
+      throw StateError('mission document revision mismatch');
+    }
     _startTransfer(MissionTransferState.uploading);
     return {
       'success': true,
@@ -189,6 +196,7 @@ final class FakeMissionBackend implements MissionDocumentBackend {
   @override
   Future<void> startMissionDownload() async {
     downloadStarts++;
+    if (downloadError != null) throw StateError(downloadError!);
     _startTransfer(MissionTransferState.downloading);
   }
 
@@ -268,6 +276,7 @@ final class FakeMissionBackend implements MissionDocumentBackend {
 
   @override
   Future<MissionTransferProgress> getMissionTransferProgress() async {
+    transferPollCalls++;
     if (_transfer.active) {
       _transferPolls++;
       if (_transferPolls >= transferCompletionPolls) {

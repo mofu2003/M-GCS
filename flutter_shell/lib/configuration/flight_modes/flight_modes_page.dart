@@ -104,7 +104,7 @@ class _FlightModesPageState extends State<FlightModesPage> {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: Listenable.merge([
       widget.controller.parameterChanges,
-      widget.controller.telemetryChanges,
+      widget.controller.ioChanges,
     ]),
     builder: (context, _) {
       final colors = context.mgColors;

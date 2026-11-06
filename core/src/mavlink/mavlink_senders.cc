@@ -283,18 +283,12 @@ bool MavlinkAdapter::mission_type_cancel(MissionTransferState& state,
 // 清除飞控上所有任务
 bool MavlinkAdapter::mission_clear(uint8_t target_system, uint8_t target_component) {
     mg::core::platform::UniqueLock lk(impl_->mtx);
-    mavlink_message_t msg{};  // 局部缓冲：解锁后发送不再共享 impl_->msg
-    impl_->mission.plan.clear();
-    ++impl_->mission.plan_revision;
-    impl_->mission.progress = mg::core::mission::MissionTransferProgress{};
-    
-    mavlink_msg_mission_clear_all_pack(
-        255, 0, &msg,
-        target_system, target_component, MAV_MISSION_TYPE_MISSION);
-    // KD-22：send_cb 在锁外执行（A3：持锁路径不做阻塞 I/O，
-    // 也避免传输层回调重入 adapter 时死锁）。
-    lk.unlock();
-    return impl_->send_message(msg);
+    if (has_active_transfer(impl_->mission, impl_->rally, impl_->fence)) {
+        return false;
+    }
+    return mission_type_clear(
+        target_system, target_component, impl_->mission,
+        MAV_MISSION_TYPE_MISSION, lk);
 }
 
 // 设置当前航点
@@ -366,8 +360,7 @@ MavlinkAdapter::mission_get_execution_progress() const {
     progress.has_reached = execution.has_reached;
     // 原始 seq 的最后一项就是任务最后一项，收到它的 REACHED 即代表航段飞完。
     progress.reached_end =
-        progress.valid && execution.has_reached &&
-        static_cast<uint32_t>(execution.last_reached_seq) + 1 >= progress.total;
+        progress.valid && execution.route_reached_end;
     return progress;
 }
 
@@ -458,6 +451,7 @@ bool MavlinkAdapter::mission_type_clear(uint8_t sys, uint8_t comp,
     state.begin_upload_backup();
     state.plan.clear();
     state.progress = mg::core::mission::MissionTransferProgress{};
+    state.progress.state = mg::core::mission::MissionState::WaitingAck;
 
     mavlink_msg_mission_clear_all_pack(255, 0, &impl_->msg, sys, comp, mission_type);
     state.resend_fn = nullptr;
@@ -467,8 +461,18 @@ bool MavlinkAdapter::mission_type_clear(uint8_t sys, uint8_t comp,
         state.rollback_upload();
         return false;
     }
-    // 记录目标飞控，MISSION_ACK 来源校验要用（不设 resend：清除命令不自动重试）。
-    state.record_send(sys, comp, nullptr);
+    // An in-memory/test transport can deliver MISSION_ACK synchronously while
+    // send_msg_unlocked temporarily releases the adapter lock. Do not replace
+    // that completed state with a stale retry callback.
+    if (state.progress.state == mg::core::mission::MissionState::Idle) {
+        return true;
+    }
+    // 记录目标飞控，MISSION_ACK 来源校验要用；超时由传输状态机回滚本地缓存。
+    state.record_send(sys, comp, [this, sys, comp, mission_type]() {
+        mavlink_msg_mission_clear_all_pack(
+            255, 0, &impl_->msg, sys, comp, mission_type);
+        impl_->queue_msg();
+    });
     return true;
 }
 
@@ -714,7 +718,7 @@ bool MavlinkAdapter::camera_take_photo(uint8_t target_system, uint8_t target_com
 // 开始视频录制
 bool MavlinkAdapter::camera_start_video(uint8_t target_system, uint8_t target_component) {
     return send_command_long(target_system, target_component,
-                             MAV_CMD_VIDEO_START_STREAMING, 0,
+                             MAV_CMD_VIDEO_START_CAPTURE, 0,
                              0,  // stream_id (0 = default)
                              0, 0, 0, 0, 0, 0);
 }
@@ -722,7 +726,7 @@ bool MavlinkAdapter::camera_start_video(uint8_t target_system, uint8_t target_co
 // 停止视频录制
 bool MavlinkAdapter::camera_stop_video(uint8_t target_system, uint8_t target_component) {
     return send_command_long(target_system, target_component,
-                             MAV_CMD_VIDEO_STOP_STREAMING, 0,
+                             MAV_CMD_VIDEO_STOP_CAPTURE, 0,
                              0,  // stream_id (0 = default)
                              0, 0, 0, 0, 0, 0);
 }

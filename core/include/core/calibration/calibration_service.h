@@ -34,6 +34,7 @@
 #include <array>
 #include <vector>
 #include <map>
+#include <set>
 #include <functional>
 
 namespace mg::core::mavlink {
@@ -175,6 +176,9 @@ private:
     uint64_t cancel_requested_ms_ = 0;
     // 等待飞控确认取消的上限（毫秒）。
     uint64_t cancel_timeout_ms_ = 10000;
+
+    std::set<uint8_t> compass_expected_ids_;
+    std::set<uint8_t> compass_reports_received_;
 
     // 按校准类型保存历史。
     std::array<std::vector<CalibrationResult>, 5> history_;

@@ -46,7 +46,6 @@ const char* ffi_error_name(mg_error_t error);
 
 /// Canonical error object shared by every failing FFI response:
 /// {"code":<int mg_error_t>,"name":"<SYMBOL>","message":"<text>"}
-/// See docs/constraints/ffi-contract.md (F4).
 inline std::string ffi_error_object_json(mg_error_t error, const std::string& message) {
     mg::core::telemetry::JsonBuilder jb;
     jb.begin_object();

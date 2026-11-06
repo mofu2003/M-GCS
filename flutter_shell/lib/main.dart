@@ -11,6 +11,7 @@ import 'fleet/fleet_models.dart';
 import 'gcs_configuration_workspace.dart';
 import 'map/amap_map_view.dart';
 import 'theme/mg_typography.dart';
+import 'theme/mg_material_theme.dart';
 import 'widgets/mg_command_confirmation.dart';
 import 'widgets/mg_dialog.dart';
 import 'widgets/mg_settings_menu.dart';
@@ -36,6 +37,8 @@ class MgcsApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MacosApp(
     title: 'M-GCS',
+    builder: (context, child) =>
+        MgMaterialTheme(child: child ?? const SizedBox.shrink()),
     debugShowCheckedModeBanner: false,
     themeMode: ThemeMode.system,
     theme: MacosThemeData.light().copyWith(
@@ -57,9 +60,6 @@ class MapPage extends StatefulWidget {
 }
 
 class _MapPageState extends State<MapPage> {
-  var _showConfiguration = false;
-  var _showGcsConfiguration = false;
-
   /// 地图样式的唯一真源：设置页写，地图页读并持久化。
   final _mapStyle = ValueNotifier<MapStyle>(MapStyle.amap);
 
@@ -87,6 +87,9 @@ class _MapPageState extends State<MapPage> {
       _confirmationFocusRevision = _connectionController.fleet.focusRevision;
       _connectionController.fleet.addListener(_handleFleetFocusChange);
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _connectionController.preloadConfigurationResources();
+    });
   }
 
   void _handleFleetFocusChange() {
@@ -276,6 +279,11 @@ class _MapPageState extends State<MapPage> {
     final connected = _connectionController.isConnected;
     final destination = await showMgSettingsMenu(
       settingsContext,
+      topInset: mgTopStatusBarHeight(
+        MediaQuery.sizeOf(settingsContext).width,
+        multipleVehicles:
+            _connectionController.fleetSnapshot.vehicles.length > 1,
+      ),
       connected: connected,
       linkLabel: _connectionController.selectedTransportLabel,
     );
@@ -286,7 +294,7 @@ class _MapPageState extends State<MapPage> {
         _connectionPanelRequest.value++;
       case MgSettingsDestination.configuration:
         _cancelCommandConfirmation();
-        setState(() => _showConfiguration = true);
+        return _openConfiguration();
       case MgSettingsDestination.missionPlanning:
         _cancelCommandConfirmation();
         _missionPlanningRequest.value++;
@@ -295,24 +303,57 @@ class _MapPageState extends State<MapPage> {
         _geofenceRequest.value++;
       case MgSettingsDestination.payload:
         _cancelCommandConfirmation();
-        _configurationPageRequest.value = 'payload';
-        setState(() => _showConfiguration = true);
+        return _openConfiguration(page: 'payload');
       case MgSettingsDestination.logs:
         _cancelCommandConfirmation();
-        _configurationPageRequest.value = 'logs';
-        setState(() => _showConfiguration = true);
+        return _openConfiguration(page: 'logs');
       case MgSettingsDestination.flightLog:
         _cancelCommandConfirmation();
-        _configurationPageRequest.value = 'flightLog';
-        setState(() => _showConfiguration = true);
+        return _openConfiguration(page: 'flightLog');
       case MgSettingsDestination.files:
         _cancelCommandConfirmation();
-        _configurationPageRequest.value = 'files';
-        setState(() => _showConfiguration = true);
+        return _openConfiguration(page: 'files');
       case MgSettingsDestination.gcs:
         _cancelCommandConfirmation();
-        setState(() => _showGcsConfiguration = true);
+        return _openGcsConfiguration();
     }
+  }
+
+  Route<void> _workspaceRoute(WidgetBuilder builder) => PageRouteBuilder<void>(
+    transitionDuration: const Duration(milliseconds: 120),
+    reverseTransitionDuration: const Duration(milliseconds: 100),
+    pageBuilder: (context, animation, secondaryAnimation) => builder(context),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+        FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
+        ),
+  );
+
+  Future<void> _openConfiguration({String? page}) async {
+    _configurationPageRequest.value = page;
+    await Navigator.of(context).push(
+      _workspaceRoute(
+        (routeContext) => ConfigurationWorkspace(
+          connectionController: _connectionController,
+          requestedPage: _configurationPageRequest,
+          onReturnToMap: () => Navigator.of(routeContext).maybePop(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openGcsConfiguration() async {
+    await Navigator.of(context).push(
+      _workspaceRoute(
+        (routeContext) => GcsConfigurationWorkspace(
+          mapStyle: _mapStyle,
+          customTileUrl: _customTileUrl,
+          connectionController: _connectionController,
+          onReturnToMap: () => Navigator.of(routeContext).maybePop(),
+        ),
+      ),
+    );
   }
 
   void _selectFleetVehicle(int vehicleId) {
@@ -337,46 +378,62 @@ class _MapPageState extends State<MapPage> {
     }
   }
 
-  Future<void> _openFlightModeMenu(BuildContext context) async {
-    if (!_connectionController.isConnected) return;
+  Future<void> _openFleetFlightMode(int vehicleId) =>
+      _executeCommandConfirmation(
+        MgCommandConfirmation(
+          label: '打开飞行模式',
+          execute: () => _openFlightModeMenu(context, vehicleId: vehicleId),
+        ),
+      );
+
+  Future<void> _openFlightModeMenu(
+    BuildContext context, {
+    int? vehicleId,
+  }) async {
+    if (vehicleId != null) _connectionController.selectVehicle(vehicleId);
+    if (!_connectionController.isConnected) {
+      if (vehicleId != null) throw StateError('这架飞机尚未连接');
+      return;
+    }
+    final target = vehicleId == null
+        ? null
+        : _connectionController.fleet.captureTarget(
+            expectedVehicleId: vehicleId,
+          );
     await _connectionController.refreshFlightModes();
     if (!mounted) return;
+    // 列表属于打开时的飞机。异步加载期间焦点或会话变化后不能沿用。
+    if (target != null) _connectionController.fleet.validateTarget(target);
     final options = _connectionController.flightModeOptions;
-    if (options.isEmpty) return;
+    if (options.isEmpty) {
+      if (vehicleId != null) throw StateError('尚未获取到这架飞机的飞行模式');
+      return;
+    }
     final modeContext = context;
     if (!modeContext.mounted) return;
     await showMgFlightModeMenu(
       modeContext,
       controller: _connectionController,
       options: options,
+      vehicleLabel: vehicleId == null
+          ? null
+          : '飞机 ${_connectionController.fleet.snapshot.vehicle(vehicleId)?.systemId ?? vehicleId}',
+      alignment: vehicleId == null ? Alignment.topLeft : Alignment.topRight,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_showConfiguration) {
-      return ConfigurationWorkspace(
-        connectionController: _connectionController,
-        requestedPage: _configurationPageRequest,
-        onReturnToMap: () => setState(() => _showConfiguration = false),
-      );
-    }
-    if (_showGcsConfiguration) {
-      return GcsConfigurationWorkspace(
-        mapStyle: _mapStyle,
-        customTileUrl: _customTileUrl,
-        connectionController: _connectionController,
-        onReturnToMap: () => setState(() => _showGcsConfiguration = false),
-      );
-    }
-
     return MacosWindow(
       child: Column(
         children: [
           AnimatedBuilder(
             animation: Listenable.merge([
               _connectionController.connectionChanges,
-              _connectionController.telemetryChanges,
+              _connectionController.gpsChanges,
+              _connectionController.batteryChanges,
+              _connectionController.flightStateChanges,
+              _connectionController.stateChanges,
               _connectionController.profileChanges,
             ]),
             builder: (context, _) => MgTopStatusBar(
@@ -417,6 +474,8 @@ class _MapPageState extends State<MapPage> {
                           onSelectFleetVehicle: (vehicleId) async =>
                               _selectFleetVehicle(vehicleId),
                           onRequestFleetBatchAction: _requestFleetBatchAction,
+                          onOpenFleetFlightMode: (vehicleId) =>
+                              unawaited(_openFleetFlightMode(vehicleId)),
                           onRequestCommandConfirmation:
                               _requestCommandConfirmation,
                         ),

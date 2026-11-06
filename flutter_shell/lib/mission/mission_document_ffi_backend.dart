@@ -17,6 +17,8 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     this._corePointer, {
     required this.isConnected,
     this.beforeAccess,
+    this.targetVehicleId,
+    this.executeCommand,
   }) {
     _freeString = _library
         .lookup<NativeFunction<Void Function(Pointer<Utf8>)>>('mg_free_string')
@@ -54,7 +56,6 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     _missionDocVerifyRally = _lookupVerify('mg_mission_doc_verify_rally');
     _rallyDownload = _lookup1('mg_rally_download');
     _missionDownload = _lookup1('mg_mission_download');
-    _missionClear = _lookup1('mg_mission_clear');
     _missionExecutionProgress = _lookup1('mg_mission_get_execution_progress');
     _operationsGetSnapshot = _lookup1('mg_operations_get_snapshot');
     _operationsCancel = _lookup2('mg_operations_cancel');
@@ -63,6 +64,8 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   final DynamicLibrary _library;
   final Pointer<Void> _corePointer;
   final void Function()? beforeAccess;
+  final int? Function()? targetVehicleId;
+  final Future<JsonMap> Function(int vehicleId, String command)? executeCommand;
 
   // Check before evaluating the native call, including resumed async work.
   Pointer<Void> get _core {
@@ -110,7 +113,6 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   _missionDocVerifyRally;
   late final Pointer<Utf8> Function(Pointer<Void>) _rallyDownload;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionDownload;
-  late final Pointer<Utf8> Function(Pointer<Void>) _missionClear;
   late final Pointer<Utf8> Function(Pointer<Void>) _missionExecutionProgress;
   late final Pointer<Utf8> Function(Pointer<Void>) _operationsGetSnapshot;
   late final Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
@@ -120,8 +122,9 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
       .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(symbol)
       .asFunction();
 
-  Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
-  _lookup3(String symbol) => _library
+  Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>) _lookup3(
+    String symbol,
+  ) => _library
       .lookup<
         NativeFunction<
           Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
@@ -264,7 +267,15 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
   @override
   Future<void> clearVehicleMission() async {
     if (!isConnected()) throw StateError('未连接飞控，无法清除飞控任务');
-    _requireSuccess(_readJson(_missionClear(_core)) as JsonMap);
+    beforeAccess?.call();
+    final target = targetVehicleId?.call();
+    final execute = executeCommand;
+    if (target == null || target <= 0 || execute == null) {
+      throw StateError('清除任务缺少明确的目标飞机');
+    }
+    final result = await execute(target, 'clear_mission');
+    beforeAccess?.call();
+    _requireSuccess(result);
   }
 
   @override
@@ -388,7 +399,9 @@ final class MissionDocumentFfiBackend implements MissionDocumentBackend {
     final nativeFormat = format.toNativeUtf8();
     final nativeText = text.toNativeUtf8();
     try {
-      final raw = _readJson(_missionDocImportFormat(_core, nativeFormat, nativeText));
+      final raw = _readJson(
+        _missionDocImportFormat(_core, nativeFormat, nativeText),
+      );
       if (raw is! JsonMap) throw const FormatException('任务导入响应格式无效');
       _requireSuccess(raw);
       return MissionInterchangeImport.fromEnvelope(raw);

@@ -14,6 +14,7 @@
 
 #include "ardupilotmega/mavlink.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -313,6 +314,28 @@ void test_router_preserves_mag_cal_progress_compatibility() {
           "MAG_CAL_PROGRESS reaches the routed adapter");
 }
 
+void test_router_routes_vehicle_component_messages_to_primary_adapter() {
+    fprintf(stderr, "\n[Group] MavlinkRouter - vehicle component fallback\n");
+    auto link = std::make_shared<mg::core::transport::InMemoryLink>();
+    auto session = std::make_shared<mg::core::transport::LinkSession>(link);
+    CHECK(session->open(), "shared session opens for component fallback");
+
+    auto adapter = std::make_shared<mg::core::mavlink::MavlinkAdapter>();
+    CHECK(session->add_vehicle(44, 9, MAV_COMP_ID_AUTOPILOT1, adapter),
+          "register primary vehicle route");
+    mavlink_message_t camera{};
+    mavlink_camera_information_t info{};
+    std::memcpy(info.vendor_name, "Vendor", 6);
+    std::memcpy(info.model_name, "Cam", 3);
+    info.resolution_h = 1920;
+    info.resolution_v = 1080;
+    mavlink_msg_camera_information_encode(9, MAV_COMP_ID_CAMERA, &camera, &info);
+    auto bytes = pack_msg(camera);
+    link->inject_incoming(bytes.data(), bytes.size());
+    CHECK(adapter->latest_cameras().size() == 1,
+          "camera information from a vehicle component reaches the primary adapter");
+}
+
 void test_connection_manager_attaches_shared_session() {
     fprintf(stderr, "\n[Group] ConnectionManager - explicit shared route\n");
     auto link = std::make_shared<PeerMemoryLink>();
@@ -483,8 +506,8 @@ void test_multi_vehicle_manager_shared_discovery() {
           "shared link closes after the last vehicle detaches");
 }
 
-void test_managed_links_merge_same_sysid() {
-    fprintf(stderr, "\n[Group] MultiVehicleManager - managed link merge\n");
+void test_managed_links_reject_duplicate_sysid() {
+    fprintf(stderr, "\n[Group] MultiVehicleManager - duplicate sysid rejection\n");
     mg::core::vehicle::MultiVehicleManager manager;
     mg::core::transport::LinkConfig first_config;
     first_config.type = mg::core::transport::LinkType::InMemory;
@@ -514,30 +537,35 @@ void test_managed_links_merge_same_sysid() {
           "first managed link creates one vehicle");
     second_wire->inject_incoming(bytes.data(), bytes.size());
     CHECK(manager.vehicle_count() == 1,
-          "same sysid on second managed link merges into the existing vehicle");
+          "same sysid on another managed link does not create a second vehicle");
 
     auto* vehicle = manager.get_vehicle_by_system_id(31);
-    CHECK(vehicle != nullptr, "merged vehicle is registered");
-    CHECK(vehicle->connection_count() == 2,
-          "merged vehicle owns both managed connections");
-    const auto links = manager.managed_links();
-    CHECK(links.size() == 2, "both managed routes are reported to the UI seam");
-    CHECK(links[0].vehicle_id == vehicle->vehicle_id() &&
-              links[1].vehicle_id == vehicle->vehicle_id(),
-          "both routes point at the canonical vehicle id");
-
-    CHECK(manager.close_route(links[1].route_id),
-          "closing one merged route succeeds");
-    CHECK(manager.vehicle_count() == 1,
-          "vehicle remains while one managed route is alive");
+    CHECK(vehicle != nullptr, "original vehicle remains registered");
     CHECK(vehicle->connection_count() == 1,
-          "closing one managed route leaves the other route attached");
+          "duplicate link is not attached to the original vehicle");
+    const auto links = manager.managed_links();
+    CHECK(links.size() == 2, "both physical links remain visible");
+    const auto duplicate = std::find_if(
+        links.begin(), links.end(),
+        [](const auto& link) { return link.state == "duplicate_system_id"; });
+    CHECK(duplicate != links.end(), "duplicate link is reported");
+    CHECK(duplicate->route_id < 0 && duplicate->vehicle_id < 0,
+          "duplicate link has no target vehicle");
+    CHECK(duplicate->system_id == 31,
+          "duplicate link reports the conflicting sysid");
+
+    CHECK(manager.close_link(second_link),
+          "duplicate physical link can be closed independently");
+    CHECK(manager.vehicle_count() == 1,
+          "closing duplicate link keeps the original vehicle");
+    CHECK(vehicle->connection_count() == 1,
+          "original vehicle keeps exactly one route");
     CHECK(manager.link_session(second_link) == nullptr,
-          "the physical link closes when its last route is removed");
+          "duplicate link session is gone");
     CHECK(manager.close_link(first_link),
-          "closing final managed link succeeds");
+          "closing original managed link succeeds");
     CHECK(manager.vehicle_count() == 0,
-          "vehicle is removed when its final managed link closes");
+          "vehicle is removed when its link closes");
 }
 
 void test_shared_rediscovery_suppression() {
@@ -598,12 +626,13 @@ int main() {
     test_router_rejects_duplicate_identity_and_removes_routes();
     test_link_session_remembers_peer_for_replies();
     test_router_preserves_mag_cal_progress_compatibility();
+    test_router_routes_vehicle_component_messages_to_primary_adapter();
     test_connection_manager_attaches_shared_session();
     test_connection_manager_binds_placeholder_identity();
     test_vehicle_merges_secondary_shared_route();
     test_multi_vehicle_manager_shared_discovery();
     test_shared_rediscovery_suppression();
-    test_managed_links_merge_same_sysid();
+    test_managed_links_reject_duplicate_sysid();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n",
             g_passed, g_failed);
     return g_failed > 0 ? 1 : 0;

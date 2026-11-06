@@ -29,7 +29,13 @@ class SystemStatusPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: controller.telemetryChanges,
+    animation: Listenable.merge([
+      controller.positionChanges,
+      controller.gpsChanges,
+      controller.batteryChanges,
+      controller.flightStateChanges,
+      controller.stateChanges,
+    ]),
     builder: (context, _) {
       final connected = controller.isConnected;
       final firmware = controller.firmwareInfo;
@@ -55,7 +61,7 @@ class SystemStatusPage extends StatelessWidget {
       return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(
           MgMetrics.configPageMargin,
-          22,
+          18,
           MgMetrics.configPageMargin,
           32,
         ),
@@ -74,12 +80,12 @@ class SystemStatusPage extends StatelessWidget {
               background: context.mgColors.surfaceMuted,
               borderColor: context.mgColors.divider,
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: MgMetrics.configSectionGap),
             SystemSectionTitle(
               title: '传感器与子系统',
               trailing: HealthSummary(summary: summary),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: MgMetrics.configHeaderGap),
             if (!connected || health == null)
               SensorDataPendingCard(
                 connected: connected,
@@ -95,10 +101,12 @@ class SystemStatusPage extends StatelessWidget {
                       ? 2
                       : 1;
                   final cardWidth =
-                      (constraints.maxWidth - (columns - 1) * 12) / columns;
+                      (constraints.maxWidth -
+                          (columns - 1) * MgMetrics.configCardGap) /
+                      columns;
                   return Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
+                    spacing: MgMetrics.configCardGap,
+                    runSpacing: MgMetrics.configCardGap,
                     children: [
                       for (final item in visibleSensors)
                         SizedBox(
@@ -115,17 +123,23 @@ class SystemStatusPage extends StatelessWidget {
                   );
                 },
               ),
-            const SizedBox(height: 22),
+            const SizedBox(height: MgMetrics.configSectionGap),
             SystemSectionTitle(title: '实时状态'),
-            const SizedBox(height: 10),
+            const SizedBox(height: MgMetrics.configHeaderGap),
             LayoutBuilder(
               builder: (context, constraints) {
-                final columns = constraints.maxWidth >= 900 ? 3 : 2;
+                final columns = constraints.maxWidth >= 900
+                    ? 3
+                    : constraints.maxWidth >= 560
+                    ? 2
+                    : 1;
                 final cardWidth =
-                    (constraints.maxWidth - (columns - 1) * 12) / columns;
+                    (constraints.maxWidth -
+                        (columns - 1) * MgMetrics.configCardGap) /
+                    columns;
                 return Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
+                  spacing: MgMetrics.configCardGap,
+                  runSpacing: MgMetrics.configCardGap,
                   children: [
                     SizedBox(
                       width: cardWidth,

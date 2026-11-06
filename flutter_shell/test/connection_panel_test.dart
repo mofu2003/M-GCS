@@ -46,6 +46,14 @@ void main() {
                       connected: false,
                       state: 'waiting_heartbeat',
                     ),
+                    FleetLinkSummary(
+                      id: 14,
+                      routeId: -1,
+                      systemId: 1,
+                      endpoint: 'udp://127.0.0.1:14553',
+                      connected: false,
+                      state: 'duplicate_system_id',
+                    ),
                   ],
                   activeVehicleId: 11,
                   activeLinkId: 11,
@@ -61,11 +69,12 @@ void main() {
     );
 
     expect(find.text('当前链路'), findsOneWidget);
-    expect(find.text('3 条'), findsOneWidget);
+    expect(find.text('4 条'), findsOneWidget);
     expect(find.text('udp://127.0.0.1:14551'), findsOneWidget);
     expect(find.text('serial:///dev/cu.test?baud=115200'), findsOneWidget);
     expect(find.text('已连接'), findsNWidgets(2));
     expect(find.text('等待心跳'), findsOneWidget);
+    expect(find.text('SYSID 冲突'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.byKey(const ValueKey('fleet-link-12:12')));

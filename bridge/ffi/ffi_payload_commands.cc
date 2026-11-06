@@ -411,19 +411,14 @@ MGCORE_API int mg_video_poll_frame(mg_core_t* core, unsigned char* dst, int dst_
                                    int* out_width, int* out_height, long long* out_pts_us,
                                    unsigned long long* out_sequence) {
     if (!core || !dst || dst_capacity <= 0) return -1;
-    // 先取元数据：即使容量不足也要把「需要多大」告诉调用方，便于扩容重试。
-    const mg::core::video::VideoFrameBuffer::Snapshot snap =
-        core->video_decoder.frames().latest();
-    if (out_width) *out_width = snap.width;
-    if (out_height) *out_height = snap.height;
-    if (out_pts_us) *out_pts_us = static_cast<long long>(snap.pts_us);
-    if (out_sequence) *out_sequence = static_cast<unsigned long long>(snap.sequence);
-    if (snap.width <= 0 || snap.height <= 0) return 0; // 尚无帧
-    const size_t need = static_cast<size_t>(snap.width) * static_cast<size_t>(snap.height) * 4u;
-    if (static_cast<size_t>(dst_capacity) < need) return -1; // 容量不足，按 out_* 扩容
     mg::core::video::VideoFrameBuffer::Snapshot copied_snap;
     const size_t copied =
         core->video_decoder.frames().copy_latest(dst, static_cast<size_t>(dst_capacity), copied_snap);
+    if (out_width) *out_width = copied_snap.width;
+    if (out_height) *out_height = copied_snap.height;
+    if (out_pts_us) *out_pts_us = static_cast<long long>(copied_snap.pts_us);
+    if (out_sequence) *out_sequence = static_cast<unsigned long long>(copied_snap.sequence);
+    if (copied == 0 && copied_snap.width > 0 && copied_snap.height > 0) return -1;
     return static_cast<int>(copied);
 }
 

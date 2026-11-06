@@ -8,13 +8,19 @@ import '../flight/flight_mode_labels.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import 'mg_animated_number.dart';
+import 'mg_status_telemetry_icons.dart';
 import 'mg_command_confirmation.dart';
 import 'mg_floating_panel.dart';
+
+double mgTopStatusBarHeight(double width, {required bool multipleVehicles}) =>
+    width < (multipleVehicles ? 980 : 760) ? 88 : MgMetrics.toolbarHeight;
 
 Future<void> showMgFlightModeMenu(
   BuildContext context, {
   required ConnectionController controller,
   required List<FlightModeOption> options,
+  String? vehicleLabel,
+  Alignment alignment = Alignment.topLeft,
 }) async {
   final focusRevision = controller.fleet.focusRevision;
   await showGeneralDialog<void>(
@@ -24,16 +30,23 @@ Future<void> showMgFlightModeMenu(
     barrierColor: context.mgColors.shadow.withValues(alpha: 0.12),
     transitionDuration: const Duration(milliseconds: 120),
     pageBuilder: (dialogContext, animation, secondaryAnimation) => Align(
-      alignment: Alignment.topLeft,
+      alignment: alignment,
       child: Padding(
-        padding: const EdgeInsets.only(
-          top: MgMetrics.toolbarHeight + 8,
-          left: 168,
+        padding: EdgeInsets.only(
+          top:
+              mgTopStatusBarHeight(
+                MediaQuery.sizeOf(context).width,
+                multipleVehicles: controller.fleet.snapshot.vehicles.length > 1,
+              ) +
+              8,
+          left: alignment == Alignment.topLeft ? 88 : 18,
+          right: 18,
         ),
         child: _FlightModeMenu(
           controller: controller,
           options: options,
           focusRevision: focusRevision,
+          vehicleLabel: vehicleLabel,
         ),
       ),
     ),
@@ -50,11 +63,13 @@ class _FlightModeMenu extends StatelessWidget {
     required this.controller,
     required this.options,
     required this.focusRevision,
+    this.vehicleLabel,
   });
 
   final ConnectionController controller;
   final List<FlightModeOption> options;
   final int focusRevision;
+  final String? vehicleLabel;
 
   Future<void> _setMode(BuildContext context, FlightModeOption option) async {
     if (!option.settable) return;
@@ -103,9 +118,9 @@ class _FlightModeMenu extends StatelessWidget {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      '按住切换',
+                      vehicleLabel == null ? '按住切换' : '$vehicleLabel · 按住切换模式',
                       style: MgTypography.sans(
-                        MgTypography.caption.copyWith(
+                        MgTypography.toolbar.copyWith(
                           color: colors.textSecondary,
                         ),
                       ),
@@ -201,7 +216,7 @@ class MgFlightModeRowState extends State<MgFlightModeRow>
           final progress = _hold.value;
           // 当前模式用底色高亮表示，不用对勾。
           final textStyle = MgTypography.sans(
-            MgTypography.body.copyWith(
+            MgTypography.toolbar.copyWith(
               color: !enabled
                   ? colors.textTertiary
                   : widget.selected
@@ -228,7 +243,7 @@ class MgFlightModeRowState extends State<MgFlightModeRow>
                   ),
                 ),
               SizedBox(
-                height: MgMetrics.controlHeight,
+                height: 38,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Row(
@@ -252,7 +267,7 @@ class MgFlightModeRowState extends State<MgFlightModeRow>
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.right,
                             style: MgTypography.sans(
-                              MgTypography.caption.copyWith(
+                              MgTypography.toolbar.copyWith(
                                 color: enabled
                                     ? colors.textSecondary
                                     : colors.textTertiary,
@@ -311,8 +326,7 @@ class MgTopStatusData {
       stale:
           controller.telemetryStale ||
           (controller.isConnected && !controller.vehicleStateFresh),
-      isVtolVehicle:
-          controller.firmwareInfo?['vehicle_class'] == 'vtol',
+      isVtolVehicle: controller.firmwareInfo?['vehicle_class'] == 'vtol',
     );
   }
 
@@ -422,89 +436,95 @@ class MgTopStatusBar extends StatelessWidget {
       showShadow: false,
       child: Material(
         color: colors.transparent,
-        child: SizedBox(
-          height: MgMetrics.toolbarHeight,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.maxWidth;
-              // 窄窗口逐级收起次要信息，防止右侧操作组被挤出（QGC 工具栏同样分级隐藏）。
-              final multiple = vehicles.length > 1;
-              final compactFleet =
-                  width < MgMetrics.fleetSelectorWideBreakpoint;
-              final showSecondary =
-                  width >=
-                  (multiple ? MgMetrics.fleetSelectorWideBreakpoint : 860);
-              final showStatusText =
-                  width >=
-                  (multiple ? MgMetrics.fleetToolbarDetailBreakpoint : 660);
-              final showMetricLabels =
-                  width >=
-                  (multiple ? MgMetrics.fleetToolbarDetailBreakpoint : 700);
-              return Padding(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final multiple = vehicles.length > 1;
+            final height = mgTopStatusBarHeight(
+              width,
+              multipleVehicles: multiple,
+            );
+            final stacked = height > MgMetrics.toolbarHeight;
+            final compactFleet = width < MgMetrics.fleetSelectorWideBreakpoint;
+            final showSecondary = width >= (multiple ? 1260 : 1020);
+            final showMetricLabels =
+                stacked || width >= (multiple ? 1260 : 980);
+            final primary = Row(
+              children: [
+                _MainStatus(data: data),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: _FlightMode(data: data, onPressed: onOpenFlightMode),
+                ),
+                if (multiple) ...[
+                  const SizedBox(width: MgMetrics.fleetToolbarGap + 4),
+                  _FleetVehicleSelector(
+                    vehicles: vehicles,
+                    compact: compactFleet,
+                    activeVehicleId: activeVehicleId,
+                    onPressed: onOpenFleetBatch,
+                  ),
+                ],
+              ],
+            );
+            final metrics = Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _GpsIndicator(data: data, showLabel: showMetricLabels),
+                const SizedBox(width: 20),
+                _BatteryIndicator(data: data, showLabel: showMetricLabels),
+                if (showSecondary) ...[
+                  const SizedBox(width: 20),
+                  _LinkIndicator(data: data),
+                ],
+                const SizedBox(width: 12),
+                if (data.connected && !data.stale && !data.flying) ...[
+                  _ArmButton(data: data, onPressed: onToggleArm),
+                  const SizedBox(width: 4),
+                ],
+                // 急停与常规上锁分开：常规上锁在飞行中被禁用，急停必须仍可触达。
+                if (data.connected && !data.stale && data.armed) ...[
+                  _EmergencyStopButton(data: data, onPressed: onEmergencyStop),
+                  const SizedBox(width: 4),
+                ],
+                _TopActionButton(
+                  icon: CupertinoIcons.text_bubble,
+                  tooltip: '飞控消息',
+                  badgeCount: data.messageCount,
+                  onPressed: onOpenFlightMessages,
+                ),
+                if (onOpenSettings != null) ...[
+                  const SizedBox(width: 4),
+                  _SettingsButton(onPressed: onOpenSettings!),
+                ],
+              ],
+            );
+            return SizedBox(
+              height: height,
+              child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Row(
+                child: stacked
+                    ? Column(
                         children: [
-                          _MainStatus(data: data, showText: showStatusText),
-                          const SizedBox(width: 18),
-                          if (multiple) ...[
-                            _FleetVehicleSelector(
-                              vehicles: vehicles,
-                              compact: compactFleet,
-                              activeVehicleId: activeVehicleId,
-                              selectedVehicleIds: selectedVehicleIds,
-                              onPressed: onOpenFleetBatch,
-                            ),
-                            const SizedBox(width: MgMetrics.fleetToolbarGap),
-                          ],
-                          Flexible(
-                            child: _FlightMode(
-                              data: data,
-                              onPressed: onOpenFlightMode,
+                          Expanded(child: primary),
+                          Expanded(
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: metrics,
                             ),
                           ),
                         ],
+                      )
+                    : Row(
+                        children: [
+                          Expanded(child: primary),
+                          const SizedBox(width: 12),
+                          metrics,
+                        ],
                       ),
-                    ),
-                    // 运行中必须持续可见的 GPS / 电池 / 链路 / 操作组统一贴右。
-                    const SizedBox(width: 12),
-                    _GpsIndicator(data: data, showLabel: showMetricLabels),
-                    const SizedBox(width: 10),
-                    _BatteryIndicator(data: data, showLabel: showMetricLabels),
-                    if (showSecondary) ...[
-                      const SizedBox(width: 16),
-                      _LinkIndicator(data: data),
-                    ],
-                    const SizedBox(width: 12),
-                    if (data.connected && !data.stale && !data.flying) ...[
-                      _ArmButton(data: data, onPressed: onToggleArm),
-                      const SizedBox(width: 4),
-                    ],
-                    // 急停与常规上锁分开：常规上锁在飞行中被禁用，急停必须仍可触达。
-                    if (data.connected && !data.stale && data.armed) ...[
-                      _EmergencyStopButton(
-                        data: data,
-                        onPressed: onEmergencyStop,
-                      ),
-                      const SizedBox(width: 4),
-                    ],
-                    _TopActionButton(
-                      icon: CupertinoIcons.text_bubble,
-                      tooltip: '飞控消息',
-                      badgeCount: data.messageCount,
-                      onPressed: onOpenFlightMessages,
-                    ),
-                    if (onOpenSettings != null) ...[
-                      const SizedBox(width: 4),
-                      _SettingsButton(onPressed: onOpenSettings!),
-                    ],
-                  ],
-                ),
-              );
-            },
-          ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -515,7 +535,6 @@ class _FleetVehicleSelector extends StatelessWidget {
   const _FleetVehicleSelector({
     required this.vehicles,
     required this.activeVehicleId,
-    required this.selectedVehicleIds,
     required this.onPressed,
     required this.compact,
   });
@@ -523,28 +542,10 @@ class _FleetVehicleSelector extends StatelessWidget {
   final bool compact;
   final List<FleetVehicleSummary> vehicles;
   final int? activeVehicleId;
-  final Set<int> selectedVehicleIds;
   final VoidCallback? onPressed;
 
-  String _label(FleetVehicleSummary vehicle) {
-    final system = vehicle.systemId > 0 ? '系统 ${vehicle.systemId}' : '未识别';
-    final link = vehicle.endpoint.split('://').first.toUpperCase();
-    final details = <String>[];
-    if (vehicle.flightMode.isNotEmpty) details.add(vehicle.flightMode);
-    if (vehicle.armed) details.add('已解锁');
-    if (vehicle.missionValid && vehicle.missionTotal > 0) {
-      details.add('任务 ${vehicle.missionCurrentIndex}/${vehicle.missionTotal}');
-    }
-    if (vehicle.communicationLost && vehicle.linkCount > 0) {
-      details.add('链路丢失');
-    } else if (vehicle.linkCount > 1) {
-      details.add('链路 ${vehicle.healthyLinkCount}/${vehicle.linkCount}');
-    }
-    final battery = vehicle.batteryRemainingPercent;
-    if (battery != null && battery >= 0) details.add('$battery%');
-    final suffix = details.isEmpty ? '' : ' · ${details.join(' · ')}';
-    return '飞机 ${vehicle.id} · $system · $link$suffix';
-  }
+  String _label(FleetVehicleSummary vehicle) =>
+      '飞机 ${vehicle.id} · 系统 ${vehicle.systemId > 0 ? vehicle.systemId : '—'}';
 
   @override
   Widget build(BuildContext context) {
@@ -553,17 +554,11 @@ class _FleetVehicleSelector extends StatelessWidget {
         ? activeVehicleId
         : vehicles.first.id;
     final active = vehicles.firstWhere((vehicle) => vehicle.id == selected);
-    final selectedCount = selectedVehicleIds.length;
-    final selectedSuffix = selectedCount > 1 ? ' · 已选 $selectedCount 架' : '';
     return Tooltip(
-      message: selectedCount > 1
-          ? '多机选择：已选 $selectedCount 架，当前 ${_label(active)}'
-          : '选择飞机：${_label(active)}',
+      message: '选择飞机：${_label(active)}',
       child: SizedBox(
         key: const ValueKey('fleet-vehicle-selector'),
-        width: compact
-            ? MgMetrics.fleetSelectorCompactWidth
-            : MgMetrics.fleetSelectorWidth,
+        width: compact ? 148 : 202,
         child: Material(
           color: colors.surfaceMuted,
           borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
@@ -571,25 +566,25 @@ class _FleetVehicleSelector extends StatelessWidget {
             borderRadius: BorderRadius.circular(MgMetrics.controlRadius),
             onTap: onPressed,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
-                      compact
-                          ? '飞机 $selected$selectedSuffix'
-                          : '${_label(active)}$selectedSuffix',
+                      _label(active),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: MgTypography.sans(
-                        MgTypography.body.copyWith(color: colors.textPrimary),
+                        MgTypography.toolbar.copyWith(
+                          color: colors.textPrimary,
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 4),
                   Icon(
                     CupertinoIcons.chevron_down,
-                    size: 11,
+                    size: 14,
                     color: colors.textTertiary,
                   ),
                 ],
@@ -622,11 +617,18 @@ class _EmergencyStopButton extends StatelessWidget {
           children: [
             Icon(
               Icons.dangerous_outlined,
-              size: 14,
+              size: 18,
               color: enabled ? colors.danger : colors.textTertiary,
             ),
-            const SizedBox(width: 5),
-            Text('急停', style: TextStyle(color: enabled ? colors.danger : null)),
+            const SizedBox(width: 7),
+            Text(
+              '急停',
+              style: MgTypography.sans(
+                MgTypography.toolbar.copyWith(
+                  color: enabled ? colors.danger : null,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -664,13 +666,13 @@ class _ArmButton extends StatelessWidget {
           children: [
             Icon(
               data.armed ? Icons.lock : Icons.lock_open,
-              size: 14,
+              size: 18,
               color: enabled
                   ? (data.armed ? colors.textPrimary : colors.danger)
                   : colors.textTertiary,
             ),
-            const SizedBox(width: 5),
-            Text(label),
+            const SizedBox(width: 7),
+            Text(label, style: MgTypography.sans(MgTypography.toolbar)),
           ],
         ),
       ),
@@ -700,11 +702,11 @@ class _TopActionButton extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           MacosIconButton(
-            icon: MacosIcon(icon, size: 16),
+            icon: MacosIcon(icon, size: 18),
             semanticLabel: tooltip,
             boxConstraints: const BoxConstraints.tightFor(
-              width: 30,
-              height: 30,
+              width: 36,
+              height: 36,
             ),
             padding: EdgeInsets.zero,
             backgroundColor: colors.transparent,
@@ -716,7 +718,7 @@ class _TopActionButton extends StatelessWidget {
               right: -1,
               top: -2,
               child: Container(
-                constraints: const BoxConstraints(minWidth: 13, minHeight: 13),
+                constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
                 padding: const EdgeInsets.symmetric(horizontal: 3),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
@@ -726,7 +728,7 @@ class _TopActionButton extends StatelessWidget {
                 child: Text(
                   '$badgeCount',
                   style: MgTypography.sans(
-                    MgTypography.caption.copyWith(
+                    MgTypography.toolbar.copyWith(
                       height: 1,
                       color: colors.onAccent,
                     ),
@@ -751,9 +753,9 @@ class _SettingsButton extends StatelessWidget {
     return MacosTooltip(
       message: '设置',
       child: MacosIconButton(
-        icon: MacosIcon(CupertinoIcons.gear, size: 16),
+        icon: MacosIcon(CupertinoIcons.gear, size: 18),
         semanticLabel: '设置',
-        boxConstraints: const BoxConstraints.tightFor(width: 30, height: 30),
+        boxConstraints: const BoxConstraints.tightFor(width: 36, height: 36),
         padding: EdgeInsets.zero,
         backgroundColor: colors.transparent,
         hoverColor: colors.mapControlHover,
@@ -764,10 +766,9 @@ class _SettingsButton extends StatelessWidget {
 }
 
 class _MainStatus extends StatelessWidget {
-  const _MainStatus({required this.data, this.showText = true});
+  const _MainStatus({required this.data});
 
   final MgTopStatusData data;
-  final bool showText;
 
   @override
   Widget build(BuildContext context) {
@@ -789,23 +790,22 @@ class _MainStatus extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 7,
-              height: 7,
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 8,
+              height: 8,
               decoration: BoxDecoration(
                 color: statusColor,
                 shape: BoxShape.circle,
               ),
             ),
-            if (showText) ...[
-              const SizedBox(width: 7),
-              Text(
-                data.statusLabel,
-                style: MgTypography.sans(
-                  MgTypography.body.copyWith(color: colors.textPrimary),
-                ),
+            const SizedBox(width: 7),
+            Text(
+              data.statusLabel,
+              style: MgTypography.sans(
+                MgTypography.toolbar.copyWith(color: colors.textPrimary),
               ),
-            ],
+            ),
           ],
         ),
       ),
@@ -834,7 +834,7 @@ class _FlightMode extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: MgTypography.sans(
-            MgTypography.data.copyWith(
+            MgTypography.toolbar.copyWith(
               color: stale ? colors.textTertiary : colors.textPrimary,
             ),
           ),
@@ -862,16 +862,19 @@ class _GpsIndicator extends StatelessWidget {
     return MacosTooltip(
       message: stale ? 'GPS：数据已过期' : 'GPS：${data.gpsFixLabel}',
       child: _TopBarMetric(
-        icon: Icons.gps_fixed,
+        icon: MgStatusTelemetryIcon(
+          kind: MgStatusIconKind.gps,
+          value: stale || !data.connected ? 0 : (satellites ?? 0) / 20,
+          color: color,
+        ),
         label: 'GPS',
         showLabel: showLabel,
-        color: color,
         value: MgAnimatedNumber(
           // 过期时直接用占位符，避免把最后一帧星数当成当前值。
           value: stale ? double.nan : (satellites?.toDouble() ?? double.nan),
           fractionDigits: 0,
           textAlign: TextAlign.left,
-          style: MgTypography.data,
+          style: MgTypography.toolbar,
           color: colors.textPrimary,
           placeholder: '—',
         ),
@@ -905,22 +908,25 @@ class _BatteryIndicator extends StatelessWidget {
           : '电池：${percent == null ? '—' : '$percent%'}'
                 '${voltage == null ? '' : ' · ${voltage.toStringAsFixed(1)} V'}',
       child: _TopBarMetric(
-        icon: Icons.battery_std,
+        icon: MgStatusTelemetryIcon(
+          kind: MgStatusIconKind.battery,
+          value: (percent ?? 0) / 100,
+          color: color,
+        ),
         label: 'BAT',
         showLabel: showLabel,
-        color: color,
         value: percent == null
             ? Text(
                 voltage == null ? '—' : '${voltage.toStringAsFixed(1)} V',
                 style: MgTypography.sans(
-                  MgTypography.data.copyWith(color: colors.textPrimary),
+                  MgTypography.toolbar.copyWith(color: colors.textPrimary),
                 ),
               )
             : MgAnimatedNumber(
                 value: percent.toDouble(),
                 fractionDigits: 0,
                 textAlign: TextAlign.left,
-                style: MgTypography.data,
+                style: MgTypography.toolbar,
                 color: colors.textPrimary,
               ),
         suffix: percent == null ? null : '%',
@@ -945,18 +951,22 @@ class _LinkIndicator extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            stale ? Icons.warning_amber_rounded : Icons.link,
-            size: 15,
-            color: stale
-                ? colors.warning
-                : (data.connected ? colors.success : colors.danger),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            child: Icon(
+              stale ? Icons.warning_amber_rounded : CupertinoIcons.link,
+              key: ValueKey((stale, data.connected)),
+              size: 18,
+              color: stale
+                  ? colors.warning
+                  : (data.connected ? colors.success : colors.danger),
+            ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
           Text(
             stale ? '数据过期' : (data.connected ? data.transportLabel : '未连接'),
             style: MgTypography.sans(
-              MgTypography.caption.copyWith(
+              MgTypography.toolbar.copyWith(
                 color: stale ? colors.warning : colors.textSecondary,
               ),
             ),
@@ -971,15 +981,13 @@ class _TopBarMetric extends StatelessWidget {
   const _TopBarMetric({
     required this.icon,
     required this.label,
-    required this.color,
     required this.value,
     this.showLabel = true,
     this.suffix,
   });
 
-  final IconData icon;
+  final Widget icon;
   final String label;
-  final Color color;
   final Widget value;
   final bool showLabel;
   final String? suffix;
@@ -990,16 +998,16 @@ class _TopBarMetric extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 15, color: color),
-        const SizedBox(width: 6),
+        icon,
+        const SizedBox(width: 8),
         if (showLabel) ...[
           Text(
             label,
             style: MgTypography.sans(
-              MgTypography.caption.copyWith(color: colors.textSecondary),
+              MgTypography.toolbar.copyWith(color: colors.textSecondary),
             ),
           ),
-          const SizedBox(width: 5),
+          const SizedBox(width: 7),
         ],
         value,
         if (suffix != null) ...[
@@ -1007,7 +1015,7 @@ class _TopBarMetric extends StatelessWidget {
           Text(
             suffix!,
             style: MgTypography.sans(
-              MgTypography.caption.copyWith(color: colors.textSecondary),
+              MgTypography.toolbar.copyWith(color: colors.textSecondary),
             ),
           ),
         ],

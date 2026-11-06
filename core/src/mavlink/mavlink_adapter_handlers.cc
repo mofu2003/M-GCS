@@ -99,6 +99,13 @@ void MavlinkAdapter::Impl::handle_heartbeat(const mavlink_message_t& m)
     if (mode_info.valid) {
         strncpy(info.flight_mode, mode_info.mode_name.c_str(), sizeof(info.flight_mode) - 1);
     }
+    if (tel.heartbeat &&
+        tel.heartbeat->system_id == info.system_id &&
+        tel.heartbeat->component_id == info.component_id &&
+        !tel.heartbeat->armed && info.armed) {
+        // 再次解锁可能继续旧任务。等待飞控报告首项才确认新一轮。
+        mission.restart_pending = true;
+    }
     tel.heartbeat = info;
     tel.last_heartbeat_ms = static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
@@ -295,6 +302,11 @@ void MavlinkAdapter::Impl::handle_command_ack(const mavlink_message_t& m)
         int idx = cmd_queue.find_by_id(matched_id);
         if (idx >= 0) {
             auto& entry = cmd_queue.entries[idx];
+            if (ack.command == MAV_CMD_MISSION_START &&
+                ack.result == MAV_RESULT_ACCEPTED &&
+                entry.params[0] >= 0 && entry.params[0] <= 1) {
+                mission.restart_pending = true;
+            }
             if (entry.result_cb) {
                 deferred_cbs.push_back([cb = entry.result_cb, info]() { cb(info); });
             }

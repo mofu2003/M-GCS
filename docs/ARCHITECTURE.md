@@ -324,7 +324,6 @@ flowchart LR
 | `bridge/ffi/ffi_api_params.h` | 参数读取、写入、进度和参数角色/描述符。 |
 | `bridge/ffi/ffi_api_payload.h` | 相机、云台、视频流、帧轮询、录制和截图。 |
 | `bridge/ffi/ffi_api_telemetry.h` | 遥测快照、姿态、GPS、电池、导航、波形和消息。 |
-| `bridge/ffi/API_CATALOG.md` | FFI 导出签名、绑定位置和所有权参考。 |
 
 ### 10.2 FFI 实现和内部辅助
 
@@ -791,17 +790,12 @@ flowchart LR
 |---|---|
 | `tools/preflight.sh` | 按改动或全量执行格式、版本、Flutter、C++、macOS 和 FFI smoke 检查。 |
 | `tools/preflight-windows.ps1` | Windows 预检入口。 |
-| `tools/check_ffi_contract.py` | 统计 FFI 声明、Dart 绑定和未绑定债务。 |
-| `tools/check_api_change_set.py` | 检查 FFI ABI 变更关联实现和测试。 |
-| `tools/check_doc_links.py` | 文档链接检查。 |
+| `tools/check_ffi_contract.py` | 检查 FFI 声明、Dart 绑定、退役符号和编译库导出一致。 |
 | `tools/check_fake_assertions.py` | 检查测试替身中的伪断言。 |
-| `tools/check_firmware_literals.py` | 固件专属参数字面量检查。 |
-| `tools/check_ui_tokens.dart` | Flutter UI token 检查。 |
 | `tools/check_linux_bundle.dart` | Linux bundle 资源和动态库检查。 |
 | `tools/check_windows_bundle.dart` | Windows bundle 资源和 DLL 检查。 |
 | `tools/ffi_bundle_symbols.dart` | 打包库符号检查。 |
 | `tools/ffi_unbound_baseline.json` | FFI 未绑定基线分类数据。 |
-| `tools/firmware_literals_baseline.json` | 固件字面量检查基线。 |
 | `tools/generate-mavlink.sh` | 生成 MAVLink C 头文件。 |
 | `tools/generate-mavlink.ps1` | Windows MAVLink 头文件生成脚本。 |
 | `tools/flutter-pty-run.py` | 通过 pty 启动 Flutter 并支持热重载按键。 |
@@ -820,16 +814,7 @@ flowchart LR
 | 路径 | 作用 |
 |---|---|
 | `docs/development.md` | 构建、测试、运行和验证命令。 |
-| `docs/development/adding-features.md` | 新功能的简短边界参考。 |
-| `docs/development/maintenance.md` | 真实问题驱动的维护原则。 |
-| `docs/CODEBASE-INVENTORY.md` | 简化版代码盘点。 |
-| `docs/capabilities.md` | 当前 FFI 能力和绑定统计。 |
 | `docs/ROADMAP.md` | 当前范围和候选方向。 |
-| `docs/QUICK_REFERENCE.md` | Bug、会话、命令和验证快速参考。 |
-| `docs/adr/` | 历史长期架构决策；只有长期架构变化才新增 ADR。 |
-| `docs/constraints/` | 历史约束、审计和对照资料，不是普通改动门禁。 |
-| `docs/features/` | 功能实现和验证过程记录。 |
-| `docs/workflow/` | 历史协作流程参考。 |
 
 ## 20. 当前架构的真实边界
 

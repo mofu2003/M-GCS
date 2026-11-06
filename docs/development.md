@@ -2,9 +2,7 @@
 
 ## 开始开发
 
-先阅读与当前改动直接相关的代码和测试。`docs/constraints/`、`docs/adr/` 和审计
-报告是历史参考，不要求每次改动同步更新；只有改变公开 ABI、线程模型或许可边界时
-才需要补充记录。
+先阅读与当前改动直接相关的代码和测试。协作规则见根目录 `AGENTS.md`。
 
 ---
 
@@ -66,7 +64,7 @@ python3 tools/flutter-pty-run.py --send q    # 退出
 
 默认构建是 `MGCORE_HAS_FFMPEG=OFF`，相机与云台页会诚实显示「本平台未启用本地视频解码」，也不会画录制控件。
 要在本机开发构建里启用本地视频预览、录制和截图，把 macOS 应用的 mgcore 构建缓存指向自建的 LGPL FFmpeg
-（`--disable-gpl`；GPL 构建不得链接，见 ADR-0008）：
+（`--disable-gpl`；GPL 构建不得链接）：
 
 ```bash
 cmake -S . -B flutter_shell/build/mgcore -DCMAKE_BUILD_TYPE=Release \
@@ -76,8 +74,7 @@ cd flutter_shell && flutter build macos --debug
 ```
 
 Xcode 内嵌阶段会复用这个缓存，产出的 `libmgcore.dylib` 仍然动态链接上述前缀下的 FFmpeg（本机绝对路径，
-仅限开发构建）。要回到默认构建，删除 `flutter_shell/build/mgcore` 后重新构建。发布打包按
-`release-and-hardware.md` R6 单独处理；`docs/features/video-camera-gimbal.md` 第 11 节有真实码流的验证步骤。
+仅限开发构建）。要回到默认构建，删除 `flutter_shell/build/mgcore` 后重新构建。发布打包需要单独处理 FFmpeg 的分发。
 
 ## 后端测试
 
@@ -157,7 +154,7 @@ tools/preflight.sh --no-macos-build       # 提交前：全量
 | 改动位置 | 跑什么 |
 |---|---|
 | `docs/**`、`*.md` | 只跑补丁格式与版本检查（约 0.1 s） |
-| `flutter_shell/**` | token 扫描 + analyze + 全部 Flutter 测试（约 11 s），跳过后端 |
+| `flutter_shell/**` | analyze + 全部 Flutter 测试（约 11 s），跳过后端 |
 | 单个 `core/tests/test_<名字>.cc` | 只编、只跑该测试 |
 | `core/**/calibration/**` | `test_sim_calibration`、`test_state_machines` |
 | `core/**/mission/**` | 任务相关几套 |

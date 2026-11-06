@@ -15,7 +15,7 @@ M-GCS 当前面向 ArduPilot 地面站，主要工作流包括：
 - 机载日志、`.tlog` 录制/回放和 MAVLink FTP 文件操作；
 - 相机、云台及视频流元数据；可选本地视频解码、预览、录制和截图。
 
-具体导出数量、前端绑定数量和平台可用性不要从本文件推断，使用 `docs/capabilities.md`、`bridge/ffi/API_CATALOG.md` 和当前命令验证。
+具体导出数量、前端绑定数量和平台可用性不要从本文件推断，以 `bridge/ffi/ffi_api*.h` 和 `python3 tools/check_ffi_contract.py` 的输出为准。
 
 ## 当前不承诺
 

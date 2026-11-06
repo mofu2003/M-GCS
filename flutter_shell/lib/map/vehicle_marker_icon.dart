@@ -23,6 +23,7 @@ class VehicleMarkerIcon extends StatelessWidget {
     required this.fill,
     required this.outline,
     this.headingDegrees,
+    this.vehicleId,
   });
 
   final VehicleMarkerKind kind;
@@ -34,6 +35,7 @@ class VehicleMarkerIcon extends StatelessWidget {
   final Color outline;
 
   final double? headingDegrees;
+  final int? vehicleId;
 
   @override
   Widget build(BuildContext context) {
@@ -43,9 +45,60 @@ class VehicleMarkerIcon extends StatelessWidget {
     };
     final heading = headingDegrees;
     final body = CustomPaint(painter: painter, size: Size.infinite);
-    if (heading == null || !heading.isFinite) return body;
-    // 剪影朝上（正北），航向 0° 也是正北，所以直接按航向旋转。
-    return Transform.rotate(angle: heading * math.pi / 180, child: body);
+    final aircraft = heading == null || !heading.isFinite
+        ? body
+        : Transform.rotate(angle: heading * math.pi / 180, child: body);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final angle =
+            (heading != null && heading.isFinite ? heading : 0) * math.pi / 180;
+        final tailDistance =
+            math.min(constraints.maxWidth, constraints.maxHeight) * 0.62;
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(child: aircraft),
+            if (vehicleId != null)
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: Transform.translate(
+                    offset: Offset(
+                      -math.sin(angle) * tailDistance,
+                      math.cos(angle) * tailDistance,
+                    ),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: outline,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: fill, width: 1),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
+                        child: Text(
+                          '$vehicleId',
+                          style: TextStyle(
+                            color: fill,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            height: 1.2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -145,6 +198,16 @@ class _MultirotorPainter extends _VehiclePainter {
     for (final rotor in rotors) {
       _circle(canvas, rotor, 11);
     }
+    // 四轴剪影左右对称，用机头小箭头明确表示航向。
+    _finish(
+      canvas,
+      Path()
+        ..moveTo(50, 8)
+        ..lineTo(42, 23)
+        ..lineTo(50, 20)
+        ..lineTo(58, 23)
+        ..close(),
+    );
     canvas.restore();
   }
 }

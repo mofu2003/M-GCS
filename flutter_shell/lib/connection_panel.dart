@@ -482,12 +482,14 @@ class MgFleetLinkList extends StatelessWidget {
 
   String _stateLabel(FleetLinkSummary link) {
     if (link.connected) return '已连接';
+    if (link.state == 'duplicate_system_id') return 'SYSID 冲突';
     if (link.state == 'waiting_heartbeat') return '等待心跳';
     return '未连接';
   }
 
   Color _stateColor(MgColors colors, FleetLinkSummary link) {
     if (link.connected) return colors.success;
+    if (link.state == 'duplicate_system_id') return colors.danger;
     if (link.state == 'waiting_heartbeat') return colors.warning;
     return colors.textSecondary;
   }

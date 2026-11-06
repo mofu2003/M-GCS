@@ -223,6 +223,13 @@ if [[ "$changelog_version" != "$cmake_version" ]]; then
   exit 1
 fi
 
+echo "[preflight] 检查 FFI 声明与前端绑定"
+python3 tools/check_ffi_contract.py
+
+echo "[preflight] 检查假断言写法"
+python3 tools/check_fake_assertions.py
+python3 tools/check_fake_assertions.py --self-test
+
 # 判定一个动态库是否依赖 sanitizer 运行时。
 # CMakeLists 把 mgcore 的输出目录固定到仓库根 build/，所有构建树共用同一个文件；
 # 如果之前有构建树以 sanitizer 构建过共享目标，这里可能拿到带 TSAN/ASAN 的库。

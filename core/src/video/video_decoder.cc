@@ -46,12 +46,12 @@ size_t VideoFrameBuffer::copy_latest(uint8_t* dst, size_t capacity, Snapshot& ou
     if (!dst) return 0;
     mg::core::platform::LockGuard lk(mtx_);
     if (width_ <= 0 || height_ <= 0 || rgba_.empty()) return 0;
-    if (capacity < rgba_.size()) return 0; // 容量不足：整体失败，不写半帧
-    std::memcpy(dst, rgba_.data(), rgba_.size());
     out.width = width_;
     out.height = height_;
     out.pts_us = pts_us_;
     out.sequence = sequence_;
+    if (capacity < rgba_.size()) return 0; // 容量不足：整体失败，不写半帧
+    std::memcpy(dst, rgba_.data(), rgba_.size());
     return rgba_.size();
 }
 

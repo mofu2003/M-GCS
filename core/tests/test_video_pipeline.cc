@@ -8,8 +8,7 @@
  *      与状态校验（S4）。断言按 VideoDecoder::backend_available() 分支，因此
  *      MGCORE_HAS_FFMPEG 开或关都能通过。
  *
- * 真机/FFmpeg 解码路径本身（连接真实码流、录制落盘）不在单元测试覆盖，见 ADR-0008 的
- * 平台矩阵与 docs/features/video-camera-gimbal.md 的手动验证步骤。
+ * 真机/FFmpeg 解码路径本身（连接真实码流、录制落盘）不在单元测试覆盖。
  */
 #include "ffi_api.h"
 #include "core/video/video_decoder.h"

@@ -27,6 +27,7 @@ final class TelemetryFfiBackend {
     _getAttitude = _lookup1('mg_vehicle_get_attitude');
     _getVehicleSummary = _lookup1('mg_vehicle_get_summary');
     _getExtendedSysState = _lookup1('mg_vehicle_get_extended_sys_state');
+    _getDashboardSnapshot = _lookup1('mg_telemetry_get_dashboard_snapshot');
   }
 
   final DynamicLibrary _library;
@@ -47,6 +48,7 @@ final class TelemetryFfiBackend {
   late final Pointer<Utf8> Function(Pointer<Void>) _getAttitude;
   late final Pointer<Utf8> Function(Pointer<Void>) _getVehicleSummary;
   late final Pointer<Utf8> Function(Pointer<Void>) _getExtendedSysState;
+  late final Pointer<Utf8> Function(Pointer<Void>) _getDashboardSnapshot;
 
   Pointer<Utf8> Function(Pointer<Void>) _lookup1(String symbol) => _library
       .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(symbol)
@@ -89,6 +91,9 @@ final class TelemetryFfiBackend {
   Map<String, Object?> vehicleSummary() => _read(_getVehicleSummary(_core));
 
   Map<String, Object?> extendedSysState() => _read(_getExtendedSysState(_core));
+
+  Map<String, Object?> dashboardSnapshot() =>
+      _read(_getDashboardSnapshot(_core));
 
   Map<String, Object?> _read(Pointer<Utf8> pointer) => readJsonMap(
     pointer,

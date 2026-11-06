@@ -19,5 +19,5 @@
 - [docs/development.md](docs/development.md)：环境、构建和测试
 - [AGENTS.md](AGENTS.md)：当前仍然有效的少量硬约束
 - [CHANGELOG.md](CHANGELOG.md)：版本变更
-- `docs/constraints/`、`docs/adr/`、`docs/reports/`：历史设计和审计参考，不是普通改动的前置流程
-- [bridge/ffi/API_CATALOG.md](bridge/ffi/API_CATALOG.md)：公开 FFI 接口目录
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：代码地图和调用链
+- [docs/ROADMAP.md](docs/ROADMAP.md)：范围和后续方向

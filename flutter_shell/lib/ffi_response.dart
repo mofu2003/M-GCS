@@ -1,6 +1,6 @@
 /// FFI 响应的统一读取入口。
 ///
-/// 规范的失败响应结构见 `docs/constraints/ffi-contract.md` 的 F4：
+/// 规范的失败响应结构：
 ///
 /// ```json
 /// {"success":false,"error":{"code":-6,"name":"TIMEOUT","message":"..."}}

@@ -251,18 +251,24 @@ MGCORE_API char* mg_command_orbit(mg_core_t* core, const char* json_config) {
     cJSON_Delete(root);
     auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    if (mav->cmd_orbit(active_target_sys(core), active_target_comp(core), lat, lon, radius, velocity, alt))
-        return ok();
-    return fail(MG_ERROR_SEND_FAILED, "orbit command send failed");
+    const int32_t lat_e7 = static_cast<int32_t>(std::llround(lat * 1e7));
+    const int32_t lon_e7 = static_cast<int32_t>(std::llround(lon * 1e7));
+    return cmd_int_result_queued(
+        mav, MAV_CMD_DO_ORBIT, active_target_sys(core), active_target_comp(core),
+        MAV_FRAME_GLOBAL, radius, velocity > 0 ? velocity : NAN,
+        static_cast<float>(ORBIT_YAW_BEHAVIOUR_UNCHANGED), NAN,
+        lat_e7, lon_e7, alt);
 }
 
 MGCORE_API char* mg_command_set_roi(mg_core_t* core, double lat, double lon, float alt) {
     CHECK_CORE(core); CHECK_MAVLINK(core); CHECK_CONNECTED(core);
     const auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    if (mav->cmd_set_roi(active_target_sys(core), active_target_comp(core), lat, lon, alt))
-        return ok();
-    return fail(MG_ERROR_SEND_FAILED, "ROI command send failed");
+    return ffi_cmd_result_queued(
+        mav, MAV_CMD_DO_SET_ROI_LOCATION,
+        active_target_sys(core), active_target_comp(core),
+        0, 0, 0, 0, 0,
+        static_cast<float>(lat), static_cast<float>(lon), alt);
 }
 
 
@@ -272,12 +278,14 @@ MGCORE_API char* mg_command_change_heading(mg_core_t* core, float heading_deg,
     const int8_t dir = direction < 0 ? -1 : 1;
     const auto mav = shared_active_mavlink(core);
     if (!mav) return fail(MG_ERROR_NOT_CONNECTED, "disconnected");
-    const bool sent = mav->cmd_change_heading(
+    auto* result = ffi_cmd_result_queued(
+        mav, MAV_CMD_CONDITION_YAW,
         active_target_sys(core), active_target_comp(core),
-        heading_deg, yaw_rate_dps, dir, true /* relative */);
-    get_active_flight_log(core).on_command_result("change_heading", sent, sent ? "sent" : "send_failed");
-    if (!sent) return fail(MG_ERROR_SEND_FAILED, "change heading send failed");
-    return ok();
+        heading_deg, yaw_rate_dps, static_cast<float>(dir), 1.0f,
+        0, 0, 0);
+    get_active_flight_log(core).on_command_result(
+        "change_heading", result && strstr(result, "\"success\":true"), "queued");
+    return result;
 }
 
 /// MAV_CMD_DO_SET_GLOBAL_ORIGIN = 48（旧名 MAV_CMD_SET_GPS_GLOBAL_ORIGIN）。
@@ -540,6 +548,8 @@ MGCORE_API char* mg_command_execute_for_vehicle(mg_core_t* core,
         if (!json_int(args, "arm_if_needed", arm_if_needed, false, 1) ||
             (arm_if_needed != 0 && arm_if_needed != 1)) result = invalid_args("invalid mission arming policy");
         else result = start_mission_and_validate(core, arm_if_needed != 0);
+    } else if (command == "clear_mission") {
+        result = mg_mission_clear(core);
     } else if (command == "mission_start") {
         result = mission_start_and_wait(core);
     } else if (command == "guided_pause") {

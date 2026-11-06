@@ -162,6 +162,23 @@ std::string telemetry_dashboard_json(mg_core_t* core) {
         telemetry.raw_field("global_position", cache->snapshot_global_pos().to_json());
         telemetry.raw_field("battery", cache->snapshot_battery().to_json());
         {
+            const auto rc_snap = cache->snapshot_rc();
+            const bool rc_valid = cache->is_fresh(
+                mg::core::telemetry::TelemetryType::kRcChannels, 500) &&
+                rc_snap.data.chancount > 0;
+            telemetry.raw_field(
+                "rc_channels",
+                mg::core::telemetry::rc_channels_json(rc_snap.data, rc_valid));
+        }
+        {
+            const auto servo_snap = cache->snapshot_servo();
+            const bool servo_valid = cache->is_fresh(
+                mg::core::telemetry::TelemetryType::kServoOutput, 500);
+            telemetry.raw_field(
+                "servo_output",
+                mg::core::telemetry::servo_output_json(servo_snap.data, servo_valid));
+        }
+        {
             const auto vfr_snap = cache->snapshot_vfr_hud();
             const auto& vfr = vfr_snap.data;
             mg::core::telemetry::JsonBuilder vfr_hud;

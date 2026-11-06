@@ -5,12 +5,12 @@
  * 多数是 (条件, 消息)，但 test_sim_fence_rally.cc / test_sim_full_flow.cc /
  * test_sim_params.cc / test_sim_telemetry.cc 以及 TEST()/CHECK(name, expr) 系列
  * 是 (消息, 条件)。跨文件复制调用点时抄错一次，条件就退化成字符串字面量（恒真），
- * 断言静默失效——正是 `docs/constraints/testing.md` 的 T2 禁止的假断言。
+ * 断言静默失效，成为假断言。
  *
  * 现在只有这一处定义，参数顺序固定为 (条件, 消息)。测试文件只包含本头文件，
  * 计数器和汇总输出由 mgcs_test::passed()/failed() 提供。
  *
- * `tools/check_fake_assertions.py` 在门禁里静态检查假断言写法（T2）。
+ * `tools/check_fake_assertions.py` 在门禁里静态检查假断言写法。
  */
 
 #ifndef MGCORE_TESTS_MGCS_TEST_CHECK_H

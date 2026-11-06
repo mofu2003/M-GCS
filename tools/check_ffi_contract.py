@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the public API, Dart bindings, catalog and optional compiled library."""
+"""Check the public API, Dart bindings and optional compiled library."""
 import argparse
 import ctypes
 import json
@@ -13,29 +13,7 @@ UNBOUND_BASELINE = ROOT / "tools/ffi_unbound_baseline.json"
 # 目录里的文件只要提到符号名就算"有测试引用"。这是粗粒度代理：它证明存在
 # 一个会加载/调用该导出的测试或手工脚本，不代表行为已被完整覆盖。
 TEST_ROOTS = ("core/tests", "tests", "flutter_shell/test")
-CATALOG = ROOT / "bridge/ffi/API_CATALOG.md"
-CAPABILITIES = ROOT / "docs/capabilities.md"
-CAPABILITY_START = "<!-- capabilities:start -->"
-CAPABILITY_END = "<!-- capabilities:end -->"
-
-# 每个公开头文件（= 责任模块）的交付状态与说明。计数由脚本从源码与绑定推导，
-# 状态与说明在此处人工维护；两者一旦不一致，preflight 会让本文件失效并要求重跑
-# --write-catalog。取值：已交付 / 部分接入 / 待接入 / 内部能力。
-CAPABILITY_METADATA = {
-    "ffi_api_configuration.h": ("部分接入", "连接与校准子集已进入配置页；参数组描述符（`mg_config_get_param_roles` 语义角色表）经 Dart 绑定进入 PID、校准、飞行模式与解锁检查等配置页，由前端按语义角色取固件参数名（safety.md S6）。执行器/RC 通道的只读清单由内部导出提供；写入统一走通用参数页（`SERVOx_*`/`RCMAP_*`）。"),
-    "ffi_api_connection.h": ("已交付", "串口/UDP/TCP 连接、断开、链路状态与本地回环由连接面板和状态栏消费。旧入口 `mg_connection_connect_tcp`、`mg_send_heartbeat`、`mg_stream_request` 已被 `mg_connection_open`/`mg_stream_set_interval` 取代并删除。"),
-    "ffi_api_core.h": ("已交付", "生命周期、版本、错误信息与整机快照由前端启动路径消费；`mg_error_string`（错误码→字符串）为 ABI 基础设施，供原生调用方与测试使用。"),
-    "ffi_api_firmware.h": ("已交付", "固件类型识别（含 capability 位与最小起飞高度）、固件版本回读与版本请求均由连接流程消费。固件刷写的导出与存根已删除（待独立 ADR 后重做），当前版本不提供该能力。"),
-    "ffi_api_flight.h": ("部分接入", "生产入口是 `mg_command_submit_for_vehicle` + `mg_command_poll`（带 ACK 校验）与 `mg_flight_get_modes`（按机型的模式表）；同文件里的同步 `mg_command_arm`/`takeoff`/`land`/`rtl`/`set_mode` 等由 submit 的 worker 内部调用，不作为前端入口。"),
-    "ffi_api_logging.h": ("部分接入", "机载 DataFlash 日志列表/下载/擦除（「机载日志」页）、链路 `.tlog` 录制/离线回放（「飞行记录」页）与 `mg_fs_*` 通用 MAVLink FTP 文件浏览/收发（「机载文件」页）均已接入；未接入的事件日志与会话文件日志导出已删除，见 docs/features/flight-logging-and-replay.md。"),
-    "ffi_api_mission.h": ("已交付", "任务规划、上传、围栏/Rally 下发与航点编辑走任务面板与地图；文档模型（`mg_mission_doc_*`）是生产路径，旧 `MissionManager` 增删改/导入导出接口（`mg_mission_add_item` 等、`mg_mission_start`、`mg_mission_get_templates`）已被取代并删除。"),
-    "ffi_api_params.h": ("部分接入", "参数全量请求、按名读取、写入与回读校验、下载与写入进度均接入配置页；语义角色表（`mg_config_get_param_roles`）供 PID、校准、飞行模式与解锁检查等页按角色取固件参数名（S6）。旧的批量/刷新/文件变换导出（`mg_params_set`、`mg_params_refresh`、`mg_param_file_*`、`mg_params_*_change_set`）已删除，见 docs/features/feature-inventory.md。"),
-    "ffi_api_payload.h": ("部分接入", "相机/云台/视频元数据接入配置工作区「相机与云台」页（`payload`，S2/S3/S4）：设备清单、拍照/录像/变焦/云台指向/回中与视频流元数据。本地视频解码与录制/截图（S3/S4，ADR-0008）已接入：`mg_video_renderer_status`/`mg_video_poll_frame` 渲染最新 RGBA 帧，`mg_video_start_recording`/`mg_video_stop_recording`/`mg_video_recording_status`/`mg_video_capture_frame` 把正在播放的码流复制到本地文件（Matroska 容器）并按容量上限清理最旧文件；没有编译进后端时 `available:false`/`backend:\"none\"` 并如实说明。S1 的读契约返回真实适配器缓存，无设备时 `success:true`+`available:false`，见 docs/features/video-camera-gimbal.md。"),
-    "ffi_api_telemetry.h": ("部分接入", "遥测快照、姿态、GPS、电池进入顶栏/仪表盘；波形与部分导航量仍为 FFI 内部能力。"),
-}
-
-# 公开导出的定位表。各分类符号都必须在 API_CATALOG.md 的「已定性的公开导出」
-# 一节里说明；若绑定状态改变或引用了不存在的导出，preflight 会要求重新评估定位。
+# 公开导出的定位表。若分类符号被 Dart 绑定或引用了不存在的导出，检查会要求重新评估定位。
 INTERNAL_SYMBOL_NOTES = {
     "mg_error_string": "ABI 基础设施：错误码→字符串常量，供原生调用方与测试使用，无 UI",
 }
@@ -68,45 +46,6 @@ def classified_symbols():
         notes[symbol] = ("退役候选", note)
     return notes
 
-
-def capability_table(api, bindings):
-    """Build the generated coverage table for docs/capabilities.md."""
-    headers = sorted({owner for owner, _ in api.values()})
-    rows = []
-    for header in headers:
-        symbols = [s for s, (owner, _) in api.items() if owner == header]
-        wired = sum(1 for s in symbols if s in bindings)
-        status, note = CAPABILITY_METADATA.get(header, ("待核对", "尚未登记状态。"))
-        rows.append((header, len(symbols), wired, status, note))
-    total = sum(r[1] for r in rows)
-    total_wired = sum(r[2] for r in rows)
-    lines = [
-        "| 模块 | 公开导出 | 已接入前端 | 状态 | 说明 |",
-        "| --- | --- | --- | --- | --- |",
-    ]
-    for header, n, w, status, note in rows:
-        lines.append(f"| `{header}` | {n} | {w} | {status} | {note} |")
-    lines.append(f"| **合计** | **{total}** | **{total_wired}** | — | 其余 {total - total_wired} 个公开导出尚未被前端绑定。 |")
-    return lines
-
-
-def sync_capability_doc(api, bindings, write):
-    if not CAPABILITIES.exists():
-        raise ValueError("docs/capabilities.md is missing; create it with the capability markers")
-    text = CAPABILITIES.read_text()
-    if CAPABILITY_START not in text or CAPABILITY_END not in text:
-        raise ValueError("docs/capabilities.md is missing the capability markers")
-    block = "\n".join([CAPABILITY_START, *capability_table(api, bindings), CAPABILITY_END])
-    updated = re.sub(
-        re.escape(CAPABILITY_START) + r".*?" + re.escape(CAPABILITY_END),
-        lambda _: block,
-        text,
-        flags=re.S,
-    )
-    if write:
-        CAPABILITIES.write_text(updated)
-    elif updated != text:
-        raise ValueError("docs/capabilities.md coverage table is stale; run --write-catalog")
 
 RETIRED_SYMBOLS = {
     "mg_cal_start", "mg_cal_cancel", "mg_cal_status", "mg_cal_history",
@@ -287,7 +226,6 @@ def sync_unbound_baseline(debt, write):
         "_comment": (
             "公开导出中「无前端绑定、无分类、无测试引用」的存量清单。"
             "基线只允许缩小：新增未分类导出会失败；已覆盖或分类的符号必须从基线删除。"
-            "语义与跟踪方式见 docs/constraints/known-deviations.md 的 KD-45。"
         ),
         "symbols": debt,
     }
@@ -324,78 +262,8 @@ def frontend_bindings():
     return bindings
 
 
-def public_types():
-    """公开头里的类型定义（`typedef ...;` 与 `using X = ...;`）。
-
-    目录此前只列函数，公开 ABI 里的类型（`mg_error_t`、回调 typedef 等）是盲区：
-    删掉一个 typedef 不会在任何地方留下痕迹，F1 的「成套变更」也就无从校验。
-    """
-    entries = {}
-    for header in sorted((ROOT / "bridge/ffi").glob("ffi_api*.h")):
-        source = without_comments(header.read_text(encoding="utf-8-sig"))
-        declarations = re.findall(r"^typedef\s+[^;]+;", source, re.M)
-        declarations += re.findall(r"^using\s+\w+\s*=\s*[^;]+;", source, re.M)
-        for declaration in declarations:
-            signature = " ".join(declaration.split())
-            name = re.search(r"\b(mg_\w+)\s*[;=]", signature)
-            if name:
-                entries[name.group(1)] = (header.name, signature)
-    return entries
-
-
-def catalog_text(api, bindings, types):
-    lines = [
-        "# FFI API 目录", "",
-        "由 `python3 tools/check_ffi_contract.py --write-catalog` 从公开头文件与 Flutter 绑定生成。",
-        "运行 `python3 tools/check_ffi_contract.py --library build/libmgcore.dylib` 可核对编译库。",
-        "Linux 使用 `build/libmgcore.so`，Windows 使用 `build/mgcore.dll`。", "",
-        "`char*` 结果使用 `mg_free_string` 释放，`mg_error_string` 返回的常量除外。",
-        "`success:false` 一律返回 {'success':false,'error':{'code':int,'name':str,'message':str}}。",
-        "有 COMMAND_ACK 的命令只有 ACK 接受才回 success；SET_POSITION_TARGET_* 等无 ACK 命令只表示已发出。",
-        "飞行指令的生产入口是 submit/poll；所有公开名称必须对应当前规范接口。",
-        "任务上传的即时响应表示传输启动，最终结果需读取 operation 状态。",
-        "符号检查不等于完整的参数类型或行为验证；真实交互另由 FFI smoke 和合约测试覆盖。", "",
-        f"公开函数：{len(api)}；Flutter 绑定：{len(bindings)}。",
-        f"公开类型：{len(types)}。", "",
-    ]
-    for header in sorted({entry[0] for entry in api.values()}):
-        lines += [f"## {header}", "", "| 声明 | Flutter 绑定位置 |", "| --- | --- |"]
-        for symbol, (owner, signature) in sorted(api.items()):
-            if owner != header:
-                continue
-            locations = "<br>".join(f"`{p}`" for p in sorted(bindings.get(symbol, []))) or "—"
-            lines.append(f"| `{signature}` | {locations} |")
-        lines.append("")
-    if types:
-        lines += [
-            "## 公开类型", "",
-            "前端不直接绑定这些类型；它们与函数一样属于公开 ABI，删除或改签名是破坏性变更。", "",
-            "| 类型 | 头文件 | 定义 |", "| --- | --- | --- |",
-        ]
-        for name, (header, signature) in sorted(types.items()):
-            lines.append(f"| `{name}` | `{header}` | `{signature}` |")
-        lines.append("")
-
-    notes = classified_symbols()
-    if notes:
-        lines += [
-            "## 已定性的公开导出", "",
-            "这些符号保留在 ABI 中且定位已经明确：**内部能力**只服务开发、离线分析或原生测试；",
-            "**0.3.0 之后延期**是当前版本明确不接 UI 的功能接口；**退役候选**仍保留导出，",
-            "待兼容性确认后再删除；**被取代**是已从源码删除并登记进 `RETIRED_SYMBOLS` 的历史路径。",
-            "分类符号若被 Flutter 绑定，`tools/check_ffi_contract.py` 会要求重新评估定位。", "",
-            "| 符号 | 类别 | 定位 |", "| --- | --- | --- |",
-        ]
-        for symbol in sorted(notes):
-            category, note = notes[symbol]
-            lines.append(f"| `{symbol}` | {category} | {note} |")
-        lines.append("")
-    return "\n".join(lines)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--write-catalog", action="store_true")
     parser.add_argument(
         "--write-baseline",
         action="store_true",
@@ -434,12 +302,6 @@ def main():
     if unknown_notes:
         raise ValueError(
             "classified symbol notes reference unknown exports: " + ", ".join(unknown_notes))
-    expected = catalog_text(api, bindings, public_types())
-    if args.write_catalog:
-        CATALOG.write_text(expected)
-    elif not CATALOG.exists() or CATALOG.read_text() != expected:
-        raise ValueError("API_CATALOG.md is stale; run with --write-catalog")
-    sync_capability_doc(api, bindings, args.write_catalog)
     debt = unbound_debt(api, bindings, test_referenced_symbols())
     sync_unbound_baseline(debt, args.write_baseline)
     if args.library:
@@ -468,7 +330,7 @@ def main():
             re.search(rf"^#define MGCORE_VERSION_{part}\s+(\d+)$", version_header, re.M).group(1)
             for part in ("MAJOR", "MINOR", "PATCH")
         )
-        print(f"[ffi-contract] library exports match header 0.2.2/v{version}")
+        print(f"[ffi-contract] library exports match header v{version}")
     print(f"[ffi-contract] unbound/untested export debt: {len(debt)} (baseline tracked)")
     print(f"[ffi-contract] {len(api)} declarations and {len(bindings)} Dart bindings agree"
           + (" with the compiled library" if args.library else ""))

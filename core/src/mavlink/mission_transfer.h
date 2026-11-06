@@ -42,6 +42,8 @@ struct MissionTransferState {
     uint16_t reached_count = 0;
     uint16_t last_reached_seq = 0;
     bool has_reached = false;
+    bool route_reached_end = false;
+    bool restart_pending = false;
     std::vector<uint8_t> reached_flags;
 
     // 超时重试
@@ -105,6 +107,8 @@ struct MissionTransferState {
         reached_count = 0;
         last_reached_seq = 0;
         has_reached = false;
+        route_reached_end = false;
+        restart_pending = false;
         reached_flags.clear();
     }
 };

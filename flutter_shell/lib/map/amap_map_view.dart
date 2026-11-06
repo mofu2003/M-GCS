@@ -176,7 +176,87 @@ bool canShowFleetAlongside(double availableWidth, MapRightPanel primary) =>
     availableWidth >=
     fleetPanelRightInset(primary) +
         MgMetrics.fleetPanelWidth +
-        kMapPanelEdgeInset;
+        kMapPanelEdgeInset +
+        280; // Leave a usable strip of map beside both inspectors.
+
+const kMapRightPanelTopInset = 12.0;
+const kMapMessagePanelHeight = 340.0;
+
+/// Bounds every inspector using the actual map area supplied by its parent.
+class MapPanelSlot extends StatelessWidget {
+  const MapPanelSlot({
+    super.key,
+    required this.child,
+    required this.preferredWidth,
+    this.preferredHeight,
+    this.rightInset = kMapPanelEdgeInset,
+    this.reserveInstruments = false,
+  });
+
+  final Widget child;
+  final double preferredWidth;
+  final double? preferredHeight;
+  final double rightInset;
+  final bool reserveInstruments;
+
+  @override
+  Widget build(BuildContext context) => Positioned.fill(
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final bottom = reserveInstruments
+            ? (constraints.maxHeight < 450
+                  ? 18 + MgMetrics.dashboardHeight + 12
+                  : 18 + MgMetrics.attitudeCompassSize + 12)
+            : 18.0;
+        final width = math.min(
+          preferredWidth,
+          math.max(0.0, constraints.maxWidth - rightInset - kMapPanelEdgeInset),
+        );
+        final availableHeight = math.max(
+          0.0,
+          constraints.maxHeight - kMapRightPanelTopInset - bottom,
+        );
+        return Align(
+          alignment: Alignment.topRight,
+          child: Padding(
+            padding: EdgeInsets.only(
+              top: kMapRightPanelTopInset,
+              right: rightInset,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: availableHeight),
+              child: SizedBox(
+                width: width,
+                height: preferredHeight == null
+                    ? null
+                    : math.min(preferredHeight!, availableHeight),
+                child: child,
+              ),
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class MapPlanningPanelSlot extends StatelessWidget {
+  const MapPlanningPanelSlot({
+    super.key,
+    required this.child,
+    this.preferredWidth = kMissionPanelWidth,
+  });
+  final Widget child;
+  final double preferredWidth;
+
+  @override
+  Widget build(BuildContext context) => MapPanelSlot(
+    preferredWidth: preferredWidth,
+    preferredHeight: double.infinity,
+    reserveInstruments: true,
+    child: child,
+  );
+}
 
 class AMapMapView extends StatefulWidget {
   const AMapMapView({
@@ -191,6 +271,7 @@ class AMapMapView extends StatefulWidget {
     this.fleetPanelRequest,
     this.onSelectFleetVehicle,
     this.onRequestFleetBatchAction,
+    this.onOpenFleetFlightMode,
     this.onRequestCommandConfirmation,
   });
 
@@ -210,6 +291,7 @@ class AMapMapView extends StatefulWidget {
   /// 多机面板的飞机焦点切换和批量动作交给主页面统一处理。
   final Future<void> Function(int vehicleId)? onSelectFleetVehicle;
   final void Function(FleetBatchTarget target)? onRequestFleetBatchAction;
+  final ValueChanged<int>? onOpenFleetFlightMode;
 
   /// 把飞行命令交给主页面顶部状态栏，等待用户长按确认后再执行。
   final ValueChanged<MgCommandConfirmation>? onRequestCommandConfirmation;
@@ -219,16 +301,6 @@ class AMapMapView extends StatefulWidget {
 }
 
 class _AMapMapViewState extends State<AMapMapView> {
-  /// 航线规划浮层距内容区顶边的间距。原先贴到顶边（18）显得压在工具栏下面，
-  /// 这里整体下移，单独留一个常量方便继续微调。
-  static const double _rightPanelTopInset = 12;
-  static const double _missionPanelTopInset = 24;
-
-  /// 航线规划面板停在右下角复合仪表上方，避免覆盖姿态/指南针；
-  /// 面板高度不足时由内部列表滚动，不向下侵占飞行 HUD。
-  static const double _missionPanelBottomInset =
-      18 + MgMetrics.attitudeCompassSize + 12;
-
   final _controller = MapController();
   final _mapKey = GlobalKey();
   MapStyle _style = MapStyle.amap;
@@ -256,22 +328,43 @@ class _AMapMapViewState extends State<AMapMapView> {
   String? _draggingEntityId;
   LatLng? _dragPreviewWgs84;
 
-  /// 地图标记要同时跟着遥测和任务文档变化重画。
   int? _markerSessionId;
   Timer? _fleetFitDebounce;
   Set<int> _lastFittedFleetVehicleIds = const {};
-  late Listenable _markerSources = Listenable.merge([
-    widget.connectionController.telemetryChanges,
+  late final Listenable _activeMapSources = Listenable.merge([
+    widget.connectionController.positionChanges,
+    widget.connectionController.flightStateChanges,
     widget.connectionController.connectionChanges,
     widget.connectionController.parameterChanges,
-    widget.connectionController.missionPlanning,
+    widget.connectionController.profileChanges,
+    widget.connectionController.stateChanges,
+  ]);
+  late Listenable _missionMapSources =
+      widget.connectionController.missionPlanning;
+  late final Listenable _fleetMapSources = widget.connectionController.fleet;
+  late final Listenable _fleetMarkerSources = Listenable.merge([
+    _fleetMapSources,
+    widget.connectionController.fleetPositions,
+  ]);
+  late final Listenable _attitudeSources = Listenable.merge([
+    widget.connectionController.positionChanges,
+    widget.connectionController.attitudeChanges,
+    widget.connectionController.flightStateChanges,
+    widget.connectionController.connectionChanges,
+    widget.connectionController.stateChanges,
+  ]);
+  late final Listenable _dashboardSources = Listenable.merge([
+    widget.connectionController.positionChanges,
+    widget.connectionController.flightDataChanges,
+    widget.connectionController.stateChanges,
   ]);
 
   /// 飞行动作按钮的显隐/可用性由连接与遥测决定，必须跟着这两路通知重建。
   late final Listenable _vehicleStatusSources = Listenable.merge([
     widget.connectionController.connectionChanges,
-    widget.connectionController.telemetryChanges,
+    widget.connectionController.flightStateChanges,
     widget.connectionController.profileChanges,
+    widget.connectionController.stateChanges,
   ]);
 
   @override
@@ -314,7 +407,8 @@ class _AMapMapViewState extends State<AMapMapView> {
 
   void _handleFleetPanelRequest() {
     if (!mounted) return;
-    final width = MediaQuery.sizeOf(context).width;
+    final width =
+        _mapKey.currentContext?.size?.width ?? MediaQuery.sizeOf(context).width;
     if (!canShowFleetAlongside(width, _rightPanel)) {
       // Narrow window: make room by closing the primary panel instead of
       // pushing the fleet inspector off-screen.
@@ -342,11 +436,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     if (_markerSessionId != connection.sessionId) {
       _markerSessionId = connection.sessionId;
       setState(() {
-        _markerSources = Listenable.merge([
-          connection.telemetryChanges,
-          connection.parameterChanges,
-          connection.missionPlanning,
-        ]);
+        _missionMapSources = connection.missionPlanning;
         _mapActionAnchor = null;
         _mapActionPoint = null;
         _draggingEntityId = null;
@@ -886,7 +976,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     });
   }
 
-  List<Marker> _buildMarkers(BuildContext context, MgColors colors) {
+  List<Marker> _buildActiveMarkers(BuildContext context, MgColors colors) {
     final connection = widget.connectionController;
     final markers = <Marker>[];
     final home = connection.homePosition;
@@ -971,10 +1061,11 @@ class _AMapMapViewState extends State<AMapMapView> {
       markers.add(
         Marker(
           point: _toTileFrame(fix.latitude, fix.longitude),
-          width: 42,
-          height: 42,
+          width: 46,
+          height: 46,
           // 按机型画机体剪影（多旋翼/固定翼/VTOL），不再用统一的纸飞机图标。
           child: VehicleMarkerIcon(
+            vehicleId: connection.sessionId,
             kind: vehicleMarkerKindFor(
               connection.firmwareInfo?['vehicle_class']?.toString() ??
                   'unknown',
@@ -986,8 +1077,13 @@ class _AMapMapViewState extends State<AMapMapView> {
         ),
       );
     }
-    // 非 active 飞机：使用 Fleet 快照中的低频位置绘制弱化标记。
-    // active 飞机继续使用上面的 20Hz 遥测位置，避免整队刷新时抖动。
+    return markers;
+  }
+
+  List<Marker> _buildFleetMarkers(BuildContext context, MgColors colors) {
+    final connection = widget.connectionController;
+    final markers = <Marker>[];
+    // Position and heading use the same polling cadence as the active aircraft.
     for (final vehicle in connection.fleetSnapshot.vehicles) {
       if (vehicle.id == connection.sessionId) continue;
       final details = <String>[];
@@ -1022,28 +1118,45 @@ class _AMapMapViewState extends State<AMapMapView> {
           ),
         );
       }
-      if (!vehicle.positionValid) continue;
+      final positions = connection.fleetPositions.value;
+      final fix = positions.containsKey(vehicle.id)
+          ? positions[vehicle.id]
+          : vehicle.positionValid
+          ? VehicleFix(
+              latitude: vehicle.latitude,
+              longitude: vehicle.longitude,
+              headingDegrees: vehicle.headingDegrees,
+            )
+          : null;
+      if (fix == null) continue;
       markers.add(
         Marker(
-          point: _toTileFrame(vehicle.latitude, vehicle.longitude),
-          width: 36,
-          height: 36,
+          point: _toTileFrame(fix.latitude, fix.longitude),
+          width: 46,
+          height: 46,
           child: Tooltip(
             message: label,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => connection.selectVehicle(vehicle.id),
               child: VehicleMarkerIcon(
+                vehicleId: vehicle.id,
                 kind: _fleetVehicleMarkerKind(vehicle.vehicleType),
                 fill: colors.textSecondary,
                 outline: colors.surface,
-                headingDegrees: vehicle.headingDegrees,
+                headingDegrees: fix.headingDegrees,
               ),
             ),
           ),
         ),
       );
     }
+    return markers;
+  }
+
+  List<Marker> _buildMissionMarkers(BuildContext context, MgColors colors) {
+    final connection = widget.connectionController;
+    final markers = <Marker>[];
     // 任务文档里的航点：画成编号标记，点击打开编辑框。
     final mission = connection.missionPlanning;
     final missionHome = mission.document?.home ?? const MissionHome();
@@ -1097,6 +1210,8 @@ class _AMapMapViewState extends State<AMapMapView> {
     final dragEnabled = !mission.busy && !mission.transferActive;
     for (var index = 0; index < entities.length; index++) {
       final entity = entities[index];
+      // 返航只绘制通往 Home 的航段，复用原有 Home 图标。
+      if (entity.isReturnToLaunch) continue;
       final dragging = entity.id == _draggingEntityId;
       final preview = dragging ? _dragPreviewWgs84 : null;
       final position = missionEntityMapPosition(
@@ -1106,11 +1221,24 @@ class _AMapMapViewState extends State<AMapMapView> {
       );
       if (position == null) continue;
       final entityDragEnabled = dragEnabled && !entity.isTakeoff;
+      final vehicleHome = connection.homePosition;
+      final overlapsHome =
+          entity.isTakeoff &&
+          connection.homePositionValid &&
+          vehicleHome != null &&
+          wgs84DistanceMeters(
+                position,
+                LatLng(vehicleHome.latitude, vehicleHome.longitude),
+              ) <
+              1;
       markers.add(
         Marker(
           point: _toTileFrame(position.latitude, position.longitude),
-          width: 26,
-          height: 26,
+          // When T and Home share a coordinate, offset only the badge in
+          // screen space so both remain visible at the same geographic point.
+          alignment: overlapsHome ? Alignment.bottomLeft : Alignment.center,
+          width: 44,
+          height: 44,
           child: MouseRegion(
             cursor: !entityDragEnabled
                 ? SystemMouseCursors.basic
@@ -1118,6 +1246,7 @@ class _AMapMapViewState extends State<AMapMapView> {
                 ? SystemMouseCursors.grabbing
                 : SystemMouseCursors.move,
             child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () => mission.selectEntity(index),
               onDoubleTap: () => unawaited(_editEntity(mission, entity)),
               onPanStart: entityDragEnabled
@@ -1130,11 +1259,17 @@ class _AMapMapViewState extends State<AMapMapView> {
                   ? (_) => unawaited(_finishEntityDrag(mission, entity))
                   : null,
               onPanCancel: entityDragEnabled ? _cancelEntityDrag : null,
-              child: _WaypointMarker(
-                label: entity.isTakeoff ? 'T' : '${index + 1}',
-                color: entity.isTakeoff ? colors.warning : colors.accent,
-                selected: mission.selectedEntityIndex == index,
-                dragging: dragging,
+              child: Center(
+                // Keep the visible circle small; the surrounding area also accepts drags.
+                child: SizedBox.square(
+                  dimension: 26,
+                  child: _WaypointMarker(
+                    label: entity.isTakeoff ? 'T' : '${index + 1}',
+                    color: entity.isTakeoff ? colors.warning : colors.accent,
+                    selected: mission.selectedEntityIndex == index,
+                    dragging: dragging,
+                  ),
+                ),
               ),
             ),
           ),
@@ -1219,8 +1354,8 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           );
         }
-        // ArduPilot 起飞使用当前/Home 水平位置；NAV_TAKEOFF 的坐标和
-        // NAV_VTOL_TAKEOFF 的兼容参考点都不作为实际飞抵点。
+        // The planning line uses the same displayed reference as T. This does
+        // not change how the flight controller executes the takeoff command.
         continue;
       }
       if (position == null) continue;
@@ -1228,6 +1363,7 @@ class _AMapMapViewState extends State<AMapMapView> {
         _MissionRouteVertex(
           wgs84: position,
           tileFrame: _toTileFrame(position.latitude, position.longitude),
+          returning: entity.isReturnToLaunch,
         ),
       );
     }
@@ -1239,12 +1375,14 @@ class _AMapMapViewState extends State<AMapMapView> {
     if (vertices.length < 2) return const [];
     final colors = context.mgColors;
     return [
-      Polyline(
-        points: [for (final vertex in vertices) vertex.tileFrame],
-        color: colors.accent.withValues(alpha: 0.82),
-        strokeWidth: 2.2,
-        pattern: StrokePattern.dashed(segments: const [8, 6]),
-      ),
+      for (var i = 1; i < vertices.length; i++)
+        Polyline(
+          points: [vertices[i - 1].tileFrame, vertices[i].tileFrame],
+          color: (vertices[i].returning ? colors.warning : colors.accent)
+              .withValues(alpha: 0.82),
+          strokeWidth: 2.2,
+          pattern: StrokePattern.dashed(segments: const [8, 6]),
+        ),
     ];
   }
 
@@ -1442,9 +1580,19 @@ class _AMapMapViewState extends State<AMapMapView> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LayoutBuilder(builder: _buildMap);
+
+  Widget _buildMap(BuildContext context, BoxConstraints constraints) {
     final source = _sourceFor(_style, customTileUrl: _customTileUrl);
-    final screenWidth = MediaQuery.sizeOf(context).width;
+    final screenWidth = constraints.maxWidth;
+    final compactHeight = constraints.maxHeight < 450;
+    final primaryWidth = math.min(
+      mapRightPanelWidth(_rightPanel),
+      math.max(0.0, screenWidth - 36),
+    );
+    final instrumentSize = compactHeight
+        ? (screenWidth < 700 ? 104.0 : 128.0)
+        : MgMetrics.attitudeCompassSize;
     final showFleetPanel =
         _fleetPanelVisible &&
         widget.connectionController.fleetSnapshot.vehicles.length >= 2 &&
@@ -1489,70 +1637,116 @@ class _AMapMapViewState extends State<AMapMapView> {
                 maxNativeZoom: source.overlay!.maxNativeZoom,
                 userAgentPackageName: 'com.mgcs.frontend',
               ),
-            // 位置每 100ms 更新一次，只重画标记层，不重建整张地图。
+            // Keep slow-changing mission and fleet geometry independent from
+            // the 20 Hz active-vehicle position stream.
             AnimatedBuilder(
-              animation: _markerSources,
-              builder: (context, _) => PolylineLayer(
-                polylines: [
-                  ..._buildHomeLine(context),
-                  ..._buildMissionRouteLines(context),
-                  ..._buildFleetMissionRouteLines(context),
-                ],
+              animation: _fleetMapSources,
+              builder: (context, _) => RepaintBoundary(
+                child: PolylineLayer(
+                  polylines: _buildFleetMissionRouteLines(context),
+                ),
               ),
             ),
             AnimatedBuilder(
-              animation: _markerSources,
-              builder: (context, _) =>
-                  PolygonLayer(polygons: _buildMissionFencePolygons(context)),
-            ),
-            // 固定翼的 go to location 是"飞到点上然后绕圈"；圆圈半径和方向直接
-            // 取飞控参数 WP_LOITER_RAD（负值=逆时针），和飞机实际飞的圈一致。
-            AnimatedBuilder(
-              animation: _markerSources,
-              builder: (context, _) => CircleLayer(
-                circles: [
-                  ..._buildLoiterCircles(context),
-                  ..._buildMissionFenceCircles(context),
-                ],
+              animation: _missionMapSources,
+              builder: (context, _) => RepaintBoundary(
+                child: PolylineLayer(
+                  polylines: _buildMissionRouteLines(context),
+                ),
               ),
             ),
             AnimatedBuilder(
-              animation: _markerSources,
-              builder: (context, _) => MarkerLayer(
-                markers: [
-                  ..._buildHomeDistanceLabel(context),
-                  ..._buildMissionDistanceLabels(context),
-                  ..._buildMarkers(context, context.mgColors),
-                ],
+              animation: _activeMapSources,
+              builder: (context, _) => RepaintBoundary(
+                child: PolylineLayer(polylines: _buildHomeLine(context)),
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _missionMapSources,
+              builder: (context, _) => RepaintBoundary(
+                child: PolygonLayer(
+                  polygons: _buildMissionFencePolygons(context),
+                ),
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _activeMapSources,
+              builder: (context, _) => RepaintBoundary(
+                child: CircleLayer(circles: _buildLoiterCircles(context)),
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _missionMapSources,
+              builder: (context, _) => RepaintBoundary(
+                child: CircleLayer(circles: _buildMissionFenceCircles(context)),
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _fleetMarkerSources,
+              builder: (context, _) => RepaintBoundary(
+                child: MarkerLayer(
+                  markers: _buildFleetMarkers(context, context.mgColors),
+                ),
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _missionMapSources,
+              builder: (context, _) => RepaintBoundary(
+                child: MarkerLayer(
+                  markers: [
+                    ..._buildMissionDistanceLabels(context),
+                    ..._buildMissionMarkers(context, context.mgColors),
+                  ],
+                ),
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _activeMapSources,
+              builder: (context, _) => RepaintBoundary(
+                child: MarkerLayer(
+                  markers: [
+                    ..._buildHomeDistanceLabel(context),
+                    ..._buildActiveMarkers(context, context.mgColors),
+                  ],
+                ),
               ),
             ),
           ],
         ),
         // 右下角组合仪表：只保留 v0.0.5 MacGlass 的指南针 + 姿态球本体。
         Positioned(
-          right: 18,
-          bottom: 18,
-          child: AnimatedBuilder(
-            animation: _vehicleStatusSources,
-            builder: (context, _) => RepaintBoundary(
-              child: MgMacGlassAttitudeCompass(
-                headingDegrees: widget.connectionController.headingDegrees ?? 0,
-                rollDegrees: widget.connectionController.rollDegrees ?? 0,
-                pitchDegrees: widget.connectionController.pitchDegrees ?? 0,
+          right: compactHeight && primaryWidth > 0 ? primaryWidth + 30 : 18,
+          bottom: compactHeight ? 18 + MgMetrics.dashboardHeight + 12 : 18,
+          child: SizedBox.square(
+            dimension: instrumentSize,
+            child: FittedBox(
+              child: AnimatedBuilder(
+                animation: _attitudeSources,
+                builder: (context, _) => RepaintBoundary(
+                  child: MgMacGlassAttitudeCompass(
+                    headingDegrees:
+                        widget.connectionController.headingDegrees ?? 0,
+                    rollDegrees: widget.connectionController.rollDegrees ?? 0,
+                    pitchDegrees: widget.connectionController.pitchDegrees ?? 0,
+                  ),
+                ),
               ),
             ),
           ),
         ),
         Positioned(
-          left: 0,
-          right: 0,
+          left: 82,
+          right: compactHeight ? 18 : 18 + MgMetrics.attitudeCompassSize + 12,
           bottom: 18,
           child: Center(
             child: AnimatedBuilder(
-              animation: _vehicleStatusSources,
-              builder: (context, _) => MgTelemetryDashboard(
-                data: MgTelemetryDashboardData.fromController(
-                  widget.connectionController,
+              animation: _dashboardSources,
+              builder: (context, _) => SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: MgTelemetryDashboard(
+                  data: MgTelemetryDashboardData.fromController(
+                    widget.connectionController,
+                  ),
                 ),
               ),
             ),
@@ -1608,40 +1802,32 @@ class _AMapMapViewState extends State<AMapMapView> {
           ),
         ),
         if (showFleetPanel)
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            top: _rightPanelTopInset,
-            right: fleetRight,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height - 168,
-              ),
-              child: MgFleetBatchPanel(
-                fleet: widget.connectionController.fleet,
-                onSelectVehicle:
-                    widget.onSelectFleetVehicle ??
-                    (vehicleId) async =>
-                        widget.connectionController.selectVehicle(vehicleId),
-                onRequestAction: widget.onRequestFleetBatchAction ?? (_) {},
-                onClose: () => setState(() => _fleetPanelVisible = false),
-              ),
+          MapPanelSlot(
+            preferredWidth: MgMetrics.fleetPanelWidth,
+            rightInset: fleetRight,
+            reserveInstruments: true,
+            child: MgFleetBatchPanel(
+              fleet: widget.connectionController.fleet,
+              onSelectVehicle:
+                  widget.onSelectFleetVehicle ??
+                  (vehicleId) async =>
+                      widget.connectionController.selectVehicle(vehicleId),
+              onRequestAction: widget.onRequestFleetBatchAction ?? (_) {},
+              onOpenFlightMode: widget.onOpenFleetFlightMode,
+              onClose: () => setState(() => _fleetPanelVisible = false),
             ),
           ),
         if (_rightPanel == MapRightPanel.connection)
-          Positioned(
-            top: _rightPanelTopInset,
-            right: 18,
+          MapPanelSlot(
+            preferredWidth: kConnectionPanelMaxWidth,
+                reserveInstruments: true,
             child: ConnectionFloatingPanel(
               controller: widget.connectionController,
               onClose: () => setState(() => _rightPanel = MapRightPanel.none),
             ),
           ),
         if (_rightPanel == MapRightPanel.mission)
-          Positioned(
-            top: _missionPanelTopInset,
-            bottom: _missionPanelBottomInset,
-            right: 18,
+          MapPlanningPanelSlot(
             child: MissionPlanningFloatingPanel(
               key: ValueKey(widget.connectionController.sessionId),
               controller: widget.connectionController,
@@ -1650,9 +1836,8 @@ class _AMapMapViewState extends State<AMapMapView> {
             ),
           ),
         if (_rightPanel == MapRightPanel.geofence)
-          Positioned(
-            top: _missionPanelTopInset,
-            right: 18,
+          MapPlanningPanelSlot(
+            preferredWidth: kGeofencePanelWidth,
             child: GeofenceFloatingPanel(
               key: ValueKey(widget.connectionController.sessionId),
               controller: widget.connectionController,
@@ -1661,10 +1846,10 @@ class _AMapMapViewState extends State<AMapMapView> {
           ),
         if (_rightPanel == MapRightPanel.messages)
           // 右上角与连接面板共用同一个槽位，避免互相覆盖。
-          Positioned(
-            top: _rightPanelTopInset,
-            right: 18,
-            height: 340,
+          MapPanelSlot(
+            preferredWidth: kFlightMessagePanelWidth,
+            preferredHeight: kMapMessagePanelHeight,
+                reserveInstruments: true,
             child: FlightMessageFloatingPanel(
               controller: widget.connectionController,
               onClose: () => setState(() => _rightPanel = MapRightPanel.none),
@@ -1824,10 +2009,15 @@ class _TransientMapMessageState extends State<_TransientMapMessage>
 }
 
 class _MissionRouteVertex {
-  const _MissionRouteVertex({required this.wgs84, required this.tileFrame});
+  const _MissionRouteVertex({
+    required this.wgs84,
+    required this.tileFrame,
+    this.returning = false,
+  });
 
   final LatLng wgs84;
   final LatLng tileFrame;
+  final bool returning;
 }
 
 class _DistanceLabel extends StatelessWidget {
@@ -2117,11 +2307,11 @@ class _MapIconButton extends StatelessWidget {
       child: MacosIconButton(
         icon: Icon(
           icon,
-          size: 18,
+          size: 22,
           color: active ? colors.accent : colors.mapControlIcon,
         ),
         semanticLabel: tooltip,
-        boxConstraints: const BoxConstraints.tightFor(width: 38, height: 38),
+        boxConstraints: const BoxConstraints.tightFor(width: 46, height: 46),
         padding: EdgeInsets.zero,
         backgroundColor: colors.transparent,
         hoverColor: colors.mapControlHover,

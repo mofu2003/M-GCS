@@ -72,7 +72,8 @@ class _MissionPlanningFloatingPanelState
   void initState() {
     super.initState();
     _mission.addListener(_handleMissionChanged);
-    widget.controller.telemetryChanges.addListener(_handleTelemetryChanged);
+    widget.controller.positionChanges.addListener(_handleTelemetryChanged);
+    widget.controller.profileChanges.addListener(_syncVehicleContext);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_initializeAndSyncHome());
     });
@@ -84,6 +85,7 @@ class _MissionPlanningFloatingPanelState
   }
 
   void _handleMissionChanged() {
+    _syncVehicleContext();
     // 拖拽排序期间列表项会临时进入 Overlay；此时只更新任务状态，不启动
     // 滚动动画，避免拖拽与滚动同时改变同一列表的布局。
     if (_reordering) return;
@@ -117,7 +119,8 @@ class _MissionPlanningFloatingPanelState
     _executionTimer?.cancel();
     _entityScroll.dispose();
     _mission.removeListener(_handleMissionChanged);
-    widget.controller.telemetryChanges.removeListener(_handleTelemetryChanged);
+    widget.controller.positionChanges.removeListener(_handleTelemetryChanged);
+    widget.controller.profileChanges.removeListener(_syncVehicleContext);
     super.dispose();
   }
 
@@ -133,7 +136,7 @@ class _MissionPlanningFloatingPanelState
   /// 任务文档需要一个规划 Home，优先采用当前飞控已经建立的 Home。
   ///
   /// 这里只补齐缺失值，不覆盖用户或文件已有的规划 Home。飞控 Home 可能在
-  /// 面板打开后才收到，所以还要由 telemetryChanges 触发重试。
+  /// 面板打开后才收到，所以还要由 positionChanges 触发重试。
   Future<void> _syncVehicleHome() async {
     if (!mounted ||
         _homeSyncInFlight ||
@@ -166,8 +169,18 @@ class _MissionPlanningFloatingPanelState
     final firmware = widget.controller.firmwareInfo;
     _mission.setVehicleContext(
       vehicleClass: firmware?['mission_vehicle_class'] as String?,
-      firmwareProfile: firmware?['firmware'] as String?,
+      firmwareProfile: firmware?['profile'] as String?,
     );
+    if (_mission.initialized &&
+        !_mission.busy &&
+        _mission.vehicleContextNeedsSync) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_mission.busy && _mission.vehicleContextNeedsSync) {
+          unawaited(_mission.refreshVehicleContext());
+        }
+      });
+      WidgetsBinding.instance.ensureVisualUpdate();
+    }
   }
 
   @override
@@ -228,7 +241,19 @@ class _MissionPlanningFloatingPanelState
                 padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [Expanded(child: _buildTasksTab(context))],
+                  children: [
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final tasks = _buildTasksTab(context);
+                          if (constraints.maxHeight >= 260) return tasks;
+                          return SingleChildScrollView(
+                            child: SizedBox(height: 260, child: tasks),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -408,13 +433,16 @@ class _MissionExecutionProgressBar extends StatelessWidget {
     final typography = MacosTheme.of(context).typography;
     final total = progress.total;
     final reached = progress.reachedCount.clamp(0, total);
-    final ratio = total == 0 ? 0.0 : reached / total;
+    final ratio = progress.fraction;
     final done = progress.finished;
+    final stopped = progress.ended || progress.aborted;
     // 三档文案：航段飞完（还在返航/降落）与真正任务完成分开，避免提前报"完成"。
     final label = done
         ? '任务完成 · 共 $total 项'
+        : progress.ended
+        ? '任务已结束，未完成 · 已到达 $reached/$total 项'
         : progress.aborted
-        ? '任务已中止 · 共 $total 项'
+        ? '任务已中断 · 目标第 ${(progress.currentIndex + 1).clamp(1, total)} 项 · 已到达 $reached 项'
         : progress.reachedEnd
         ? '航段已完成 · 共 $total 项，等待返航/降落'
         : '任务进度 第 ${(progress.currentIndex + 1).clamp(1, total)}/$total 项 · '
@@ -428,13 +456,13 @@ class _MissionExecutionProgressBar extends StatelessWidget {
               MacosIcon(
                 done
                     ? CupertinoIcons.checkmark_circle
-                    : progress.aborted
+                    : stopped
                     ? CupertinoIcons.exclamationmark_triangle
                     : CupertinoIcons.location_north,
                 size: 13,
                 color: done
                     ? colors.success
-                    : progress.aborted
+                    : stopped
                     ? colors.danger
                     : progress.reachedEnd
                     ? colors.warning
@@ -458,7 +486,7 @@ class _MissionExecutionProgressBar extends StatelessWidget {
             height: MgMetrics.motorBarHeight,
             trackColor: done
                 ? colors.success
-                : progress.aborted
+                : stopped
                 ? colors.danger
                 : progress.reachedEnd
                 ? colors.warning
@@ -558,7 +586,9 @@ class _MissionEntityCard extends StatelessWidget {
                   onChanged: enabled ? onCommandChanged : null,
                 ),
               ),
-              Tooltip(
+              // MacosTooltip removes its overlay on pointer-down/deactivation;
+              // Material Tooltip's OverlayPortal can fail when this row moves.
+              MacosTooltip(
                 message: '拖动排序',
                 child: ReorderableDragStartListener(
                   index: reorderIndex,
@@ -566,7 +596,7 @@ class _MissionEntityCard extends StatelessWidget {
                   child: const MacosIcon(CupertinoIcons.bars, size: 13),
                 ),
               ),
-              Tooltip(
+              MacosTooltip(
                 message: '编辑航点',
                 child: MacosIconButton(
                   icon: const MacosIcon(CupertinoIcons.pencil, size: 13),
@@ -574,7 +604,7 @@ class _MissionEntityCard extends StatelessWidget {
                   onPressed: enabled ? onEdit : null,
                 ),
               ),
-              Tooltip(
+              MacosTooltip(
                 message: '删除',
                 child: MacosIconButton(
                   icon: MacosIcon(

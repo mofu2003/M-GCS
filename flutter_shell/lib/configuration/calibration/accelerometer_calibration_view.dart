@@ -12,46 +12,72 @@ class AccelerometerCalibrationView extends StatelessWidget {
   final ConnectionController controller;
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      // 用 loose 约束让波形区贴合自身内容高度：之前用 Expanded 会把它撑满，
-      // 内容不足时图表下方会空出一大片，把校准卡片推得很远。
-      Flexible(
-        child: SensorWaveformPanel(
-          controller: controller,
-          groups: const [SensorWaveformGroup.accel, SensorWaveformGroup.gyro],
-          instanceKind: WaveformInstanceKind.imu,
-        ),
-      ),
-      const SizedBox(height: 8),
-      // 左右内边距和卡片间距与上面的波形卡片保持一致，两行卡片左右边界对齐。
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: kWaveformContentInset),
-        child: SizedBox(
-          height: 224,
-          child: AnimatedBuilder(
-            animation: controller.calibrationChanges,
-            builder: (context, _) => Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: AccelerometerCalibrationCard(
-                    controller: controller,
-                    mode: AccelerometerCalibrationMode.sixFace,
-                  ),
-                ),
-                const SizedBox(width: kWaveformCardGap),
-                Expanded(
-                  child: AccelerometerCalibrationCard(
-                    controller: controller,
-                    mode: AccelerometerCalibrationMode.level,
-                  ),
-                ),
-              ],
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final sideBySide = constraints.maxWidth >= 960;
+      final compactCard = constraints.maxWidth < 460;
+      Widget card(AccelerometerCalibrationMode mode, double height) => SizedBox(
+        height: height,
+        child: AccelerometerCalibrationCard(controller: controller, mode: mode),
+      );
+      return SingleChildScrollView(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: kWaveformContentInset,
+                vertical: 12,
+              ),
+              child: AnimatedBuilder(
+                animation: controller.calibrationChanges,
+                builder: (context, _) => sideBySide
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: card(
+                              AccelerometerCalibrationMode.sixFace,
+                              320,
+                            ),
+                          ),
+                          const SizedBox(width: kWaveformCardGap),
+                          Expanded(
+                            child: card(
+                              AccelerometerCalibrationMode.level,
+                              320,
+                            ),
+                          ),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          card(
+                            AccelerometerCalibrationMode.sixFace,
+                            compactCard ? 460 : 300,
+                          ),
+                          const SizedBox(height: kWaveformCardGap),
+                          card(
+                            AccelerometerCalibrationMode.level,
+                            compactCard ? 360 : 224,
+                          ),
+                        ],
+                      ),
+              ),
             ),
-          ),
+            SizedBox(
+              height: 300,
+              child: SensorWaveformPanel(
+                controller: controller,
+                groups: const [
+                  SensorWaveformGroup.accel,
+                  SensorWaveformGroup.gyro,
+                ],
+                instanceKind: WaveformInstanceKind.imu,
+              ),
+            ),
+          ],
         ),
-      ),
-    ],
+      );
+    },
   );
 }
