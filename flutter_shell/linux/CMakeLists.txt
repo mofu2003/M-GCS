@@ -54,14 +54,16 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 
-# Application build; see runner/CMakeLists.txt.
-add_subdirectory("runner")
-
 # Build and stage the shared C++ backend beside the Linux executable. This is
 # intentionally kept outside the Flutter runner so the FFI library follows the
 # same CMake source and platform implementation as the backend tests.
 set(MGCORE_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(MGCORE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/mgcore_backend")
+
+# Application build; see runner/CMakeLists.txt. POST_BUILD 拷贝写在 runner/ 里：
+# add_custom_command(TARGET) 只能在创建目标的目录调用。
+add_subdirectory("runner")
+
 add_custom_target(mgcore_backend ALL
   COMMAND ${CMAKE_COMMAND} -S "${MGCORE_ROOT_DIR}" -B "${MGCORE_BUILD_DIR}"
     -DMGCORE_BUILD_SHARED=ON
@@ -74,24 +76,6 @@ add_custom_target(mgcore_backend ALL
   VERBATIM
 )
 add_dependencies(${BINARY_NAME} mgcore_backend)
-add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${MGCORE_ROOT_DIR}/build/libmgcore.so"
-    "$<TARGET_FILE_DIR:${BINARY_NAME}>/libmgcore.so"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${MGCORE_ROOT_DIR}/core/src/transport/USBBoardInfo.json"
-    "$<TARGET_FILE_DIR:${BINARY_NAME}>/USBBoardInfo.json"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${MGCORE_ROOT_DIR}/core/src/sensor/SensorDeviceInfo.json"
-    "$<TARGET_FILE_DIR:${BINARY_NAME}>/SensorDeviceInfo.json"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${MGCORE_ROOT_DIR}/core/src/config/ParameterDescriptors.json"
-    "$<TARGET_FILE_DIR:${BINARY_NAME}>/ParameterDescriptors.json"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${MGCORE_ROOT_DIR}/core/src/config/ParameterTranslations.zh-CN.json"
-    "$<TARGET_FILE_DIR:${BINARY_NAME}>/ParameterTranslations.zh-CN.json"
-  VERBATIM
-)
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)

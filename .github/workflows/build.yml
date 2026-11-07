@@ -117,6 +117,15 @@ jobs:
       with:
         channel: stable
 
+    # third_party/mavlink/include 不入库，preflight-windows.ps1 要求头文件已生成。
+    - name: 生成 MAVLink C 头
+      shell: bash
+      run: PYTHON_BIN=python ./tools/generate-mavlink.sh
+
+    - name: 获取依赖
+      working-directory: flutter_shell
+      run: flutter pub get
+
     - name: 运行 Windows 完整预检
       shell: pwsh
       run: ./tools/preflight-windows.ps1

@@ -24,3 +24,24 @@ target_link_libraries(${BINARY_NAME} PRIVATE flutter)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
 
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+
+# 后端动态库与随包资源必须和可执行文件放在一起。add_custom_command(TARGET)
+# 只能在创建目标的目录（这里）调用，MGCORE_ROOT_DIR 由上层 CMakeLists 传入。
+add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/build/libmgcore.so"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/libmgcore.so"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/transport/USBBoardInfo.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/USBBoardInfo.json"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/sensor/SensorDeviceInfo.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/SensorDeviceInfo.json"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/config/ParameterDescriptors.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/ParameterDescriptors.json"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${MGCORE_ROOT_DIR}/core/src/config/ParameterTranslations.zh-CN.json"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/ParameterTranslations.zh-CN.json"
+  VERBATIM
+)

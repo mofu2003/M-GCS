@@ -277,7 +277,9 @@ bool MavlinkAdapter::set_signing_key(const uint8_t* key,
     impl_->signing.last_status = MAVLINK_SIGNING_STATUS_NONE;
     std::copy_n(key, sizeof(impl_->signing.secret_key),
                 impl_->signing.secret_key);
-    impl_->signing.timestamp = std::max(
+    // 显式指定 uint64_t：Linux/Android 上它是 unsigned long，与 1ULL 推导出的
+    // unsigned long long 不同，std::max 模板推导会失败（macOS 上两者相同）。
+    impl_->signing.timestamp = std::max<uint64_t>(
         signing_now_ticks(), persisted_timestamp + 1ULL);
 
     impl_->tx_status.signing = &impl_->signing;
