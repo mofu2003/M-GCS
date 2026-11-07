@@ -844,7 +844,7 @@ void main() {
         : false,
   );
   test(
-    'duplicate sysid on another link is surfaced without merging vehicles',
+    'duplicate sysids stay isolated and cannot enter a batch',
     () async {
       final controller = ConnectionController();
       addTearDown(controller.dispose);
@@ -876,22 +876,43 @@ void main() {
         final deadline = DateTime.now().add(const Duration(seconds: 4));
         while (DateTime.now().isBefore(deadline)) {
           rawFleet.refresh();
-          if (rawFleet.snapshot.links.any(
-            (link) => link.state == 'duplicate_system_id',
-          )) {
+          if (rawFleet.snapshot.vehicles.length == 2 &&
+              rawFleet.snapshot.links.every((link) => link.connected)) {
             break;
           }
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
 
-        expect(rawFleet.snapshot.vehicles.length, 1);
+        expect(rawFleet.snapshot.vehicles.length, 2);
         expect(rawFleet.snapshot.links.length, 2);
-        final duplicate = rawFleet.snapshot.links.singleWhere(
-          (link) => link.state == 'duplicate_system_id',
+        expect(rawFleet.snapshot.vehicles.map((vehicle) => vehicle.systemId), [
+          1,
+          1,
+        ]);
+        expect(
+          rawFleet.snapshot.vehicles
+              .map((vehicle) => vehicle.id)
+              .toSet()
+              .length,
+          2,
         );
-        expect(duplicate.vehicleId, isNull);
-        expect(duplicate.connected, isFalse);
-        expect(duplicate.systemId, 1);
+        expect(
+          rawFleet.snapshot.links.map((link) => link.vehicleId).toSet().length,
+          2,
+        );
+        expect(
+          rawFleet.snapshot.links.map((link) => link.endpoint).toSet().length,
+          2,
+        );
+        for (final vehicle in rawFleet.snapshot.vehicles) {
+          rawFleet.selectVehicle(vehicle.id);
+          expect(rawFleet.captureTarget().vehicleId, vehicle.id);
+        }
+        rawFleet.selectAllVehicles();
+        expect(
+          () => rawFleet.captureBatchTarget(FleetBatchAction.arm),
+          throwsStateError,
+        );
       } finally {
         for (final timer in timers) {
           timer.cancel();

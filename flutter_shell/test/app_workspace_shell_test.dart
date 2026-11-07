@@ -50,7 +50,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
 
-    await tester.tap(find.text('返回前台地图'));
+    await tester.tap(find.text('返回飞行控制页面'));
     expect(returnedToMap, isTrue);
   });
 

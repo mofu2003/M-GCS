@@ -41,6 +41,12 @@ class MgFleetBatchPanel extends StatelessWidget {
       final connectedSelected = selectedVehicles
           .where((vehicle) => vehicle.stateFresh && vehicle.identified)
           .toList(growable: false);
+      final conflict = fleetSystemIdConflict(selectedVehicles);
+      final progress = fleet.batchProgress;
+      final canBatch =
+          conflict == null &&
+          connectedSelected.isNotEmpty &&
+          !fleet.targetOperationActive;
       final allSelected =
           vehicles.isNotEmpty && selected.length == vehicles.length;
       final canArm = connectedSelected.any((vehicle) => !vehicle.armed);
@@ -105,6 +111,11 @@ class MgFleetBatchPanel extends StatelessWidget {
                                   'fleet-batch-vehicle-${vehicle.id}',
                                 ),
                                 vehicle: vehicle,
+                                showEndpoint: vehicles.any(
+                                  (other) =>
+                                      other.id != vehicle.id &&
+                                      other.systemId == vehicle.systemId,
+                                ),
                                 selected: selected.contains(vehicle.id),
                                 active:
                                     fleet.snapshot.activeVehicleId ==
@@ -138,6 +149,54 @@ class MgFleetBatchPanel extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (progress != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '${progress.target.action.label} · 已处理 '
+                        '${progress.results.length}/${progress.target.vehicleIds.length}',
+                        style: MgTypography.caption,
+                      ),
+                      if (progress.results.isNotEmpty)
+                        Tooltip(
+                          message: progress.results
+                              .map(
+                                (result) =>
+                                    '系统 ${result.systemId} · ${result.status.label} · ${result.message}',
+                              )
+                              .join('\n'),
+                          child: Text(
+                            progress.results
+                                .map(
+                                  (result) =>
+                                      '${result.systemId} ${result.status.label}',
+                                )
+                                .join(' · '),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: MgTypography.caption,
+                          ),
+                        ),
+                      if (progress.running) ...[
+                        if (progress.stopRequested)
+                          const Text('已请求停止后续派发')
+                        else
+                          PushButton(
+                            key: const ValueKey('fleet-batch-stop'),
+                            controlSize: ControlSize.small,
+                            onPressed: fleet.stopBatchDispatch,
+                            child: const Text('停止后续派发'),
+                          ),
+                      ],
+                    ],
+                    if (conflict != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        conflict,
+                        style: MgTypography.sans(
+                          MgTypography.caption.copyWith(color: colors.warning),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -145,7 +204,7 @@ class MgFleetBatchPanel extends StatelessWidget {
                           child: _BatchActionButton(
                             key: const ValueKey('fleet-batch-arm'),
                             label: '解锁',
-                            enabled: connectedSelected.isNotEmpty && canArm,
+                            enabled: canBatch && canArm,
                             onPressed: () => _request(
                               context,
                               fleet,
@@ -159,7 +218,7 @@ class MgFleetBatchPanel extends StatelessWidget {
                           child: _BatchActionButton(
                             key: const ValueKey('fleet-batch-disarm'),
                             label: '上锁',
-                            enabled: connectedSelected.isNotEmpty && canDisarm,
+                            enabled: canBatch && canDisarm,
                             onPressed: () => _request(
                               context,
                               fleet,
@@ -173,7 +232,7 @@ class MgFleetBatchPanel extends StatelessWidget {
                           child: _BatchActionButton(
                             key: const ValueKey('fleet-batch-rtl'),
                             label: '返航',
-                            enabled: connectedSelected.isNotEmpty,
+                            enabled: canBatch,
                             onPressed: () => _request(
                               context,
                               fleet,
@@ -188,7 +247,7 @@ class MgFleetBatchPanel extends StatelessWidget {
                     PushButton(
                       key: const ValueKey('fleet-batch-mission-start'),
                       controlSize: ControlSize.regular,
-                      onPressed: connectedSelected.isNotEmpty && canStartMission
+                      onPressed: canBatch && canStartMission
                           ? () => _request(
                               context,
                               fleet,
@@ -203,9 +262,12 @@ class MgFleetBatchPanel extends StatelessWidget {
               ),
             ),
           );
-          if (constraints.maxHeight < 320) {
+          if (constraints.maxHeight < (progress == null ? 320 : 480)) {
             return SingleChildScrollView(
-              child: SizedBox(height: 360, child: panel),
+              child: SizedBox(
+                height: progress == null ? 360 : 500,
+                child: panel,
+              ),
             );
           }
           return panel;
@@ -357,6 +419,7 @@ class _VehicleCard extends StatelessWidget {
   const _VehicleCard({
     super.key,
     required this.vehicle,
+    required this.showEndpoint,
     required this.selected,
     required this.active,
     required this.enabled,
@@ -366,6 +429,7 @@ class _VehicleCard extends StatelessWidget {
   });
 
   final FleetVehicleSummary vehicle;
+  final bool showEndpoint;
   final bool selected;
   final bool active;
   final bool enabled;
@@ -376,7 +440,6 @@ class _VehicleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
-    final id = vehicle.systemId > 0 ? vehicle.systemId : vehicle.id;
     final mode = vehicle.flightMode.isEmpty ? '未知模式' : vehicle.flightMode;
     final rowColor = active ? colors.accentSurface : colors.surface;
     final borderColor = active ? colors.accent : colors.divider;
@@ -400,7 +463,8 @@ class _VehicleCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Semantics(
-                    label: '选择飞机 $id',
+                    label:
+                        '选择${vehicle.displayName}${showEndpoint ? ' · ${vehicle.connectionLabel}' : ''}',
                     checked: selected,
                     enabled: enabled,
                     child: InkWell(
@@ -446,7 +510,7 @@ class _VehicleCard extends StatelessWidget {
                         Row(
                           children: [
                             Text(
-                              '飞机 $id',
+                              vehicle.displayName,
                               style: MgTypography.sans(
                                 MgTypography.section.copyWith(
                                   fontWeight: FontWeight.w500,
@@ -489,6 +553,22 @@ class _VehicleCard extends StatelessWidget {
                             _StatusBadge(vehicle: vehicle, enabled: enabled),
                           ],
                         ),
+                        if (showEndpoint) ...[
+                          const SizedBox(height: 4),
+                          Tooltip(
+                            message: vehicle.endpoint,
+                            child: Text(
+                              vehicle.connectionLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: MgTypography.sans(
+                                MgTypography.caption.copyWith(
+                                  color: colors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 8),
                         Row(
                           children: [

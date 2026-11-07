@@ -542,11 +542,11 @@ static bool has_command(const MockFlightController& mock, uint16_t command) {
     return false;
 }
 
-static void test_targeted_command_dispatch_isolated() {
+static void test_targeted_command_dispatch_isolated(uint8_t second_system_id) {
     fprintf(stderr, "\n[Group] explicit target command dispatch\n");
     TwoVehicleMockEnv env;
     env.add(41, 1);
-    env.add(42, 2);
+    env.add(42, second_system_id);
     CHECK(env.wait_connected(), "two mock vehicles connect independently");
     CHECK(mg_vehicle_get_active(env.core) == -1, "mock connections do not steal focus");
 
@@ -1037,7 +1037,8 @@ int main() {
     test_session_scope_pins_identity_and_lifetime();
     test_session_status_includes_position();
     test_independent_vehicle_telemetry_and_registry_lease();
-    test_targeted_command_dispatch_isolated();
+    test_targeted_command_dispatch_isolated(2);
+    test_targeted_command_dispatch_isolated(1);
     test_nonblocking_commands_and_mission_rejection();
     test_async_mission_clear_targets_vehicle();
     test_mission_workflow_by_vehicle_type();

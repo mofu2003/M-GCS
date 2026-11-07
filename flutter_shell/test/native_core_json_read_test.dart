@@ -110,7 +110,6 @@ void main() {
     const merged = <String>[
       'lib/connection/calibration_ffi_backend.dart',
       'lib/connection/telemetry_ffi_backend.dart',
-      'lib/payload/payload_ffi_backend.dart',
       'lib/logging/tlog_ffi_backend.dart',
       'lib/logging/file_ffi_backend.dart',
       'lib/logging/log_ffi_backend.dart',

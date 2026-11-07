@@ -274,6 +274,62 @@ final class MissionDocumentController extends ChangeNotifier {
     'entity': entity.toJson(),
   });
 
+  int get generatedWaypointInsertionIndex {
+    final current = document;
+    if (current == null) return 0;
+    bool terminal(MissionEntity item) =>
+        item.isReturnToLaunch || item.command == 21 || item.isVtolLand;
+    var insertion = current.entities.length;
+    final selected = selectedEntityIndex;
+    if (selected != null &&
+        selected >= 0 &&
+        selected < current.entities.length) {
+      insertion = selected + (terminal(current.entities[selected]) ? 0 : 1);
+    } else {
+      while (insertion > 0 && terminal(current.entities[insertion - 1])) {
+        insertion--;
+      }
+    }
+    return insertion;
+  }
+
+  Future<void> insertGeneratedWaypoints(
+    List<MissionEntity> waypoints, {
+    required int expectedRevision,
+    required int? expectedSessionId,
+  }) async {
+    final current = document;
+    if (_disposed || busy || transferActive || current == null) {
+      throw StateError('任务正在处理，请稍后生成');
+    }
+    if (_boundSessionId != expectedSessionId ||
+        current.revision != expectedRevision) {
+      throw StateError('任务或所属飞机已变化，请重新开始绘制');
+    }
+    if (waypoints.isEmpty) throw ArgumentError('没有可生成的航点');
+    final insertion = generatedWaypointInsertionIndex;
+    final entities = List<MissionEntity>.of(current.entities)
+      ..insertAll(insertion, waypoints);
+    final complexItems = [
+      for (final item in current.complexItems)
+        MissionComplexItem(
+          id: item.id,
+          itemType: item.itemType,
+          json: item.json,
+          entityInsertIndex:
+              item.entityInsertIndex != kComplexItemAppendAtEnd &&
+                  item.entityInsertIndex >= insertion
+              ? item.entityInsertIndex + waypoints.length
+              : item.entityInsertIndex,
+        ),
+    ];
+    await replaceDocument(
+      current.copyWith(entities: entities, complexItems: complexItems),
+    );
+    if (error != null) throw StateError(error!);
+    selectEntityById(waypoints.first.id);
+  }
+
   Future<void> updateEntity(MissionEntity entity) => _apply({
     'operation': 'update',
     if (document != null) 'expected_revision': document!.revision,

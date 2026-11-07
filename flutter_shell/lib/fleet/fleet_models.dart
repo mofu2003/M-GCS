@@ -47,6 +47,32 @@ class FleetConnectionSpec {
 
 /// MV6 批量飞行动作。目标车辆由 [FleetBatchTarget] 显式携带，不能回退到
 /// 当前 active vehicle，避免确认后切换焦点导致指令误发。
+/// 批量协同时，成员的协议编号需要明确且互不重复。
+String? fleetSystemIdConflict(Iterable<FleetVehicleSummary> vehicles) {
+  final seen = <int>{};
+  final duplicates = <int>{};
+  for (final vehicle in vehicles) {
+    if (vehicle.systemId > 0 && !seen.add(vehicle.systemId)) {
+      duplicates.add(vehicle.systemId);
+    }
+  }
+  if (duplicates.isEmpty) return null;
+  final ids = duplicates.toList()..sort();
+  return '所选飞机的 SYSID 重复（${ids.join('、')}），请调整后再进行批量操作';
+}
+
+String fleetVehicleLabel(
+  FleetVehicleSummary vehicle,
+  Iterable<FleetVehicleSummary> vehicles,
+) {
+  final duplicate = vehicles.any(
+    (other) => other.id != vehicle.id && other.systemId == vehicle.systemId,
+  );
+  return duplicate
+      ? '${vehicle.displayName} · ${vehicle.connectionLabel}'
+      : vehicle.displayName;
+}
+
 enum FleetBatchAction { arm, disarm, returnToLaunch, startMission }
 
 extension FleetBatchActionMetadata on FleetBatchAction {
@@ -58,7 +84,7 @@ extension FleetBatchActionMetadata on FleetBatchAction {
   };
 }
 
-enum FleetBatchCommandStatus { success, rejected, timeout, error }
+enum FleetBatchCommandStatus { success, rejected, timeout, error, notSent }
 
 extension FleetBatchCommandStatusMetadata on FleetBatchCommandStatus {
   String get label => switch (this) {
@@ -66,6 +92,7 @@ extension FleetBatchCommandStatusMetadata on FleetBatchCommandStatus {
     FleetBatchCommandStatus.rejected => '被拒绝',
     FleetBatchCommandStatus.timeout => '超时',
     FleetBatchCommandStatus.error => '失败',
+    FleetBatchCommandStatus.notSent => '未派发',
   };
 }
 
@@ -134,8 +161,29 @@ class FleetBatchResult {
   final List<FleetBatchCommandResult> results;
 
   int get successCount => results.where((result) => result.success).length;
-  int get failureCount => results.length - successCount;
-  bool get allSucceeded => results.isNotEmpty && failureCount == 0;
+  int get notSentCount => results
+      .where((result) => result.status == FleetBatchCommandStatus.notSent)
+      .length;
+  int get failureCount => results.length - successCount - notSentCount;
+  bool get allSucceeded => results.isNotEmpty && successCount == results.length;
+}
+
+/// 一次群体操作的只读执行快照，结果表示逐机命令的协议结果。
+@immutable
+class FleetBatchProgress {
+  FleetBatchProgress({
+    required this.target,
+    required Iterable<FleetBatchCommandResult> results,
+    required this.running,
+    required this.stopRequested,
+    this.runningVehicleId,
+  }) : results = List.unmodifiable(results);
+
+  final FleetBatchTarget target;
+  final List<FleetBatchCommandResult> results;
+  final bool running;
+  final bool stopRequested;
+  final int? runningVehicleId;
 }
 
 @immutable
@@ -258,6 +306,18 @@ class FleetVehicleSummary {
   final int primaryHeartbeatAgeMs;
   final int missionRevision;
   final List<FleetMissionPoint> missionPoints;
+
+  String get displayName => systemId > 0 ? '飞机 $systemId' : '待识别飞机';
+
+  String get connectionLabel {
+    final uri = Uri.tryParse(endpoint);
+    if (uri == null) return endpoint;
+    if (uri.scheme == 'serial' && uri.pathSegments.isNotEmpty) {
+      return uri.pathSegments.last;
+    }
+    if (uri.hasPort) return '${uri.host}:${uri.port}';
+    return endpoint;
+  }
 
   bool get identified => systemId > 0;
   bool get stateFresh => connected && heartbeatFresh;

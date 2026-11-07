@@ -35,6 +35,8 @@ class VehicleMarkerIcon extends StatelessWidget {
   final Color outline;
 
   final double? headingDegrees;
+
+  /// 机尾显示的飞控系统编号，仅用于标记显示。
   final int? vehicleId;
 
   @override

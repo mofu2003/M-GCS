@@ -351,6 +351,80 @@ void main() {
     expect(fleet.selectedVehicleIds, isEmpty);
   });
 
+  test(
+    'duplicate sysids connect independently but require batch correction',
+    () async {
+      final calls = <int>[];
+      final guarded = FleetController(
+        backend,
+        executeBatchCommand: (vehicle, action) async {
+          calls.add(vehicle.id);
+          return FleetBatchCommandResult.success(
+            vehicleId: vehicle.id,
+            systemId: vehicle.systemId,
+          );
+        },
+      );
+      addTearDown(guarded.dispose);
+      final a = guarded.openLink(FleetConnectionSpec('udp://0.0.0.0:14550'));
+      final b = guarded.openLink(FleetConnectionSpec('udp://0.0.0.0:14551'));
+      backend.vehicles[b] = FleetVehicleSummary(
+        id: b,
+        systemId: 1,
+        endpoint: 'udp://0.0.0.0:14551',
+        connected: true,
+      );
+      guarded.refresh();
+      expect(guarded.snapshot.vehicles.length, 2);
+      guarded.selectVehicle(b);
+      expect(guarded.captureTarget().vehicleId, b);
+      guarded.selectAllVehicles();
+      expect(
+        () => guarded.captureBatchTarget(FleetBatchAction.arm),
+        throwsStateError,
+      );
+      await expectLater(
+        guarded.runBatch(
+          FleetBatchTarget(
+            action: FleetBatchAction.arm,
+            vehicleIds: [a, b],
+            systemIds: [1, 1],
+          ),
+        ),
+        throwsStateError,
+      );
+      expect(calls, isEmpty);
+    },
+  );
+
+  test('batch rechecks current sysids after confirmation', () async {
+    final calls = <int>[];
+    final guarded = FleetController(
+      backend,
+      executeBatchCommand: (vehicle, action) async {
+        calls.add(vehicle.id);
+        return FleetBatchCommandResult.success(
+          vehicleId: vehicle.id,
+          systemId: vehicle.systemId,
+        );
+      },
+    );
+    addTearDown(guarded.dispose);
+    final a = guarded.openLink(FleetConnectionSpec('udp://0.0.0.0:14550'));
+    final b = guarded.openLink(FleetConnectionSpec('udp://0.0.0.0:14551'));
+    guarded.selectAllVehicles();
+    final target = guarded.captureBatchTarget(FleetBatchAction.arm);
+    backend.vehicles[b] = FleetVehicleSummary(
+      id: b,
+      systemId: 1,
+      endpoint: 'udp://0.0.0.0:14551',
+      connected: true,
+    );
+    await expectLater(guarded.runBatch(target), throwsStateError);
+    expect(calls, isEmpty);
+    expect(guarded.snapshot.vehicle(a)?.systemId, 1);
+  });
+
   test('batch target freezes explicit vehicle IDs and active focus', () async {
     final calls = <int>[];
     final batchFleet = FleetController(

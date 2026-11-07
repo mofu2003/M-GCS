@@ -10,12 +10,14 @@ import 'configuration/configuration_workspace.dart';
 import 'fleet/fleet_models.dart';
 import 'gcs_configuration_workspace.dart';
 import 'map/amap_map_view.dart';
+import 'logging/flight_data_page.dart';
 import 'theme/mg_typography.dart';
 import 'theme/mg_material_theme.dart';
 import 'widgets/mg_command_confirmation.dart';
 import 'widgets/mg_dialog.dart';
 import 'widgets/mg_settings_menu.dart';
 import 'widgets/mg_top_status_bar.dart';
+import 'widgets/parameter_load_progress.dart';
 
 Future<void> main() async {
   if (!kIsWeb && Platform.isMacOS) {
@@ -168,11 +170,14 @@ class _MapPageState extends State<MapPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('成功 ${result.successCount} 架，失败 ${result.failureCount} 架'),
+                Text(
+                  '已接受 ${result.successCount} 架，失败 ${result.failureCount} 架，'
+                  '未派发 ${result.notSentCount} 架',
+                ),
                 const SizedBox(height: 8),
                 for (final item in failed) ...[
                   Text(
-                    '飞机 ${item.vehicleId} · 系统 ${item.systemId} · ${item.status.label}：${item.message}',
+                    '飞机 ${item.systemId} · ${item.status.label} · ${item.message}',
                   ),
                   const SizedBox(height: 4),
                 ],
@@ -301,18 +306,9 @@ class _MapPageState extends State<MapPage> {
       case MgSettingsDestination.geofence:
         _cancelCommandConfirmation();
         _geofenceRequest.value++;
-      case MgSettingsDestination.payload:
+      case MgSettingsDestination.flightData:
         _cancelCommandConfirmation();
-        return _openConfiguration(page: 'payload');
-      case MgSettingsDestination.logs:
-        _cancelCommandConfirmation();
-        return _openConfiguration(page: 'logs');
-      case MgSettingsDestination.flightLog:
-        _cancelCommandConfirmation();
-        return _openConfiguration(page: 'flightLog');
-      case MgSettingsDestination.files:
-        _cancelCommandConfirmation();
-        return _openConfiguration(page: 'files');
+        return _openFlightData(FlightDataView.onboardLogs);
       case MgSettingsDestination.gcs:
         _cancelCommandConfirmation();
         return _openGcsConfiguration();
@@ -329,6 +325,17 @@ class _MapPageState extends State<MapPage> {
           child: child,
         ),
   );
+
+  Future<void> _openFlightData(FlightDataView view) =>
+      Navigator.of(context).push<void>(
+        _workspaceRoute(
+          (routeContext) => FlightDataPage(
+            view: view,
+            controller: _connectionController,
+            onReturnToFlight: () => Navigator.of(routeContext).maybePop(),
+          ),
+        ),
+      );
 
   Future<void> _openConfiguration({String? page}) async {
     _configurationPageRequest.value = page;
@@ -417,7 +424,10 @@ class _MapPageState extends State<MapPage> {
       options: options,
       vehicleLabel: vehicleId == null
           ? null
-          : '飞机 ${_connectionController.fleet.snapshot.vehicle(vehicleId)?.systemId ?? vehicleId}',
+          : (_connectionController.fleet.snapshot
+                    .vehicle(vehicleId)
+                    ?.displayName ??
+                '待识别飞机'),
       alignment: vehicleId == null ? Alignment.topLeft : Alignment.topRight,
     );
   }
@@ -427,32 +437,47 @@ class _MapPageState extends State<MapPage> {
     return MacosWindow(
       child: Column(
         children: [
-          AnimatedBuilder(
-            animation: Listenable.merge([
-              _connectionController.connectionChanges,
-              _connectionController.gpsChanges,
-              _connectionController.batteryChanges,
-              _connectionController.flightStateChanges,
-              _connectionController.stateChanges,
-              _connectionController.profileChanges,
-            ]),
-            builder: (context, _) => MgTopStatusBar(
-              data: MgTopStatusData.fromController(_connectionController),
-              vehicles: _connectionController.fleetSnapshot.vehicles,
-              activeVehicleId:
-                  _connectionController.fleetSnapshot.activeVehicleId,
-              selectedVehicleCount:
-                  _connectionController.fleet.selectedVehicleIds.length,
-              selectedVehicleIds:
-                  _connectionController.fleet.selectedVehicleIds,
-              onSelectVehicle: _selectFleetVehicle,
-              onOpenFleetBatch: () => _fleetPanelRequest.value++,
-              onOpenFlightMessages: () => _flightMessagePanelRequest.value++,
-              onToggleArm: _requestArmConfirmation,
-              onEmergencyStop: _requestEmergencyStopConfirmation,
-              onOpenFlightMode: () => unawaited(_openFlightModeMenu(context)),
-              onOpenSettings: () => unawaited(_openSettings(context)),
-            ),
+          Stack(
+            children: [
+              AnimatedBuilder(
+                animation: Listenable.merge([
+                  _connectionController.connectionChanges,
+                  _connectionController.gpsChanges,
+                  _connectionController.batteryChanges,
+                  _connectionController.flightStateChanges,
+                  _connectionController.stateChanges,
+                  _connectionController.profileChanges,
+                ]),
+                builder: (context, _) => MgTopStatusBar(
+                  data: MgTopStatusData.fromController(_connectionController),
+                  vehicles: _connectionController.fleetSnapshot.vehicles,
+                  activeVehicleId:
+                      _connectionController.fleetSnapshot.activeVehicleId,
+                  selectedVehicleCount:
+                      _connectionController.fleet.selectedVehicleIds.length,
+                  selectedVehicleIds:
+                      _connectionController.fleet.selectedVehicleIds,
+                  onSelectVehicle: _selectFleetVehicle,
+                  onOpenFleetBatch: () => _fleetPanelRequest.value++,
+                  onOpenFlightMessages: () =>
+                      _flightMessagePanelRequest.value++,
+                  onToggleArm: _requestArmConfirmation,
+                  onEmergencyStop: _requestEmergencyStopConfirmation,
+                  onOpenFlightMode: () =>
+                      unawaited(_openFlightModeMenu(context)),
+                  onOpenSettings: () => unawaited(_openSettings(context)),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 3,
+                child: ToolbarParameterProgress(
+                  controller: _connectionController,
+                ),
+              ),
+            ],
           ),
           Expanded(
             child: ValueListenableBuilder<MgCommandConfirmation?>(

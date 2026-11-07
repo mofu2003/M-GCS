@@ -13,7 +13,6 @@ import 'widgets/aligned_field_row.dart';
 import 'widgets/adaptive_popup_button.dart';
 import 'widgets/mac_panel.dart';
 import 'widgets/mg_floating_panel.dart';
-import 'widgets/parameter_load_progress.dart';
 
 /// 连接表单的统一网格：标签列等宽、控件行等高、行间距一致。
 /// 连接面板在右侧槽位中的最大宽度。
@@ -53,7 +52,7 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
 
   static const _transportLabels = ['串口', 'UDP', 'TCP'];
 
-  /// 与后台配置页同一个标签卡组件。
+  /// 与参数编辑页面同一个标签卡组件。
   late final MacosTabController _tabs = MacosTabController(
     initialIndex: 0,
     length: _transports.length,
@@ -111,206 +110,210 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
             ? constraints.maxHeight
             : MediaQuery.sizeOf(context).height - 18;
         return AnimatedBuilder(
-          // 参数下载进度只通过 parameterChanges 广播，必须一起监听，
-          // 否则进度条在下载过程中不会刷新。
-          animation: Listenable.merge([
-            widget.controller.connectionChanges,
-            widget.controller.parameterChanges,
-          ]),
+          animation: widget.controller.connectionChanges,
           builder: (context, _) {
             final theme = MacosTheme.of(context);
             final colors = MgColors.of(context);
-            // 参数下载期间多留一行高度；高度受父级可用空间约束。
-            final loadingParameters =
-                widget.controller.isConnected &&
-                !widget.controller.parametersLoaded;
-            final linkRows = widget.controller.fleetLinks.length.clamp(
-              0,
-              MgMetrics.fleetLinkVisibleRows,
-            );
-            final requestedHeight =
-                (loadingParameters ? 324.0 : 276.0) +
-                linkRows * (MgMetrics.fleetLinkRowHeight + 8.0);
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              curve: Curves.easeOutCubic,
-              width: panelWidth,
-              height: math.min(requestedHeight, maxHeight),
-              child: MgFloatingPanel(
-                borderRadius: BorderRadius.circular(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
-                      child: Row(
-                        children: [
-                          Text('连接飞控', style: theme.typography.title3),
-                          if (widget.controller.fleetLinks.length > 1) ...[
-                            const SizedBox(width: 8),
-                            Text(
-                              '${widget.controller.fleetLinks.length} 条链路',
-                              style: theme.typography.caption1.copyWith(
-                                color: colors.textSecondary,
-                              ),
-                            ),
-                          ],
-                          const Spacer(),
-                          _ConnectionStateLabel(controller: widget.controller),
-                          const SizedBox(width: 12),
-                          MacosIconButton(
-                            icon: const MacosIcon(
-                              CupertinoIcons.xmark,
-                              size: 14,
-                            ),
-                            semanticLabel: '关闭连接窗口',
-                            onPressed: widget.onClose,
-                          ),
-                        ],
-                      ),
-                    ),
-                    // 与后台 ToolBar 同款下边框，统一使用全局细线色。
-                    Divider(height: 1, thickness: 1, color: colors.divider),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 6, 18, 14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+            final formError = widget.controller.busy || _tabIndex == 0
+                ? null
+                : _networkValidationError(
+                    hostController: _tabIndex == 1 ? _udpHost : _tcpHost,
+                    portController: _tabIndex == 1 ? _udpPort : _tcpPort,
+                  );
+            final notice =
+                widget.controller.initializationError ??
+                formError ??
+                widget.controller.message;
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxHeight),
+              child: SizedBox(
+                width: panelWidth,
+                child: MgFloatingPanel(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+                        child: Row(
                           children: [
-                            MgFleetLinkList(
-                              links: widget.controller.fleetLinks,
-                              activeVehicleId: widget.controller.sessionId,
-                              activeLinkId: widget.controller.activeLinkId,
-                              busy:
-                                  widget.controller.busy ||
-                                  widget.controller.fleetOperationsActive,
-                              onSelect: widget.controller.selectLink,
-                              onDisconnect: (link) => unawaited(
-                                widget.controller.disconnectFleetLink(link),
-                              ),
-                            ),
-                            if (widget.controller.fleetLinks.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                            ],
-                            Center(
-                              child: MacosSegmentedControl(
-                                controller: _tabs,
-                                tabs: [
-                                  for (final label in _transportLabels)
-                                    MacosTab(label: label),
-                                ],
-                              ),
-                            ),
-                            // 与后台标签页同一标准：标签卡到内容面板 4pt。
-                            const SizedBox(height: kMacTabStripGap),
-                            Expanded(
-                              child: MacPanel(
-                                padding: const EdgeInsets.fromLTRB(
-                                  10,
-                                  10,
-                                  10,
-                                  8,
-                                ),
-                                child: SingleChildScrollView(
-                                  child: switch (_tabIndex) {
-                                    0 => _buildSerialForm(context),
-                                    1 => _buildNetworkForm(
-                                      context,
-                                      hostController: _udpHost,
-                                      portController: _udpPort,
-                                      hostPlaceholder: '0.0.0.0',
-                                      portPlaceholder: '14550',
-                                    ),
-                                    _ => _buildNetworkForm(
-                                      context,
-                                      hostController: _tcpHost,
-                                      portController: _tcpPort,
-                                      hostPlaceholder: '127.0.0.1',
-                                      portPlaceholder: '5760',
-                                    ),
-                                  },
-                                ),
-                              ),
-                            ),
-                            if (widget.controller.message != null ||
-                                widget.controller.initializationError !=
-                                    null) ...[
-                              const SizedBox(height: 6),
+                            Text('连接飞控', style: theme.typography.title3),
+                            if (widget.controller.fleetLinks.length > 1) ...[
+                              const SizedBox(width: 8),
                               Text(
-                                widget.controller.initializationError ??
-                                    widget.controller.message!,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
+                                '${widget.controller.fleetLinks.length} 条链路',
                                 style: theme.typography.caption1.copyWith(
-                                  color: widget.controller.isConnected
-                                      ? colors.success
-                                      : colors.textSecondary,
+                                  color: colors.textSecondary,
                                 ),
                               ),
                             ],
-                            if (widget.controller.isConnected &&
-                                !widget.controller.parametersLoaded) ...[
-                              const SizedBox(height: 10),
-                              _ParameterLoadIndicator(
-                                controller: widget.controller,
+                            const Spacer(),
+                            _ConnectionStateLabel(
+                              controller: widget.controller,
+                            ),
+                            const SizedBox(width: 12),
+                            MacosIconButton(
+                              icon: const MacosIcon(
+                                CupertinoIcons.xmark,
+                                size: 14,
                               ),
-                            ],
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                if (_tabIndex == 0)
-                                  PushButton(
-                                    controlSize: ControlSize.regular,
-                                    secondary: true,
-                                    onPressed: widget.controller.busy
-                                        ? null
-                                        : widget.controller.refreshPorts,
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        MacosIcon(
-                                          CupertinoIcons.refresh,
-                                          size: 14,
-                                        ),
-                                        SizedBox(width: 7),
-                                        Text('刷新串口'),
-                                      ],
-                                    ),
-                                  ),
-                                const Spacer(),
-                                if (widget.controller.busy) ...[
-                                  const ProgressCircle(radius: 7),
-                                  const SizedBox(width: 10),
-                                ],
-                                PushButton(
-                                  controlSize: ControlSize.regular,
-                                  onPressed: widget.controller.canConnect
-                                      ? widget.controller.connect
-                                      : null,
-                                  child: Text(
-                                    widget.controller.hasSession
-                                        ? '添加链路'
-                                        : '连接',
-                                  ),
-                                ),
-                                if (widget.controller.hasSession) ...[
-                                  const SizedBox(width: 8),
-                                  PushButton(
-                                    controlSize: ControlSize.regular,
-                                    secondary: true,
-                                    onPressed: widget.controller.busy
-                                        ? null
-                                        : widget.controller.disconnect,
-                                    child: const Text('断开当前'),
-                                  ),
-                                ],
-                              ],
+                              semanticLabel: '关闭连接窗口',
+                              onPressed: widget.onClose,
                             ),
                           ],
                         ),
                       ),
-                    ),
-                  ],
+                      // 与参数编辑页面工具栏 同款下边框，统一使用全局细线色。
+                      Divider(height: 1, thickness: 1, color: colors.divider),
+                      Flexible(
+                        child: SingleChildScrollView(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(18, 6, 18, 14),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                MgFleetLinkList(
+                                  links: widget.controller.fleetLinks,
+                                  activeVehicleId: widget.controller.sessionId,
+                                  activeLinkId: widget.controller.activeLinkId,
+                                  busy:
+                                      widget.controller.busy ||
+                                      widget.controller.fleetOperationsActive,
+                                  onSelect: widget.controller.selectLink,
+                                  onDisconnect: (link) => unawaited(
+                                    widget.controller.disconnectFleetLink(link),
+                                  ),
+                                ),
+                                if (widget
+                                    .controller
+                                    .fleetLinks
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                ],
+                                Center(
+                                  child: MacosSegmentedControl(
+                                    controller: _tabs,
+                                    tabs: [
+                                      for (final label in _transportLabels)
+                                        MacosTab(label: label),
+                                    ],
+                                  ),
+                                ),
+                                // 与参数编辑页面标签页同一标准：标签卡到内容面板 4pt。
+                                const SizedBox(height: kMacTabStripGap),
+                                SizedBox(
+                                  height: 96,
+                                  child: MacPanel(
+                                    padding: const EdgeInsets.all(10),
+                                    child: Center(
+                                      child: switch (_tabIndex) {
+                                        0 => _buildSerialForm(context),
+                                        1 => _buildNetworkForm(
+                                          context,
+                                          hostController: _udpHost,
+                                          portController: _udpPort,
+                                          hostPlaceholder: '0.0.0.0',
+                                          portPlaceholder: '14550',
+                                        ),
+                                        _ => _buildNetworkForm(
+                                          context,
+                                          hostController: _tcpHost,
+                                          portController: _tcpPort,
+                                          hostPlaceholder: '127.0.0.1',
+                                          portPlaceholder: '5760',
+                                        ),
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                SizedBox(
+                                  height: 32,
+                                  child: notice == null
+                                      ? null
+                                      : Tooltip(
+                                          message: notice,
+                                          child: Align(
+                                            alignment: Alignment.centerLeft,
+                                            child: Text(
+                                              notice,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.typography.caption1
+                                                  .copyWith(
+                                                    color:
+                                                        widget
+                                                                    .controller
+                                                                    .initializationError !=
+                                                                null ||
+                                                            formError != null
+                                                        ? colors.danger
+                                                        : colors.textSecondary,
+                                                  ),
+                                            ),
+                                          ),
+                                        ),
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    if (_tabIndex == 0)
+                                      PushButton(
+                                        controlSize: ControlSize.regular,
+                                        secondary: true,
+                                        onPressed: widget.controller.busy
+                                            ? null
+                                            : widget.controller.refreshPorts,
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            MacosIcon(
+                                              CupertinoIcons.refresh,
+                                              size: 14,
+                                            ),
+                                            SizedBox(width: 7),
+                                            Text('刷新串口'),
+                                          ],
+                                        ),
+                                      ),
+                                    const Spacer(),
+                                    if (widget.controller.busy) ...[
+                                      const ProgressCircle(radius: 7),
+                                      const SizedBox(width: 10),
+                                    ],
+                                    PushButton(
+                                      controlSize: ControlSize.regular,
+                                      onPressed: widget.controller.canConnect
+                                          ? widget.controller.connect
+                                          : null,
+                                      child: Text(
+                                        widget.controller.hasSession
+                                            ? '添加链路'
+                                            : '连接',
+                                      ),
+                                    ),
+                                    if (widget.controller.hasSession) ...[
+                                      const SizedBox(width: 8),
+                                      PushButton(
+                                        controlSize: ControlSize.regular,
+                                        secondary: true,
+                                        onPressed: widget.controller.busy
+                                            ? null
+                                            : widget.controller.disconnect,
+                                        child: const Text('断开当前'),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -324,6 +327,7 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
     final controller = widget.controller;
     final portItems = controller.ports;
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AlignedFieldRow(
@@ -387,6 +391,7 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
   }) {
     final disabled = widget.controller.busy;
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AlignedFieldRow(
@@ -423,19 +428,11 @@ class _ConnectionFloatingPanelState extends State<ConnectionFloatingPanel> {
             ),
           ),
         ),
-        _ConnectionFormError(
-          disabled
-              ? null
-              : _networkValidationError(
-                  hostController: hostController,
-                  portController: portController,
-                ),
-        ),
       ],
     );
   }
 
-  /// 输入过程中即时校验，错误直接写在控件下方。
+  /// 输入过程中即时校验，错误显示在固定提示区。
   String? _networkValidationError({
     required TextEditingController hostController,
     required TextEditingController portController,
@@ -496,9 +493,8 @@ class MgFleetLinkList extends StatelessWidget {
 
   String _subtitle(FleetLinkSummary link) {
     final parts = <String>[_transportLabel(link)];
-    if (link.systemId > 0) parts.add('sysid ${link.systemId}');
     if (link.vehicleId != null) {
-      parts.add('飞机 ${link.vehicleId}');
+      parts.add(link.systemId > 0 ? '飞机 ${link.systemId}' : '待识别飞机');
     } else {
       parts.add('未识别');
     }
@@ -667,44 +663,6 @@ class MgFleetLinkList extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// 仅在输入非法时显示的校验提示；正常状态下完全不占位。
-class _ConnectionFormError extends StatelessWidget {
-  const _ConnectionFormError(this.message);
-
-  final String? message;
-
-  @override
-  Widget build(BuildContext context) {
-    final error = message;
-    if (error == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(left: _formLabelWidth + 12, top: 6),
-      child: Text(
-        error,
-        style: MacosTheme.of(
-          context,
-        ).typography.caption1.copyWith(color: MgColors.of(context).danger),
-      ),
-    );
-  }
-}
-
-/// 飞控连接后参数下载进度；参数读完自动消失。
-class _ParameterLoadIndicator extends StatelessWidget {
-  const _ParameterLoadIndicator({required this.controller});
-
-  final ConnectionController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return ParameterLoadProgress(
-      received: controller.parameterReceived,
-      total: controller.parameterTotal,
-      leading: '正在加载参数',
     );
   }
 }

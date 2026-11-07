@@ -20,9 +20,6 @@ import '../mission/mission_document_controller.dart';
 import '../mission/mission_geo.dart';
 import '../mission/mission_document_ffi_backend.dart';
 import '../mission/mission_document_models.dart';
-import '../payload/payload_backend.dart';
-import '../payload/payload_controller.dart';
-import '../payload/payload_ffi_backend.dart';
 import 'telemetry_ffi_backend.dart';
 import 'parameter_ffi_backend.dart';
 import 'calibration_ffi_backend.dart';
@@ -508,8 +505,6 @@ final class ConnectionController extends ChangeNotifier {
   TlogController? _tlogController;
   FileBackend? _fileBackend;
   FileController? _fileController;
-  PayloadBackend? _payloadBackend;
-  PayloadController? _payloadController;
 
   MissionDocumentController get missionPlanning {
     final id = sessionId;
@@ -640,36 +635,10 @@ final class ConnectionController extends ChangeNotifier {
     );
   }
 
-  /// 「相机与云台」页的控制器：设备清单、状态与拍摄/指向命令。
-  ///
-  /// 与日志/文件一样按当前连接会话绑定；换飞机或断开会丢弃设备缓存，
-  /// 避免把上一架飞机的相机状态写回界面。命令入口仍要求已连接。
-  PayloadController get payloadController {
-    final controller = _payloadController ??= PayloadController(
-      backend: _payloadBackend ??= _makePayloadBackend(),
-    );
-    controller.bindSession(sessionId);
-    return controller;
-  }
-
-  PayloadBackend _makePayloadBackend() {
-    final native = _native;
-    if (native == null) {
-      // 原生库不可用时页面仍要能渲染骨架并给出确定的错误。
-      return const PayloadUnavailableBackend();
-    }
-    return PayloadFfiBackend(
-      native.library,
-      native.handle,
-      isConnected: () => isConnected && sessionId != null,
-    );
-  }
-
   /// 会话切换/断开时把日志控制器绑到新会话；`null` 表示当前无会话。
   void _bindLogSession(int? id) {
     _logController?.bindSession(id);
     _fileController?.bindSession(id);
-    _payloadController?.bindSession(id);
   }
 
   final List<SerialPortInfo> ports = [];
@@ -1777,7 +1746,6 @@ final class ConnectionController extends ChangeNotifier {
     logController;
     tlogController;
     fileController;
-    payloadController;
     missionPlanning;
   }
 
@@ -3851,8 +3819,6 @@ final class ConnectionController extends ChangeNotifier {
     _logController?.dispose();
     _tlogController?.dispose();
     _fileController?.dispose();
-    _payloadController?.dispose();
-    _payloadBackend?.dispose();
     _fleet?.removeListener(_handleFleetChanged);
     _fleetTimer?.cancel();
     _fleet?.dispose();

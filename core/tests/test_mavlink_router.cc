@@ -506,66 +506,101 @@ void test_multi_vehicle_manager_shared_discovery() {
           "shared link closes after the last vehicle detaches");
 }
 
-void test_managed_links_reject_duplicate_sysid() {
-    fprintf(stderr, "\n[Group] MultiVehicleManager - duplicate sysid rejection\n");
+void test_managed_links_isolate_duplicate_sysid() {
+    fprintf(stderr, "\n[Group] MultiVehicleManager - independent duplicate sysid\n");
     mg::core::vehicle::MultiVehicleManager manager;
     mg::core::transport::LinkConfig first_config;
     first_config.type = mg::core::transport::LinkType::InMemory;
-    first_config.endpoint = "merge-primary";
-    mg::core::transport::LinkConfig second_config;
-    second_config.type = mg::core::transport::LinkType::InMemory;
-    second_config.endpoint = "merge-secondary";
-
+    first_config.endpoint = "isolated-primary";
+    auto second_config = first_config;
+    second_config.endpoint = "isolated-secondary";
     const int first_link = manager.open_shared_link(first_config);
     const int second_link = manager.open_shared_link(second_config);
-    CHECK(first_link > 0 && second_link > 0 && first_link != second_link,
-          "managed links receive distinct link handles");
     const auto first_session = manager.link_session(first_link);
     const auto second_session = manager.link_session(second_link);
-    CHECK(first_session && second_session, "managed link sessions are addressable");
-    auto* first_wire = dynamic_cast<mg::core::transport::InMemoryLink*>(
-        first_session->link());
-    auto* second_wire = dynamic_cast<mg::core::transport::InMemoryLink*>(
-        second_session->link());
+    CHECK(first_session && second_session, "independent link sessions open");
+    if (!first_session || !second_session) return;
+    auto* first_wire = dynamic_cast<mg::core::transport::InMemoryLink*>(first_session->link());
+    auto* second_wire = dynamic_cast<mg::core::transport::InMemoryLink*>(second_session->link());
     CHECK(first_wire && second_wire, "managed links use in-memory transport");
-
-    mavlink_message_t heartbeat;
-    pack_heartbeat(31, 1, MAV_TYPE_QUADROTOR, heartbeat);
-    auto bytes = pack_msg(heartbeat);
+    if (!first_wire || !second_wire) return;
+    mavlink_message_t message;
+    pack_heartbeat(31, 1, MAV_TYPE_QUADROTOR, message);
+    auto bytes = pack_msg(message);
     first_wire->inject_incoming(bytes.data(), bytes.size());
-    CHECK(manager.vehicle_count() == 1,
-          "first managed link creates one vehicle");
     second_wire->inject_incoming(bytes.data(), bytes.size());
-    CHECK(manager.vehicle_count() == 1,
-          "same sysid on another managed link does not create a second vehicle");
-
-    auto* vehicle = manager.get_vehicle_by_system_id(31);
-    CHECK(vehicle != nullptr, "original vehicle remains registered");
-    CHECK(vehicle->connection_count() == 1,
-          "duplicate link is not attached to the original vehicle");
+    manager.set_gcs_heartbeat_enabled(false);
+    CHECK(manager.vehicle_count() == 2, "same sysid on independent links creates two vehicles");
+    auto* first = manager.get_vehicle(first_link);
+    auto* second = manager.get_vehicle(second_link);
+    CHECK(first && second && first != second, "internal vehicle IDs remain distinct");
+    if (!first || !second) return;
+    CHECK(manager.get_vehicle_by_system_id(31) == nullptr, "ambiguous sysid lookup has no implicit target");
     const auto links = manager.managed_links();
-    CHECK(links.size() == 2, "both physical links remain visible");
-    const auto duplicate = std::find_if(
-        links.begin(), links.end(),
-        [](const auto& link) { return link.state == "duplicate_system_id"; });
-    CHECK(duplicate != links.end(), "duplicate link is reported");
-    CHECK(duplicate->route_id < 0 && duplicate->vehicle_id < 0,
-          "duplicate link has no target vehicle");
-    CHECK(duplicate->system_id == 31,
-          "duplicate link reports the conflicting sysid");
-
-    CHECK(manager.close_link(second_link),
-          "duplicate physical link can be closed independently");
-    CHECK(manager.vehicle_count() == 1,
-          "closing duplicate link keeps the original vehicle");
-    CHECK(vehicle->connection_count() == 1,
-          "original vehicle keeps exactly one route");
-    CHECK(manager.link_session(second_link) == nullptr,
-          "duplicate link session is gone");
-    CHECK(manager.close_link(first_link),
-          "closing original managed link succeeds");
-    CHECK(manager.vehicle_count() == 0,
-          "vehicle is removed when its link closes");
+    CHECK(links.size() == 2 && links[0].vehicle_id != links[1].vehicle_id,
+          "both duplicate sysids have independent routes");
+    CHECK(links[0].state != "duplicate_system_id" && links[1].state != "duplicate_system_id",
+          "independent endpoints are not rejected as conflicts");
+    pack_attitude(31, 1, 1.25f, message);
+    bytes = pack_msg(message);
+    first_wire->inject_incoming(bytes.data(), bytes.size());
+    pack_attitude(31, 1, 2.5f, message);
+    bytes = pack_msg(message);
+    second_wire->inject_incoming(bytes.data(), bytes.size());
+    CHECK(first->cache().attitude.data.roll == 1.25f && second->cache().attitude.data.roll == 2.5f,
+          "same-sysid telemetry stays on the originating link");
+    const auto first_adapter = first->conn().shared_mavlink();
+    const auto second_adapter = second->conn().shared_mavlink();
+    mavlink_msg_param_value_pack(31, 1, &message, "TEST_PARAM", 11, MAV_PARAM_TYPE_REAL32, 1, 0);
+    bytes = pack_msg(message);
+    first_wire->inject_incoming(bytes.data(), bytes.size());
+    mavlink_msg_param_value_pack(31, 1, &message, "TEST_PARAM", 22, MAV_PARAM_TYPE_REAL32, 1, 0);
+    bytes = pack_msg(message);
+    second_wire->inject_incoming(bytes.data(), bytes.size());
+    const auto first_param = first_adapter->get_param_by_name("TEST_PARAM");
+    const auto second_param = second_adapter->get_param_by_name("TEST_PARAM");
+    CHECK(first_param && second_param && first_param->value == 11 && second_param->value == 22,
+          "same-name parameters stay in independent caches");
+    first_wire->take_outgoing();
+    second_wire->take_outgoing();
+    const auto first_ticket = first_adapter->send_command_queued(31, 1, MAV_CMD_NAV_RETURN_TO_LAUNCH,
+        0, 0, 0, 0, 0, 0, 0);
+    CHECK(!first_wire->take_outgoing().empty() && second_wire->take_outgoing().empty(),
+          "command for first vehicle sends only on first link");
+    const auto second_ticket = second_adapter->send_command_queued(31, 1, MAV_CMD_NAV_RETURN_TO_LAUNCH,
+        0, 0, 0, 0, 0, 0, 0);
+    CHECK(!second_wire->take_outgoing().empty() && first_wire->take_outgoing().empty(),
+          "command for second vehicle sends only on second link");
+    mavlink_msg_command_ack_pack(31, 1, &message, MAV_CMD_NAV_RETURN_TO_LAUNCH,
+        MAV_RESULT_DENIED, 0, 0, 255, 0);
+    bytes = pack_msg(message);
+    first_wire->inject_incoming(bytes.data(), bytes.size());
+    const auto denied = first_adapter->wait_for_command(first_ticket, 5);
+    CHECK(denied && denied->result == MAV_RESULT_DENIED, "first vehicle retains its rejection ACK");
+    CHECK(!second_adapter->wait_for_command(second_ticket, 5), "first ACK cannot complete second vehicle command");
+    mavlink_msg_command_ack_pack(31, 1, &message, MAV_CMD_NAV_RETURN_TO_LAUNCH,
+        MAV_RESULT_ACCEPTED, 0, 0, 255, 0);
+    bytes = pack_msg(message);
+    second_wire->inject_incoming(bytes.data(), bytes.size());
+    const auto accepted = second_adapter->wait_for_command(second_ticket, 5);
+    CHECK(accepted && accepted->result == MAV_RESULT_ACCEPTED, "second command completes only with its own ACK");
+    CHECK(manager.close_link(second_link) && manager.vehicle_count() == 1,
+          "closing second endpoint preserves the first vehicle");
+    CHECK(manager.get_vehicle_by_system_id(31) == first && first->is_connected(),
+          "remaining vehicle retains its identity and connection");
+    const int reconnected = manager.open_shared_link(second_config);
+    const auto reconnected_session = manager.link_session(reconnected);
+    CHECK(reconnected_session && reconnected != second_link, "reconnect obtains a new link/session identity");
+    if (reconnected_session) {
+        auto* wire = dynamic_cast<mg::core::transport::InMemoryLink*>(reconnected_session->link());
+        pack_heartbeat(31, 1, MAV_TYPE_QUADROTOR, message);
+        bytes = pack_msg(message);
+        wire->inject_incoming(bytes.data(), bytes.size());
+        CHECK(manager.vehicle_count() == 2, "reconnected duplicate sysid remains independent");
+        manager.close_link(reconnected);
+    }
+    manager.close_link(first_link);
+    CHECK(manager.vehicle_count() == 0, "closing independent endpoints removes both vehicles");
 }
 
 void test_shared_rediscovery_suppression() {
@@ -632,7 +667,7 @@ int main() {
     test_vehicle_merges_secondary_shared_route();
     test_multi_vehicle_manager_shared_discovery();
     test_shared_rediscovery_suppression();
-    test_managed_links_reject_duplicate_sysid();
+    test_managed_links_isolate_duplicate_sysid();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n",
             g_passed, g_failed);
     return g_failed > 0 ? 1 : 0;

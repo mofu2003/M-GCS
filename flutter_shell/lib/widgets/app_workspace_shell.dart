@@ -160,7 +160,7 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
                                 ),
                               ),
                               Tooltip(
-                                message: '返回前台地图',
+                                message: '返回飞行控制页面',
                                 child: TextButton(
                                   onPressed: widget.onReturnToMap,
                                   style: TextButton.styleFrom(
@@ -180,7 +180,7 @@ class _AppWorkspaceShellState extends State<AppWorkspaceShell> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        '返回前台地图',
+                                        '返回飞行控制页面',
                                         style: MgTypography.sans(
                                           MgTypography.caption,
                                         ),

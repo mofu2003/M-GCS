@@ -424,7 +424,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('飞机 2 · 系统 4'), findsOneWidget);
+      expect(find.text('飞机 4'), findsOneWidget);
       expect(find.textContaining('已选 2 架'), findsNothing);
       expect(
         tester.getTopLeft(find.text('Guided')).dx,

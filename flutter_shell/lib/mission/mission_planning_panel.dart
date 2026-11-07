@@ -1,3 +1,4 @@
+import 'quick_mission_geometry.dart';
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
@@ -37,9 +38,11 @@ class MissionPlanningFloatingPanel extends StatefulWidget {
     required this.onClose,
     this.missionController,
     this.onRequestCommandConfirmation,
+    this.onQuickDraw,
   });
 
   final ConnectionController controller;
+  final ValueChanged<QuickMissionShape>? onQuickDraw;
   final VoidCallback onClose;
 
   /// Test seam for widget tests that exercise the list without dart:ffi.
@@ -213,6 +216,20 @@ class _MissionPlanningFloatingPanelState
                 children: [
                   Text('航线规划', style: MacosTheme.of(context).typography.title3),
                   const Spacer(),
+                  if (widget.onQuickDraw != null)
+                    Tooltip(
+                      message: '快速绘制',
+                      child: MacosPulldownButton(
+                        icon: CupertinoIcons.pencil_outline,
+                        items: [
+                          for (final shape in QuickMissionShape.values)
+                            MacosPulldownMenuItem(
+                              title: Text(shape.label),
+                              onTap: () => widget.onQuickDraw!(shape),
+                            ),
+                        ],
+                      ),
+                    ),
                   Tooltip(
                     message: '折叠航线规划',
                     child: MacosIconButton(

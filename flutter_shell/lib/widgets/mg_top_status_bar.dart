@@ -545,7 +545,7 @@ class _FleetVehicleSelector extends StatelessWidget {
   final VoidCallback? onPressed;
 
   String _label(FleetVehicleSummary vehicle) =>
-      '飞机 ${vehicle.id} · 系统 ${vehicle.systemId > 0 ? vehicle.systemId : '—'}';
+      fleetVehicleLabel(vehicle, vehicles);
 
   @override
   Widget build(BuildContext context) {

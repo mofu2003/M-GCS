@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:macos_ui/macos_ui.dart';
@@ -62,6 +63,53 @@ class _MemoryFleetBackend implements FleetBackend {
 }
 
 void main() {
+  testWidgets('batch panel shows progress and stops pending dispatch', (
+    tester,
+  ) async {
+    final ack = Completer<FleetBatchCommandResult>();
+    final fleet = FleetController(
+      _MemoryFleetBackend(),
+      executeBatchCommand: (v, a) => ack.future,
+    );
+    addTearDown(fleet.dispose);
+    fleet.openLink(FleetConnectionSpec('udp://localhost:12345'));
+    fleet.openLink(FleetConnectionSpec('udp://localhost:12346'));
+    fleet.selectAllVehicles();
+    final pending = fleet.runBatch(
+      fleet.captureBatchTarget(FleetBatchAction.arm),
+    );
+    await tester.pumpWidget(
+      MacosTheme(
+        data: MacosThemeData.light(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 360,
+              height: 500,
+              child: MgFleetBatchPanel(
+                fleet: fleet,
+                onSelectVehicle: (_) async {},
+                onRequestAction: (_) {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('批量解锁 · 已处理 0/2'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('fleet-batch-stop')));
+    await tester.pump();
+    expect(find.text('已请求停止后续派发'), findsOneWidget);
+    ack.complete(
+      const FleetBatchCommandResult.success(vehicleId: 1, systemId: 1),
+    );
+    await pending;
+    await tester.pump();
+    expect(find.text('批量解锁 · 已处理 2/2'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final height in [200.0, 300.0, 500.0]) {
     testWidgets('fleet actions remain reachable at height $height', (
       tester,
@@ -102,6 +150,55 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('duplicate sysids show endpoints and refuse batch confirmation', (
+    tester,
+  ) async {
+    final backend = _MemoryFleetBackend();
+    final fleet = FleetController(backend);
+    addTearDown(fleet.dispose);
+    fleet.openLink(FleetConnectionSpec('udp://127.0.0.1:14550'));
+    fleet.openLink(FleetConnectionSpec('udp://127.0.0.1:14551'));
+    backend.vehicles[2] = const FleetVehicleSummary(
+      id: 2,
+      systemId: 1,
+      endpoint: 'udp://127.0.0.1:14551',
+      connected: true,
+    );
+    fleet.refresh();
+    fleet.selectAllVehicles();
+    var requests = 0;
+    await tester.pumpWidget(
+      MacosTheme(
+        data: MacosThemeData.light(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 360,
+              height: 500,
+              child: MgFleetBatchPanel(
+                fleet: fleet,
+                onSelectVehicle: (_) async {},
+                onRequestAction: (_) => requests++,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('飞机 1'), findsNWidgets(2));
+    expect(find.text('127.0.0.1:14550'), findsOneWidget);
+    expect(find.text('127.0.0.1:14551'), findsOneWidget);
+    expect(find.textContaining('SYSID 重复'), findsOneWidget);
+    final arm = find.byKey(const ValueKey('fleet-batch-arm'));
+    await tester.ensureVisible(arm);
+    await tester.tap(arm);
+    await tester.pumpAndSettle();
+    expect(requests, 0);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
     'fleet panel separates selection, active focus and batch request',
