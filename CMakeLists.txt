@@ -219,6 +219,7 @@ elseif(MGCORE_PLATFORM STREQUAL "linux" OR MGCORE_PLATFORM STREQUAL "macos")
     list(APPEND MGCORE_SOURCES core/src/platform/platform_filesystem_posix.cc)
 elseif(MGCORE_PLATFORM STREQUAL "android")
     list(APPEND MGCORE_SOURCES core/src/platform/platform_filesystem_android.cc)
+    list(APPEND MGCORE_SOURCES core/src/platform/android_jni.cc)
     list(APPEND MGCORE_SOURCES core/src/transport/android_usb_serial_link.cc)
 endif()
 
@@ -267,23 +268,20 @@ function(mg_configure_core_target target)
             ${IOKIT_FRAMEWORK} ${COREFOUNDATION_FRAMEWORK})
     elseif(MGCORE_PLATFORM STREQUAL "android")
         find_library(LOG_LIB log)
-        # platform_filesystem_android.cc 与 android_usb_serial_link.cc 直接调用
-        # AAssetManager_*（libandroid）和 JNI_GetCreatedJavaVMs（libnativehelper）。
-        # 不显式链接时 libmgcore.so 在 arm64-v8a 上因未定义符号链接失败。
-        set(_mgcore_android_libs ${LOG_LIB})
-        foreach(_mgcore_android_dep android nativehelper)
-            find_library(_mgcore_android_${_mgcore_android_dep} ${_mgcore_android_dep})
-            if(_mgcore_android_${_mgcore_android_dep})
-                list(APPEND _mgcore_android_libs ${_mgcore_android_${_mgcore_android_dep}})
-            endif()
-        endforeach()
-        target_link_libraries(${target} PUBLIC ${_mgcore_android_libs})
+        # platform_filesystem_android.cc 直接调用 AAssetManager_*，来自平台库
+        # libandroid。JNI 符号改由 JNI_OnLoad 登记的 JavaVM 提供，
+        # 不再需要 libnativehelper（NDK 应用拿不到它的稳定入口）。
+        target_link_libraries(${target} PUBLIC ${LOG_LIB} android)
     endif()
 endfunction()
 
 # Build library
 add_library(mgcore_core STATIC ${MGCORE_CORE_SOURCES})
 mg_configure_core_target(mgcore_core)
+# core 会被链接进共享库；必须按 PIC 编译，否则 thread_local 成员在 Linux 上
+# 产生 R_X86_64_TPOFF32 重定位，链接 libmgcore.so 时报 "local-exec is
+# incompatible with -shared"。macOS 的 ld 对此更宽容，所以只有 Linux 暴露。
+set_target_properties(mgcore_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(MGCORE_BUILD_SHARED)
     add_library(mgcore SHARED ${MGCORE_FFI_SOURCES})
@@ -429,11 +427,10 @@ if(MGCORE_BUILD_TESTS)
         )
         target_compile_definitions(${TEST_NAME} PRIVATE CJSON_HIDE_SYMBOLS)
         target_compile_definitions(${TEST_NAME} PRIVATE MGCORE_TEST_ROOT="${MGCORE_ROOT_DIR}")
-        file(READ ${TEST_SRC} TEST_SRC_CONTENTS)
-        if(TEST_SRC_CONTENTS MATCHES "ffi_api\\.h" AND
-           NOT TEST_SRC_CONTENTS MATCHES "MGCORE_EXPORTS")
-            target_compile_definitions(${TEST_NAME} PRIVATE MGCORE_EXPORTS)
-        endif()
+        # 测试链接的是 mgcore_static，符号就在本进程里，不是从 DLL 导入。
+        # Windows 上若按默认的 __declspec(dllimport) 编译，会期望
+        # __imp_mg_create 之类的导入符号而链接失败。这里统一按“构建方”处理。
+        target_compile_definitions(${TEST_NAME} PRIVATE MGCORE_EXPORTS)
         target_link_libraries(${TEST_NAME} PRIVATE mgcore_static)
         if(TEST_SRC MATCHES "/manual/" OR TEST_NAME MATCHES "test_real_fc_cal_mission|test_real_fc_calibration|test_real_fc_modes")
             set(TEST_LABELS "manual;hardware")
