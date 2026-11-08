@@ -267,7 +267,17 @@ function(mg_configure_core_target target)
             ${IOKIT_FRAMEWORK} ${COREFOUNDATION_FRAMEWORK})
     elseif(MGCORE_PLATFORM STREQUAL "android")
         find_library(LOG_LIB log)
-        target_link_libraries(${target} PUBLIC ${LOG_LIB})
+        # platform_filesystem_android.cc 与 android_usb_serial_link.cc 直接调用
+        # AAssetManager_*（libandroid）和 JNI_GetCreatedJavaVMs（libnativehelper）。
+        # 不显式链接时 libmgcore.so 在 arm64-v8a 上因未定义符号链接失败。
+        set(_mgcore_android_libs ${LOG_LIB})
+        foreach(_mgcore_android_dep android nativehelper)
+            find_library(_mgcore_android_${_mgcore_android_dep} ${_mgcore_android_dep})
+            if(_mgcore_android_${_mgcore_android_dep})
+                list(APPEND _mgcore_android_libs ${_mgcore_android_${_mgcore_android_dep}})
+            endif()
+        endforeach()
+        target_link_libraries(${target} PUBLIC ${_mgcore_android_libs})
     endif()
 endfunction()
 

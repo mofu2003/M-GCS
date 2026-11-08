@@ -1,5 +1,6 @@
 #include "mission_document_internal.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace mg::core::mission::cad::detail {
