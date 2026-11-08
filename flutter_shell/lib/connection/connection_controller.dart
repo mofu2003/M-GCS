@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import '../ffi_response.dart';
 import '../fleet/fleet_controller.dart';
 import '../fleet/fleet_models.dart';
+import '../fleet/squad_controller.dart';
 import '../logging/file_backend.dart';
 import '../logging/file_controller.dart';
 import '../logging/file_ffi_backend.dart';
@@ -20,9 +21,6 @@ import '../mission/mission_document_controller.dart';
 import '../mission/mission_geo.dart';
 import '../mission/mission_document_ffi_backend.dart';
 import '../mission/mission_document_models.dart';
-import '../payload/payload_backend.dart';
-import '../payload/payload_controller.dart';
-import '../payload/payload_ffi_backend.dart';
 import 'telemetry_ffi_backend.dart';
 import 'parameter_ffi_backend.dart';
 import 'calibration_ffi_backend.dart';
@@ -34,6 +32,34 @@ import 'vehicle_session_assembler.dart';
 import 'waveform_controller.dart';
 
 export 'waveform_controller.dart';
+
+/// 飞控明确拒绝的 MAV_RESULT 字符串，与 bridge/ffi/ffi_flight_commands.cc 一致。
+const _rejectedAckResultStrings = {
+  'temporarily_rejected',
+  'denied',
+  'unsupported',
+  'failed',
+  'in_progress',
+};
+
+/// 批量命令的原始响应 → 逐机结果状态。
+///
+/// 必须区分"发送失败"（命令没离开本机）、"飞控拒绝"、"超时" 和 "仍在执行"；
+/// 顶层函数便于直接对响应结构做单元测试。
+FleetBatchCommandStatus fleetBatchFailureStatus(JsonMap raw) {
+  final result = raw['result_str'];
+  if (result == 'in_progress') return FleetBatchCommandStatus.inProgress;
+  if (result is String && _rejectedAckResultStrings.contains(result)) {
+    return FleetBatchCommandStatus.rejected;
+  }
+  // MG_ERROR_SEND_FAILED：链路层没发出去，不能报成飞控拒绝（安全约束 3）。
+  if (ffiErrorCode(raw) == -3) return FleetBatchCommandStatus.sendFailed;
+  if (ffiErrorCode(raw) == -6 ||
+      raw['result_text'].toString().toLowerCase().contains('timeout')) {
+    return FleetBatchCommandStatus.timeout;
+  }
+  return FleetBatchCommandStatus.error;
+}
 
 final class SerialPortInfo {
   const SerialPortInfo({
@@ -486,6 +512,12 @@ final class ConnectionController extends ChangeNotifier {
   FleetController get fleet => _fleet ?? (throw StateError('多机后端尚未就绪'));
   Timer? _fleetTimer;
 
+  /// 持久小队：成员身份与本地存储，认领结果跟随 fleet 快照刷新。
+  SquadController? _squads;
+  SquadController get squads =>
+      _squads ?? (throw StateError('多机后端尚未就绪'));
+  SquadController? get squadsOrNull => _squads;
+
   /// mgcore 原生库与句柄。全部原生调用都经过它，控制器本身不接触 dart:ffi。
   /// 初始化失败时为 null，此时仅 [initializationError] 可用。
   NativeCore? _native;
@@ -508,8 +540,6 @@ final class ConnectionController extends ChangeNotifier {
   TlogController? _tlogController;
   FileBackend? _fileBackend;
   FileController? _fileController;
-  PayloadBackend? _payloadBackend;
-  PayloadController? _payloadController;
 
   MissionDocumentController get missionPlanning {
     final id = sessionId;
@@ -640,36 +670,10 @@ final class ConnectionController extends ChangeNotifier {
     );
   }
 
-  /// 「相机与云台」页的控制器：设备清单、状态与拍摄/指向命令。
-  ///
-  /// 与日志/文件一样按当前连接会话绑定；换飞机或断开会丢弃设备缓存，
-  /// 避免把上一架飞机的相机状态写回界面。命令入口仍要求已连接。
-  PayloadController get payloadController {
-    final controller = _payloadController ??= PayloadController(
-      backend: _payloadBackend ??= _makePayloadBackend(),
-    );
-    controller.bindSession(sessionId);
-    return controller;
-  }
-
-  PayloadBackend _makePayloadBackend() {
-    final native = _native;
-    if (native == null) {
-      // 原生库不可用时页面仍要能渲染骨架并给出确定的错误。
-      return const PayloadUnavailableBackend();
-    }
-    return PayloadFfiBackend(
-      native.library,
-      native.handle,
-      isConnected: () => isConnected && sessionId != null,
-    );
-  }
-
   /// 会话切换/断开时把日志控制器绑到新会话；`null` 表示当前无会话。
   void _bindLogSession(int? id) {
     _logController?.bindSession(id);
     _fileController?.bindSession(id);
-    _payloadController?.bindSession(id);
   }
 
   final List<SerialPortInfo> ports = [];
@@ -1741,6 +1745,8 @@ final class ConnectionController extends ChangeNotifier {
         canChangeFocus: _canSwitchActiveVehicle,
         executeBatchCommand: _executeFleetBatchCommand,
       )..addListener(_handleFleetChanged);
+      _squads = SquadController(_fleet!);
+      unawaited(_squads!.load());
       _fleetTimer = Timer.periodic(const Duration(milliseconds: 750), (_) {
         if (_disposed) return;
         try {
@@ -1777,7 +1783,6 @@ final class ConnectionController extends ChangeNotifier {
     logController;
     tlogController;
     fileController;
-    payloadController;
     missionPlanning;
   }
 
@@ -2299,13 +2304,7 @@ final class ConnectionController extends ChangeNotifier {
   }
 
   /// 飞控明确拒绝的 MAV_RESULT 字符串，与 bridge/ffi/ffi_flight_commands.cc 一致。
-  static const _rejectedAckResults = {
-    'temporarily_rejected',
-    'denied',
-    'unsupported',
-    'failed',
-    'in_progress',
-  };
+  static const _rejectedAckResults = _rejectedAckResultStrings;
 
   /// 失败原因文案：飞控明确拒绝时用本地化说明，否则用规范错误 message。
   String _commandFailureText(JsonMap raw) {
@@ -2350,6 +2349,17 @@ final class ConnectionController extends ChangeNotifier {
         message: '飞机已断开或尚未完成识别',
       );
     }
+    // 开始任务不能对"本地没有回读到任务"的成员下发：MISSION_START 会让它进入
+    // AUTO，arm_if_needed 还会顺带解锁。逐机判断资格，不合格的明确记为未派发。
+    if (action == FleetBatchAction.startMission &&
+        !(current.missionValid && current.missionTotal > 0)) {
+      return FleetBatchCommandResult.failure(
+        vehicleId: vehicle.id,
+        systemId: vehicle.systemId,
+        status: FleetBatchCommandStatus.notSent,
+        message: '未回读到有效任务，未派发',
+      );
+    }
     final (command, args) = switch (action) {
       FleetBatchAction.arm => ('arm', <String, Object?>{'force': 0}),
       FleetBatchAction.disarm => ('disarm', <String, Object?>{'force': 0}),
@@ -2365,13 +2375,22 @@ final class ConnectionController extends ChangeNotifier {
         command,
         args,
       );
+      // 飞控回过 IN_PROGRESS：命令还在执行，既不是成功也不是超时。
+      if (raw['result_str'] == 'in_progress') {
+        return FleetBatchCommandResult.failure(
+          vehicleId: vehicle.id,
+          systemId: vehicle.systemId,
+          status: FleetBatchCommandStatus.inProgress,
+          message: _fleetBatchFailureText(raw),
+        );
+      }
       if (raw['success'] == true) {
         return FleetBatchCommandResult.success(
           vehicleId: vehicle.id,
           systemId: vehicle.systemId,
         );
       }
-      final status = _fleetBatchFailureStatus(raw);
+      final status = fleetBatchFailureStatus(raw);
       return FleetBatchCommandResult.failure(
         vehicleId: vehicle.id,
         systemId: vehicle.systemId,
@@ -2386,18 +2405,6 @@ final class ConnectionController extends ChangeNotifier {
         message: error.toString().replaceFirst('Bad state: ', ''),
       );
     }
-  }
-
-  FleetBatchCommandStatus _fleetBatchFailureStatus(JsonMap raw) {
-    final result = raw['result_str'];
-    if (result is String && _rejectedAckResults.contains(result)) {
-      return FleetBatchCommandStatus.rejected;
-    }
-    if (ffiErrorCode(raw) == -6 ||
-        raw['result_text'].toString().toLowerCase().contains('timeout')) {
-      return FleetBatchCommandStatus.timeout;
-    }
-    return FleetBatchCommandStatus.error;
   }
 
   String _fleetBatchFailureText(JsonMap raw) => _commandFailureText(raw);
@@ -3851,10 +3858,9 @@ final class ConnectionController extends ChangeNotifier {
     _logController?.dispose();
     _tlogController?.dispose();
     _fileController?.dispose();
-    _payloadController?.dispose();
-    _payloadBackend?.dispose();
     _fleet?.removeListener(_handleFleetChanged);
     _fleetTimer?.cancel();
+    _squads?.dispose();
     _fleet?.dispose();
     _flightStopwatch.stop();
     _stateTimer?.cancel();

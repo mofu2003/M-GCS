@@ -211,7 +211,7 @@ class MgTypography {
 class MgMetrics {
   const MgMetrics._();
 
-  /// 后台页面统一间距标准（标签页内层叠加 MacosTabView 自身的 12pt）。
+  /// 参数编辑页面统一间距标准（标签页内层叠加 MacosTabView 自身的 12pt）。
   ///
   /// 左右边距 24、区块间距 16、区块标题到内容 8、卡片间距 10。
   /// 新页面沿用这套数值，避免各页各自为政导致疏密不一致。

@@ -417,7 +417,8 @@ void MultiVehicleManager::on_managed_link_heartbeat(
     {
         mg::core::platform::LockGuard lk(mtx_);
         for (const auto& vehicle : vehicles_) {
-            if (vehicle && vehicle->system_id() == heartbeat.system_id) {
+            if (vehicle && vehicle->conn().shared_session() == session &&
+                vehicle->system_id() == heartbeat.system_id) {
                 existing = vehicle;
                 break;
             }
@@ -431,13 +432,6 @@ void MultiVehicleManager::on_managed_link_heartbeat(
                 return;
             }
         }
-        if (record.duplicate_system_id != heartbeat.system_id) {
-            MGC_LOG_WARN(
-                "[MultiVehicle] Rejected duplicate sysid=%d on link %d; "
-                "already owned by vehicle %d",
-                heartbeat.system_id, link_id, existing->vehicle_id());
-        }
-        record.duplicate_system_id = heartbeat.system_id;
         return;
     }
 
@@ -501,15 +495,7 @@ std::vector<ManagedLinkInfo> MultiVehicleManager::managed_links() const {
     }
 
     for (const auto& [record, vehicles] : records) {
-        if (record.duplicate_system_id > 0) {
-            ManagedLinkInfo info;
-            info.link_id = record.link_id;
-            info.endpoint = record.endpoint;
-            info.system_id = record.duplicate_system_id;
-            info.state = "duplicate_system_id";
-            result.push_back(std::move(info));
-        }
-        if (vehicles.empty() && record.duplicate_system_id == 0) {
+        if (vehicles.empty()) {
             ManagedLinkInfo info;
             info.link_id = record.link_id;
             info.endpoint = record.endpoint;
@@ -884,10 +870,13 @@ std::shared_ptr<Vehicle> MultiVehicleManager::get_vehicle_shared(int vehicle_id)
 
 Vehicle* MultiVehicleManager::get_vehicle_by_system_id(uint8_t system_id) const {
     mg::core::platform::LockGuard lk(mtx_);
-    for (auto& v : vehicles_) {
-        if (v->system_id() == system_id) return v.get();
+    Vehicle* result = nullptr;
+    for (const auto& vehicle : vehicles_) {
+        if (vehicle->system_id() != system_id) continue;
+        if (result) return nullptr;
+        result = vehicle.get();
     }
-    return nullptr;
+    return result;
 }
 
 std::vector<std::shared_ptr<Vehicle>> MultiVehicleManager::get_all_vehicles_shared() const {

@@ -545,7 +545,7 @@ class _FleetVehicleSelector extends StatelessWidget {
   final VoidCallback? onPressed;
 
   String _label(FleetVehicleSummary vehicle) =>
-      '飞机 ${vehicle.id} · 系统 ${vehicle.systemId > 0 ? vehicle.systemId : '—'}';
+      fleetVehicleLabel(vehicle, vehicles);
 
   @override
   Widget build(BuildContext context) {
@@ -856,15 +856,20 @@ class _GpsIndicator extends StatelessWidget {
     final stale = data.stale;
     final fixType = data.gpsFixType;
     final satellites = data.satellitesVisible;
-    final color = stale || !data.connected || (fixType ?? 0) < 3
-        ? colors.warning
-        : colors.success;
+    // 没有可用读数时用中性色，不把"未知"画成告警；有读数才按定位质量变色。
+    final hasData = data.connected && !stale && fixType != null;
+    final fix = fixType ?? 0;
+    final color = !hasData
+        ? colors.textSecondary
+        : fix >= 3
+        ? colors.success
+        : colors.warning;
     return MacosTooltip(
       message: stale ? 'GPS：数据已过期' : 'GPS：${data.gpsFixLabel}',
       child: _TopBarMetric(
         icon: MgStatusTelemetryIcon(
           kind: MgStatusIconKind.gps,
-          value: stale || !data.connected ? 0 : (satellites ?? 0) / 20,
+          value: hasData ? (satellites ?? 0) / 20 : 0,
           color: color,
         ),
         label: 'GPS',
@@ -896,12 +901,16 @@ class _BatteryIndicator extends StatelessWidget {
     final stale = data.stale;
     final voltage = stale ? null : data.batteryVoltage;
     final percent = stale ? null : data.batteryRemainingPercent;
-    final color = switch (percent) {
-      null => stale ? colors.warning : colors.textSecondary,
-      <= 20 => colors.danger,
-      <= 35 => colors.warning,
-      _ => colors.success,
-    };
+    // 同样：没有电量读数时用中性色，读数有效时才按电量分档（绿 / 黄 / 红）。
+    final hasData = data.connected && !stale && percent != null;
+    final charge = percent ?? 0;
+    final color = !hasData
+        ? colors.textSecondary
+        : charge <= 20
+        ? colors.danger
+        : charge <= 35
+        ? colors.warning
+        : colors.success;
     return MacosTooltip(
       message: stale
           ? '电池：数据已过期'

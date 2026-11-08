@@ -694,17 +694,30 @@ void main() {
         final activeBeforeBatch = rawFleet.snapshot.activeVehicleId;
         rawFleet.selectAllVehicles();
         final batchTarget = rawFleet.captureBatchTarget(
-          FleetBatchAction.startMission,
+          FleetBatchAction.returnToLaunch,
         );
         final batchResult = await rawFleet.runBatch(batchTarget);
-        // The loopback smoke sender publishes a fixed Guided heartbeat and
-        // does not model the post-MISSION_START mode transition. The backend
-        // must report that state-confirmation failure rather than a false
-        // success; a real simulator/FC can complete this workflow.
+        // The loopback sender never answers COMMAND_ACK, so each member must
+        // report a timeout rather than a false success.
         expect(batchResult.allSucceeded, isFalse);
         expect(batchResult.results.every((item) => !item.success), isTrue);
         expect(batchResult.results.map((item) => item.vehicleId), vehicleIds);
         expect(rawFleet.snapshot.activeVehicleId, activeBeforeBatch);
+
+        // 启动任务的执行器必须逐机校验任务回读：即使确认目标被构造出来，
+        // 没有回读到任务的成员也只能是"未派发"，不能收到 MISSION_START。
+        final missionTarget = FleetBatchTarget(
+          action: FleetBatchAction.startMission,
+          vehicleIds: vehicleIds,
+          systemIds: batchTarget.systemIds,
+        );
+        final missionResult = await rawFleet.runBatch(missionTarget);
+        expect(
+          missionResult.results.every(
+            (item) => item.status == FleetBatchCommandStatus.notSent,
+          ),
+          isTrue,
+        );
         rawFleet.clearVehicleSelection();
 
         // Attempting to reopen an existing endpoint must not drop active A.
@@ -844,7 +857,7 @@ void main() {
         : false,
   );
   test(
-    'duplicate sysid on another link is surfaced without merging vehicles',
+    'duplicate sysids stay isolated and cannot enter a batch',
     () async {
       final controller = ConnectionController();
       addTearDown(controller.dispose);
@@ -876,22 +889,43 @@ void main() {
         final deadline = DateTime.now().add(const Duration(seconds: 4));
         while (DateTime.now().isBefore(deadline)) {
           rawFleet.refresh();
-          if (rawFleet.snapshot.links.any(
-            (link) => link.state == 'duplicate_system_id',
-          )) {
+          if (rawFleet.snapshot.vehicles.length == 2 &&
+              rawFleet.snapshot.links.every((link) => link.connected)) {
             break;
           }
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
 
-        expect(rawFleet.snapshot.vehicles.length, 1);
+        expect(rawFleet.snapshot.vehicles.length, 2);
         expect(rawFleet.snapshot.links.length, 2);
-        final duplicate = rawFleet.snapshot.links.singleWhere(
-          (link) => link.state == 'duplicate_system_id',
+        expect(rawFleet.snapshot.vehicles.map((vehicle) => vehicle.systemId), [
+          1,
+          1,
+        ]);
+        expect(
+          rawFleet.snapshot.vehicles
+              .map((vehicle) => vehicle.id)
+              .toSet()
+              .length,
+          2,
         );
-        expect(duplicate.vehicleId, isNull);
-        expect(duplicate.connected, isFalse);
-        expect(duplicate.systemId, 1);
+        expect(
+          rawFleet.snapshot.links.map((link) => link.vehicleId).toSet().length,
+          2,
+        );
+        expect(
+          rawFleet.snapshot.links.map((link) => link.endpoint).toSet().length,
+          2,
+        );
+        for (final vehicle in rawFleet.snapshot.vehicles) {
+          rawFleet.selectVehicle(vehicle.id);
+          expect(rawFleet.captureTarget().vehicleId, vehicle.id);
+        }
+        rawFleet.selectAllVehicles();
+        expect(
+          () => rawFleet.captureBatchTarget(FleetBatchAction.arm),
+          throwsStateError,
+        );
       } finally {
         for (final timer in timers) {
           timer.cancel();

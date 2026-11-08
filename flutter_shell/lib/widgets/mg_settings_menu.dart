@@ -10,10 +10,7 @@ enum MgSettingsDestination {
   configuration,
   missionPlanning,
   geofence,
-  payload,
-  logs,
-  flightLog,
-  files,
+  flightData,
   gcs,
 }
 
@@ -115,41 +112,17 @@ class _MgSettingsPanel extends StatelessWidget {
               ),
               Divider(height: 1, color: colors.hairline),
               _SettingsRow(
-                icon: CupertinoIcons.camera,
-                title: '相机与云台',
-                subtitle: '相机/云台状态、拍照录像与指向',
-                onTap: () =>
-                    Navigator.of(context).pop(MgSettingsDestination.payload),
-              ),
-              Divider(height: 1, color: colors.hairline),
-              _SettingsRow(
-                icon: CupertinoIcons.doc_text,
-                title: '机载日志',
-                subtitle: '飞控 DataFlash 日志下载与进度',
-                onTap: () =>
-                    Navigator.of(context).pop(MgSettingsDestination.logs),
-              ),
-              Divider(height: 1, color: colors.hairline),
-              _SettingsRow(
-                icon: CupertinoIcons.stopwatch,
-                title: '飞行记录',
-                subtitle: '链路 .tlog 录制与本地离线回放',
-                onTap: () =>
-                    Navigator.of(context).pop(MgSettingsDestination.flightLog),
-              ),
-              Divider(height: 1, color: colors.hairline),
-              _SettingsRow(
                 icon: CupertinoIcons.folder,
-                title: '机载文件',
-                subtitle: '浏览机载目录、下载与上传文件',
+                title: '日志与文件',
+                subtitle: '机载日志、机载文件与飞行记录',
                 onTap: () =>
-                    Navigator.of(context).pop(MgSettingsDestination.files),
+                    Navigator.of(context).pop(MgSettingsDestination.flightData),
               ),
               Divider(height: 1, color: colors.hairline),
               _SettingsRow(
                 icon: CupertinoIcons.gear_alt,
                 title: '地面站配置',
-                subtitle: '地图来源、地面站本地显示选项',
+                subtitle: '地图来源、小队与地面站本地选项',
                 onTap: () =>
                     Navigator.of(context).pop(MgSettingsDestination.gcs),
               ),

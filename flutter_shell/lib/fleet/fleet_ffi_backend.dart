@@ -164,6 +164,7 @@ final class FleetFfiBackend implements FleetBackend {
           name: item['name'] as String? ?? '',
           firmwareType: item['firmware_type'] as String? ?? '',
           vehicleType: item['vehicle_type'] as String? ?? '',
+          hardwareUid: item['hardware_uid'] as String? ?? '',
           connected: connected,
           state: connected ? 'connected' : 'waiting_heartbeat',
           armed: item['armed'] == true,

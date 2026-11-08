@@ -236,6 +236,7 @@ void MavlinkAdapter::Impl::handle_autopilot_version(const mavlink_message_t& m)
     info.vendor_id = ap.vendor_id;
     info.product_id = ap.product_id;
     info.uid = ap.uid;
+    std::memcpy(info.uid2, ap.uid2, sizeof(info.uid2));
     memcpy(info.git_hash, ap.flight_custom_version, 8);
     info.git_hash[8] = '\0';
     info.received = true;
