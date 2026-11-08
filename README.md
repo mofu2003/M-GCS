@@ -2,13 +2,13 @@
 
 无人机地面站，对标 Mission Planner 与 QGroundControl。
 
-当前版本：`1.1.0`。支持 ArduPilot 固件（Copter/Plane/VTOL/Rover）。
+当前版本：`1.2.0`。支持 ArduPilot 固件（Copter/Plane/VTOL/Rover）。
 
 ## 结构
 
 - `core/`：C++17 核心，包括链路、MAVLink、固件插件、飞行器、任务、校准、遥测、日志。
 - `bridge/ffi/`：C ABI 桥接，前端与核心之间唯一的稳定边界。
-- `flutter_shell/`：Flutter 前端，包括地图、连接、遥测、任务规划、配置。
+- `flutter_shell/`：Flutter 前端，包括地图、连接、遥测、任务规划、多机与小队、配置。
 - `third_party/`：第三方源码（cJSON、MAVLink 定义），不修改。
 - `tools/`：构建、门禁、发布脚本。
 

@@ -1,6 +1,6 @@
 # M-GCS 当前架构地图
 
-更新时间：2026-10-14。
+更新时间：2026-11-08。
 
 本文是基于当前工作区代码、`CMakeLists.txt`、Flutter 入口、FFI 声明和现有测试整理的架构说明。它用于帮助定位代码和理解调用链，不是新的开发约束，也不要求每次改动同步更新。
 
@@ -102,7 +102,7 @@ classDiagram
       MultiVehicleManager vehicles
       command jobs
       mission documents
-      VideoDecoder
+      VideoDecoder (原生保留，无前端消费者)
       FlightLogReplayer
     }
     class Vehicle {
@@ -264,25 +264,27 @@ flowchart TB
 
 任务文档是编辑模型；飞控任务列表是传输模型。二者不应因为上传或读取而隐式混为一个对象。文档还绑定 session id，切换飞控后需要重新核对或创建文档。
 
-## 8. 本地视频和日志流程
+## 8. 日志、文件和多机协同流程
 
 ```mermaid
 flowchart LR
-    STREAM[视频流元数据/字节]
-    PAYLOAD[PayloadFfiBackend]
-    VIDEO[VideoDecoder\n可选 FFmpeg]
-    FRAME[core 帧缓冲]
-    POLL[mg_video_poll_frame]
-    PREVIEW[VideoPreview]
-    REC[VideoStorage/录制]
-    SCREEN[截图]
+    TLOG[本地 .tlog 回放\n挂 mg_core_t]
+    LOG[机载日志/MAVLink FTP\n需当前车辆 adapter]
+    SQUAD[SquadController\n本地 squads.json]
+    FLEET[FleetController\n会话快照 + 选择集合]
+    BATCH[批量目标冻结\ncaptureBatchTarget]
+    EXEC[逐机显式目标\nmg_command_submit_for_vehicle]
 
-    STREAM --> VIDEO --> FRAME --> POLL --> PAYLOAD --> PREVIEW
-    FRAME --> REC
-    FRAME --> SCREEN
+    TLOG --> CORE[mg_core_t]
+    LOG --> VEH[Vehicle + adapter]
+    SQUAD --> FLEET --> BATCH --> EXEC
 ```
 
 `.tlog` 回放是本地会话，不属于某架飞控；因此回放器挂在 `mg_core_t` 而不是 `Vehicle`。机载日志和 MAVLink FTP 则需要当前车辆的连接和 adapter。
+
+持久小队只保存成员身份（硬件 UID，缺失时端点 + sysid），运行期 `vehicle_id` 每次启动都会变，不写入小队文件。整队执行先从认领结果得到车辆集合，再走与多机面板相同的批量目标冻结与逐机 ACK 流程。
+
+相机与云台的应用层页面、载荷控制器和视频预览已移除；原生仍保留 `mg_camera_*`、`mg_gimbal_*` 与可选 FFmpeg 解码导出，但界面不再提供入口。开发时启用本地解码的说明见 `docs/development.md`。
 
 ## 9. 逐文件说明：根目录和构建
 
@@ -322,7 +324,7 @@ flowchart LR
 | `bridge/ffi/ffi_api_logging.h` | 机载日志、tlog、MAVLink FTP 和文件操作。 |
 | `bridge/ffi/ffi_api_mission.h` | 任务文档、任务传输、围栏、Rally、校验和交换格式。 |
 | `bridge/ffi/ffi_api_params.h` | 参数读取、写入、进度和参数角色/描述符。 |
-| `bridge/ffi/ffi_api_payload.h` | 相机、云台、视频流、帧轮询、录制和截图。 |
+| `bridge/ffi/ffi_api_payload.h` | 相机、云台、视频流与帧轮询的原生导出；应用层已不再提供页面入口。 |
 | `bridge/ffi/ffi_api_telemetry.h` | 遥测快照、姿态、GPS、电池、导航、波形和消息。 |
 
 ### 10.2 FFI 实现和内部辅助
@@ -360,7 +362,7 @@ flowchart LR
 | `bridge/ffi/ffi_telemetry_navigation.cc` | 位置、姿态、导航和距离相关遥测。 |
 | `bridge/ffi/ffi_telemetry_sensors.cc` | 传感器、执行器、RC 和设备状态遥测。 |
 | `bridge/ffi/ffi_log_commands.cc` | 机载日志、tlog 和 FTP 文件操作导出。 |
-| `bridge/ffi/ffi_payload_commands.cc` | 相机、云台、视频、录制和截图导出。 |
+| `bridge/ffi/ffi_payload_commands.cc` | 相机、云台、视频导出的原生实现（无应用层消费者）。 |
 | `bridge/ffi/ffi_mission_bridge.h` | 任务文档与任务传输之间的桥接声明。 |
 | `bridge/ffi/ffi_mission_bridge.cc` | mission home、计划呈现和上传前准备。 |
 | `bridge/ffi/ffi_mission_shared.cc` | 任务 FFI 共用状态、校验和转换。 |
@@ -555,7 +557,8 @@ flowchart LR
 | `flutter_shell/lib/fleet/fleet_backend.dart` | 多机 backend 接口。 |
 | `flutter_shell/lib/fleet/fleet_ffi_backend.dart` | 连接、车辆、链路、活动车和会话快照 FFI。 |
 | `flutter_shell/lib/fleet/fleet_controller.dart` | 多机状态、目标校验、焦点切换和批量动作。 |
-| `flutter_shell/lib/fleet/fleet_models.dart` | 链路、车辆、目标、批量结果和 fleet snapshot 模型。 |
+| `flutter_shell/lib/fleet/fleet_models.dart` | 链路、车辆、目标、批量结果（含发送失败/执行中）和 fleet snapshot 模型。 |
+| `flutter_shell/lib/fleet/squad_*.dart` | 持久小队模型、存储、控制器与设置页（详见 14.2）。 |
 
 ## 14. 逐文件说明：Flutter 领域模块
 
@@ -572,17 +575,16 @@ flowchart LR
 | `flutter_shell/lib/mission/mission_transfer_section.dart` | 任务上传、下载、清除和传输进度控件。 |
 | `flutter_shell/lib/mission/mission_geo.dart` | 地图坐标和距离显示格式化。 |
 
-### 14.2 载荷和视频
+### 14.2 小队
 
 | 文件 | 功能 |
 |---|---|
-| `flutter_shell/lib/payload/payload_backend.dart` | 相机、云台、视频 backend 接口。 |
-| `flutter_shell/lib/payload/payload_ffi_backend.dart` | 相机/云台/视频 FFI 绑定。 |
-| `flutter_shell/lib/payload/payload_controller.dart` | 设备清单、状态刷新、组件选择、命令状态和本地解码/录制状态。 |
-| `flutter_shell/lib/payload/payload_models.dart` | 相机、云台、视频流、渲染和录制模型。 |
-| `flutter_shell/lib/payload/camera_gimbal_page.dart` | 相机与云台配置、拍照、录像、变焦、姿态和视频设置页面。 |
-| `flutter_shell/lib/payload/video_preview.dart` | 本地视频帧预览组件。 |
-| `flutter_shell/lib/payload/video_storage.dart` | 视频录制目录、容量上限和旧文件清理。 |
+| `flutter_shell/lib/fleet/squad_models.dart` | 小队成员身份键、成员/小队模型、认领结果、就绪检查与执行前拦截。 |
+| `flutter_shell/lib/fleet/squad_store.dart` | `Application Support/squads.json` 读写（带 schema 版本，损坏时回退不覆盖）。 |
+| `flutter_shell/lib/fleet/squad_controller.dart` | 小队列表、创建/重命名/删除、成员认领和临时身份确认。 |
+| `flutter_shell/lib/fleet/squad_settings_page.dart` | 地面站配置里的“小队”页：就绪显示、整队执行、成员管理。 |
+
+相机与云台的应用层 `flutter_shell/lib/payload/` 已整体删除，界面不再提供入口。
 
 ### 14.3 日志和文件
 
@@ -609,8 +611,8 @@ flowchart LR
 
 | 文件 | 功能 |
 |---|---|
-| `flutter_shell/lib/gcs_configuration_workspace.dart` | 地面站设置：地图源、签名等本机配置。 |
-| `flutter_shell/lib/configuration/configuration_workspace.dart` | 配置工作区路由和 13 个配置页面入口。 |
+| `flutter_shell/lib/gcs_configuration_workspace.dart` | 地面站设置：地图源、小队、MAVLink 签名等本机配置。 |
+| `flutter_shell/lib/configuration/configuration_workspace.dart` | 配置工作区路由和飞控配置页面入口。 |
 | `flutter_shell/lib/configuration/system/system_status_page.dart` | 系统状态、固件、连接和诊断显示。 |
 | `flutter_shell/lib/configuration/system/widgets/system_overview_card.dart` | 系统总览卡片。 |
 | `flutter_shell/lib/configuration/system/widgets/system_status_cards.dart` | 系统状态卡片集合。 |
@@ -761,10 +763,11 @@ flowchart LR
 | `flutter_shell/test/file_browser_page_test.dart` | 文件浏览页面。 |
 | `flutter_shell/test/log_controller_test.dart` | 机载日志控制器。 |
 | `flutter_shell/test/tlog_controller_test.dart` | tlog 控制器和回放。 |
-| `flutter_shell/test/video_storage_test.dart` | 视频容量和文件清理。 |
-| `flutter_shell/test/payload_controller_test.dart` | 相机/云台/视频控制器。 |
-| `flutter_shell/test/camera_gimbal_page_test.dart` | 载荷页面。 |
 | `flutter_shell/test/fleet_controller_test.dart` | fleet 状态和目标绑定。 |
+| `flutter_shell/test/fleet_batch_execution_test.dart` | 批量执行、停止派发、逐机身份复核与启动任务资格。 |
+| `flutter_shell/test/fleet_batch_status_test.dart` | 批量结果状态映射（发送失败/拒绝/超时/执行中）。 |
+| `flutter_shell/test/squad_test.dart` | 小队身份、认领、就绪检查、执行拦截与本地存储。 |
+| `flutter_shell/test/squad_settings_page_test.dart` | 小队页渲染与整队执行流程。 |
 | `flutter_shell/test/flight_message_translator_test.dart` | 飞控消息文本转换。 |
 | `flutter_shell/test/app_workspace_shell_test.dart` | 工作区侧栏。 |
 | `flutter_shell/test/map_view_test.dart` | 地图页面。 |
@@ -782,7 +785,6 @@ flowchart LR
 | `flutter_shell/test/byte_format_test.dart` | 字节/格式转换。 |
 | `flutter_shell/test/support/file_backend_fake.dart` | 文件 backend 测试替身。 |
 | `flutter_shell/test/support/mission_backend_fake.dart` | 任务 backend 测试替身。 |
-| `flutter_shell/test/support/payload_backend_fake.dart` | 载荷 backend 测试替身。 |
 
 ## 18. 逐文件说明：工具和脚本
 

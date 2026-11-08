@@ -141,6 +141,8 @@ struct FirmwareVersionInfo {
     uint16_t vendor_id = 0;
     uint16_t product_id = 0;
     uint64_t uid = 0;
+    /// MAVLink 2 的硬件 UID（AUTOPILOT_VERSION.uid2）。非全零时优先于 uid。
+    uint8_t uid2[18] = {0};
     char git_hash[17] = {0};
     bool received = false;
 };
@@ -1086,6 +1088,13 @@ public:
 
     /// 阻塞等待命令完成，超时返回 nullopt
     std::optional<CommandAckInfo> wait_for_command(CommandTicket ticket, int timeout_ms = 5000);
+
+    /// 等待超时后查询该命令是否仍在执行（收到过 IN_PROGRESS）。
+    ///
+    /// 只用于把 "仍在执行" 和 "真的超时" 区分开；调用方不应把它当成"完成"。
+    /// 返回后条目仍是 InProgress，调用方若不继续等待，必须 cancel_command：
+    /// COMMAND_ACK 没有请求 ID，遗留的条目会吞掉下一条同命令的 ACK。
+    std::optional<CommandAckInfo> command_in_progress(CommandTicket ticket) const;
 
     /// 取消队列中的待处理命令
     bool cancel_command(CommandTicket ticket);

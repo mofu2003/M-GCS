@@ -84,13 +84,23 @@ extension FleetBatchActionMetadata on FleetBatchAction {
   };
 }
 
-enum FleetBatchCommandStatus { success, rejected, timeout, error, notSent }
+enum FleetBatchCommandStatus {
+  success,
+  rejected,
+  timeout,
+  sendFailed,
+  inProgress,
+  error,
+  notSent,
+}
 
 extension FleetBatchCommandStatusMetadata on FleetBatchCommandStatus {
   String get label => switch (this) {
     FleetBatchCommandStatus.success => '成功',
     FleetBatchCommandStatus.rejected => '被拒绝',
     FleetBatchCommandStatus.timeout => '超时',
+    FleetBatchCommandStatus.sendFailed => '发送失败',
+    FleetBatchCommandStatus.inProgress => '执行中',
     FleetBatchCommandStatus.error => '失败',
     FleetBatchCommandStatus.notSent => '未派发',
   };
@@ -161,10 +171,16 @@ class FleetBatchResult {
   final List<FleetBatchCommandResult> results;
 
   int get successCount => results.where((result) => result.success).length;
+
+  /// 飞控已回 IN_PROGRESS、最终 ACK 未到：既不是成功，也不是失败。
+  int get inProgressCount => results
+      .where((result) => result.status == FleetBatchCommandStatus.inProgress)
+      .length;
   int get notSentCount => results
       .where((result) => result.status == FleetBatchCommandStatus.notSent)
       .length;
-  int get failureCount => results.length - successCount - notSentCount;
+  int get failureCount =>
+      results.length - successCount - notSentCount - inProgressCount;
   bool get allSucceeded => results.isNotEmpty && successCount == results.length;
 }
 
@@ -239,6 +255,7 @@ class FleetVehicleSummary {
     this.name = '',
     this.firmwareType = '',
     this.vehicleType = '',
+    this.hardwareUid = '',
     this.state = 'waiting_heartbeat',
     this.armed = false,
     this.heartbeatFresh = true,
@@ -274,6 +291,10 @@ class FleetVehicleSummary {
   final String name;
   final String firmwareType;
   final String vehicleType;
+
+  /// 飞控硬件 UID（`uid2:<hex>` / `uid:<hex>`，未知时为空串）。
+  /// 运行期 `id` 每次启动都会变，只有这个值能跨会话认回同一架飞机。
+  final String hardwareUid;
   final bool connected;
   final String state;
   final bool armed;
@@ -331,6 +352,7 @@ class FleetVehicleSummary {
       name == other.name &&
       firmwareType == other.firmwareType &&
       vehicleType == other.vehicleType &&
+      hardwareUid == other.hardwareUid &&
       connected == other.connected &&
       state == other.state &&
       armed == other.armed &&
@@ -368,6 +390,7 @@ class FleetVehicleSummary {
     name,
     firmwareType,
     vehicleType,
+    hardwareUid,
     connected,
     state,
     armed,

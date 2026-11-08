@@ -161,6 +161,22 @@ class FleetController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 用给定集合替换批量选择（小队“选中在线成员”用）。只影响批量动作，
+  /// 不改变 active vehicle。
+  void selectVehicles(Iterable<int> ids) {
+    _requireAlive();
+    refresh();
+    final next = <int>{
+      for (final id in ids)
+        if (_snapshot.vehicle(id) != null) id,
+    };
+    if (setEquals(next, _selectedVehicleIds)) return;
+    _selectedVehicleIds
+      ..clear()
+      ..addAll(next);
+    notifyListeners();
+  }
+
   void clearVehicleSelection() {
     _requireAlive();
     if (_selectedVehicleIds.isEmpty) return;
@@ -221,11 +237,21 @@ class FleetController extends ChangeNotifier {
   FleetBatchTarget captureBatchTarget(FleetBatchAction action) {
     _requireAlive();
     refresh();
-    final vehicles = selectedVehicles
+    var vehicles = selectedVehicles
         .where((vehicle) => vehicle.stateFresh && vehicle.identified)
         .toList(growable: false);
     if (vehicles.isEmpty) {
       throw StateError('请先选择至少一架已连接并完成识别的飞机');
+    }
+    // 开始任务只面向本地已回读到任务的成员：MISSION_START 会让没有任务的飞机
+    // 进入 AUTO，arm_if_needed 还会顺带解锁。确认条与实际目标保持同一集合。
+    if (action == FleetBatchAction.startMission) {
+      vehicles = vehicles
+          .where((vehicle) => vehicle.missionValid && vehicle.missionTotal > 0)
+          .toList(growable: false);
+      if (vehicles.isEmpty) {
+        throw StateError('选中的飞机都没有回读到有效任务');
+      }
     }
     final conflict = fleetSystemIdConflict(vehicles);
     if (conflict != null) throw StateError(conflict);

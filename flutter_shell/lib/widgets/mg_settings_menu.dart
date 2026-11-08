@@ -122,7 +122,7 @@ class _MgSettingsPanel extends StatelessWidget {
               _SettingsRow(
                 icon: CupertinoIcons.gear_alt,
                 title: '地面站配置',
-                subtitle: '地图来源、地面站本地显示选项',
+                subtitle: '地图来源、小队与地面站本地选项',
                 onTap: () =>
                     Navigator.of(context).pop(MgSettingsDestination.gcs),
               ),

@@ -694,17 +694,30 @@ void main() {
         final activeBeforeBatch = rawFleet.snapshot.activeVehicleId;
         rawFleet.selectAllVehicles();
         final batchTarget = rawFleet.captureBatchTarget(
-          FleetBatchAction.startMission,
+          FleetBatchAction.returnToLaunch,
         );
         final batchResult = await rawFleet.runBatch(batchTarget);
-        // The loopback smoke sender publishes a fixed Guided heartbeat and
-        // does not model the post-MISSION_START mode transition. The backend
-        // must report that state-confirmation failure rather than a false
-        // success; a real simulator/FC can complete this workflow.
+        // The loopback sender never answers COMMAND_ACK, so each member must
+        // report a timeout rather than a false success.
         expect(batchResult.allSucceeded, isFalse);
         expect(batchResult.results.every((item) => !item.success), isTrue);
         expect(batchResult.results.map((item) => item.vehicleId), vehicleIds);
         expect(rawFleet.snapshot.activeVehicleId, activeBeforeBatch);
+
+        // 启动任务的执行器必须逐机校验任务回读：即使确认目标被构造出来，
+        // 没有回读到任务的成员也只能是"未派发"，不能收到 MISSION_START。
+        final missionTarget = FleetBatchTarget(
+          action: FleetBatchAction.startMission,
+          vehicleIds: vehicleIds,
+          systemIds: batchTarget.systemIds,
+        );
+        final missionResult = await rawFleet.runBatch(missionTarget);
+        expect(
+          missionResult.results.every(
+            (item) => item.status == FleetBatchCommandStatus.notSent,
+          ),
+          isTrue,
+        );
         rawFleet.clearVehicleSelection();
 
         // Attempting to reopen an existing endpoint must not drop active A.

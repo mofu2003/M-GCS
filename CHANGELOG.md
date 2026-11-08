@@ -13,6 +13,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-11-08
+
+### Added
+
+- 多机身份：解码 `AUTOPILOT_VERSION.uid2`，`mg_vehicle_list` 暴露 `hardware_uid`（uid2 优先、回退 uid），供跨会话认回同一架飞机。
+- 持久小队：连接后把勾选的飞机保存为命名小队，按硬件身份（缺失时退回端点 + sysid）自动认领成员；成员、离线与身份冲突状态可视化。
+- 小队就绪检查（只读）：连接与遥测新鲜度、位置、GPS 定位、电量、卫星数、Home、任务回读。
+- 整队执行：一键对小队成员下发解锁 / 上锁 / 返航 / 开始任务，逐机结果沿用现有批量面板；身份冲突、无可执行成员、启动任务缺任务时拒绝整队下发。
+- 独立“小队”页面（地面站配置），离线也能查看、重命名、删除小队。
+- 顶部状态栏的卫星与电池图标按读数变色，无读数或数据过期时使用中性色。
+
+### Changed
+
+- 相机与云台之外的批量执行结果新增“发送失败”和“执行中”两种状态，批量结果弹窗单独统计执行中成员。
+- “开始任务”按逐机资格派发：没有回读到有效任务的成员不再收到 `MISSION_START`，也不会被 `arm_if_needed` 顺带解锁。
+- 小队管理与整队执行从多机面板移到“设置 → 地面站配置 → 小队”，多机面板只保留当前会话的勾选与批量执行。
+- C++ 核心、FFI 与 Flutter 版本同步至 1.2.0，Flutter 构建号为 3。
+
+### Fixed
+
+- 批量命令发送失败不再被报告为“飞控拒绝”；链路层发送失败返回 `MG_ERROR_SEND_FAILED`。
+- 收到 `MAV_RESULT_IN_PROGRESS` 时不再折叠成超时；返回“执行中”并清理队列条目，避免下一条同命令的 ACK 被吞掉。
+- 修复 Linux/Android 上 `std::max` 因 `uint64_t` 与 `unsigned long long` 推导失败导致的编译错误。
+- 修复 Windows 上 `check_ffi_contract.py` 未指定编码读取源码时的解码失败。
+- 修复 Linux/Windows 打包时 `add_custom_command(TARGET)` 写在创建目标之外的目录导致的 CMake 配置失败。
+- 修复 windows-shell CI 缺少 MAVLink 头生成与 `flutter pub get` 导致的预检失败。
+
+### Verification
+
+- Flutter 静态分析通过，全量测试 364 项通过、16 项需指定原生库的用例单独运行。
+- 后端 offline/simulation 全部 35 套测试通过；`test_bridge_vehicle_session` 212 项通过。
+- 使用真实 `libmgcore` 的 FFI 冒烟测试 7 项通过，覆盖批量显式目标与启动任务逐机资格。
+- macOS debug 应用构建并运行；版本一致性、FFI 契约与补丁格式检查通过。
+
 ## [1.1.0] - 2026-11-07
 
 ### Added

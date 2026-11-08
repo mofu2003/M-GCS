@@ -920,6 +920,22 @@ std::optional<CommandAckInfo> MavlinkAdapter::wait_for_command(CommandTicket tic
     return std::nullopt;
 }
 
+// 等待超时后区分"仍在执行"和"真的没有响应"
+std::optional<CommandAckInfo> MavlinkAdapter::command_in_progress(CommandTicket ticket) const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    const int idx = impl_->cmd_queue.find_by_id(ticket.id);
+    if (idx < 0) return std::nullopt;
+    const auto& entry = impl_->cmd_queue.entries[idx];
+    if (entry.state != CommandQueueEntry::State::InProgress) return std::nullopt;
+    CommandAckInfo info{};
+    info.command = entry.command;
+    info.result = 5;  // MAV_RESULT_IN_PROGRESS
+    info.progress = entry.ack_progress;
+    info.result_text = "in_progress";
+    info.outcome = CommandOutcome::InProgress;
+    return info;
+}
+
 // 取消待处理命令
 bool MavlinkAdapter::cancel_command(CommandTicket ticket) {
     mg::core::platform::LockGuard lk(impl_->mtx);

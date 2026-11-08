@@ -108,4 +108,52 @@ void main() {
       expect(result.results.last.status, FleetBatchCommandStatus.notSent);
     },
   );
+
+  test('start mission only targets members with a read-back mission', () {
+    final backend = MemoryFleetBackend();
+    final fleet = FleetController(backend);
+    addTearDown(fleet.dispose);
+    final ready = fleet.openLink(FleetConnectionSpec('udp://0.0.0.0:14550'));
+    final noMission = fleet.openLink(FleetConnectionSpec('udp://0.0.0.0:14551'));
+    backend.vehicles[ready] = FleetVehicleSummary(
+      id: ready,
+      systemId: 1,
+      endpoint: 'udp://0.0.0.0:14550',
+      connected: true,
+      missionValid: true,
+      missionTotal: 3,
+    );
+    fleet.selectAllVehicles();
+
+    // 没有回读到任务的成员既不进入确认条，也不会收到 MISSION_START。
+    final target = fleet.captureBatchTarget(FleetBatchAction.startMission);
+    expect(target.vehicleIds, [ready]);
+    expect(target.vehicleIds, isNot(contains(noMission)));
+
+    // 任务被清空后 plan.valid 仍为 true、total 为 0：不能因为 valid 就放行。
+    backend.vehicles[ready] = FleetVehicleSummary(
+      id: ready,
+      systemId: 1,
+      endpoint: 'udp://0.0.0.0:14550',
+      connected: true,
+      missionValid: true,
+      missionTotal: 0,
+    );
+    expect(
+      () => fleet.captureBatchTarget(FleetBatchAction.startMission),
+      throwsStateError,
+    );
+
+    // 全队都没有任务：不生成空目标。
+    backend.vehicles[ready] = FleetVehicleSummary(
+      id: ready,
+      systemId: 1,
+      endpoint: 'udp://0.0.0.0:14550',
+      connected: true,
+    );
+    expect(
+      () => fleet.captureBatchTarget(FleetBatchAction.startMission),
+      throwsStateError,
+    );
+  });
 }

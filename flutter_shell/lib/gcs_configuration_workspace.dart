@@ -7,6 +7,8 @@ import 'map/amap_map_view.dart'
 import 'map/map_preferences.dart' show validateCustomTileUrl;
 import 'connection/connection_controller.dart';
 import 'connection/signing_key_store.dart';
+import 'fleet/fleet_models.dart';
+import 'fleet/squad_settings_page.dart';
 import 'theme/mg_colors.dart';
 import 'theme/mg_typography.dart';
 import 'widgets/app_workspace_shell.dart';
@@ -23,6 +25,7 @@ class GcsConfigurationWorkspace extends StatefulWidget {
     required this.mapStyle,
     required this.customTileUrl,
     required this.connectionController,
+    required this.onRequestFleetBatchAction,
     required this.onReturnToMap,
   });
 
@@ -32,6 +35,9 @@ class GcsConfigurationWorkspace extends StatefulWidget {
   /// 自定义瓦片源地址模板（KD-37），与地图页共享同一个真源。
   final ValueNotifier<String> customTileUrl;
   final ConnectionController connectionController;
+
+  /// 小队页的整队执行：交给主界面走统一的确认与逐机结果流程。
+  final void Function(FleetBatchTarget target) onRequestFleetBatchAction;
   final VoidCallback onReturnToMap;
 
   @override
@@ -46,6 +52,7 @@ class _GcsConfigurationWorkspaceState extends State<GcsConfigurationWorkspace> {
   Widget build(BuildContext context) => AppWorkspaceShell(
     items: const [
       AppWorkspaceItem(id: 'map', label: '地图配置', icon: CupertinoIcons.map),
+      AppWorkspaceItem(id: 'squads', label: '小队', icon: CupertinoIcons.group),
       AppWorkspaceItem(
         id: 'signing',
         label: 'MAVLink 签名',
@@ -56,6 +63,16 @@ class _GcsConfigurationWorkspaceState extends State<GcsConfigurationWorkspace> {
     onSelected: (id) => setState(() => _selectedPageId = id),
     onReturnToMap: widget.onReturnToMap,
     contentBuilder: (context, scrollController) => switch (_selectedPageId) {
+      'squads' => switch (widget.connectionController.squadsOrNull) {
+        final squads? => SquadSettingsPage(
+          scrollController: scrollController,
+          squads: squads,
+          fleet: widget.connectionController.fleet,
+          onRequestAction: widget.onRequestFleetBatchAction,
+          onReturnToMap: widget.onReturnToMap,
+        ),
+        _ => const _UnavailablePage(),
+      },
       'signing' => _SigningSettingsPage(
         scrollController: scrollController,
         controller: widget.connectionController,
@@ -66,6 +83,23 @@ class _GcsConfigurationWorkspaceState extends State<GcsConfigurationWorkspace> {
         customTileUrl: widget.customTileUrl,
       ),
     },
+  );
+}
+
+class _UnavailablePage extends StatelessWidget {
+  const _UnavailablePage();
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(20),
+    children: [
+      Text(
+        '多机后端尚未就绪，暂时无法管理小队。',
+        style: MgTypography.sans(
+          MgTypography.caption.copyWith(color: context.mgColors.textSecondary),
+        ),
+      ),
+    ],
   );
 }
 

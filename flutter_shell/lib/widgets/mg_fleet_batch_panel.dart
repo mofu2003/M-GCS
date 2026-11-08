@@ -51,9 +51,10 @@ class MgFleetBatchPanel extends StatelessWidget {
           vehicles.isNotEmpty && selected.length == vehicles.length;
       final canArm = connectedSelected.any((vehicle) => !vehicle.armed);
       final canDisarm = connectedSelected.any((vehicle) => vehicle.armed);
+      // 与 captureBatchTarget / 执行器保持同一判据：任务回读有效才可开始。
+      // 未解锁的成员会在 start_mission 的既有流程里按 arm_if_needed 处理。
       final canStartMission = connectedSelected.any(
-        (vehicle) =>
-            vehicle.armed && vehicle.missionValid && vehicle.missionTotal > 0,
+        (vehicle) => vehicle.missionValid && vehicle.missionTotal > 0,
       );
 
       return LayoutBuilder(

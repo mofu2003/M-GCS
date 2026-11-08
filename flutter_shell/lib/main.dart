@@ -156,6 +156,15 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  /// 从小队页发起整队动作：确认层在主界面，先回到地图再走统一确认流程。
+  void _requestFleetBatchFromWorkspace(FleetBatchTarget target) {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) navigator.pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _requestFleetBatchAction(target);
+    });
+  }
+
   Future<void> _showFleetBatchResult(FleetBatchResult result) {
     final failed = result.results.where((item) => !item.success).toList();
     return showMgAlertDialog<void>(
@@ -171,7 +180,9 @@ class _MapPageState extends State<MapPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '已接受 ${result.successCount} 架，失败 ${result.failureCount} 架，'
+                  '已接受 ${result.successCount} 架'
+                  '${result.inProgressCount == 0 ? '' : '，执行中 ${result.inProgressCount} 架'}'
+                  '，失败 ${result.failureCount} 架，'
                   '未派发 ${result.notSentCount} 架',
                 ),
                 const SizedBox(height: 8),
@@ -357,6 +368,7 @@ class _MapPageState extends State<MapPage> {
           mapStyle: _mapStyle,
           customTileUrl: _customTileUrl,
           connectionController: _connectionController,
+          onRequestFleetBatchAction: _requestFleetBatchFromWorkspace,
           onReturnToMap: () => Navigator.of(routeContext).maybePop(),
         ),
       ),

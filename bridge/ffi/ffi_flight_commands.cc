@@ -54,6 +54,23 @@ static char* ack_rejection_json(const mg::core::mavlink::CommandAckInfo& ack) {
     return to_cstr(jb.str());
 }
 
+/// 等待超时但飞控已回过 IN_PROGRESS：命令还在执行，不能报成超时。
+/// 同时也不能报成功——最终 ACK 尚未到达。
+static char* command_in_progress_json(const mg::core::mavlink::CommandAckInfo& ack) {
+    mg::core::telemetry::JsonBuilder jb;
+    jb.begin_object();
+    jb.field("success", false);
+    write_error(jb, MG_ERROR_TIMEOUT,
+                "command still in progress; final ACK not received");
+    jb.field("command", static_cast<int>(ack.command));
+    jb.field("result", static_cast<int>(ack.result));
+    jb.field("progress", static_cast<int>(ack.progress));
+    jb.field("result_str", "in_progress");
+    jb.field("in_progress", true);
+    jb.end_object();
+    return to_cstr(jb.str());
+}
+
 /// 命令队列辅助函数：发送命令并阻塞等待 ACK
 /// 使用 send_command_queued() + wait_for_command()，支持超时重发。
 char* ffi_cmd_result_queued(
@@ -66,14 +83,23 @@ char* ffi_cmd_result_queued(
         p1, p2, p3, p4, p5, p6, p7);
     auto ack = mav->wait_for_command(ticket, max_wait_ms);
     if (ack.has_value()) {
-        if (ack->result_text.find("timeout") != std::string::npos) {
+        // 链路层没发出去不等于飞控拒绝，必须如实区分（安全约束 3）。
+        if (ack->outcome == mg::core::mavlink::CommandOutcome::SendFailed) {
+            return fail(MG_ERROR_SEND_FAILED, "command send failed");
+        }
+        if (ack->outcome == mg::core::mavlink::CommandOutcome::Timeout ||
+            ack->result_text.find("timeout") != std::string::npos) {
             return fail(MG_ERROR_TIMEOUT, ack->result_text.c_str());
         }
         if (ack->result == 0) return ok();  // MAV_RESULT_ACCEPTED
-        if (ack->result == 5) {  // MAV_RESULT_IN_PROGRESS: still running, not an error
-            return to_cstr(mg::core::telemetry::command_ack_json(ack.value()));
-        }
         return ack_rejection_json(ack.value());
+    }
+    if (auto inflight = mav->command_in_progress(ticket)) {
+        // 不能把未终结的 InProgress 条目留在队列里：COMMAND_ACK 没有请求 ID，
+        // 下一条同命令的 ACK 会被它吞掉，第二笔命令便会误报超时。这里已经
+        // 把"仍在执行"交给调用方，最终 ACK 没有消费者，直接取消。
+        mav->cancel_command(ticket);
+        return command_in_progress_json(inflight.value());
     }
     mav->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
     return fail(MG_ERROR_TIMEOUT, "command ack timeout");
@@ -90,14 +116,21 @@ static char* cmd_int_result_queued(
         sys, comp, cmd_id, frame, p1, p2, p3, p4, x, y, z);
     auto ack = mav->wait_for_command(ticket, max_wait_ms);
     if (ack.has_value()) {
-        if (ack->result_text.find("timeout") != std::string::npos) {
+        if (ack->outcome == mg::core::mavlink::CommandOutcome::SendFailed) {
+            return fail(MG_ERROR_SEND_FAILED, "command send failed");
+        }
+        if (ack->outcome == mg::core::mavlink::CommandOutcome::Timeout ||
+            ack->result_text.find("timeout") != std::string::npos) {
             return fail(MG_ERROR_TIMEOUT, ack->result_text.c_str());
         }
         if (ack->result == 0) return ok();  // MAV_RESULT_ACCEPTED
-        if (ack->result == 5) {  // MAV_RESULT_IN_PROGRESS: still running, not an error
-            return to_cstr(mg::core::telemetry::command_ack_json(ack.value()));
-        }
         return ack_rejection_json(ack.value());
+    }
+    if (auto inflight = mav->command_in_progress(ticket)) {
+        // 同 COMMAND_LONG：返回前取消，避免未终结的 InProgress 条目吞掉下一条
+        // 同命令的 ACK。
+        mav->cancel_command(ticket);
+        return command_in_progress_json(inflight.value());
     }
     mav->cancel_command(ticket);  // Do not send a delayed retry after reporting failure.
     return fail(MG_ERROR_TIMEOUT, "command ack timeout");
