@@ -5,6 +5,9 @@ import 'package:macos_ui/macos_ui.dart';
 import 'package:mgcs_frontend/fleet/fleet_backend.dart';
 import 'package:mgcs_frontend/fleet/fleet_controller.dart';
 import 'package:mgcs_frontend/fleet/fleet_models.dart';
+import 'package:mgcs_frontend/fleet/squad_controller.dart';
+import 'package:mgcs_frontend/fleet/squad_models.dart';
+import 'package:mgcs_frontend/fleet/squad_store.dart';
 import 'package:mgcs_frontend/widgets/mg_fleet_batch_panel.dart';
 
 class _MemoryFleetBackend implements FleetBackend {
@@ -60,6 +63,16 @@ class _MemoryFleetBackend implements FleetBackend {
     links: links.values,
     activeVehicleId: active,
   );
+}
+
+class _MemorySquadStore implements SquadStore {
+  List<Squad> squads = const [];
+
+  @override
+  Future<List<Squad>> load() async => squads;
+
+  @override
+  Future<void> save(List<Squad> next) async => squads = List.of(next);
 }
 
 void main() {
@@ -198,6 +211,77 @@ void main() {
     expect(requests, 0);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('fleet panel selects a squad by its executable members', (
+    tester,
+  ) async {
+    final backend = _MemoryFleetBackend();
+    final fleet = FleetController(backend);
+    addTearDown(fleet.dispose);
+    final first = fleet.openLink(FleetConnectionSpec('udp://127.0.0.1:14550'));
+    final second = fleet.openLink(FleetConnectionSpec('udp://127.0.0.1:14551'));
+    backend.vehicles[first] = FleetVehicleSummary(
+      id: first,
+      systemId: 1,
+      endpoint: 'udp://127.0.0.1:14550',
+      connected: true,
+      hardwareUid: 'uid2:aa',
+    );
+    backend.vehicles[second] = FleetVehicleSummary(
+      id: second,
+      systemId: 2,
+      endpoint: 'udp://127.0.0.1:14551',
+      connected: true,
+      hardwareUid: 'uid2:bb',
+    );
+    fleet.refresh();
+    final store = _MemorySquadStore()
+      ..squads = const [
+        Squad(
+          id: 's1',
+          name: '一队',
+          members: [
+            SquadMember(identityKey: 'uid2:aa', label: '飞机 1'),
+            SquadMember(identityKey: 'uid2:bb', label: '飞机 2'),
+            SquadMember(identityKey: 'uid2:missing', label: '飞机 3'),
+          ],
+        ),
+      ];
+    final squads = SquadController(fleet, store: store);
+    addTearDown(squads.dispose);
+    await squads.load();
+
+    await tester.pumpWidget(
+      MacosTheme(
+        data: MacosThemeData.light(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 360,
+              height: 600,
+              child: MgFleetBatchPanel(
+                fleet: fleet,
+                squads: squads,
+                onSelectVehicle: (_) async {},
+                onRequestAction: (_) {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('手动勾选'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('fleet-squad-selector')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('一队 · 2/3 在线'));
+    await tester.pumpAndSettle();
+
+    expect(fleet.selectedVehicleIds, {first, second});
+    expect(find.text('已按「一队」选中 2 架 · 1 架离线或冲突'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

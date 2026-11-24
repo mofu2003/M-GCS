@@ -17,6 +17,7 @@ import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import '../connection_panel.dart';
 import '../fleet/fleet_models.dart';
+import '../fleet/squad_floating_panel.dart';
 import '../flight/flight_message_panel.dart';
 import '../mission/mission_document_controller.dart';
 import '../mission/mission_document_models.dart';
@@ -152,7 +153,7 @@ _MapSource _sourceFor(
 };
 
 /// 地图右侧的主面板。多机面板是独立的次级 inspector。
-enum MapRightPanel { none, connection, messages, mission, geofence }
+enum MapRightPanel { none, connection, messages, mission, geofence, squads }
 
 const double kMapPanelEdgeInset = 18;
 const double kMapPanelGap = 12;
@@ -167,6 +168,7 @@ double mapRightPanelWidth(MapRightPanel panel) => switch (panel) {
   MapRightPanel.messages => kFlightMessagePanelWidth,
   MapRightPanel.mission => kMissionPanelWidth,
   MapRightPanel.geofence => kGeofencePanelWidth,
+  MapRightPanel.squads => kSquadPanelWidth,
   MapRightPanel.none => 0,
 };
 
@@ -271,6 +273,7 @@ class AMapMapView extends StatefulWidget {
     this.flightMessagePanelRequest,
     this.missionPlanningRequest,
     this.geofenceRequest,
+    this.squadPanelRequest,
     this.fleetPanelRequest,
     this.onSelectFleetVehicle,
     this.onRequestFleetBatchAction,
@@ -289,6 +292,7 @@ class AMapMapView extends StatefulWidget {
   final ValueListenable<int>? flightMessagePanelRequest;
   final ValueListenable<int>? missionPlanningRequest;
   final ValueListenable<int>? geofenceRequest;
+  final ValueListenable<int>? squadPanelRequest;
   final ValueListenable<int>? fleetPanelRequest;
 
   /// 多机面板的飞机焦点切换和批量动作交给主页面统一处理。
@@ -387,6 +391,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     );
     widget.missionPlanningRequest?.addListener(_handleMissionPlanningRequest);
     widget.geofenceRequest?.addListener(_handleGeofenceRequest);
+    widget.squadPanelRequest?.addListener(_handleSquadPanelRequest);
     widget.fleetPanelRequest?.addListener(_handleFleetPanelRequest);
     unawaited(_restorePreferences());
   }
@@ -412,6 +417,10 @@ class _AMapMapViewState extends State<AMapMapView> {
 
   void _handleGeofenceRequest() {
     if (mounted) _showRightPanel(MapRightPanel.geofence);
+  }
+
+  void _handleSquadPanelRequest() {
+    if (mounted) _showRightPanel(MapRightPanel.squads);
   }
 
   void _handleFleetPanelRequest() {
@@ -615,6 +624,7 @@ class _AMapMapViewState extends State<AMapMapView> {
       _handleMissionPlanningRequest,
     );
     widget.geofenceRequest?.removeListener(_handleGeofenceRequest);
+    widget.squadPanelRequest?.removeListener(_handleSquadPanelRequest);
     widget.fleetPanelRequest?.removeListener(_handleFleetPanelRequest);
     _clearQuickDraw();
     _saveTimer?.cancel();
@@ -2082,6 +2092,7 @@ class _AMapMapViewState extends State<AMapMapView> {
             reserveInstruments: true,
             child: MgFleetBatchPanel(
               fleet: widget.connectionController.fleet,
+              squads: widget.connectionController.squadsOrNull,
               onSelectVehicle:
                   widget.onSelectFleetVehicle ??
                   (vehicleId) async =>
@@ -2127,6 +2138,16 @@ class _AMapMapViewState extends State<AMapMapView> {
             child: GeofenceFloatingPanel(
               key: ValueKey(widget.connectionController.sessionId),
               controller: widget.connectionController,
+              onClose: () => setState(() => _rightPanel = MapRightPanel.none),
+            ),
+          ),
+        if (_rightPanel == MapRightPanel.squads)
+          MapPlanningPanelSlot(
+            preferredWidth: kSquadPanelWidth,
+            child: SquadFloatingPanel(
+              squads: widget.connectionController.squadsOrNull,
+              fleet: widget.connectionController.fleet,
+              onRequestAction: widget.onRequestFleetBatchAction ?? (_) {},
               onClose: () => setState(() => _rightPanel = MapRightPanel.none),
             ),
           ),

@@ -75,23 +75,7 @@ class SquadController extends ChangeNotifier {
   Future<Squad> createFromSelection(String name) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) throw StateError('小队名称不能为空');
-    final selected = _fleet.selectedVehicles
-        .where((vehicle) => vehicle.stateFresh && vehicle.identified)
-        .toList(growable: false);
-    if (selected.isEmpty) {
-      throw StateError('请先勾选至少一架已连接并完成识别的飞机');
-    }
-    final seen = <String>{};
-    final members = <SquadMember>[];
-    for (final vehicle in selected) {
-      final identityKey = squadIdentityKey(vehicle);
-      if (!seen.add(identityKey)) {
-        throw StateError('选中的飞机中有相同身份，不能放进同一个小队');
-      }
-      members.add(
-        SquadMember(identityKey: identityKey, label: vehicle.displayName),
-      );
-    }
+    final members = _membersFromCurrentSelection();
     final squad = Squad(
       id: _newId(),
       name: trimmed,
@@ -99,6 +83,49 @@ class SquadController extends ChangeNotifier {
     );
     await _commit([..._squads, squad]);
     return squad;
+  }
+
+  /// 把当前勾选且尚未在队内的飞机追加到小队，成员顺序 = 勾选顺序。
+  Future<void> addSelectedMembers(String squadId) async {
+    final index = _squads.indexWhere((squad) => squad.id == squadId);
+    if (index < 0) throw StateError('小队不存在');
+    final current = _squads[index];
+    final existing = {for (final member in current.members) member.identityKey};
+    final additions = _membersFromCurrentSelection()
+        .where((member) => !existing.contains(member.identityKey))
+        .toList(growable: false);
+    if (additions.isEmpty) {
+      throw StateError('当前选择中没有可加入小队的新飞机');
+    }
+    final next = [..._squads];
+    next[index] = Squad(
+      id: current.id,
+      name: current.name,
+      revision: current.revision + 1,
+      members: List.unmodifiable([...current.members, ...additions]),
+    );
+    await _commit(next);
+  }
+
+  /// 从小队移除一个稳定身份。允许暂时清空成员，之后可再加入当前选择的飞机。
+  Future<void> removeMember(String squadId, String identityKey) async {
+    final index = _squads.indexWhere((squad) => squad.id == squadId);
+    if (index < 0) throw StateError('小队不存在');
+    final current = _squads[index];
+    final members = current.members
+        .where((member) => member.identityKey != identityKey)
+        .toList(growable: false);
+    if (members.length == current.members.length) {
+      throw StateError('小队成员不存在');
+    }
+    final next = [..._squads];
+    next[index] = Squad(
+      id: current.id,
+      name: current.name,
+      revision: current.revision + 1,
+      members: List.unmodifiable(members),
+    );
+    await _commit(next);
   }
 
   Future<void> rename(String squadId, String name) async {
@@ -133,6 +160,27 @@ class SquadController extends ChangeNotifier {
     if (_disposed) return;
     _squads = List.unmodifiable(next);
     notifyListeners();
+  }
+
+  List<SquadMember> _membersFromCurrentSelection() {
+    final selected = _fleet.selectedVehicles
+        .where((vehicle) => vehicle.stateFresh && vehicle.identified)
+        .toList(growable: false);
+    if (selected.isEmpty) {
+      throw StateError('请先勾选至少一架已连接并完成识别的飞机');
+    }
+    final seen = <String>{};
+    final members = <SquadMember>[];
+    for (final vehicle in selected) {
+      final identityKey = squadIdentityKey(vehicle);
+      if (!seen.add(identityKey)) {
+        throw StateError('选中的飞机中有相同身份，不能放进同一个小队');
+      }
+      members.add(
+        SquadMember(identityKey: identityKey, label: vehicle.displayName),
+      );
+    }
+    return members;
   }
 
   String _newId() => 'squad-${DateTime.now().microsecondsSinceEpoch}';

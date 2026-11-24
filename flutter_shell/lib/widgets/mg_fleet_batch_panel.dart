@@ -1,11 +1,15 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import '../fleet/fleet_controller.dart';
 import '../fleet/fleet_models.dart';
+import '../fleet/squad_controller.dart';
+import '../fleet/squad_models.dart';
 import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
+import 'adaptive_popup_button.dart';
 import 'mg_floating_panel.dart';
 
 /// 多机批量控制面板。
@@ -18,11 +22,13 @@ class MgFleetBatchPanel extends StatelessWidget {
     required this.fleet,
     required this.onSelectVehicle,
     required this.onRequestAction,
+    this.squads,
     this.onOpenFlightMode,
     this.onClose,
   });
 
   final FleetController fleet;
+  final SquadController? squads;
   final Future<void> Function(int vehicleId) onSelectVehicle;
   final void Function(FleetBatchTarget target) onRequestAction;
   final ValueChanged<int>? onOpenFlightMode;
@@ -30,11 +36,23 @@ class MgFleetBatchPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: fleet,
+    animation: squads ?? fleet,
     builder: (context, _) {
       final colors = context.mgColors;
       final vehicles = fleet.snapshot.vehicles;
       final selected = fleet.selectedVehicleIds;
+      final squadClaims = squads == null
+          ? const <SquadClaim>[]
+          : [for (final squad in squads!.squads) squads!.claimFor(squad)];
+      SquadClaim? selectedSquad;
+      if (selected.isNotEmpty) {
+        for (final claim in squadClaims) {
+          if (setEquals(claim.vehicleIds.toSet(), selected)) {
+            selectedSquad = claim;
+            break;
+          }
+        }
+      }
       final selectedVehicles = vehicles
           .where((vehicle) => selected.contains(vehicle.id))
           .toList(growable: false);
@@ -75,6 +93,15 @@ class MgFleetBatchPanel extends StatelessWidget {
                   children: [
                     _Header(onClose: onClose),
                     const SizedBox(height: 10),
+                    if (squadClaims.isNotEmpty) ...[
+                      _SquadSelector(
+                        claims: squadClaims,
+                        selectedSquad: selectedSquad,
+                        onSelect: (claim) =>
+                            fleet.selectVehicles(claim.vehicleIds),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     Row(
                       children: [
                         const Spacer(),
@@ -292,6 +319,97 @@ class MgFleetBatchPanel extends StatelessWidget {
         ),
       );
     }
+  }
+}
+
+const _manualSquadChoice = '__manual_squad_selection__';
+
+class _SquadSelector extends StatelessWidget {
+  const _SquadSelector({
+    required this.claims,
+    required this.selectedSquad,
+    required this.onSelect,
+  });
+
+  final List<SquadClaim> claims;
+  final SquadClaim? selectedSquad;
+  final ValueChanged<SquadClaim> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.mgColors;
+    final options = [
+      _manualSquadChoice,
+      for (final claim in claims) claim.squad.id,
+    ];
+    SquadClaim? claimOf(String value) {
+      for (final claim in claims) {
+        if (claim.squad.id == value) return claim;
+      }
+      return null;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text(
+              '小队',
+              style: MgTypography.sans(
+                MgTypography.caption.copyWith(
+                  color: colors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: AdaptivePopupButton<String>(
+                key: const ValueKey('fleet-squad-selector'),
+                value: selectedSquad?.squad.id ?? _manualSquadChoice,
+                options: options,
+                labelOf: (value) {
+                  final claim = claimOf(value);
+                  return claim == null
+                      ? '手动勾选'
+                      : '${claim.squad.name} · ${claim.summary}';
+                },
+                isEnabled: (value) {
+                  final claim = claimOf(value);
+                  return claim == null || claim.vehicleIds.isNotEmpty;
+                },
+                onChanged: (value) {
+                  final claim = claimOf(value);
+                  if (claim != null) onSelect(claim);
+                },
+              ),
+            ),
+          ],
+        ),
+        if (selectedSquad != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            _selectionSummary(selectedSquad!),
+            style: MgTypography.sans(
+              MgTypography.caption.copyWith(color: colors.textSecondary),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _selectionSummary(SquadClaim claim) {
+    final skipped = claim.memberCount - claim.vehicleIds.length;
+    final details = <String>[];
+    if (claim.pendingCount > 0) {
+      details.add('${claim.pendingCount} 架临时身份待确认');
+    }
+    final offline = claim.memberCount - claim.onlineCount;
+    if (offline > 0) details.add('$offline 架离线或冲突');
+    return '已按「${claim.squad.name}」选中 ${claim.vehicleIds.length} 架'
+        '${skipped == 0 ? '' : ' · ${details.join(' · ')}'}';
   }
 }
 

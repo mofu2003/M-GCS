@@ -2,6 +2,44 @@
 
 研究日期为 2026-11-06。本文件区分外部项目已描述的做法与针对 M-GCS 的建议。外部能力依据官方文档与源码，本次未进行第三方软件飞行实测。
 
+## 2026-11-10 GitHub 源码补充
+
+本轮按当时 GitHub `master`/`main` 的固定提交重新核对源码，重点是“地面站替操作者做了什么”，不讨论机载编队、避碰或轨迹算法。这里的“未发现”只代表所查源码路径没有该流程，不代表项目绝对不具备。
+
+| 项目与快照 | 地面站实际职责 | 边界与限制 |
+|---|---|---|
+| QGroundControl `6eb58f0` | 区分全部车辆、活动车辆和临时选中集合；多机面板显示逐车状态，并对选中集合逐机执行 Arm、Disarm、Start Mission、Pause | 所查 MultiVehicle 路径未发现持久命名小队、槽位规划或群组任务生成。批量分支在执行时读取当前选择，不能据此宣称确认后冻结目标或同步动作。任务编辑器通常跟随活动车，不能把“已多选”理解为“批量改任务/上传”的同一目标。[多机与选择](https://github.com/mavlink/qgroundcontrol/blob/6eb58f084992665d9d6d96d8d58824c2df7cad56/src/Vehicle/MultiVehicleManager.cc) [批量动作](https://github.com/mavlink/qgroundcontrol/blob/6eb58f084992665d9d6d96d8d58824c2df7cad56/src/FlyView/GuidedActionsController.qml) [任务作用域](https://github.com/mavlink/qgroundcontrol/blob/6eb58f084992665d9d6d96d8d58824c2df7cad56/src/MissionManager/PlanMasterController.cc) |
+| Mission Planner `a64d768` | Formation 窗口选择物理领机、编辑成员相对偏移，运行时在地面读取领机状态并持续向成员发送目标；窗口还显示逐机模式、解锁状态、GPS、目标与实际位置 | 这是 GCS 在线目标分发原型，不是“每机任务模板→逐机航线上传”。群动作通常遍历当前连接车辆，并带有包含或排除领机的规则，不是冻结确认的命名小队。源码窗口标为 Beta，官方也将其限定为实验性能力。停止按钮停止地面发送循环，不等于已让飞机暂停或返航。[Formation 窗口](https://github.com/ArduPilot/MissionPlanner/blob/a64d768676decd213c94ac52580edfa3bbfe0678/Swarm/FormationControl.cs) [目标发送](https://github.com/ArduPilot/MissionPlanner/blob/a64d768676decd213c94ac52580edfa3bbfe0678/Swarm/Formation.cs) [群动作范围](https://github.com/ArduPilot/MissionPlanner/blob/a64d768676decd213c94ac52580edfa3bbfe0678/Swarm/Swarm.cs) |
+| MAVProxy `130908b` | Swarm 插件从飞控参数 `FOLL_SYSID` 推导领机、跟随机和未归组车辆；按组成员显示心跳、模式、电池、预解锁和告警，并提供带 SYSID/COMPID 的定向按钮 | 组关系来自飞控 Follow 配置，不是在 GCS 里创建任意命名编队。不同按钮的成员范围不同，例如 Auto 面向领机、Follow All 面向跟随机。所查插件没有统一的逐命令 pending/ACK/部分失败结果账本，“All”也不能视为原子操作。[Swarm 模块](https://github.com/ArduPilot/MAVProxy/blob/130908b97a25186ee6649d1aae5efb1cdefbc752/MAVProxy/modules/mavproxy_swarm.py) |
+| Skybrush Live `62c3446` | 以无人机表演为专门场景，把逻辑任务槽位和实际 UAV 分开；上传前检查空槽、缺失无人机、起飞位置与朝向，逐机生成包含槽位参数的场次数据并单独上传；上传结果按 UAV 聚合，失败项可重试；启动前还建模现地环境、围栏、机载/人工预检、启动时间和操作者授权 | 这是配合专门演出执行栈的流程，不能据此宣称普通 ArduPilot 机队已支持相同能力。`stages.ts` 主要定义阶段状态和依赖，个别阶段仍明确是 TODO；因此应借鉴“流程与可观测状态”，不要把阶段列表写成所有按钮均被强制锁死。逐机上传成功也不等于机群同步起飞。[槽位到实机映射](https://github.com/skybrush-io/live/blob/62c344699695975bab4f8c92aeb5607d1e9ad0dd/src/features/show/upload.js) [起飞区检查](https://github.com/skybrush-io/live/blob/62c344699695975bab4f8c92aeb5607d1e9ad0dd/src/views/show-control/TakeoffAreaSetupDialog.tsx) [阶段与依赖](https://github.com/skybrush-io/live/blob/62c344699695975bab4f8c92aeb5607d1e9ad0dd/src/features/show/stages.ts) [逐机上传结果](https://github.com/skybrush-io/live/blob/62c344699695975bab4f8c92aeb5607d1e9ad0dd/src/features/upload/selectors.ts) |
+
+固定提交只用于固定本次源码证据，不代表对应能力已经进入稳定发行版：
+
+- QGroundControl：`6eb58f084992665d9d6d96d8d58824c2df7cad56`
+- Mission Planner：`a64d768676decd213c94ac52580edfa3bbfe0678`
+- MAVProxy：`130908b97a25186ee6649d1aae5efb1cdefbc752`
+- Skybrush Live：`62c344699695975bab4f8c92aeb5607d1e9ad0dd`
+
+### 地面站通常承担的八类工作
+
+1. **身份与集合**：把物理飞机、逻辑组成员、活动焦点和一次操作的目标集合分开。QGC 明确区活动车与临时选择；MAVProxy 的组由飞控跟随关系派生；M-GCS 的持久小队保存稳定成员身份，三者语义不同。
+2. **角色与槽位**：为成员分配领机、跟随位置或演出槽位。Mission Planner 直接把偏移绑定到成员；Skybrush 把逻辑槽位映射到实机，并拒绝不在任务中的 UAV 上传。
+3. **计划落地**：把“编队意图”变成每架飞机可执行的任务、轨迹或目标，并提供整体预览。QGC 的基础多机入口没有完成这套槽位到逐机任务的产品链；Skybrush 是专门演出实现；MAVProxy 面板主要管理已有 Follow 关系。
+4. **上传与准备**：逐机生成产物、显示排队/进行中/失败/部分成功，支持失败项重试。Skybrush 的逐机上传状态与任务映射是清楚的参考。
+5. **起飞前检查**：检查成员在线、位置、朝向、任务、围栏与人工检查结果。检查项应能定位到具体 UAV，而不是只给一个“机群就绪”总灯。
+6. **执行范围确认**：确认页必须写清实际参与的车辆、被跳过的离线/冲突成员、动作和固定成员集合。QGC 的批量 UI 可学习信息组织，但其执行时读取当前选择的做法不满足 M-GCS 已规定的冻结目标语义。
+7. **结果与状态监控**：逐机保留发送失败、拒绝、超时、取消和接受结果；接受后的动作完成再按模式、解锁、位置、任务进度等遥测条件判断。全组统一汇总不能抹掉单机失败。
+8. **停止与恢复**：区分停止后续派发、暂停任务、停止地面目标流、返航或降落，并记录哪些飞机已被人工接管。没有任何一个已查 GCS 能靠单一“Stop All”按钮自动保证所有飞机进入安全状态。
+
+### 对 M-GCS 分组功能的直接结论
+
+- 当前已有的“持久小队”方向是对的，但还应成为地图执行页的一等操作对象：在机队列表中直接按小队选定成员，同时显示该小队在线、离线、身份冲突和临时身份待确认人数。仅放在设置页，操作者容易忘记本次实际执行的是哪些飞机。
+- 小队成员管理需要支持从当前勾选飞机追加成员、移除单个成员；成员变更只改本地分组，不得隐式写 `FOLL_SYSID`、切 Follow 模式或改动飞机状态。
+- 执行确认和结果必须继续使用“先冻结明确 `vehicle_id` 与会话，再逐机发送并保留 ACK/失败结果”的现有路线。不能因为界面上选择了一个小队，就把之后新上线或同 SYSID 的飞机自动纳入。
+- “批量开始任务”仍是顺序下发，不等于同时起飞。需要同步启动时，应另外设计明确的时间同步/同步启动机制并验证飞控支持，不能用命令循环速度冒充同步。
+- 角色、队形模板和逐机任务生成应在真实任务类型出现后再落代码。Skybrush 的关键参考是先建立“逻辑槽位→物理飞机”的显式映射，再生成逐机产物；不是先做一套没有任务使用方的角色字段。
+- 本轮据此先实现：地图多机面板按小队选择成员、界面可见实际成员集合，以及小队成员的追加/移除。它补足了主流方案里“集合必须清楚”的基础，同时不引入未经验证的编队控制。
+
 ## 建议的总体路线
 
 沿多机可靠控制、协同任务、动态编队、蜂群自治四个阶段推进。初期采用地面集中任务编排与飞控本地执行，后续根据动态规划和感知需求增加机载协同能力。
@@ -43,7 +81,7 @@ Aerostack2 原始论文的室外双机巡检展示地面 GUI 创建并上传任�
 
 > 更新（2026-11-08，v1.2.0）：本文件以下内容是研究建议。已落地的是持久小队的最小闭环——
 > 硬件身份（`uid2`/`uid`）经 `mg_vehicle_list` 的 `hardware_uid` 暴露，小队按身份认回成员，
-> 就绪检查与整队批量执行在“设置 → 地面站配置 → 小队”页；多机面板只做当前会话的勾选与批量执行。
+> 就绪检查与整队批量执行在“设置 → 小队”的地图浮层；多机面板只做当前会话的勾选与批量执行。
 > 编队模板、槽位、角色与机载协同仍未实现，见 `docs/ROADMAP.md` 的“当前不承诺”。
 
 ## 总体架构选择

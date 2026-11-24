@@ -111,4 +111,51 @@ void main() {
     expect(returnedToMap, isTrue);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('squad page adds current selection and removes a member', (
+    tester,
+  ) async {
+    final backend = MemoryFleetBackend();
+    final fleet = FleetController(backend);
+    addTearDown(fleet.dispose);
+    final first = fleet.openLink(FleetConnectionSpec('udp://localhost:12345'));
+    final second = fleet.openLink(FleetConnectionSpec('udp://localhost:12346'));
+    final third = fleet.openLink(FleetConnectionSpec('udp://localhost:12347'));
+    for (final (index, id) in [first, second, third].indexed) {
+      backend.vehicles[id] = FleetVehicleSummary(
+        id: id,
+        systemId: index + 1,
+        endpoint: 'udp://localhost:${12345 + index}',
+        connected: true,
+        hardwareUid: 'uid2:0$index',
+      );
+    }
+    fleet.refresh();
+    final store = _MemorySquadStore();
+    final squads = SquadController(fleet, store: store);
+    addTearDown(squads.dispose);
+    await squads.load();
+    fleet.selectVehicles([first, second]);
+    final squad = await squads.createFromSelection('一队');
+    fleet.selectVehicles([third]);
+
+    await tester.pumpWidget(_host(squads, fleet));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(ValueKey('squad-add-${squad.id}')));
+    await tester.pumpAndSettle();
+    expect(store.squads.single.members, hasLength(3));
+
+    await tester.tap(find.byKey(ValueKey('squad-remove-${squad.id}-uid2:01')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('移除'));
+    await tester.pumpAndSettle();
+
+    expect(store.squads.single.members, hasLength(2));
+    expect(store.squads.single.members.map((member) => member.identityKey), [
+      'uid2:00',
+      'uid2:02',
+    ]);
+    expect(tester.takeException(), isNull);
+  });
 }

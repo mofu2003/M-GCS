@@ -354,6 +354,73 @@ void main() {
       expect(store.saved, isEmpty);
     });
 
+    test('可追加当前选择中的新成员，也能移除成员', () async {
+      final backend = MemoryFleetBackend();
+      final store = _MemorySquadStore();
+      final fleet = FleetController(backend);
+      addTearDown(fleet.dispose);
+      final first = fleet.openLink(
+        FleetConnectionSpec('udp://127.0.0.1:14550'),
+      );
+      final second = fleet.openLink(
+        FleetConnectionSpec('udp://127.0.0.1:14551'),
+      );
+      final third = fleet.openLink(
+        FleetConnectionSpec('udp://127.0.0.1:14552'),
+      );
+      for (final (index, id) in [first, second, third].indexed) {
+        backend.vehicles[id] = FleetVehicleSummary(
+          id: id,
+          systemId: index + 1,
+          endpoint: 'udp://127.0.0.1:${14550 + index}',
+          connected: true,
+          hardwareUid: 'uid2:0$index',
+        );
+      }
+      fleet.refresh();
+      final squads = SquadController(fleet, store: store);
+      addTearDown(squads.dispose);
+      await squads.load();
+
+      fleet.selectVehicles([first, second]);
+      final squad = await squads.createFromSelection('一队');
+      expect(squad.members.map((member) => member.identityKey), [
+        'uid2:00',
+        'uid2:01',
+      ]);
+
+      fleet.selectVehicles([second, third]);
+      await squads.addSelectedMembers(squad.id);
+      expect(squads.squads.single.members.map((member) => member.identityKey), [
+        'uid2:00',
+        'uid2:01',
+        'uid2:02',
+      ]);
+      expect(squads.squads.single.revision, 2);
+
+      await squads.removeMember(squad.id, 'uid2:01');
+      expect(squads.squads.single.members.map((member) => member.identityKey), [
+        'uid2:00',
+        'uid2:02',
+      ]);
+      expect(squads.squads.single.revision, 3);
+      expect(store.saved.single.revision, 3);
+
+      fleet.selectVehicles([third]);
+      await expectLater(
+        squads.addSelectedMembers(squad.id),
+        throwsA(isA<StateError>()),
+      );
+      expect(squads.squads.single.revision, 3);
+    });
+
+    test('空小队不会被误判为就绪', () {
+      final empty = Squad(id: 'empty', name: '空队');
+      final report = evaluateSquadReadiness(resolveSquadClaim(empty, const []));
+      expect(report.overall, SquadReadiness.blocked);
+      expect(report.summary, '没有成员');
+    });
+
     test('写盘失败时不改变已加载的小队', () async {
       final backend = MemoryFleetBackend();
       final store = _MemorySquadStore();

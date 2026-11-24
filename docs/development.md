@@ -202,4 +202,15 @@ tools/docker-dev.sh check
 2. 把 `CHANGELOG.md` 里自动生成的“待补充”替换为实际变更与验证结果。
 3. 运行 `tools/preflight.sh`（或至少 `--backend-only` 加 `flutter test`）。
 4. 本地提交并打标签 `v<x.y.z>`。
-5. 用户明确要求时才推送分支和标签。
+5. 用户明确要求时才推送标签；推送后 `.github/workflows/release.yml` 构建 macOS（arm64/x64）、Windows x64 和 Linux x64 资产，生成 `update.json`、`SHA256SUMS.txt` 并发布 GitHub Release。
+
+更新清单固定发布到 `https://github.com/mofu2003/M-GCS/releases/latest/download/update.json`。客户端默认使用该地址，也可在“软件更新”页切换为自建 HTTPS 源、留空关闭自动检查，或恢复默认 GitHub Release 源。发布构建仍可用 `--dart-define=MGCS_UPDATE_MANIFEST_URL=...` 覆盖默认值。
+
+macOS 包默认使用 ad-hoc 签名，未配置证书时 Gatekeeper 可能提示来源未知。正式分发时在仓库 Variables 设置 `MGC_SIGN_IDENTITY`（例如 `Developer ID Application: ...`），并配置以下 Actions Secrets：
+
+- `MGC_SIGN_CERTIFICATE_BASE64`：Developer ID Application 的 `.p12` 文件 Base64。
+- `MGC_SIGN_CERTIFICATE_PASSWORD`：该 `.p12` 的导出密码。
+
+工作流会导入临时钥匙串，重新签名应用和 DMG。需要 Apple 公证时再配置 `APPLE_ID`、`APPLE_APP_PASSWORD`（App 专用密码）和 `APPLE_TEAM_ID`；缺少这些凭据时只签名、不公证。
+
+Windows 安装包默认未签名。需要 Authenticode 时配置 `WINDOWS_CERTIFICATE_BASE64` 和 `WINDOWS_CERTIFICATE_PASSWORD`，工作流会签名主程序、`mgcore.dll` 和 Inno Setup 安装包；未配置时 SmartScreen 可能显示未知发布者。

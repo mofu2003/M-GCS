@@ -7,10 +7,10 @@ import 'map/amap_map_view.dart'
 import 'map/map_preferences.dart' show validateCustomTileUrl;
 import 'connection/connection_controller.dart';
 import 'connection/signing_key_store.dart';
-import 'fleet/fleet_models.dart';
-import 'fleet/squad_settings_page.dart';
 import 'theme/mg_colors.dart';
 import 'theme/mg_typography.dart';
+import 'updates/update_controller.dart';
+import 'updates/update_settings_page.dart';
 import 'widgets/app_workspace_shell.dart';
 import 'widgets/mg_confirm.dart';
 
@@ -25,8 +25,9 @@ class GcsConfigurationWorkspace extends StatefulWidget {
     required this.mapStyle,
     required this.customTileUrl,
     required this.connectionController,
-    required this.onRequestFleetBatchAction,
+    required this.updateController,
     required this.onReturnToMap,
+    this.initialPage = 'map',
   });
 
   /// 地图样式的唯一真源，地图页监听它切换图层并持久化。
@@ -35,9 +36,9 @@ class GcsConfigurationWorkspace extends StatefulWidget {
   /// 自定义瓦片源地址模板（KD-37），与地图页共享同一个真源。
   final ValueNotifier<String> customTileUrl;
   final ConnectionController connectionController;
+  final UpdateController updateController;
+  final String initialPage;
 
-  /// 小队页的整队执行：交给主界面走统一的确认与逐机结果流程。
-  final void Function(FleetBatchTarget target) onRequestFleetBatchAction;
   final VoidCallback onReturnToMap;
 
   @override
@@ -46,36 +47,40 @@ class GcsConfigurationWorkspace extends StatefulWidget {
 }
 
 class _GcsConfigurationWorkspaceState extends State<GcsConfigurationWorkspace> {
-  String _selectedPageId = 'map';
+  late String _selectedPageId;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedPageId = widget.initialPage;
+  }
 
   @override
   Widget build(BuildContext context) => AppWorkspaceShell(
     items: const [
       AppWorkspaceItem(id: 'map', label: '地图配置', icon: CupertinoIcons.map),
-      AppWorkspaceItem(id: 'squads', label: '小队', icon: CupertinoIcons.group),
       AppWorkspaceItem(
         id: 'signing',
         label: 'MAVLink 签名',
         icon: CupertinoIcons.lock_shield,
+      ),
+      AppWorkspaceItem(
+        id: 'updates',
+        label: '软件更新',
+        icon: CupertinoIcons.arrow_down_circle,
       ),
     ],
     selectedId: _selectedPageId,
     onSelected: (id) => setState(() => _selectedPageId = id),
     onReturnToMap: widget.onReturnToMap,
     contentBuilder: (context, scrollController) => switch (_selectedPageId) {
-      'squads' => switch (widget.connectionController.squadsOrNull) {
-        final squads? => SquadSettingsPage(
-          scrollController: scrollController,
-          squads: squads,
-          fleet: widget.connectionController.fleet,
-          onRequestAction: widget.onRequestFleetBatchAction,
-          onReturnToMap: widget.onReturnToMap,
-        ),
-        _ => const _UnavailablePage(),
-      },
       'signing' => _SigningSettingsPage(
         scrollController: scrollController,
         controller: widget.connectionController,
+      ),
+      'updates' => UpdateSettingsPage(
+        scrollController: scrollController,
+        controller: widget.updateController,
       ),
       _ => _MapSettingsPage(
         scrollController: scrollController,
@@ -83,23 +88,6 @@ class _GcsConfigurationWorkspaceState extends State<GcsConfigurationWorkspace> {
         customTileUrl: widget.customTileUrl,
       ),
     },
-  );
-}
-
-class _UnavailablePage extends StatelessWidget {
-  const _UnavailablePage();
-
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.all(20),
-    children: [
-      Text(
-        '多机后端尚未就绪，暂时无法管理小队。',
-        style: MgTypography.sans(
-          MgTypography.caption.copyWith(color: context.mgColors.textSecondary),
-        ),
-      ),
-    ],
   );
 }
 
@@ -274,7 +262,8 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
     final saveConfirmed = await showMgConfirmDialog(
       context,
       title: '保存并应用密钥？',
-      message: '密钥会保存到本地并应用到当前飞控。若与飞控已配置的密钥不一致，'
+      message:
+          '密钥会保存到本地并应用到当前飞控。若与飞控已配置的密钥不一致，'
           '签名校验会使 GCS 与飞控失联。',
       confirmLabel: '保存并应用',
     );
@@ -314,7 +303,8 @@ class _SigningSettingsPageState extends State<_SigningSettingsPage> {
     final sendConfirmed = await showMgConfirmDialog(
       context,
       title: '下发签名密钥到飞控？',
-      message: 'SETUP_SIGNING 会改变飞控的链路信任状态。密钥不一致会让 GCS 与飞控'
+      message:
+          'SETUP_SIGNING 会改变飞控的链路信任状态。密钥不一致会让 GCS 与飞控'
           '失联，只能在飞控本地恢复。',
       confirmLabel: '下发密钥',
     );

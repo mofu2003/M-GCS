@@ -255,16 +255,19 @@ class SquadReadinessReport {
   int get blockedCount =>
       members.where((item) => item.status == SquadReadiness.blocked).length;
 
-  SquadReadiness get overall => blockedCount > 0
+  SquadReadiness get overall => members.isEmpty
+      ? SquadReadiness.blocked
+      : blockedCount > 0
       ? SquadReadiness.blocked
       : warningCount > 0
       ? SquadReadiness.warning
       : SquadReadiness.ready;
 
-  String get summary =>
-      '$readyCount/${members.length} 就绪'
-      '${warningCount > 0 ? ' · $warningCount 注意' : ''}'
-      '${blockedCount > 0 ? ' · $blockedCount 不可用' : ''}';
+  String get summary => members.isEmpty
+      ? '没有成员'
+      : '$readyCount/${members.length} 就绪'
+            '${warningCount > 0 ? ' · $warningCount 注意' : ''}'
+            '${blockedCount > 0 ? ' · $blockedCount 不可用' : ''}';
 }
 
 SquadReadinessReport evaluateSquadReadiness(SquadClaim claim) {

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mgcs_frontend/connection_panel.dart';
+import 'package:mgcs_frontend/fleet/squad_floating_panel.dart';
 import 'package:mgcs_frontend/map/amap_map_view.dart';
 import 'package:mgcs_frontend/map/map_preferences.dart';
 import 'package:mgcs_frontend/mission/mission_planning_panel.dart';
@@ -79,6 +80,10 @@ void main() {
       expect(
         fleetPanelRightInset(MapRightPanel.mission),
         kMapPanelEdgeInset + kMissionPanelWidth + kMapPanelGap,
+      );
+      expect(
+        fleetPanelRightInset(MapRightPanel.squads),
+        kMapPanelEdgeInset + kSquadPanelWidth + kMapPanelGap,
       );
     });
 

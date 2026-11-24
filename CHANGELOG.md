@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- 下一轮开发的变更记录从这里开始；发布时整体迁入带版本号的段落。 -->
 
+### Added
+
+- 多机面板增加持久小队选择器，按小队在线成员生成批量选择，并显示待确认、离线或身份冲突成员。
+- 小队浮层支持把当前勾选飞机追加为成员，以及逐个移除成员。
+- 软件更新：启动时每 24 小时最多自动检查一次，设置页支持手动检查、查看发布说明、下载更新包、SHA-256 校验并打开系统安装包。
+- 软件更新页支持一键恢复公开仓库的默认更新源。
+- 设置菜单新增“软件更新”入口；发现新版本时，顶部设置按钮显示提示圆点。
+- 新增 `tools/update_manifest.py`，从已构建的平台安装包生成带 SHA-256、大小和下载地址的 `update.json`。
+- 默认更新源改为公开仓库的 GitHub Releases 最新 `update.json`，并增加更新包声明大小的二次校验。
+- 新增标签发布流水线：macOS arm64/x64、Windows x64 和 Linux x64 构建，生成 `update.json`、`SHA256SUMS.txt` 并发布 GitHub Release。
+- 发布流水线可在配置证书后执行 macOS Developer ID 重签、Apple 公证和 Windows Authenticode 签名；未配置时明确使用 ad-hoc 或未签名产物。
+
+### Changed
+
+- 允许暂时清空小队成员；空小队明确显示为不可就绪，不再被误判为可执行。
+- “小队”从小队工作区侧栏移到设置菜单一级入口（位于“日志与文件”上方），并在飞行地图内以浮动面板打开，不再离开地图页面。
+- 小队浮层补充分组数量、当前选择摘要和更紧凑的标题区，减少与内容区的重复说明。
+- 更新源默认指向公开仓库的 GitHub Releases，也可在地面站设置页配置或恢复默认；只接受匿名 HTTPS 源。
+
+### Documentation
+
+- 补充 2026-11-10 GitHub 源码复核：对比 QGC、Mission Planner、MAVProxy 与 Skybrush 在编队/蜂群中的地面站职责、操作边界及对 M-GCS 分组功能的约束。
+
+### Verification
+
+- Flutter 静态分析通过，全量测试 389 项通过、16 项需指定原生库的用例跳过；macOS Debug 构建通过，并实际检查设置入口、恢复默认更新源以及无 Release 时的更新检查错误提示。
+- macOS ad-hoc DMG 生成、挂载、应用签名和 Applications 快捷方式校验通过；`tools/update_manifest.py` 使用样例更新包生成清单，SHA-256 与文件大小校验通过。
+
 ---
 
 ## [1.2.0] - 2026-11-08

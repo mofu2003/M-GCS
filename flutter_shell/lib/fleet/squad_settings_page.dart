@@ -22,6 +22,7 @@ class SquadSettingsPage extends StatefulWidget {
     required this.fleet,
     required this.onRequestAction,
     required this.onReturnToMap,
+    this.embedded = false,
   });
 
   final ScrollController scrollController;
@@ -29,6 +30,7 @@ class SquadSettingsPage extends StatefulWidget {
   final FleetController fleet;
   final void Function(FleetBatchTarget target) onRequestAction;
   final VoidCallback onReturnToMap;
+  final bool embedded;
 
   @override
   State<SquadSettingsPage> createState() => _SquadSettingsPageState();
@@ -91,6 +93,23 @@ class _SquadSettingsPageState extends State<SquadSettingsPage> {
     await _run(() => _squads.delete(squad.id));
   }
 
+  Future<void> _addMembers(Squad squad) async {
+    await _run(() => _squads.addSelectedMembers(squad.id));
+  }
+
+  Future<void> _removeMember(Squad squad, SquadMember member) async {
+    final confirmed = await showMgConfirmDialog(
+      context,
+      title: '移除小队成员',
+      message:
+          '从“${squad.name}”移除“${member.label}”？'
+          '只改变本地小队，不影响飞机当前状态。',
+      confirmLabel: '移除',
+    );
+    if (!confirmed) return;
+    await _run(() => _squads.removeMember(squad.id, member.identityKey));
+  }
+
   void _selectOnline(SquadClaim claim) {
     widget.fleet.selectVehicles(claim.vehicleIds);
     widget.onReturnToMap();
@@ -124,24 +143,29 @@ class _SquadSettingsPageState extends State<SquadSettingsPage> {
         final canCreate = widget.fleet.selectedVehicles.any(
           (vehicle) => vehicle.stateFresh && vehicle.identified,
         );
+        final selectedReadyCount = widget.fleet.selectedVehicles
+            .where((vehicle) => vehicle.stateFresh && vehicle.identified)
+            .length;
         return ListView(
           controller: widget.scrollController,
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.all(widget.embedded ? 16 : 20),
           children: [
-            Text(
-              '小队',
-              style: MgTypography.sans(
-                MgTypography.title.copyWith(color: colors.textPrimary),
+            if (!widget.embedded) ...[
+              Text(
+                '小队',
+                style: MgTypography.sans(
+                  MgTypography.title.copyWith(color: colors.textPrimary),
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '把常用飞机保存成命名小队，按硬件身份认回成员；这里离线也能查看和整理。',
-              style: MgTypography.sans(
-                MgTypography.caption.copyWith(color: colors.textSecondary),
+              const SizedBox(height: 4),
+              Text(
+                '把常用飞机保存成命名小队，按硬件身份认回成员；这里离线也能查看和整理。',
+                style: MgTypography.sans(
+                  MgTypography.caption.copyWith(color: colors.textSecondary),
+                ),
               ),
-            ),
-            const SizedBox(height: 18),
+              const SizedBox(height: 18),
+            ],
             _Card(
               title: '新建小队',
               child: Column(
@@ -149,7 +173,7 @@ class _SquadSettingsPageState extends State<SquadSettingsPage> {
                 children: [
                   Text(
                     canCreate
-                        ? '使用地图多机面板里当前勾选的飞机构建小队。'
+                        ? '将当前选中的 $selectedReadyCount 架飞机保存为新的持久小队。'
                         : '先在多机面板勾选已连接的飞机，再回到这里保存。',
                     style: MgTypography.sans(
                       MgTypography.caption.copyWith(
@@ -161,6 +185,7 @@ class _SquadSettingsPageState extends State<SquadSettingsPage> {
                   PushButton(
                     key: const ValueKey('squad-create'),
                     controlSize: ControlSize.regular,
+                    secondary: !canCreate,
                     onPressed: _busy || !canCreate ? null : _create,
                     child: const Text('保存当前选择为小队…'),
                   ),
@@ -201,6 +226,10 @@ class _SquadSettingsPageState extends State<SquadSettingsPage> {
                   claim: claim,
                   readiness: evaluateSquadReadiness(claim),
                   busy: _busy,
+                  canAddMembers: canCreate,
+                  onAddMembers: () => _addMembers(claim.squad),
+                  onRemoveMember: (member) =>
+                      _removeMember(claim.squad, member),
                   onSelectOnline: claim.vehicleIds.isEmpty
                       ? null
                       : () => _selectOnline(claim),
@@ -258,6 +287,9 @@ class _SquadCard extends StatelessWidget {
     required this.claim,
     required this.readiness,
     required this.busy,
+    required this.canAddMembers,
+    required this.onAddMembers,
+    required this.onRemoveMember,
     this.onSelectOnline,
     this.onConfirmTemporary,
     required this.onExecute,
@@ -268,6 +300,9 @@ class _SquadCard extends StatelessWidget {
   final SquadClaim claim;
   final SquadReadinessReport readiness;
   final bool busy;
+  final bool canAddMembers;
+  final VoidCallback onAddMembers;
+  final ValueChanged<SquadMember> onRemoveMember;
   final VoidCallback? onSelectOnline;
   final VoidCallback? onConfirmTemporary;
   final ValueChanged<FleetBatchAction> onExecute;
@@ -297,7 +332,12 @@ class _SquadCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          for (final item in readiness.members) _MemberLine(readiness: item),
+          for (final item in readiness.members)
+            _MemberLine(
+              squadId: claim.squad.id,
+              readiness: item,
+              onRemove: busy ? null : () => onRemoveMember(item.member.member),
+            ),
           const SizedBox(height: 10),
           Wrap(
             spacing: 6,
@@ -310,9 +350,7 @@ class _SquadCard extends StatelessWidget {
                 FleetBatchAction.startMission,
               ])
                 _SmallButton(
-                  key: ValueKey(
-                    'squad-exec-${action.name}-${claim.squad.id}',
-                  ),
+                  key: ValueKey('squad-exec-${action.name}-${claim.squad.id}'),
                   label: switch (action) {
                     FleetBatchAction.arm => '整队解锁',
                     FleetBatchAction.disarm => '整队上锁',
@@ -342,6 +380,11 @@ class _SquadCard extends StatelessWidget {
                 onPressed: busy ? null : onSelectOnline,
               ),
               _SmallButton(
+                key: ValueKey('squad-add-${claim.squad.id}'),
+                label: '添加当前选择',
+                onPressed: busy || !canAddMembers ? null : onAddMembers,
+              ),
+              _SmallButton(
                 key: ValueKey('squad-rename-${claim.squad.id}'),
                 label: '重命名',
                 onPressed: busy ? null : onRename,
@@ -360,9 +403,15 @@ class _SquadCard extends StatelessWidget {
 }
 
 class _MemberLine extends StatelessWidget {
-  const _MemberLine({required this.readiness});
+  const _MemberLine({
+    required this.squadId,
+    required this.readiness,
+    this.onRemove,
+  });
 
+  final String squadId;
   final SquadMemberReadiness readiness;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -373,10 +422,7 @@ class _MemberLine extends StatelessWidget {
       SquadMemberState.conflict => ('身份冲突', colors.warning),
       SquadMemberState.online => switch (readiness.status) {
         SquadReadiness.ready => ('在线 · 就绪', colors.success),
-        SquadReadiness.warning => (
-          '在线 · ${readiness.detail}',
-          colors.warning,
-        ),
+        SquadReadiness.warning => ('在线 · ${readiness.detail}', colors.warning),
         SquadReadiness.blocked => (
           '在线 · 不可用：${readiness.detail}',
           colors.danger,
@@ -409,6 +455,25 @@ class _MemberLine extends StatelessWidget {
               ),
             ),
           ),
+          if (onRemove != null) ...[
+            const SizedBox(width: 4),
+            MacosIconButton(
+              key: ValueKey(
+                'squad-remove-$squadId-'
+                '${readiness.member.member.identityKey}',
+              ),
+              icon: const MacosIcon(CupertinoIcons.minus_circle, size: 14),
+              semanticLabel: '移除成员 ${readiness.member.member.label}',
+              boxConstraints: const BoxConstraints.tightFor(
+                width: 22,
+                height: 22,
+              ),
+              padding: EdgeInsets.zero,
+              backgroundColor: colors.transparent,
+              hoverColor: colors.mapControlHover,
+              onPressed: onRemove,
+            ),
+          ],
         ],
       ),
     );
@@ -432,9 +497,7 @@ class _SmallButton extends StatelessWidget {
         label,
         style: MgTypography.sans(
           MgTypography.caption.copyWith(
-            color: onPressed == null
-                ? colors.textTertiary
-                : colors.textPrimary,
+            color: onPressed == null ? colors.textTertiary : colors.textPrimary,
           ),
         ),
       ),
@@ -472,12 +535,12 @@ class _NamePromptDialog extends StatefulWidget {
 }
 
 class _NamePromptDialogState extends State<_NamePromptDialog> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.initial,
-  )..selection = TextSelection(
-    baseOffset: 0,
-    extentOffset: widget.initial.length,
-  );
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial)
+        ..selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: widget.initial.length,
+        );
 
   @override
   void dispose() {
