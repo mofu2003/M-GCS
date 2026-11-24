@@ -1,3 +1,6 @@
+import '../mission/quick_mission_geometry.dart';
+import '../mission/quick_mission_draft.dart';
+import '../mission/quick_mission_panel.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -14,6 +17,7 @@ import '../theme/mg_colors.dart';
 import '../theme/mg_typography.dart';
 import '../connection_panel.dart';
 import '../fleet/fleet_models.dart';
+import '../fleet/squad_floating_panel.dart';
 import '../flight/flight_message_panel.dart';
 import '../mission/mission_document_controller.dart';
 import '../mission/mission_document_models.dart';
@@ -149,7 +153,7 @@ _MapSource _sourceFor(
 };
 
 /// 地图右侧的主面板。多机面板是独立的次级 inspector。
-enum MapRightPanel { none, connection, messages, mission, geofence }
+enum MapRightPanel { none, connection, messages, mission, geofence, squads }
 
 const double kMapPanelEdgeInset = 18;
 const double kMapPanelGap = 12;
@@ -164,6 +168,7 @@ double mapRightPanelWidth(MapRightPanel panel) => switch (panel) {
   MapRightPanel.messages => kFlightMessagePanelWidth,
   MapRightPanel.mission => kMissionPanelWidth,
   MapRightPanel.geofence => kGeofencePanelWidth,
+  MapRightPanel.squads => kSquadPanelWidth,
   MapRightPanel.none => 0,
 };
 
@@ -268,6 +273,7 @@ class AMapMapView extends StatefulWidget {
     this.flightMessagePanelRequest,
     this.missionPlanningRequest,
     this.geofenceRequest,
+    this.squadPanelRequest,
     this.fleetPanelRequest,
     this.onSelectFleetVehicle,
     this.onRequestFleetBatchAction,
@@ -286,6 +292,7 @@ class AMapMapView extends StatefulWidget {
   final ValueListenable<int>? flightMessagePanelRequest;
   final ValueListenable<int>? missionPlanningRequest;
   final ValueListenable<int>? geofenceRequest;
+  final ValueListenable<int>? squadPanelRequest;
   final ValueListenable<int>? fleetPanelRequest;
 
   /// 多机面板的飞机焦点切换和批量动作交给主页面统一处理。
@@ -315,6 +322,11 @@ class _AMapMapViewState extends State<AMapMapView> {
   bool _centeredOnVehicle = false;
   bool _followVehicle = false;
   Timer? _saveTimer;
+  QuickMissionDraft? _quickDraft;
+  MissionDocumentController? _quickOwner;
+  int? _quickSession;
+  int? _quickRevision;
+
   MapRightPanel _rightPanel = MapRightPanel.none;
   bool _fleetPanelVisible = true;
   OverlayEntry? _transientMessage;
@@ -379,12 +391,14 @@ class _AMapMapViewState extends State<AMapMapView> {
     );
     widget.missionPlanningRequest?.addListener(_handleMissionPlanningRequest);
     widget.geofenceRequest?.addListener(_handleGeofenceRequest);
+    widget.squadPanelRequest?.addListener(_handleSquadPanelRequest);
     widget.fleetPanelRequest?.addListener(_handleFleetPanelRequest);
     unawaited(_restorePreferences());
   }
 
   void _showRightPanel(MapRightPanel panel) {
     setState(() {
+      _clearQuickDraw();
       _rightPanel = nextMapRightPanel(_rightPanel, panel);
     });
   }
@@ -405,6 +419,10 @@ class _AMapMapViewState extends State<AMapMapView> {
     if (mounted) _showRightPanel(MapRightPanel.geofence);
   }
 
+  void _handleSquadPanelRequest() {
+    if (mounted) _showRightPanel(MapRightPanel.squads);
+  }
+
   void _handleFleetPanelRequest() {
     if (!mounted) return;
     final width =
@@ -413,6 +431,7 @@ class _AMapMapViewState extends State<AMapMapView> {
       // Narrow window: make room by closing the primary panel instead of
       // pushing the fleet inspector off-screen.
       setState(() {
+        _clearQuickDraw();
         _rightPanel = MapRightPanel.none;
         _fleetPanelVisible = true;
       });
@@ -436,6 +455,7 @@ class _AMapMapViewState extends State<AMapMapView> {
     if (_markerSessionId != connection.sessionId) {
       _markerSessionId = connection.sessionId;
       setState(() {
+        _clearQuickDraw();
         _missionMapSources = connection.missionPlanning;
         _mapActionAnchor = null;
         _mapActionPoint = null;
@@ -604,13 +624,257 @@ class _AMapMapViewState extends State<AMapMapView> {
       _handleMissionPlanningRequest,
     );
     widget.geofenceRequest?.removeListener(_handleGeofenceRequest);
+    widget.squadPanelRequest?.removeListener(_handleSquadPanelRequest);
     widget.fleetPanelRequest?.removeListener(_handleFleetPanelRequest);
+    _clearQuickDraw();
     _saveTimer?.cancel();
     _fleetFitDebounce?.cancel();
     _transientMessage?.remove();
     _transientMessage = null;
     super.dispose();
   }
+
+  void _clearQuickDraw() {
+    _quickDraft?.dispose();
+    _quickDraft = null;
+    _quickOwner = null;
+    _quickSession = null;
+    _quickRevision = null;
+  }
+
+  Future<void> _beginQuickDraw(QuickMissionShape shape) async {
+    final owner = widget.connectionController.missionPlanning;
+    final session = widget.connectionController.sessionId;
+    await owner.initialize();
+    if (!mounted ||
+        widget.connectionController.sessionId != session ||
+        !identical(widget.connectionController.missionPlanning, owner)) {
+      return;
+    }
+    if (!owner.initialized || owner.busy || owner.transferActive) {
+      _showTransientMessage('任务正在处理，请稍后绘制');
+      return;
+    }
+    final document = owner.document!;
+    setState(() {
+      _clearQuickDraw();
+      _mapActionAnchor = null;
+      _mapActionPoint = null;
+      _draggingEntityId = null;
+      _dragPreviewWgs84 = null;
+      _quickOwner = owner;
+      _quickSession = session;
+      _quickRevision = document.revision;
+      _quickDraft = QuickMissionDraft(
+        shape,
+        altitudeMeters: document.defaults.altitudeMeters,
+        frame: document.defaults.frame,
+      );
+      _rightPanel = MapRightPanel.mission;
+    });
+  }
+
+  Future<void> _generateQuickDraw() async {
+    final draft = _quickDraft;
+    final owner = _quickOwner;
+    if (draft == null ||
+        owner == null ||
+        !identical(widget.connectionController.missionPlanning, owner) ||
+        widget.connectionController.sessionId != _quickSession) {
+      throw StateError('飞机已切换，请重新开始绘制');
+    }
+    final points = draft.generate();
+    final prefix = DateTime.now().microsecondsSinceEpoch;
+    final entities = [
+      for (var index = 0; index < points.length; index++)
+        MissionEntity(
+          id: 'quick-$prefix-$index',
+          label: draft.shape.label,
+          latitude: points[index].latitude,
+          longitude: points[index].longitude,
+          altitudeMeters: draft.altitudeMeters,
+          frame: draft.frame,
+        ),
+    ];
+    draft.frozen = true;
+    try {
+      await owner.insertGeneratedWaypoints(
+        entities,
+        expectedRevision: _quickRevision!,
+        expectedSessionId: _quickSession,
+      );
+    } finally {
+      draft.frozen = false;
+    }
+    if (!mounted || !identical(_quickDraft, draft)) return;
+    setState(_clearQuickDraw);
+    _showTransientMessage('已生成 ${entities.length} 个航点，可在任务列表中撤销');
+  }
+
+  Widget _quickDrawVisuals(QuickMissionDraft draft) => AnimatedBuilder(
+    animation: draft,
+    builder: (context, _) {
+      final colors = context.mgColors;
+      var points = <LatLng>[];
+      try {
+        points = draft.generate();
+      } on ArgumentError {
+        /* Await valid controls. */
+      }
+      final document = _quickOwner?.document;
+      final insertion = _quickOwner?.generatedWaypointInsertionIndex ?? 0;
+      final entities = document?.entities ?? const <MissionEntity>[];
+      final home = document?.home ?? const MissionHome();
+      final preceding = entities
+          .take(insertion)
+          .map((entity) => missionEntityMapPosition(entity, home))
+          .whereType<LatLng>()
+          .lastOrNull;
+      final following = entities
+          .skip(insertion)
+          .map((entity) => missionEntityMapPosition(entity, home))
+          .whereType<LatLng>()
+          .firstOrNull;
+      final stride = math.max(1, (points.length / 60).ceil());
+      final camera = MapCamera.of(context);
+      final labels = <int>{};
+      final labelPositions = <Offset>[];
+      for (
+        var index = 0;
+        index < points.length - (draft.closed ? 1 : 0);
+        index += stride
+      ) {
+        final position = camera.latLngToScreenOffset(
+          _toTileFrame(points[index].latitude, points[index].longitude),
+        );
+        if (labelPositions.every(
+          (other) => (other - position).distance >= 28,
+        )) {
+          labels.add(index);
+          labelPositions.add(position);
+        }
+      }
+      return Stack(
+        children: [
+          PolylineLayer(
+            polylines: [
+              if (points.isNotEmpty)
+                for (final connection in [
+                  if (preceding != null) [preceding, points.first],
+                  if (following != null) [points.last, following],
+                ])
+                  Polyline(
+                    points: [
+                      for (final point in connection)
+                        _toTileFrame(point.latitude, point.longitude),
+                    ],
+                    color: colors.warning.withValues(alpha: 0.65),
+                    strokeWidth: 2,
+                    pattern: StrokePattern.dashed(segments: const [5, 5]),
+                  ),
+              if (points.length > 1)
+                Polyline(
+                  points: [
+                    for (final point in points)
+                      _toTileFrame(point.latitude, point.longitude),
+                  ],
+                  color: colors.warning,
+                  strokeWidth: 2.5,
+                ),
+              if (draft.shape == QuickMissionShape.circle &&
+                  draft.controls.length == 2)
+                Polyline(
+                  points: [
+                    for (final point in draft.controls)
+                      _toTileFrame(point.latitude, point.longitude),
+                  ],
+                  color: colors.textTertiary,
+                  strokeWidth: 1,
+                ),
+            ],
+          ),
+          MarkerLayer(
+            markers: [
+              for (
+                var index = 0;
+                index < points.length - (draft.closed ? 1 : 0);
+                index += stride
+              )
+                Marker(
+                  point: _toTileFrame(
+                    points[index].latitude,
+                    points[index].longitude,
+                  ),
+                  width: labels.contains(index) ? 24 : 6,
+                  height: labels.contains(index) ? 24 : 6,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: colors.surface,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: colors.warning),
+                      ),
+                      child: labels.contains(index)
+                          ? Center(
+                              child: Text(
+                                '${index + 1}',
+                                style: MgTypography.sans(
+                                  MgTypography.caption.copyWith(
+                                    color: colors.textPrimary,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+              for (var index = 0; index < draft.controls.length; index++)
+                Marker(
+                  point: _toTileFrame(
+                    draft.controls[index].latitude,
+                    draft.controls[index].longitude,
+                  ),
+                  width: 38,
+                  height: 38,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {},
+                    onPanStart: (_) => FocusScope.of(context).unfocus(),
+                    onPanUpdate: (details) {
+                      final render = _mapKey.currentContext?.findRenderObject();
+                      if (render is! RenderBox) return;
+                      final point = _controller.camera.screenOffsetToLatLng(
+                        render.globalToLocal(details.globalPosition),
+                      );
+                      draft.movePoint(index, _toWgs84(point));
+                    },
+                    child: Center(
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: colors.accent,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: colors.surface, width: 2),
+                        ),
+                        child: Icon(
+                          index == 0 && draft.shape == QuickMissionShape.circle
+                              ? Icons.add
+                              : Icons.open_with,
+                          color: colors.onAccent,
+                          size: 17,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      );
+    },
+  );
 
   void _showTransientMessage(String message) {
     final overlay = Overlay.of(context, rootOverlay: true);
@@ -651,6 +915,11 @@ class _AMapMapViewState extends State<AMapMapView> {
     final wgs84 = _toWgs84(point);
     final controller = widget.connectionController;
     final mission = controller.missionPlanning;
+    if (_quickDraft case final draft?) {
+      FocusScope.of(context).unfocus();
+      draft.addPoint(wgs84);
+      return;
+    }
 
     if (_rightPanel == MapRightPanel.mission) {
       await mission.initialize();
@@ -1065,7 +1334,9 @@ class _AMapMapViewState extends State<AMapMapView> {
           height: 46,
           // 按机型画机体剪影（多旋翼/固定翼/VTOL），不再用统一的纸飞机图标。
           child: VehicleMarkerIcon(
-            vehicleId: connection.sessionId,
+            vehicleId: connection.fleetSnapshot
+                .vehicle(connection.sessionId ?? -1)
+                ?.systemId,
             kind: vehicleMarkerKindFor(
               connection.firmwareInfo?['vehicle_class']?.toString() ??
                   'unknown',
@@ -1097,7 +1368,7 @@ class _AMapMapViewState extends State<AMapMapView> {
         );
       }
       final label = [
-        '飞机 ${vehicle.id}',
+        fleetVehicleLabel(vehicle, connection.fleetSnapshot.vehicles),
         if (details.isNotEmpty) details.join(' · '),
       ].join(' · ');
       if (vehicle.homePositionValid) {
@@ -1140,7 +1411,7 @@ class _AMapMapViewState extends State<AMapMapView> {
               behavior: HitTestBehavior.opaque,
               onTap: () => connection.selectVehicle(vehicle.id),
               child: VehicleMarkerIcon(
-                vehicleId: vehicle.id,
+                vehicleId: vehicle.systemId,
                 kind: _fleetVehicleMarkerKind(vehicle.vehicleType),
                 fill: colors.textSecondary,
                 outline: colors.surface,
@@ -1586,18 +1857,30 @@ class _AMapMapViewState extends State<AMapMapView> {
     final source = _sourceFor(_style, customTileUrl: _customTileUrl);
     final screenWidth = constraints.maxWidth;
     final compactHeight = constraints.maxHeight < 450;
+    final quickDrawing =
+        _rightPanel == MapRightPanel.mission && _quickDraft != null;
+    final quickPanelWidth =
+        constraints.maxHeight -
+                kMapRightPanelTopInset -
+                (compactHeight ? 90 : 226) <
+            300
+        ? 680.0
+        : 460.0;
     final primaryWidth = math.min(
-      mapRightPanelWidth(_rightPanel),
+      quickDrawing ? quickPanelWidth : mapRightPanelWidth(_rightPanel),
       math.max(0.0, screenWidth - 36),
     );
     final instrumentSize = compactHeight
         ? (screenWidth < 700 ? 104.0 : 128.0)
         : MgMetrics.attitudeCompassSize;
+    final fleetRight = quickDrawing
+        ? kMapPanelEdgeInset + primaryWidth + kMapPanelGap
+        : fleetPanelRightInset(_rightPanel);
     final showFleetPanel =
         _fleetPanelVisible &&
         widget.connectionController.fleetSnapshot.vehicles.length >= 2 &&
-        canShowFleetAlongside(screenWidth, _rightPanel);
-    final fleetRight = fleetPanelRightInset(_rightPanel);
+        screenWidth >=
+            fleetRight + MgMetrics.fleetPanelWidth + kMapPanelEdgeInset + 280;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -1711,6 +1994,7 @@ class _AMapMapViewState extends State<AMapMapView> {
                 ),
               ),
             ),
+            if (_quickDraft case final draft?) _quickDrawVisuals(draft),
           ],
         ),
         // 右下角组合仪表：只保留 v0.0.5 MacGlass 的指南针 + 姿态球本体。
@@ -1808,6 +2092,7 @@ class _AMapMapViewState extends State<AMapMapView> {
             reserveInstruments: true,
             child: MgFleetBatchPanel(
               fleet: widget.connectionController.fleet,
+              squads: widget.connectionController.squadsOrNull,
               onSelectVehicle:
                   widget.onSelectFleetVehicle ??
                   (vehicleId) async =>
@@ -1820,18 +2105,30 @@ class _AMapMapViewState extends State<AMapMapView> {
         if (_rightPanel == MapRightPanel.connection)
           MapPanelSlot(
             preferredWidth: kConnectionPanelMaxWidth,
-                reserveInstruments: true,
+            reserveInstruments: true,
             child: ConnectionFloatingPanel(
               controller: widget.connectionController,
               onClose: () => setState(() => _rightPanel = MapRightPanel.none),
             ),
           ),
-        if (_rightPanel == MapRightPanel.mission)
+        if (_rightPanel == MapRightPanel.mission && _quickDraft != null)
+          MapPanelSlot(
+            preferredWidth: quickPanelWidth,
+            reserveInstruments: true,
+            child: QuickMissionPanel(
+              key: ObjectKey(_quickDraft),
+              draft: _quickDraft!,
+              onGenerate: _generateQuickDraw,
+              onCancel: () => setState(_clearQuickDraw),
+            ),
+          ),
+        if (_rightPanel == MapRightPanel.mission && _quickDraft == null)
           MapPlanningPanelSlot(
             child: MissionPlanningFloatingPanel(
               key: ValueKey(widget.connectionController.sessionId),
               controller: widget.connectionController,
               onRequestCommandConfirmation: widget.onRequestCommandConfirmation,
+              onQuickDraw: _beginQuickDraw,
               onClose: () => setState(() => _rightPanel = MapRightPanel.none),
             ),
           ),
@@ -1844,12 +2141,22 @@ class _AMapMapViewState extends State<AMapMapView> {
               onClose: () => setState(() => _rightPanel = MapRightPanel.none),
             ),
           ),
+        if (_rightPanel == MapRightPanel.squads)
+          MapPlanningPanelSlot(
+            preferredWidth: kSquadPanelWidth,
+            child: SquadFloatingPanel(
+              squads: widget.connectionController.squadsOrNull,
+              fleet: widget.connectionController.fleet,
+              onRequestAction: widget.onRequestFleetBatchAction ?? (_) {},
+              onClose: () => setState(() => _rightPanel = MapRightPanel.none),
+            ),
+          ),
         if (_rightPanel == MapRightPanel.messages)
           // 右上角与连接面板共用同一个槽位，避免互相覆盖。
           MapPanelSlot(
             preferredWidth: kFlightMessagePanelWidth,
             preferredHeight: kMapMessagePanelHeight,
-                reserveInstruments: true,
+            reserveInstruments: true,
             child: FlightMessageFloatingPanel(
               controller: widget.connectionController,
               onClose: () => setState(() => _rightPanel = MapRightPanel.none),

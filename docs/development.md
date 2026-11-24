@@ -60,11 +60,13 @@ python3 tools/flutter-pty-run.py --send q    # 退出
 输出同时镜像到日志文件（默认 `/tmp/mgcs-flutter-run.log`），控制套接字默认
 `/tmp/mgcs-flutter-ctl.sock`。该脚本只用于本机开发，不参与构建产物，也不属于门禁。
 
-### 启用本地视频解码（可选）
+### 启用本地视频解码（可选，当前无界面入口）
 
-默认构建是 `MGCORE_HAS_FFMPEG=OFF`，相机与云台页会诚实显示「本平台未启用本地视频解码」，也不会画录制控件。
-要在本机开发构建里启用本地视频预览、录制和截图，把 macOS 应用的 mgcore 构建缓存指向自建的 LGPL FFmpeg
-（`--disable-gpl`；GPL 构建不得链接）：
+应用层的相机/云台/视频页面已移除，`MGCORE_HAS_FFMPEG` 现在只影响原生 `VideoDecoder` 是否可用；
+即使打开，前端也没有消费者。保留本节是因为原生构建选项仍然存在：
+
+默认构建是 `MGCORE_HAS_FFMPEG=OFF`。要验证原生解码路径，把 macOS 应用的 mgcore 构建缓存指向自建的
+LGPL FFmpeg（`--disable-gpl`；GPL 构建不得链接）：
 
 ```bash
 cmake -S . -B flutter_shell/build/mgcore -DCMAKE_BUILD_TYPE=Release \
@@ -196,7 +198,19 @@ tools/docker-dev.sh check
 
 发布时只执行实际需要的版本和硬件检查：
 
-1. `tools/release.sh <x.y.z>` 同步版本号。
-2. 更新 `CHANGELOG.md`。
-3. 本地提交并打标签。
-4. 用户明确要求时才推送。
+1. `tools/release.sh <x.y.z>` 同步 CMake、`pubspec.yaml`、FFI 版本宏、README 与 CHANGELOG 骨架。
+2. 把 `CHANGELOG.md` 里自动生成的“待补充”替换为实际变更与验证结果。
+3. 运行 `tools/preflight.sh`（或至少 `--backend-only` 加 `flutter test`）。
+4. 本地提交并打标签 `v<x.y.z>`。
+5. 用户明确要求时才推送标签；推送后 `.github/workflows/release.yml` 构建 macOS（arm64/x64）、Windows x64 和 Linux x64 资产，生成 `update.json`、`SHA256SUMS.txt` 并发布 GitHub Release。
+
+更新清单固定发布到 `https://github.com/mofu2003/M-GCS/releases/latest/download/update.json`。客户端默认使用该地址，也可在“软件更新”页切换为自建 HTTPS 源、留空关闭自动检查，或恢复默认 GitHub Release 源。发布构建仍可用 `--dart-define=MGCS_UPDATE_MANIFEST_URL=...` 覆盖默认值。
+
+macOS 包默认使用 ad-hoc 签名，未配置证书时 Gatekeeper 可能提示来源未知。正式分发时在仓库 Variables 设置 `MGC_SIGN_IDENTITY`（例如 `Developer ID Application: ...`），并配置以下 Actions Secrets：
+
+- `MGC_SIGN_CERTIFICATE_BASE64`：Developer ID Application 的 `.p12` 文件 Base64。
+- `MGC_SIGN_CERTIFICATE_PASSWORD`：该 `.p12` 的导出密码。
+
+工作流会导入临时钥匙串，重新签名应用和 DMG。需要 Apple 公证时再配置 `APPLE_ID`、`APPLE_APP_PASSWORD`（App 专用密码）和 `APPLE_TEAM_ID`；缺少这些凭据时只签名、不公证。
+
+Windows 安装包默认未签名。需要 Authenticode 时配置 `WINDOWS_CERTIFICATE_BASE64` 和 `WINDOWS_CERTIFICATE_PASSWORD`，工作流会签名主程序、`mgcore.dll` 和 Inno Setup 安装包；未配置时 SmartScreen 可能显示未知发布者。

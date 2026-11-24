@@ -37,6 +37,10 @@ class FleetController extends ChangeNotifier {
   FleetTarget? _pinnedTarget;
   final Set<int> _selectedVehicleIds = <int>{};
   bool _disposed = false;
+  bool _batchStopRequested = false;
+  FleetBatchProgress? _batchProgress;
+
+  FleetBatchProgress? get batchProgress => _batchProgress;
 
   FleetSnapshot get snapshot => _snapshot;
   Set<int> get selectedVehicleIds => Set.unmodifiable(_selectedVehicleIds);
@@ -157,6 +161,22 @@ class FleetController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 用给定集合替换批量选择（小队“选中在线成员”用）。只影响批量动作，
+  /// 不改变 active vehicle。
+  void selectVehicles(Iterable<int> ids) {
+    _requireAlive();
+    refresh();
+    final next = <int>{
+      for (final id in ids)
+        if (_snapshot.vehicle(id) != null) id,
+    };
+    if (setEquals(next, _selectedVehicleIds)) return;
+    _selectedVehicleIds
+      ..clear()
+      ..addAll(next);
+    notifyListeners();
+  }
+
   void clearVehicleSelection() {
     _requireAlive();
     if (_selectedVehicleIds.isEmpty) return;
@@ -217,12 +237,24 @@ class FleetController extends ChangeNotifier {
   FleetBatchTarget captureBatchTarget(FleetBatchAction action) {
     _requireAlive();
     refresh();
-    final vehicles = selectedVehicles
+    var vehicles = selectedVehicles
         .where((vehicle) => vehicle.stateFresh && vehicle.identified)
         .toList(growable: false);
     if (vehicles.isEmpty) {
       throw StateError('请先选择至少一架已连接并完成识别的飞机');
     }
+    // 开始任务只面向本地已回读到任务的成员：MISSION_START 会让没有任务的飞机
+    // 进入 AUTO，arm_if_needed 还会顺带解锁。确认条与实际目标保持同一集合。
+    if (action == FleetBatchAction.startMission) {
+      vehicles = vehicles
+          .where((vehicle) => vehicle.missionValid && vehicle.missionTotal > 0)
+          .toList(growable: false);
+      if (vehicles.isEmpty) {
+        throw StateError('选中的飞机都没有回读到有效任务');
+      }
+    }
+    final conflict = fleetSystemIdConflict(vehicles);
+    if (conflict != null) throw StateError(conflict);
     return FleetBatchTarget(
       action: action,
       vehicleIds: vehicles.map((vehicle) => vehicle.id),
@@ -234,34 +266,60 @@ class FleetController extends ChangeNotifier {
   /// 每架飞机的独立结果，不修改 active focus。
   Future<FleetBatchResult> runBatch(FleetBatchTarget target) async {
     _requireAlive();
+    if (targetOperationActive) throw StateError('已有飞行指令正在执行');
     if (target.vehicleIds.isEmpty) throw StateError('批量目标为空');
+    if (target.vehicleIds.length != target.systemIds.length ||
+        target.vehicleIds.toSet().length != target.vehicleIds.length) {
+      throw StateError('批量目标身份无效');
+    }
+    refresh();
+    final conflict = fleetSystemIdConflict(
+      target.vehicleIds.map(_snapshot.vehicle).whereType<FleetVehicleSummary>(),
+    );
+    if (conflict != null) throw StateError(conflict);
     final executor = executeBatchCommand;
     if (executor == null) throw StateError('当前后端不支持批量飞行指令');
 
     _batchOperations++;
-    notifyListeners();
+    _batchStopRequested = false;
     final results = <FleetBatchCommandResult>[];
+    _publishBatchProgress(target, results);
     try {
-      refresh();
       for (var index = 0; index < target.vehicleIds.length; index++) {
         final vehicleId = target.vehicleIds[index];
-        final systemId = index < target.systemIds.length
-            ? target.systemIds[index]
-            : 0;
+        final systemId = target.systemIds[index];
+        if (!_disposed) refresh();
+        if (_batchStopRequested || _disposed) {
+          results.add(
+            FleetBatchCommandResult.failure(
+              vehicleId: vehicleId,
+              systemId: systemId,
+              status: FleetBatchCommandStatus.notSent,
+              message: '已停止后续派发',
+            ),
+          );
+          continue;
+        }
         final vehicle = _snapshot.vehicle(vehicleId);
-        if (vehicle == null || !vehicle.connected || !vehicle.identified) {
+        if (vehicle == null ||
+            !vehicle.stateFresh ||
+            !vehicle.identified ||
+            vehicle.systemId != systemId) {
           results.add(
             FleetBatchCommandResult.failure(
               vehicleId: vehicleId,
               systemId: systemId,
               status: FleetBatchCommandStatus.error,
-              message: '飞机已断开或尚未完成识别',
+              message: '飞机状态已失效或身份已变化',
             ),
           );
+          _publishBatchProgress(target, results);
           continue;
         }
         try {
-          final result = await executor(vehicle, target.action);
+          final response = executor(vehicle, target.action);
+          _publishBatchProgress(target, results, runningVehicleId: vehicleId);
+          final result = await response;
           if (result.vehicleId != vehicleId || result.systemId != systemId) {
             results.add(
               FleetBatchCommandResult.failure(
@@ -284,12 +342,41 @@ class FleetController extends ChangeNotifier {
             ),
           );
         }
+        _publishBatchProgress(target, results);
       }
     } finally {
       _batchOperations--;
-      if (!_disposed) notifyListeners();
+      _publishBatchProgress(target, results);
     }
     return FleetBatchResult(action: target.action, results: results);
+  }
+
+  /// 已派发命令继续等待原生结果，停止尚未派发的成员。
+  void stopBatchDispatch() {
+    _requireAlive();
+    if (_batchOperations == 0 || _batchStopRequested) return;
+    _batchStopRequested = true;
+    final progress = _batchProgress!;
+    _publishBatchProgress(
+      progress.target,
+      progress.results,
+      runningVehicleId: progress.runningVehicleId,
+    );
+  }
+
+  void _publishBatchProgress(
+    FleetBatchTarget target,
+    List<FleetBatchCommandResult> results, {
+    int? runningVehicleId,
+  }) {
+    _batchProgress = FleetBatchProgress(
+      target: target,
+      results: results,
+      running: _batchOperations > 0,
+      stopRequested: _batchStopRequested || _disposed,
+      runningVehicleId: runningVehicleId,
+    );
+    if (!_disposed) notifyListeners();
   }
 
   void validateTarget(FleetTarget target) {

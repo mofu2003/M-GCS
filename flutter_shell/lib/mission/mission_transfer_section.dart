@@ -199,6 +199,14 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
                 ),
               ),
             ),
+            PushButton(
+              controlSize: ControlSize.regular,
+              secondary: true,
+              onPressed: busy || transferring
+                  ? null
+                  : () => _mutate(widget.mission.undo),
+              child: const Text('撤销'),
+            ),
             if (widget.mission.dirty)
               Text(
                 '未上传',
@@ -418,7 +426,8 @@ class _MissionTransferSectionState extends State<MissionTransferSection> {
         ? ''
         : '（${result.warnings.length} 条提示：${result.warnings.first}）';
     setState(() {
-      _interchangeNotice = '已从 ${result.path} 导入 ${result.itemCount} 条$warnings';
+      _interchangeNotice =
+          '已从 ${result.path} 导入 ${result.itemCount} 条$warnings';
     });
   }
 

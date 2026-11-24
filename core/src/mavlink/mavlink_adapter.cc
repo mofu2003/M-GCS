@@ -277,7 +277,9 @@ bool MavlinkAdapter::set_signing_key(const uint8_t* key,
     impl_->signing.last_status = MAVLINK_SIGNING_STATUS_NONE;
     std::copy_n(key, sizeof(impl_->signing.secret_key),
                 impl_->signing.secret_key);
-    impl_->signing.timestamp = std::max(
+    // 显式指定 uint64_t：Linux/Android 上它是 unsigned long，与 1ULL 推导出的
+    // unsigned long long 不同，std::max 模板推导会失败（macOS 上两者相同）。
+    impl_->signing.timestamp = std::max<uint64_t>(
         signing_now_ticks(), persisted_timestamp + 1ULL);
 
     impl_->tx_status.signing = &impl_->signing;
@@ -916,6 +918,22 @@ std::optional<CommandAckInfo> MavlinkAdapter::wait_for_command(CommandTicket tic
         }
     }
     return std::nullopt;
+}
+
+// 等待超时后区分"仍在执行"和"真的没有响应"
+std::optional<CommandAckInfo> MavlinkAdapter::command_in_progress(CommandTicket ticket) const {
+    mg::core::platform::LockGuard lk(impl_->mtx);
+    const int idx = impl_->cmd_queue.find_by_id(ticket.id);
+    if (idx < 0) return std::nullopt;
+    const auto& entry = impl_->cmd_queue.entries[idx];
+    if (entry.state != CommandQueueEntry::State::InProgress) return std::nullopt;
+    CommandAckInfo info{};
+    info.command = entry.command;
+    info.result = 5;  // MAV_RESULT_IN_PROGRESS
+    info.progress = entry.ack_progress;
+    info.result_text = "in_progress";
+    info.outcome = CommandOutcome::InProgress;
+    return info;
 }
 
 // 取消待处理命令

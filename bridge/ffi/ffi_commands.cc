@@ -13,9 +13,48 @@
 #include "core/mission/mission_types.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <string>
 
 // cJSON 解析深度限制
 #include "cJSON.h"
+
+namespace {
+
+/// 稳定的硬件标识：uid2 优先，其次 uid；都以十六进制字符串返回，缺失为空串。
+///
+/// 运行期 vehicle_id 每次启动都会变，小队成员只能靠这个值跨会话认回同一架飞机。
+std::string hardware_uid_string(const mg::core::mavlink::FirmwareVersionInfo& fw) {
+    if (!fw.received) return {};
+    static const char kHex[] = "0123456789abcdef";
+    bool uid2_nonzero = false;
+    for (const auto byte : fw.uid2) {
+        if (byte != 0) {
+            uid2_nonzero = true;
+            break;
+        }
+    }
+    std::string out;
+    if (uid2_nonzero) {
+        out.reserve(5 + sizeof(fw.uid2) * 2);
+        out = "uid2:";
+        for (const auto byte : fw.uid2) {
+            out.push_back(kHex[byte >> 4]);
+            out.push_back(kHex[byte & 0x0F]);
+        }
+        return out;
+    }
+    if (fw.uid != 0) {
+        char buf[24];
+        std::snprintf(buf, sizeof(buf), "uid:%016llx",
+                      static_cast<unsigned long long>(fw.uid));
+        return buf;
+    }
+    return {};
+}
+
+}  // namespace
+
 
 template <typename Sender>
 static char* send_active_request(mg_core_t* core, const char* error_reason, Sender&& sender) {
@@ -93,6 +132,7 @@ MGCORE_API char* mg_vehicle_list(mg_core_t* core) {
             }
         }
         obj.field("vehicle_type", vehicle_type);
+        obj.field("hardware_uid", hardware_uid_string(v->cache().snapshot_firmware().data));
         obj.field("endpoint", info.endpoint);
         obj.field("connected", v->is_connected());
         obj.field("armed", heartbeat.armed);

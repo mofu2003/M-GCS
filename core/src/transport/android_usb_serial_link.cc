@@ -3,6 +3,7 @@
 #ifdef __ANDROID__
 
 #include "core/log/logging.h"
+#include "core/platform/android_jni.h"
 
 #include <jni.h>
 
@@ -298,19 +299,24 @@ bool AndroidUsbSerialLink::discover(std::vector<DiscoveredDevice>& devices) {
 
 bool initialize_android_serial_jni(JavaVM* vm, JNIEnv* env) {
     g_vm = vm;
+    mg::core::platform::set_android_java_vm(vm);
     return resolve_manager(env);
 }
 
 } // namespace mg::core::transport
 
+// 唯一的 JNI_OnLoad：Flutter 的 System.loadLibrary("mgcore") 触发它，先登记
+// JavaVM 再初始化 USB 串口管理器。AAsset 读取（platform_filesystem_android.cc）
+// 也从这里登记的 VM 取 JNIEnv。
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     JNIEnv* env = nullptr;
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
         return JNI_ERR;
     }
-    return mg::core::transport::initialize_android_serial_jni(vm, env)
-        ? JNI_VERSION_1_6
-        : JNI_ERR;
+    mg::core::platform::set_android_java_vm(vm);
+    // 串口管理器缺失不应让整个库加载失败：资源读取仍然可用。
+    mg::core::transport::initialize_android_serial_jni(vm, env);
+    return JNI_VERSION_1_6;
 }
 
 #endif

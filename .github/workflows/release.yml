@@ -1,0 +1,456 @@
+name: 发布与自动更新
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 校验标签、版本号和发布说明
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "发布标签必须形如 v1.3.0，当前为：$tag" >&2
+            exit 1
+          fi
+          version="${tag#v}"
+          pubspec_version="$(sed -n 's/^version: \([0-9][0-9.]*\)+\([0-9][0-9]*\)$/\1/p' flutter_shell/pubspec.yaml)"
+          if [[ -z "$pubspec_version" ]]; then
+            echo "无法从 flutter_shell/pubspec.yaml 读取版本号。" >&2
+            exit 1
+          fi
+          read -r flutter_version build <<< "$pubspec_version"
+          cmake_version="$(sed -n 's/^project(mgcore VERSION \([0-9][0-9.]*\) LANGUAGES CXX.*/\1/p' CMakeLists.txt)"
+          if [[ "$version" != "$flutter_version" || "$version" != "$cmake_version" ]]; then
+            echo "标签版本 $version、Flutter $flutter_version、CMake $cmake_version 不一致。" >&2
+            exit 1
+          fi
+          if ! grep -Fq "## [$version] - " CHANGELOG.md; then
+            echo "CHANGELOG.md 缺少 $version 的发布条目。" >&2
+            exit 1
+          fi
+          python3 -m py_compile tools/update_manifest.py
+          {
+            echo "version=$version"
+            echo "build=$build"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    env:
+      MGC_SIGN_IDENTITY: ${{ vars.MGC_SIGN_IDENTITY }}
+      MGC_SIGN_CERTIFICATE_BASE64: ${{ secrets.MGC_SIGN_CERTIFICATE_BASE64 }}
+      MGC_SIGN_CERTIFICATE_PASSWORD: ${{ secrets.MGC_SIGN_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: 生成 MAVLink C 头
+        run: ./tools/generate-mavlink.sh
+      - name: 获取 Flutter 依赖
+        working-directory: flutter_shell
+        run: flutter pub get
+      - name: 导入 macOS 签名证书
+        if: env.MGC_SIGN_IDENTITY != '' && env.MGC_SIGN_IDENTITY != '-'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${MGC_SIGN_CERTIFICATE_BASE64:-}" ]]; then
+            echo "配置了 MGC_SIGN_IDENTITY 时还必须提供 MGC_SIGN_CERTIFICATE_BASE64。" >&2
+            exit 1
+          fi
+          if [[ -z "${MGC_SIGN_CERTIFICATE_PASSWORD:-}" ]]; then
+            echo "缺少 MGC_SIGN_CERTIFICATE_PASSWORD。" >&2
+            exit 1
+          fi
+          certificate="$RUNNER_TEMP/mgcs-signing.p12"
+          keychain="$RUNNER_TEMP/mgcs-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          printf '%s' "$MGC_SIGN_CERTIFICATE_BASE64" | base64 -D > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" \
+            -k "$keychain" \
+            -P "$MGC_SIGN_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain"
+          existing_keychains=()
+          while IFS= read -r entry; do
+            existing_keychains+=("$entry")
+          done < <(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//')
+          security list-keychains \
+            -d user \
+            -s "$keychain" \
+            "${existing_keychains[@]}"
+          security find-identity -v -p codesigning "$keychain"
+          rm -f "$certificate"
+      - name: 构建并打包 macOS
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          BUILD: ${{ needs.validate.outputs.build }}
+          ARCH: ${{ matrix.arch }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd flutter_shell
+          flutter build macos --release \
+            --build-name="$VERSION" \
+            --build-number="$BUILD" \
+            --dart-define="MGCS_UPDATE_MANIFEST_URL=https://github.com/${REPOSITORY}/releases/latest/download/update.json"
+          app="build/macos/Build/Products/Release/mgcs_frontend.app"
+          output="../dist/M-GCS-${VERSION}-macos-${ARCH}.dmg"
+          ../tools/package_macos.sh "$app" "$VERSION" "$ARCH" "$output"
+      - name: 签名 macOS 安装包
+        if: env.MGC_SIGN_IDENTITY != '' && env.MGC_SIGN_IDENTITY != '-'
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          dmg="dist/M-GCS-${VERSION}-macos-${ARCH}.dmg"
+          codesign \
+            --force \
+            --timestamp \
+            --sign "$MGC_SIGN_IDENTITY" \
+            "$dmg"
+          codesign --verify --strict "$dmg"
+      - name: 公证 macOS 安装包
+        if: env.MGC_SIGN_IDENTITY != '' && env.MGC_SIGN_IDENTITY != '-' && env.APPLE_ID != '' && env.APPLE_APP_PASSWORD != '' && env.APPLE_TEAM_ID != ''
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          dmg="dist/M-GCS-${VERSION}-macos-${ARCH}.dmg"
+          xcrun notarytool submit "$dmg" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+      - name: 校验 macOS 安装包
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          hdiutil imageinfo "dist/M-GCS-${VERSION}-macos-${ARCH}.dmg" >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-${{ matrix.arch }}
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  windows:
+    needs: validate
+    runs-on: windows-latest
+    env:
+      WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: 生成 MAVLink C 头
+        shell: bash
+        run: PYTHON_BIN=python ./tools/generate-mavlink.sh
+      - name: 获取 Flutter 依赖
+        working-directory: flutter_shell
+        run: flutter pub get
+      - name: 构建 Windows 发布包
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          BUILD: ${{ needs.validate.outputs.build }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          Set-Location flutter_shell
+          flutter build windows --release `
+            --build-name="$env:VERSION" `
+            --build-number="$env:BUILD" `
+            --dart-define="MGCS_UPDATE_MANIFEST_URL=https://github.com/$env:REPOSITORY/releases/latest/download/update.json"
+          if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed" }
+          $bundle = Join-Path $PWD "build\windows\x64\runner\Release"
+          dart ..\tools\check_windows_bundle.dart $bundle
+          if ($LASTEXITCODE -ne 0) { throw "Windows bundle check failed" }
+          $signtool = $null
+          $certificate = $null
+          if ($env:WINDOWS_CERTIFICATE_BASE64) {
+            if (-not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+              throw "缺少 WINDOWS_CERTIFICATE_PASSWORD"
+            }
+            $certificate = Join-Path $env:RUNNER_TEMP "mgcs-signing.pfx"
+            [IO.File]::WriteAllBytes(
+              $certificate,
+              [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
+            )
+            $signtool = Get-ChildItem `
+              "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" `
+              -ErrorAction SilentlyContinue |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+            if (-not $signtool) { throw "signtool.exe not found" }
+            foreach ($file in @(
+              (Join-Path $bundle "mgcs_frontend.exe"),
+              (Join-Path $bundle "mgcore.dll")
+            )) {
+              if (-not (Test-Path $file)) { throw "签名目标不存在：$file" }
+              & $signtool.FullName sign `
+                /f $certificate `
+                /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+                /fd SHA256 `
+                /tr http://timestamp.digicert.com `
+                /td SHA256 `
+                $file
+              if ($LASTEXITCODE -ne 0) { throw "signtool failed: $file" }
+            }
+          } else {
+            Write-Host "未配置 Windows 代码签名证书，安装包保持未签名。"
+          }
+          choco install innosetup --no-progress -y
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found: $iscc" }
+          $dist = Join-Path $PWD "..\dist"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          & $iscc `
+            "/DMyAppVersion=$env:VERSION" `
+            "/DMySourceDir=$bundle" `
+            "/DMyOutputDir=$dist" `
+            "/DMyOutputBaseFilename=M-GCS-$env:VERSION-windows-x64" `
+            "..\packaging\windows\M-GCS.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
+          if ($signtool) {
+            $installer = Join-Path $dist "M-GCS-$env:VERSION-windows-x64.exe"
+            & $signtool.FullName sign `
+              /f $certificate `
+              /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+              /fd SHA256 `
+              /tr http://timestamp.digicert.com `
+              /td SHA256 `
+              $installer
+            if ($LASTEXITCODE -ne 0) { throw "安装包签名失败" }
+            & $signtool.FullName verify /pa /v $installer
+            if ($LASTEXITCODE -ne 0) { throw "安装包签名验证失败" }
+            Remove-Item -Force $certificate
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-x64
+          path: dist/*.exe
+          if-no-files-found: error
+
+  linux:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: 安装 Linux 构建依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+      - name: 生成 MAVLink C 头
+        run: ./tools/generate-mavlink.sh
+      - name: 获取 Flutter 依赖
+        working-directory: flutter_shell
+        run: flutter pub get
+      - name: 构建并打包 Linux
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          BUILD: ${{ needs.validate.outputs.build }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd flutter_shell
+          flutter build linux --release \
+            --build-name="$VERSION" \
+            --build-number="$BUILD" \
+            --dart-define="MGCS_UPDATE_MANIFEST_URL=https://github.com/${REPOSITORY}/releases/latest/download/update.json"
+          bundle="build/linux/x64/release/bundle"
+          dart ../tools/check_linux_bundle.dart "$bundle"
+          mkdir -p ../dist
+          tar -C "$bundle" -czf "../dist/M-GCS-${VERSION}-linux-x64.tar.gz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-x64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: [validate, macos, windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: 生成 release notes 与更新清单
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          BUILD: ${{ needs.validate.outputs.build }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$VERSION" > release-notes.md <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          version = sys.argv[1]
+          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              text,
+              re.MULTILINE | re.DOTALL,
+          )
+          if not match:
+              raise SystemExit(f"CHANGELOG.md 缺少 {version} 条目")
+          print(match.group(1).strip())
+          PY
+          python3 tools/update_manifest.py \
+            --version "$VERSION" \
+            --build "$BUILD" \
+            --notes-file release-notes.md \
+            --base-url "https://github.com/${REPOSITORY}/releases/download/${TAG}" \
+            --asset macos arm64 "dist/M-GCS-${VERSION}-macos-arm64.dmg" \
+            --asset macos x64 "dist/M-GCS-${VERSION}-macos-x64.dmg" \
+            --asset windows x64 "dist/M-GCS-${VERSION}-windows-x64.exe" \
+            --asset linux x64 "dist/M-GCS-${VERSION}-linux-x64.tar.gz" \
+            --output dist/update.json
+          python3 -m json.tool dist/update.json >/dev/null
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+      - name: 校验发布资产
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            "M-GCS-${VERSION}-macos-arm64.dmg" \
+            "M-GCS-${VERSION}-macos-x64.dmg" \
+            "M-GCS-${VERSION}-windows-x64.exe" \
+            "M-GCS-${VERSION}-linux-x64.tar.gz" \
+            "update.json" \
+            "SHA256SUMS.txt"; do
+            test -f "dist/$file" || { echo "缺少发布资产：$file" >&2; exit 1; }
+          done
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import pathlib
+
+          manifest = json.loads(pathlib.Path("dist/update.json").read_text(encoding="utf-8"))
+          for asset in manifest["assets"]:
+              path = pathlib.Path("dist") / asset["file_name"]
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              assert digest == asset["sha256"], (path, digest, asset["sha256"])
+              assert path.stat().st_size == asset["size"], path
+          print("[release] update.json SHA-256 与文件大小校验通过")
+          PY
+      - name: 创建或续传草稿 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            state="$(gh release view "$TAG" --json isDraft --jq .isDraft)"
+            if [[ "$state" != "true" ]]; then
+              echo "Release $TAG 已发布，拒绝覆盖已公开资产。" >&2
+              exit 1
+            fi
+          else
+            gh release create "$TAG" \
+              --draft \
+              --verify-tag \
+              --title "M-GCS $VERSION" \
+              --notes-file release-notes.md
+          fi
+          gh release upload "$TAG" dist/* --clobber
+          gh release edit "$TAG" \
+            --draft=false \
+            --latest \
+            --title "M-GCS $VERSION" \
+            --notes-file release-notes.md
+      - name: 验证公开更新清单
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/${REPOSITORY}/releases/download/${TAG}/update.json"
+          for attempt in 1 2 3 4 5; do
+            if curl -fsSL "$url" | python3 -m json.tool >/dev/null; then
+              echo "[release] 公开更新清单可访问：$url"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "公开更新清单校验失败：$url" >&2
+          exit 1

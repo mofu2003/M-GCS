@@ -10,12 +10,15 @@ import 'configuration/configuration_workspace.dart';
 import 'fleet/fleet_models.dart';
 import 'gcs_configuration_workspace.dart';
 import 'map/amap_map_view.dart';
+import 'logging/flight_data_page.dart';
 import 'theme/mg_typography.dart';
 import 'theme/mg_material_theme.dart';
+import 'updates/update_controller.dart';
 import 'widgets/mg_command_confirmation.dart';
 import 'widgets/mg_dialog.dart';
 import 'widgets/mg_settings_menu.dart';
 import 'widgets/mg_top_status_bar.dart';
+import 'widgets/parameter_load_progress.dart';
 
 Future<void> main() async {
   if (!kIsWeb && Platform.isMacOS) {
@@ -67,10 +70,12 @@ class _MapPageState extends State<MapPage> {
   final _customTileUrl = ValueNotifier<String>('');
   late final ConnectionController _connectionController =
       ConnectionController();
+  late final UpdateController _updateController = UpdateController();
   final _connectionPanelRequest = ValueNotifier<int>(0);
   final _flightMessagePanelRequest = ValueNotifier<int>(0);
   final _missionPlanningRequest = ValueNotifier<int>(0);
   final _geofenceRequest = ValueNotifier<int>(0);
+  final _squadPanelRequest = ValueNotifier<int>(0);
   final _fleetPanelRequest = ValueNotifier<int>(0);
 
   /// 设置菜单直接跳到配置工作区的某个页面（如「机载日志」）。
@@ -89,7 +94,17 @@ class _MapPageState extends State<MapPage> {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _connectionController.preloadConfigurationResources();
+      if (mounted) unawaited(_initializeUpdates());
     });
+  }
+
+  Future<void> _initializeUpdates() async {
+    try {
+      await _updateController.initialize();
+      if (mounted) await _updateController.autoCheckIfDue();
+    } on Object {
+      // 自动检查失败不阻塞启动；手动检查页会显示可操作的结果。
+    }
   }
 
   void _handleFleetFocusChange() {
@@ -168,11 +183,16 @@ class _MapPageState extends State<MapPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('成功 ${result.successCount} 架，失败 ${result.failureCount} 架'),
+                Text(
+                  '已接受 ${result.successCount} 架'
+                  '${result.inProgressCount == 0 ? '' : '，执行中 ${result.inProgressCount} 架'}'
+                  '，失败 ${result.failureCount} 架，'
+                  '未派发 ${result.notSentCount} 架',
+                ),
                 const SizedBox(height: 8),
                 for (final item in failed) ...[
                   Text(
-                    '飞机 ${item.vehicleId} · 系统 ${item.systemId} · ${item.status.label}：${item.message}',
+                    '飞机 ${item.systemId} · ${item.status.label} · ${item.message}',
                   ),
                   const SizedBox(height: 4),
                 ],
@@ -286,12 +306,16 @@ class _MapPageState extends State<MapPage> {
       ),
       connected: connected,
       linkLabel: _connectionController.selectedTransportLabel,
+      updateLabel: _updateController.menuSubtitle,
     );
     if (!mounted || destination == null) return;
     switch (destination) {
       case MgSettingsDestination.connection:
         _cancelCommandConfirmation();
         _connectionPanelRequest.value++;
+      case MgSettingsDestination.squads:
+        _cancelCommandConfirmation();
+        _squadPanelRequest.value++;
       case MgSettingsDestination.configuration:
         _cancelCommandConfirmation();
         return _openConfiguration();
@@ -301,21 +325,15 @@ class _MapPageState extends State<MapPage> {
       case MgSettingsDestination.geofence:
         _cancelCommandConfirmation();
         _geofenceRequest.value++;
-      case MgSettingsDestination.payload:
+      case MgSettingsDestination.flightData:
         _cancelCommandConfirmation();
-        return _openConfiguration(page: 'payload');
-      case MgSettingsDestination.logs:
-        _cancelCommandConfirmation();
-        return _openConfiguration(page: 'logs');
-      case MgSettingsDestination.flightLog:
-        _cancelCommandConfirmation();
-        return _openConfiguration(page: 'flightLog');
-      case MgSettingsDestination.files:
-        _cancelCommandConfirmation();
-        return _openConfiguration(page: 'files');
+        return _openFlightData(FlightDataView.onboardLogs);
       case MgSettingsDestination.gcs:
         _cancelCommandConfirmation();
         return _openGcsConfiguration();
+      case MgSettingsDestination.updates:
+        _cancelCommandConfirmation();
+        return _openGcsConfiguration(initialPage: 'updates');
     }
   }
 
@@ -330,6 +348,17 @@ class _MapPageState extends State<MapPage> {
         ),
   );
 
+  Future<void> _openFlightData(FlightDataView view) =>
+      Navigator.of(context).push<void>(
+        _workspaceRoute(
+          (routeContext) => FlightDataPage(
+            view: view,
+            controller: _connectionController,
+            onReturnToFlight: () => Navigator.of(routeContext).maybePop(),
+          ),
+        ),
+      );
+
   Future<void> _openConfiguration({String? page}) async {
     _configurationPageRequest.value = page;
     await Navigator.of(context).push(
@@ -343,13 +372,15 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
-  Future<void> _openGcsConfiguration() async {
+  Future<void> _openGcsConfiguration({String initialPage = 'map'}) async {
     await Navigator.of(context).push(
       _workspaceRoute(
         (routeContext) => GcsConfigurationWorkspace(
           mapStyle: _mapStyle,
           customTileUrl: _customTileUrl,
           connectionController: _connectionController,
+          updateController: _updateController,
+          initialPage: initialPage,
           onReturnToMap: () => Navigator.of(routeContext).maybePop(),
         ),
       ),
@@ -417,7 +448,10 @@ class _MapPageState extends State<MapPage> {
       options: options,
       vehicleLabel: vehicleId == null
           ? null
-          : '飞机 ${_connectionController.fleet.snapshot.vehicle(vehicleId)?.systemId ?? vehicleId}',
+          : (_connectionController.fleet.snapshot
+                    .vehicle(vehicleId)
+                    ?.displayName ??
+                '待识别飞机'),
       alignment: vehicleId == null ? Alignment.topLeft : Alignment.topRight,
     );
   }
@@ -427,32 +461,49 @@ class _MapPageState extends State<MapPage> {
     return MacosWindow(
       child: Column(
         children: [
-          AnimatedBuilder(
-            animation: Listenable.merge([
-              _connectionController.connectionChanges,
-              _connectionController.gpsChanges,
-              _connectionController.batteryChanges,
-              _connectionController.flightStateChanges,
-              _connectionController.stateChanges,
-              _connectionController.profileChanges,
-            ]),
-            builder: (context, _) => MgTopStatusBar(
-              data: MgTopStatusData.fromController(_connectionController),
-              vehicles: _connectionController.fleetSnapshot.vehicles,
-              activeVehicleId:
-                  _connectionController.fleetSnapshot.activeVehicleId,
-              selectedVehicleCount:
-                  _connectionController.fleet.selectedVehicleIds.length,
-              selectedVehicleIds:
-                  _connectionController.fleet.selectedVehicleIds,
-              onSelectVehicle: _selectFleetVehicle,
-              onOpenFleetBatch: () => _fleetPanelRequest.value++,
-              onOpenFlightMessages: () => _flightMessagePanelRequest.value++,
-              onToggleArm: _requestArmConfirmation,
-              onEmergencyStop: _requestEmergencyStopConfirmation,
-              onOpenFlightMode: () => unawaited(_openFlightModeMenu(context)),
-              onOpenSettings: () => unawaited(_openSettings(context)),
-            ),
+          Stack(
+            children: [
+              AnimatedBuilder(
+                animation: Listenable.merge([
+                  _connectionController.connectionChanges,
+                  _connectionController.gpsChanges,
+                  _connectionController.batteryChanges,
+                  _connectionController.flightStateChanges,
+                  _connectionController.stateChanges,
+                  _connectionController.profileChanges,
+                  _updateController,
+                ]),
+                builder: (context, _) => MgTopStatusBar(
+                  data: MgTopStatusData.fromController(_connectionController),
+                  vehicles: _connectionController.fleetSnapshot.vehicles,
+                  activeVehicleId:
+                      _connectionController.fleetSnapshot.activeVehicleId,
+                  selectedVehicleCount:
+                      _connectionController.fleet.selectedVehicleIds.length,
+                  selectedVehicleIds:
+                      _connectionController.fleet.selectedVehicleIds,
+                  onSelectVehicle: _selectFleetVehicle,
+                  onOpenFleetBatch: () => _fleetPanelRequest.value++,
+                  onOpenFlightMessages: () =>
+                      _flightMessagePanelRequest.value++,
+                  onToggleArm: _requestArmConfirmation,
+                  onEmergencyStop: _requestEmergencyStopConfirmation,
+                  onOpenFlightMode: () =>
+                      unawaited(_openFlightModeMenu(context)),
+                  onOpenSettings: () => unawaited(_openSettings(context)),
+                  hasUpdateAvailable: _updateController.updateAvailable,
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 3,
+                child: ToolbarParameterProgress(
+                  controller: _connectionController,
+                ),
+              ),
+            ],
           ),
           Expanded(
             child: ValueListenableBuilder<MgCommandConfirmation?>(
@@ -470,6 +521,7 @@ class _MapPageState extends State<MapPage> {
                           flightMessagePanelRequest: _flightMessagePanelRequest,
                           missionPlanningRequest: _missionPlanningRequest,
                           geofenceRequest: _geofenceRequest,
+                          squadPanelRequest: _squadPanelRequest,
                           fleetPanelRequest: _fleetPanelRequest,
                           onSelectFleetVehicle: (vehicleId) async =>
                               _selectFleetVehicle(vehicleId),
@@ -508,9 +560,11 @@ class _MapPageState extends State<MapPage> {
     _flightMessagePanelRequest.dispose();
     _missionPlanningRequest.dispose();
     _geofenceRequest.dispose();
+    _squadPanelRequest.dispose();
     _fleetPanelRequest.dispose();
     _configurationPageRequest.dispose();
     _pendingCommand.dispose();
+    _updateController.dispose();
     _connectionController.dispose();
     super.dispose();
   }

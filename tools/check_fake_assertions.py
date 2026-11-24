@@ -25,6 +25,13 @@ import re
 import sys
 from pathlib import Path
 
+# Windows 控制台默认 cp1252，脚本里的中文输出会直接抛 UnicodeEncodeError。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 ROOT = Path(__file__).resolve().parent.parent
 
 SCAN_DIRS = [

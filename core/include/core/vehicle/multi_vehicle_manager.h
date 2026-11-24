@@ -64,9 +64,8 @@ public:
     Vehicle* open_shared_vehicle(const mg::core::transport::LinkConfig& config);
 
     /// Opens an explicit link handle. Vehicles are created only after valid
-    /// heartbeats. A duplicate sysid on another physical link is rejected so a
-    /// distinct aircraft with the same default sysid cannot be merged into the
-    /// first vehicle.
+    /// heartbeats. Vehicles with the same sysid on independent physical links
+    /// retain separate vehicle identities and command sessions.
     int open_shared_link(const mg::core::transport::LinkConfig& config);
     bool close_link(int link_id, bool suppress_rediscovery = false);
     /// Closes one (link, vehicle) route. The physical link remains open when
@@ -88,7 +87,7 @@ public:
     std::shared_ptr<Vehicle> get_vehicle_shared(int vehicle_id) const;
     /// Acquire the focused vehicle and its lifetime lease atomically.
     std::shared_ptr<Vehicle> active_vehicle_shared() const;
-    // 按系统 ID 获取
+    // 按系统 ID 获取；多个独立链路同号时返回 nullptr，调用方应使用 vehicle_id
     Vehicle* get_vehicle_by_system_id(uint8_t system_id) const;
     // Lifetime-safe registry snapshot for FFI readers racing watchdog removal.
     std::vector<std::shared_ptr<Vehicle>> get_all_vehicles_shared() const;
@@ -140,7 +139,6 @@ private:
         std::shared_ptr<mg::core::transport::LinkSession> session;
         std::string endpoint;
         std::map<int, int> route_vehicles;
-        uint8_t duplicate_system_id = 0;
     };
 
     // Serializes shared-session discovery with open/close lifecycle.

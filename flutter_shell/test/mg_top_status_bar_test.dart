@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:macos_ui/macos_ui.dart';
 import 'package:mgcs_frontend/widgets/mg_top_status_bar.dart';
+import 'package:mgcs_frontend/widgets/mg_status_telemetry_icons.dart';
+import 'package:mgcs_frontend/theme/mg_colors.dart';
 import 'package:mgcs_frontend/fleet/fleet_models.dart';
 
 void main() {
@@ -80,6 +82,8 @@ void main() {
     MgTopStatusData data, {
     VoidCallback? onToggleArm,
     VoidCallback? onEmergencyStop,
+    VoidCallback? onOpenSettings,
+    bool hasUpdateAvailable = false,
   }) async {
     tester.view.physicalSize = const Size(1200, 600);
     tester.view.devicePixelRatio = 1;
@@ -95,6 +99,8 @@ void main() {
               data: data,
               onToggleArm: onToggleArm,
               onEmergencyStop: onEmergencyStop,
+              onOpenSettings: onOpenSettings,
+              hasUpdateAvailable: hasUpdateAvailable,
             ),
           ),
         ),
@@ -102,6 +108,33 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  testWidgets('设置按钮在有新版本时提供可访问提示', (tester) async {
+    final semantics = tester.ensureSemantics();
+
+    await show(
+      tester,
+      const MgTopStatusData(
+        connected: true,
+        armed: false,
+        flying: false,
+        flightMode: 'AUTO',
+        vtolState: 0,
+        gpsFixType: 3,
+        satellitesVisible: 12,
+        batteryRemainingPercent: 80,
+        batteryVoltage: 12.4,
+        transportLabel: 'UDP',
+        messageCount: 0,
+      ),
+      onOpenSettings: () {},
+      hasUpdateAvailable: true,
+    );
+
+    expect(find.bySemanticsLabel(RegExp('有可用更新')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    semantics.dispose();
+  });
 
   testWidgets('top status bar shows the disconnected state without values', (
     tester,
@@ -219,16 +252,10 @@ void main() {
     expect(find.text('78'), findsOneWidget);
     expect(find.text('串口'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
-    for (final label in [
-      '飞行中',
-      'AUTO · 固定翼',
-      'GPS',
-      'BAT',
-      '星',
-      '%',
-      '串口',
-      '3',
-    ]) {
+    // 顶栏只保留图标与数值，不再显示 GPS / BAT 文字标签。
+    expect(find.text('GPS'), findsNothing);
+    expect(find.text('BAT'), findsNothing);
+    for (final label in ['飞行中', 'AUTO · 固定翼', '星', '%', '串口', '3']) {
       expect(tester.widget<Text>(find.text(label)).style?.fontSize, 14);
     }
     expect(tester.takeException(), isNull);
@@ -424,7 +451,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('飞机 2 · 系统 4'), findsOneWidget);
+      expect(find.text('飞机 4'), findsOneWidget);
       expect(find.textContaining('已选 2 架'), findsNothing);
       expect(
         tester.getTopLeft(find.text('Guided')).dx,
@@ -439,6 +466,82 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  MgStatusTelemetryIcon statusIcon(
+    WidgetTester tester,
+    MgStatusIconKind kind,
+  ) => tester.widget<MgStatusTelemetryIcon>(
+    find.byWidgetPredicate(
+      (widget) => widget is MgStatusTelemetryIcon && widget.kind == kind,
+    ),
+  );
+
+  testWidgets('GPS 与电池图标只在读数有效时按数值变色，无数据用中性色', (tester) async {
+    MgTopStatusData data({
+      required bool connected,
+      int? gpsFixType,
+      int? batteryPercent,
+      bool stale = false,
+    }) => MgTopStatusData(
+      connected: connected,
+      armed: false,
+      flying: false,
+      flightMode: 'Loiter',
+      vtolState: 0,
+      gpsFixType: gpsFixType,
+      satellitesVisible: gpsFixType == null ? null : 12,
+      batteryRemainingPercent: batteryPercent,
+      batteryVoltage: batteryPercent == null ? null : 12.4,
+      transportLabel: 'UDP',
+      messageCount: 0,
+      stale: stale,
+    );
+
+    // 未连接：两个图标都用中性色，"未知"不画成告警。
+    await show(tester, data(connected: false));
+    var colors = MgColors.of(tester.element(find.byType(MgTopStatusBar)));
+    expect(
+      statusIcon(tester, MgStatusIconKind.gps).color,
+      colors.textSecondary,
+    );
+    expect(
+      statusIcon(tester, MgStatusIconKind.battery).color,
+      colors.textSecondary,
+    );
+
+    // 读数有效：卫星 3D 定位置绿、电量 80% 置绿。
+    await show(
+      tester,
+      data(connected: true, gpsFixType: 3, batteryPercent: 80),
+    );
+    colors = MgColors.of(tester.element(find.byType(MgTopStatusBar)));
+    expect(statusIcon(tester, MgStatusIconKind.gps).color, colors.success);
+    expect(statusIcon(tester, MgStatusIconKind.battery).color, colors.success);
+
+    // 读数差：2D 定位告警、电量 12% 告警。
+    await show(
+      tester,
+      data(connected: true, gpsFixType: 2, batteryPercent: 12),
+    );
+    colors = MgColors.of(tester.element(find.byType(MgTopStatusBar)));
+    expect(statusIcon(tester, MgStatusIconKind.gps).color, colors.warning);
+    expect(statusIcon(tester, MgStatusIconKind.battery).color, colors.danger);
+
+    // 数据过期：按"无数据"处理，仍是中性色，不冒充当前读数。
+    await show(
+      tester,
+      data(connected: true, gpsFixType: 3, batteryPercent: 80, stale: true),
+    );
+    colors = MgColors.of(tester.element(find.byType(MgTopStatusBar)));
+    expect(
+      statusIcon(tester, MgStatusIconKind.gps).color,
+      colors.textSecondary,
+    );
+    expect(
+      statusIcon(tester, MgStatusIconKind.battery).color,
+      colors.textSecondary,
+    );
+  });
 
   testWidgets('急停入口只在已解锁时出现，并走确认回调（U8）', (tester) async {
     tester.view.physicalSize = const Size(1600, 600);

@@ -7,6 +7,7 @@
  * path to the existing JSON loaders.
  */
 #include "core/platform/platform_filesystem.h"
+#include "core/platform/android_jni.h"
 
 #ifdef __ANDROID__
 
@@ -45,14 +46,10 @@ public:
 
 private:
     static JavaVM* java_vm() {
-        static JavaVM* vm = nullptr;
-        static std::once_flag once;
-        std::call_once(once, [] {
-            jsize count = 0;
-            JNI_GetCreatedJavaVMs(&vm, 1, &count);
-            if (count == 0) vm = nullptr;
-        });
-        return vm;
+        // 由 JNI_OnLoad 登记（core/src/platform/android_jni.cc）。
+        // 不再调用 JNI_GetCreatedJavaVMs：那是平台库 libnativehelper 的符号，
+        // NDK 应用不能依赖它，否则 libmgcore.so 在 arm64-v8a 上链接失败。
+        return mg::core::platform::android_java_vm();
     }
 
     JNIEnv* env_ = nullptr;

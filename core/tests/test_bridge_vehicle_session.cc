@@ -542,11 +542,11 @@ static bool has_command(const MockFlightController& mock, uint16_t command) {
     return false;
 }
 
-static void test_targeted_command_dispatch_isolated() {
+static void test_targeted_command_dispatch_isolated(uint8_t second_system_id) {
     fprintf(stderr, "\n[Group] explicit target command dispatch\n");
     TwoVehicleMockEnv env;
     env.add(41, 1);
-    env.add(42, 2);
+    env.add(42, second_system_id);
     CHECK(env.wait_connected(), "two mock vehicles connect independently");
     CHECK(mg_vehicle_get_active(env.core) == -1, "mock connections do not steal focus");
 
@@ -1030,6 +1030,102 @@ static void test_ffi_signing_control() {
     mg_destroy(core);
 }
 
+// 小队身份：运行期 vehicle_id 不能持久化，硬件 UID 必须能被前端读到。
+static void test_vehicle_list_exposes_hardware_uid() {
+    fprintf(stderr, "\n[Group] vehicle hardware uid\n");
+    TwoVehicleMockEnv env;
+    env.add(41, 1);
+    CHECK(env.wait_connected(), "uid vehicle identified");
+    auto mav = env.ends[0].vehicle->shared_mavlink();
+    CHECK(mav != nullptr, "uid vehicle exposes its adapter");
+
+    auto inject_version = [&](uint64_t uid, const uint8_t* uid2) {
+        mavlink_autopilot_version_t version{};
+        version.uid = uid;
+        if (uid2) memcpy(version.uid2, uid2, sizeof(version.uid2));
+        mavlink_message_t message{};
+        mavlink_msg_autopilot_version_encode(1, 1, &message, &version);
+        uint8_t bytes[MAVLINK_MAX_PACKET_LEN];
+        const auto length = mavlink_msg_to_send_buffer(bytes, &message);
+        mav->feed_raw(bytes, length);
+    };
+
+    uint8_t uid2[18] = {0};
+    uid2[0] = 0xde; uid2[1] = 0xad; uid2[2] = 0xbe; uid2[3] = 0xef;
+    inject_version(0x1122334455667788ULL, uid2);
+    char* list = mg_vehicle_list(env.core);
+    std::string expected_uid2 = "uid2:deadbeef";
+    expected_uid2.append(28, '0');
+    CHECK(list && strstr(list, ("\"hardware_uid\":\"" + expected_uid2 + "\"").c_str()),
+          "uid2 is preferred over uid and reported as hex");
+    mg_free_string(list);
+
+    // uid2 全零时退回 uid。
+    uint8_t zero_uid2[18] = {0};
+    inject_version(0x0102030405060708ULL, zero_uid2);
+    list = mg_vehicle_list(env.core);
+    CHECK(list && strstr(list, R"("hardware_uid":"uid:0102030405060708")"),
+          "zero uid2 falls back to uid");
+    mg_free_string(list);
+}
+
+// 链路层没发出去 ≠ 飞控拒绝（安全约束 3）。
+static void test_command_send_failure_is_reported_as_send_failure() {
+    fprintf(stderr, "\n[Group] command transport failure\n");
+    TwoVehicleMockEnv env;
+    env.add(41, 1);
+    CHECK(env.wait_connected(), "transport-failure vehicle identified");
+    auto mav = env.ends[0].vehicle->shared_mavlink();
+    CHECK(mav != nullptr, "vehicle exposes its adapter");
+    mav->set_send_callback([](const uint8_t*, size_t) { return false; });
+
+    char* raw = mg_command_execute_for_vehicle(env.core, 41, R"({"command":"rtl"})");
+    const std::string text = raw ? raw : "";
+    mg_free_string(raw);
+    CHECK(text.find("\"code\":-3") != std::string::npos,
+          "send failure reports MG_ERROR_SEND_FAILED");
+    CHECK(text.find("command send failed") != std::string::npos,
+          "send failure names the transport problem");
+    CHECK(text.find("\"result_str\":\"failed\"") == std::string::npos,
+          "send failure is not reported as an FC rejection");
+}
+
+// IN_PROGRESS 是"仍在执行"，不是超时。
+static void test_command_in_progress_is_not_reported_as_timeout() {
+    fprintf(stderr, "\n[Group] command in-progress\n");
+    TwoVehicleMockEnv env;
+    env.add(41, 1);
+    CHECK(env.wait_connected(), "in-progress vehicle identified");
+    auto mav = env.ends[0].vehicle->shared_mavlink();
+    CHECK(mav != nullptr, "vehicle exposes its adapter");
+    env.ends[0].mock->set_next_cmd_result(MAV_RESULT_IN_PROGRESS);
+    env.start_pump();
+    char* raw = ffi_cmd_result_queued(mav, MAV_CMD_NAV_RETURN_TO_LAUNCH, 1, 1,
+                                      0, 0, 0, 0, 0, 0, 0, 300);
+    env.stop_pump();
+    const std::string text = raw ? raw : "";
+    mg_free_string(raw);
+    CHECK(text.find("\"result_str\":\"in_progress\"") != std::string::npos,
+          "IN_PROGRESS is reported as still running");
+    CHECK(text.find("\"success\":false") != std::string::npos,
+          "IN_PROGRESS is not reported as success before the final ACK");
+    CHECK(text.find("command ack timeout") == std::string::npos,
+          "IN_PROGRESS is not collapsed into a timeout");
+
+    // 返回 in-progress 后必须清掉队列条目：否则下一条同命令的 ACK 会被它吞掉。
+    env.ends[0].mock->set_next_cmd_result(MAV_RESULT_ACCEPTED);
+    env.start_pump();
+    char* second = ffi_cmd_result_queued(mav, MAV_CMD_NAV_RETURN_TO_LAUNCH, 1, 1,
+                                         0, 0, 0, 0, 0, 0, 0, 1500);
+    env.stop_pump();
+    const std::string second_text = second ? second : "";
+    mg_free_string(second);
+    CHECK(second_text.find("\"success\":true") != std::string::npos,
+          "a retried command receives its own ACK instead of the stale entry");
+    CHECK(second_text.find("command ack timeout") == std::string::npos,
+          "the retried command is not reported as timeout");
+}
+
 int main() {
     fprintf(stderr, "=== Bridge Vehicle Session Tests ===\n");
     test_per_vehicle_mission_document_isolation();
@@ -1037,7 +1133,8 @@ int main() {
     test_session_scope_pins_identity_and_lifetime();
     test_session_status_includes_position();
     test_independent_vehicle_telemetry_and_registry_lease();
-    test_targeted_command_dispatch_isolated();
+    test_targeted_command_dispatch_isolated(2);
+    test_targeted_command_dispatch_isolated(1);
     test_nonblocking_commands_and_mission_rejection();
     test_async_mission_clear_targets_vehicle();
     test_mission_workflow_by_vehicle_type();
@@ -1050,6 +1147,9 @@ int main() {
     test_targeted_operation_cancel_isolated();
     test_targeted_operation_timeout_isolated();
     test_vehicle_list_uses_each_vehicle_quadplane_state();
+    test_vehicle_list_exposes_hardware_uid();
+    test_command_send_failure_is_reported_as_send_failure();
+    test_command_in_progress_is_not_reported_as_timeout();
     fprintf(stderr, "\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }

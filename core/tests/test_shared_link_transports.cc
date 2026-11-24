@@ -16,6 +16,8 @@
 #include <thread>
 #include <vector>
 
+#include "mgcs_test_check.h"
+
 #ifndef _WIN32
 #include <cerrno>
 #include <fcntl.h>
@@ -24,7 +26,6 @@
 #include <sys/socket.h>
 #include <termios.h>
 #include <unistd.h>
-#include "mgcs_test_check.h"
 #endif
 
 namespace {

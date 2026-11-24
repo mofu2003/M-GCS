@@ -16,6 +16,7 @@ class AdaptivePopupButton<T> extends StatelessWidget {
     required this.labelOf,
     this.onChanged,
     this.maxContentWidth = double.infinity,
+    this.isEnabled,
   });
 
   /// 当前选中值；为 null 时按钮显示未选中状态。
@@ -29,6 +30,9 @@ class AdaptivePopupButton<T> extends StatelessWidget {
 
   /// 变更回调；为 null 时按钮处于禁用状态。
   final ValueChanged<T>? onChanged;
+
+  /// 单个菜单项是否可选；为 null 时全部可选。
+  final bool Function(T value)? isEnabled;
 
   /// 内容区宽度上限，实际宽度不会超过父级可用空间。
   final double maxContentWidth;
@@ -91,6 +95,7 @@ class AdaptivePopupButton<T> extends StatelessWidget {
           for (final option in options)
             MacosPopupMenuItem<T>(
               value: option,
+              enabled: isEnabled?.call(option) ?? true,
               child: optionLabel(option, width: menuWidth),
             ),
         ],

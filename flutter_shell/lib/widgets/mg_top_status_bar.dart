@@ -409,6 +409,7 @@ class MgTopStatusBar extends StatelessWidget {
     this.onEmergencyStop,
     this.onOpenFlightMode,
     this.onOpenSettings,
+    this.hasUpdateAvailable = false,
   });
 
   final MgTopStatusData data;
@@ -425,6 +426,7 @@ class MgTopStatusBar extends StatelessWidget {
   final VoidCallback? onEmergencyStop;
   final VoidCallback? onOpenFlightMode;
   final VoidCallback? onOpenSettings;
+  final bool hasUpdateAvailable;
 
   @override
   Widget build(BuildContext context) {
@@ -447,8 +449,6 @@ class MgTopStatusBar extends StatelessWidget {
             final stacked = height > MgMetrics.toolbarHeight;
             final compactFleet = width < MgMetrics.fleetSelectorWideBreakpoint;
             final showSecondary = width >= (multiple ? 1260 : 1020);
-            final showMetricLabels =
-                stacked || width >= (multiple ? 1260 : 980);
             final primary = Row(
               children: [
                 _MainStatus(data: data),
@@ -470,9 +470,9 @@ class MgTopStatusBar extends StatelessWidget {
             final metrics = Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _GpsIndicator(data: data, showLabel: showMetricLabels),
+                _GpsIndicator(data: data),
                 const SizedBox(width: 20),
-                _BatteryIndicator(data: data, showLabel: showMetricLabels),
+                _BatteryIndicator(data: data),
                 if (showSecondary) ...[
                   const SizedBox(width: 20),
                   _LinkIndicator(data: data),
@@ -495,7 +495,10 @@ class MgTopStatusBar extends StatelessWidget {
                 ),
                 if (onOpenSettings != null) ...[
                   const SizedBox(width: 4),
-                  _SettingsButton(onPressed: onOpenSettings!),
+                  _SettingsButton(
+                    onPressed: onOpenSettings!,
+                    hasUpdate: hasUpdateAvailable,
+                  ),
                 ],
               ],
             );
@@ -545,7 +548,7 @@ class _FleetVehicleSelector extends StatelessWidget {
   final VoidCallback? onPressed;
 
   String _label(FleetVehicleSummary vehicle) =>
-      '飞机 ${vehicle.id} · 系统 ${vehicle.systemId > 0 ? vehicle.systemId : '—'}';
+      fleetVehicleLabel(vehicle, vehicles);
 
   @override
   Widget build(BuildContext context) {
@@ -743,23 +746,46 @@ class _TopActionButton extends StatelessWidget {
 }
 
 class _SettingsButton extends StatelessWidget {
-  const _SettingsButton({required this.onPressed});
+  const _SettingsButton({required this.onPressed, required this.hasUpdate});
 
   final VoidCallback onPressed;
+  final bool hasUpdate;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.mgColors;
     return MacosTooltip(
-      message: '设置',
-      child: MacosIconButton(
-        icon: MacosIcon(CupertinoIcons.gear, size: 18),
-        semanticLabel: '设置',
-        boxConstraints: const BoxConstraints.tightFor(width: 36, height: 36),
-        padding: EdgeInsets.zero,
-        backgroundColor: colors.transparent,
-        hoverColor: colors.mapControlHover,
-        onPressed: onPressed,
+      message: hasUpdate ? '设置 · 有可用更新' : '设置',
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          MacosIconButton(
+            icon: MacosIcon(CupertinoIcons.gear, size: 18),
+            semanticLabel: hasUpdate ? '设置，有可用更新' : '设置',
+            boxConstraints: const BoxConstraints.tightFor(
+              width: 36,
+              height: 36,
+            ),
+            padding: EdgeInsets.zero,
+            backgroundColor: colors.transparent,
+            hoverColor: colors.mapControlHover,
+            onPressed: onPressed,
+          ),
+          if (hasUpdate)
+            Positioned(
+              right: 3,
+              top: 4,
+              child: Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: colors.warning,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: colors.toolbar, width: 1.5),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -845,10 +871,9 @@ class _FlightMode extends StatelessWidget {
 }
 
 class _GpsIndicator extends StatelessWidget {
-  const _GpsIndicator({required this.data, this.showLabel = true});
+  const _GpsIndicator({required this.data});
 
   final MgTopStatusData data;
-  final bool showLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -856,19 +881,22 @@ class _GpsIndicator extends StatelessWidget {
     final stale = data.stale;
     final fixType = data.gpsFixType;
     final satellites = data.satellitesVisible;
-    final color = stale || !data.connected || (fixType ?? 0) < 3
-        ? colors.warning
-        : colors.success;
+    // 没有可用读数时用中性色，不把"未知"画成告警；有读数才按定位质量变色。
+    final hasData = data.connected && !stale && fixType != null;
+    final fix = fixType ?? 0;
+    final color = !hasData
+        ? colors.textSecondary
+        : fix >= 3
+        ? colors.success
+        : colors.warning;
     return MacosTooltip(
       message: stale ? 'GPS：数据已过期' : 'GPS：${data.gpsFixLabel}',
       child: _TopBarMetric(
         icon: MgStatusTelemetryIcon(
           kind: MgStatusIconKind.gps,
-          value: stale || !data.connected ? 0 : (satellites ?? 0) / 20,
+          value: hasData ? (satellites ?? 0) / 20 : 0,
           color: color,
         ),
-        label: 'GPS',
-        showLabel: showLabel,
         value: MgAnimatedNumber(
           // 过期时直接用占位符，避免把最后一帧星数当成当前值。
           value: stale ? double.nan : (satellites?.toDouble() ?? double.nan),
@@ -885,10 +913,9 @@ class _GpsIndicator extends StatelessWidget {
 }
 
 class _BatteryIndicator extends StatelessWidget {
-  const _BatteryIndicator({required this.data, this.showLabel = true});
+  const _BatteryIndicator({required this.data});
 
   final MgTopStatusData data;
-  final bool showLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -896,12 +923,16 @@ class _BatteryIndicator extends StatelessWidget {
     final stale = data.stale;
     final voltage = stale ? null : data.batteryVoltage;
     final percent = stale ? null : data.batteryRemainingPercent;
-    final color = switch (percent) {
-      null => stale ? colors.warning : colors.textSecondary,
-      <= 20 => colors.danger,
-      <= 35 => colors.warning,
-      _ => colors.success,
-    };
+    // 同样：没有电量读数时用中性色，读数有效时才按电量分档（绿 / 黄 / 红）。
+    final hasData = data.connected && !stale && percent != null;
+    final charge = percent ?? 0;
+    final color = !hasData
+        ? colors.textSecondary
+        : charge <= 20
+        ? colors.danger
+        : charge <= 35
+        ? colors.warning
+        : colors.success;
     return MacosTooltip(
       message: stale
           ? '电池：数据已过期'
@@ -913,8 +944,6 @@ class _BatteryIndicator extends StatelessWidget {
           value: (percent ?? 0) / 100,
           color: color,
         ),
-        label: 'BAT',
-        showLabel: showLabel,
         value: percent == null
             ? Text(
                 voltage == null ? '—' : '${voltage.toStringAsFixed(1)} V',
@@ -978,18 +1007,10 @@ class _LinkIndicator extends StatelessWidget {
 }
 
 class _TopBarMetric extends StatelessWidget {
-  const _TopBarMetric({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.showLabel = true,
-    this.suffix,
-  });
+  const _TopBarMetric({required this.icon, required this.value, this.suffix});
 
   final Widget icon;
-  final String label;
   final Widget value;
-  final bool showLabel;
   final String? suffix;
 
   @override
@@ -1000,15 +1021,6 @@ class _TopBarMetric extends StatelessWidget {
       children: [
         icon,
         const SizedBox(width: 8),
-        if (showLabel) ...[
-          Text(
-            label,
-            style: MgTypography.sans(
-              MgTypography.toolbar.copyWith(color: colors.textSecondary),
-            ),
-          ),
-          const SizedBox(width: 7),
-        ],
         value,
         if (suffix != null) ...[
           const SizedBox(width: 2),

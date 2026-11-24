@@ -204,7 +204,7 @@ def test_referenced_symbols():
             if not file.is_file():
                 continue
             try:
-                text = file.read_text(errors="ignore")
+                text = file.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
             names |= set(re.findall(r"\b(mg_\w+)\b", text))
@@ -232,12 +232,12 @@ def sync_unbound_baseline(debt, write):
     if write:
         text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         tmp = UNBOUND_BASELINE.with_suffix(".json.tmp")
-        tmp.write_text(text)
+        tmp.write_text(text, encoding="utf-8")
         tmp.replace(UNBOUND_BASELINE)
         return
     if not UNBOUND_BASELINE.exists():
         raise ValueError("tools/ffi_unbound_baseline.json is missing; run with --write-baseline")
-    current = json.loads(UNBOUND_BASELINE.read_text()).get("symbols", [])
+    current = json.loads(UNBOUND_BASELINE.read_text(encoding="utf-8")).get("symbols", [])
     added = sorted(set(debt) - set(current))
     removed = sorted(set(current) - set(debt))
     if added or removed:
@@ -256,7 +256,7 @@ def sync_unbound_baseline(debt, write):
 def frontend_bindings():
     bindings = {}
     for file in sorted((ROOT / "flutter_shell/lib").rglob("*.dart")):
-        source = without_comments(file.read_text())
+        source = without_comments(file.read_text(encoding="utf-8"))
         for symbol in re.findall(r"['\"](mg_\w+)['\"]", source):
             bindings.setdefault(symbol, set()).add(str(file.relative_to(ROOT)))
     return bindings
@@ -325,7 +325,7 @@ def main():
             raise ValueError("library still exports retired FFI symbols: " + ", ".join(still_exported))
         # 库的导出集合必须与公开头完全一致：上面已逐个 dlsym 过，任何缺失都会
         # 在前面报出，因此旧的版本号探针（依赖已删除的 mg_get_version）不再需要。
-        version_header = (ROOT / "bridge/ffi/ffi_api_core.h").read_text()
+        version_header = (ROOT / "bridge/ffi/ffi_api_core.h").read_text(encoding="utf-8")
         version = ".".join(
             re.search(rf"^#define MGCORE_VERSION_{part}\s+(\d+)$", version_header, re.M).group(1)
             for part in ("MAJOR", "MINOR", "PATCH")

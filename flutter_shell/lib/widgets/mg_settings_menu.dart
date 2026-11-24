@@ -7,14 +7,13 @@ import 'mg_floating_panel.dart';
 
 enum MgSettingsDestination {
   connection,
+  squads,
   configuration,
   missionPlanning,
   geofence,
-  payload,
-  logs,
-  flightLog,
-  files,
+  flightData,
   gcs,
+  updates,
 }
 
 /// 顶部设置按钮打开的紧凑工具面板。
@@ -22,6 +21,7 @@ Future<MgSettingsDestination?> showMgSettingsMenu(
   BuildContext context, {
   required bool connected,
   required String linkLabel,
+  String updateLabel = '检查并安装新版本',
   double topInset = MgMetrics.toolbarHeight,
 }) {
   return showGeneralDialog<MgSettingsDestination>(
@@ -34,7 +34,11 @@ Future<MgSettingsDestination?> showMgSettingsMenu(
       alignment: Alignment.topRight,
       child: Padding(
         padding: EdgeInsets.only(top: topInset + 8, right: 12),
-        child: _MgSettingsPanel(connected: connected, linkLabel: linkLabel),
+        child: _MgSettingsPanel(
+          connected: connected,
+          linkLabel: linkLabel,
+          updateLabel: updateLabel,
+        ),
       ),
     ),
     transitionBuilder: (context, animation, secondaryAnimation, child) =>
@@ -46,10 +50,15 @@ Future<MgSettingsDestination?> showMgSettingsMenu(
 }
 
 class _MgSettingsPanel extends StatelessWidget {
-  const _MgSettingsPanel({required this.connected, required this.linkLabel});
+  const _MgSettingsPanel({
+    required this.connected,
+    required this.linkLabel,
+    required this.updateLabel,
+  });
 
   final bool connected;
   final String linkLabel;
+  final String updateLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -115,43 +124,35 @@ class _MgSettingsPanel extends StatelessWidget {
               ),
               Divider(height: 1, color: colors.hairline),
               _SettingsRow(
-                icon: CupertinoIcons.camera,
-                title: '相机与云台',
-                subtitle: '相机/云台状态、拍照录像与指向',
+                icon: CupertinoIcons.group,
+                title: '小队',
+                subtitle: '持久分组、成员认领与整队执行',
                 onTap: () =>
-                    Navigator.of(context).pop(MgSettingsDestination.payload),
-              ),
-              Divider(height: 1, color: colors.hairline),
-              _SettingsRow(
-                icon: CupertinoIcons.doc_text,
-                title: '机载日志',
-                subtitle: '飞控 DataFlash 日志下载与进度',
-                onTap: () =>
-                    Navigator.of(context).pop(MgSettingsDestination.logs),
-              ),
-              Divider(height: 1, color: colors.hairline),
-              _SettingsRow(
-                icon: CupertinoIcons.stopwatch,
-                title: '飞行记录',
-                subtitle: '链路 .tlog 录制与本地离线回放',
-                onTap: () =>
-                    Navigator.of(context).pop(MgSettingsDestination.flightLog),
+                    Navigator.of(context).pop(MgSettingsDestination.squads),
               ),
               Divider(height: 1, color: colors.hairline),
               _SettingsRow(
                 icon: CupertinoIcons.folder,
-                title: '机载文件',
-                subtitle: '浏览机载目录、下载与上传文件',
+                title: '日志与文件',
+                subtitle: '机载日志、机载文件与飞行记录',
                 onTap: () =>
-                    Navigator.of(context).pop(MgSettingsDestination.files),
+                    Navigator.of(context).pop(MgSettingsDestination.flightData),
               ),
               Divider(height: 1, color: colors.hairline),
               _SettingsRow(
                 icon: CupertinoIcons.gear_alt,
                 title: '地面站配置',
-                subtitle: '地图来源、地面站本地显示选项',
+                subtitle: '地图来源、MAVLink 签名与本地选项',
                 onTap: () =>
                     Navigator.of(context).pop(MgSettingsDestination.gcs),
+              ),
+              Divider(height: 1, color: colors.hairline),
+              _SettingsRow(
+                icon: CupertinoIcons.arrow_down_circle,
+                title: '软件更新',
+                subtitle: updateLabel,
+                onTap: () =>
+                    Navigator.of(context).pop(MgSettingsDestination.updates),
               ),
             ],
           ),

@@ -15,10 +15,6 @@ import 'package:mgcs_frontend/configuration/system/system_status_page.dart';
 import 'package:mgcs_frontend/configuration/widgets/mac_tab_surface.dart';
 import 'package:mgcs_frontend/configuration/configuration_workspace.dart';
 import 'package:mgcs_frontend/connection/connection_controller.dart';
-import 'package:mgcs_frontend/logging/file_browser_page.dart';
-import 'package:mgcs_frontend/logging/flight_log_page.dart';
-import 'package:mgcs_frontend/logging/onboard_log_page.dart';
-import 'package:mgcs_frontend/payload/camera_gimbal_page.dart';
 import 'package:mgcs_frontend/theme/mg_typography.dart';
 import 'package:mgcs_frontend/widgets/app_workspace_shell.dart';
 
@@ -109,7 +105,7 @@ void main() {
     );
   });
 
-  testWidgets('all thirteen routes preserve disconnected page skeletons', (
+  testWidgets('parameter routes preserve disconnected page skeletons', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1600, 1000);
@@ -139,13 +135,12 @@ void main() {
     final log = controller.logController;
     final tlog = controller.tlogController;
     final files = controller.fileController;
-    final payload = controller.payloadController;
     controller.preloadConfigurationResources();
     expect(identical(controller.logController, log), isTrue);
     expect(identical(controller.tlogController, tlog), isTrue);
     expect(identical(controller.fileController, files), isTrue);
-    expect(identical(controller.payloadController, payload), isTrue);
     expect(find.byType(SystemStatusPage), findsOneWidget);
+    expect(find.text('相机与云台'), findsNothing);
     final routes = <String, Type>{
       'system': SystemStatusPage,
       'calibration': CalibrationPage,
@@ -156,10 +151,6 @@ void main() {
       'battery': BatteryConfigurationPage,
       'arming': ArmingChecksPage,
       'allParameters': AllParametersPage,
-      'payload': CameraGimbalPage,
-      'logs': OnboardLogPage,
-      'flightLog': FlightLogPage,
-      'files': FileBrowserPage,
     };
     expect(
       tester
@@ -267,7 +258,7 @@ void main() {
         expect(tester.takeException(), isNull, reason: '$page at $size');
       }
     }
-    await tester.tap(find.text('返回前台地图'));
+    await tester.tap(find.text('返回飞行控制页面'));
     expect(returnedToMap, isTrue);
     await tester.pumpWidget(const SizedBox.shrink());
     // Updating after removal must not notify any disposed page state.
